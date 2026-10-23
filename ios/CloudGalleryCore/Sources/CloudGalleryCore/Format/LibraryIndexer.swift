@@ -80,7 +80,7 @@ public enum LibraryIndexer {
             item.roleHashes = hashes
             if !item.isCompleteInCloud {
                 item.status = .failed
-                item.lastError = "Incomplete in the cloud (a part is missing). It will be uploaded again."
+                item.lastError = "Incomplete in the cloud: a part is missing. Tap Retry to finish uploading it."
             }
             items.append(item)
         }

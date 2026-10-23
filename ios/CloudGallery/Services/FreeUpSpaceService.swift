@@ -25,7 +25,7 @@ final class FreeUpSpaceService: @unchecked Sendable {
     /// deleting the phone copy would lose those changes, so such items are never offered.
     func hasUnbackedChanges(_ item: MediaItem, asset: PHAsset) -> Bool {
         if item.hasEdit != true && env.photos.editedResource(for: asset) != nil { return true }
-        if let modified = asset.modificationDate, let uploaded = item.uploadedAt, modified > uploaded.addingTimeInterval(60) {
+        if let modified = asset.modificationDate, let uploaded = item.assetModifiedAt ?? item.uploadedAt, modified > uploaded.addingTimeInterval(60) {
             // Favouriting also bumps the date; only block when the pixels may have changed.
             return env.photos.editedResource(for: asset) != nil
         }

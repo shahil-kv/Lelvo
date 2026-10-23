@@ -191,6 +191,21 @@ public final class LibraryStore: @unchecked Sendable {
                                  bind: { bindText($0, 1, localIdentifier) }, readItems).first
     }
 
+    /// Duplicate assets recorded by `addAlias`: (asset local identifier, item id).
+    public func aliases() throws -> [(localIdentifier: String, itemId: String)] {
+        try withStatement("SELECT local_id, item_id FROM aliases;") { s in
+            var out: [(String, String)] = []
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let a = sqlite3_column_text(s, 0), let b = sqlite3_column_text(s, 1) { out.append((String(cString: a), String(cString: b))) }
+            }
+            return out
+        }
+    }
+
+    public func removeAlias(localIdentifier: String) throws {
+        try withStatement("DELETE FROM aliases WHERE local_id = ?;", bind: { bindText($0, 1, localIdentifier) }) { _ = sqlite3_step($0) }
+    }
+
     /// Records another asset with identical content so it is never hashed or uploaded again.
     public func addAlias(localIdentifier: String, itemId: String) throws {
         try withStatement("INSERT OR REPLACE INTO aliases (local_id, item_id) VALUES (?, ?);",

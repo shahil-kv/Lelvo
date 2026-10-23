@@ -96,6 +96,10 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var hasEdit: Bool?
     public var editedFilename: String?
     public var editedSize: Int64?
+    /// The asset's `modificationDate` when it was backed up; a later date with an edit means re-check the edit.
+    public var assetModifiedAt: Date?
+    /// Queued only to upload a newer edited version (the original is already in the cloud).
+    public var editCheck: Bool?
 
     /// Ids are lowercase, like the caption `id` field, so a channel scan matches the local item.
     public init(id: String = UUID().uuidString.lowercased(), localIdentifier: String?, sha256: String, filename: String,

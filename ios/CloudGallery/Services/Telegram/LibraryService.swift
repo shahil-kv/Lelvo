@@ -26,6 +26,12 @@ final class LibraryService: @unchecked Sendable {
     private static let chatIdKey = "libraryChatId"
     private static let headerKey = "libraryHeader"
     private static let lastScanKey = "libraryLastScannedMessageId"
+    private static let duplicatesKey = "libraryDuplicateMessageIds"
+
+    /// Extra copies of already-stored parts found by the last full scan (safe to delete; the first copy stays).
+    var duplicateMessageIds: [Int64] {
+        ((UserDefaults.standard.array(forKey: Self.duplicatesKey) as? [NSNumber]) ?? []).map(\.int64Value)
+    }
 
     private let td: TDService
     private let store: LibraryStore
@@ -72,6 +78,7 @@ final class LibraryService: @unchecked Sendable {
         UserDefaults.standard.removeObject(forKey: Self.chatIdKey)
         UserDefaults.standard.removeObject(forKey: Self.headerKey)
         UserDefaults.standard.removeObject(forKey: Self.lastScanKey)
+        UserDefaults.standard.removeObject(forKey: Self.duplicatesKey) // ids of the old library's channel
         KeychainStore.set(nil as Data?, for: .e2eMasterKey)
         lock.withLock { cachedKeys = nil }
     }
@@ -250,6 +257,7 @@ final class LibraryService: @unchecked Sendable {
         }
 
         try merge(cloud: cloud, full: full, summary: &summary)
+        if full { UserDefaults.standard.set(summary.orphans.map { NSNumber(value: $0) }, forKey: Self.duplicatesKey) }
         if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
         appLog("Library scan (\(full ? "full" : "recent")): \(summary.messages) messages, \(summary.items) items, \(summary.incomplete) incomplete, \(summary.orphans.count) duplicates")
         return summary
@@ -310,6 +318,13 @@ final class LibraryService: @unchecked Sendable {
             }
         }
         try store.upsert(merged)
+    }
+
+    /// Deletes the extra copies found by the last full scan.
+    func removeDuplicateMessages() async throws {
+        try await deleteOrphans(duplicateMessageIds)
+        UserDefaults.standard.removeObject(forKey: Self.duplicatesKey)
+        appLog("Removed duplicate messages from the library channel")
     }
 
     /// Deletes duplicate messages reported by a scan.

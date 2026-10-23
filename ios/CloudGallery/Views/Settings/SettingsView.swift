@@ -107,10 +107,10 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("Allow freeing up space", isOn: $allowFreeUpSpace)
+                    Toggle("Allow deleting backed-up photos from iPhone", isOn: $allowFreeUpSpace)
                     if allowFreeUpSpace { Button("Open Free Up Space") { app.openFreeUpSpace() } }
-                } footer: {
-                    Text("Off by default. When on, you can delete photos from this iPhone that are verified to be in your Telegram library.")
+                } header: { Text("Free up space") } footer: {
+                    Text("Turns on the Free up space tool (Backup tab), which removes photos and videos from this iPhone that are already safely in your Telegram library, to get storage back. They stay in CloudGallery and can be saved back anytime. Off by default so nothing is deleted by accident.")
                 }
 
                 Section {

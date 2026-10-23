@@ -232,6 +232,13 @@ final class PhotoLibraryService: @unchecked Sendable {
         return exported
     }
 
+    /// Writes one resource (e.g. the edited version) into `directory`.
+    func exportResource(_ resource: PHAssetResource, into directory: URL) async throws -> URL {
+        let url = directory.appendingPathComponent("\(UUID().uuidString)-\(resource.originalFilename.sanitizedFilename)")
+        try await write(resource, to: url)
+        return url
+    }
+
     /// The rendered edit of an edited asset (`fullSizePhoto` / `fullSizeVideo`), nil if never edited.
     func editedResource(for asset: PHAsset) -> PHAssetResource? {
         let resources = PHAssetResource.assetResources(for: asset)

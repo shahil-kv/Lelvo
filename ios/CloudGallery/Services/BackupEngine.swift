@@ -270,6 +270,8 @@ final class BackupEngine: @unchecked Sendable {
         relinkRestoredItems()
         enqueueNewAssets(force: includeNew)
 
+        if includeNew || Prefs.autoBackup { requeueEditedSinceBackup() }
+
         // Items left "uploading" by a killed process go back to pending.
         if let stale = try? env.store.items(status: .uploading) {
             try? env.store.upsert(stale.map { var i = $0; i.job = JobMachine.reduce(i.job, .interrupted); return i })
@@ -365,6 +367,9 @@ final class BackupEngine: @unchecked Sendable {
             try? env.store.delete(id: item.id)
             return .skipped
         }
+        if item.editCheck == true, item.cloudParts != nil {
+            return await processEditUpdate(item, asset: asset, lane: lane)
+        }
         item.job = JobMachine.reduce(item.job, .start)
         save(item)
         let laneKey = "\(lane)"
@@ -408,6 +413,7 @@ final class BackupEngine: @unchecked Sendable {
                 item.hdr = video.hdr
             }
             item.tzOffsetMinutes = TimeZone.current.secondsFromGMT(for: asset.creationDate ?? Date()) / 60
+            item.assetModifiedAt = asset.modificationDate
             item.albums = env.photos.albumNames(for: asset)
             save(item)
 
@@ -474,6 +480,166 @@ final class BackupEngine: @unchecked Sendable {
             return item.status == .backedUp ? .uploaded : .failed
         } catch {
             return fail(&item, error)
+        }
+    }
+
+    // MARK: - Duplicates
+
+    /// The same content backed up as more than one item (same SHA-256): `keep` stays, `extras` can go.
+    struct CloudDuplicateGroup: Identifiable {
+        let keep: MediaItem
+        let extras: [MediaItem]
+        var id: String { keep.id }
+        var wastedBytes: Int64 { extras.reduce(0) { $0 + $1.fileSize + ($1.pairedVideoSize ?? 0) + ($1.editedSize ?? 0) } }
+    }
+
+    func cloudDuplicateGroups() -> [CloudDuplicateGroup] {
+        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { !$0.sha256.isEmpty }
+        let present = env.photos.existingIdentifiers(items.compactMap(\.localIdentifier))
+        return Dictionary(grouping: items, by: \.sha256).values.compactMap { group in
+            guard group.count > 1 else { return nil }
+            // Keep the one linked to a photo on this iPhone, else the oldest upload.
+            let sorted = group.sorted { a, b in
+                let la = a.localIdentifier.map(present.contains) ?? false, lb = b.localIdentifier.map(present.contains) ?? false
+                if la != lb { return la }
+                return (a.uploadedAt ?? .distantFuture) < (b.uploadedAt ?? .distantFuture)
+            }
+            return CloudDuplicateGroup(keep: sorted[0], extras: Array(sorted.dropFirst()))
+        }
+        .sorted { ($0.keep.creationDate ?? .distantPast) > ($1.keep.creationDate ?? .distantPast) }
+    }
+
+    /// Deletes the extra items' messages from Telegram; their photos stay linked to the kept item.
+    func removeCloudDuplicates(_ groups: [CloudDuplicateGroup]) async throws -> Int {
+        guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
+        var removed = 0
+        for g in groups {
+            for extra in g.extras {
+                let ids = (extra.cloudParts ?? [:]).values.flatMap { $0.map(\.messageId) }
+                if !ids.isEmpty { try await env.td.deleteMessages(chatId: chatId, ids: ids) }
+                if let local = extra.localIdentifier {
+                    try Deduplicator(store: env.store).link(localIdentifier: local, to: g.keep, existingAssetIsMissing: g.keep.localIdentifier == nil)
+                }
+                try env.store.delete(id: extra.id)
+                removed += 1
+            }
+        }
+        appLog("Removed \(removed) duplicate items from the library")
+        return removed
+    }
+
+    /// Identical photos on this iPhone (found by content while backing up): the backed-up one plus its copies.
+    struct PhoneDuplicateGroup: Identifiable {
+        let item: MediaItem
+        let original: String?
+        let copies: [String]
+        var id: String { item.id }
+    }
+
+    func phoneDuplicateGroups() -> [PhoneDuplicateGroup] {
+        let aliases = (try? env.store.aliases()) ?? []
+        let present = env.photos.existingIdentifiers(aliases.map(\.localIdentifier))
+        let byItem = Dictionary(grouping: aliases.filter { present.contains($0.localIdentifier) }, by: \.itemId)
+        return byItem.compactMap { itemId, rows in
+            guard let item = try? env.store.item(id: itemId) else { return nil }
+            let original = item.localIdentifier.flatMap { env.photos.asset(localIdentifier: $0) != nil ? $0 : nil }
+            return PhoneDuplicateGroup(item: item, original: original, copies: rows.map(\.localIdentifier))
+        }
+        .sorted { ($0.item.creationDate ?? .distantPast) > ($1.item.creationDate ?? .distantPast) }
+    }
+
+    /// Deletes duplicate copies from the photo library (iOS asks to confirm) and forgets their aliases.
+    func deletePhoneCopies(_ localIdentifiers: [String]) async throws -> Int {
+        try await env.photos.deleteAssets(localIdentifiers)
+        let still = env.photos.existingIdentifiers(localIdentifiers)
+        let gone = localIdentifiers.filter { !still.contains($0) }
+        for id in gone { try? env.store.removeAlias(localIdentifier: id) }
+        return gone.count
+    }
+
+    // MARK: - Edited after backup
+
+    /// Backed-up photos edited (again) in Photos since their backup: queue them so this run uploads the new
+    /// edited version. Runs only for "Back up now" (or automatic backup). Returns how many were queued.
+    @discardableResult
+    func requeueEditedSinceBackup() -> Int {
+        guard PhotoLibraryService.hasAccess else { return 0 }
+        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.cloudParts != nil && $0.localIdentifier != nil }
+        var queued: [MediaItem] = []
+        for var item in items {
+            guard let id = item.localIdentifier, let asset = env.photos.asset(localIdentifier: id),
+                  let modified = asset.modificationDate,
+                  let since = item.assetModifiedAt ?? item.uploadedAt, modified > since.addingTimeInterval(1),
+                  env.photos.editedResource(for: asset) != nil else { continue }
+            item.status = .queued
+            item.editCheck = true
+            queued.append(item)
+        }
+        try? env.store.upsert(queued)
+        if !queued.isEmpty { appLog("\(queued.count) backed-up items were edited since their backup; checking their edits") }
+        return queued.count
+    }
+
+    /// Uploads the current edited version of an already backed-up item, replacing the previous one. The original
+    /// is never touched. Nothing is uploaded when the edit is unchanged (e.g. only favourited).
+    private func processEditUpdate(_ queued: MediaItem, asset: PHAsset, lane: Int) async -> Outcome {
+        var item = queued
+        let laneKey = "\(lane)"
+        func finish(_ outcome: Outcome, handled: Bool = true) -> Outcome {
+            item.editCheck = nil
+            // Only a handled edit moves the marker; a failed one is re-checked on the next Back up now.
+            if handled { item.assetModifiedAt = asset.modificationDate }
+            item.status = item.isCompleteInCloud ? .backedUp : .failed
+            save(item)
+            return outcome
+        }
+        guard let resource = env.photos.editedResource(for: asset) else { return finish(.skipped) }
+        await publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: "\(item.filename) (edit)", sent: 0, total: 0) }
+        var exported: URL?
+        defer {
+            if let exported { try? FileManager.default.removeItem(at: exported) }
+            Task { await self.publish { $0.lanes[laneKey] = nil } }
+        }
+        do {
+            let url = try await env.photos.exportResource(resource, into: rawDirectory)
+            exported = url
+            let hash = try Deduplicator.sha256(of: url)
+            if hash == item.roleHashes?["e"] { return finish(.duplicate) }
+
+            // Remove the previous edit first, so a scan never picks the stale one; the original stays safe.
+            let old = item.parts("e").map(\.messageId)
+            if !old.isEmpty, let chatId = env.library.chatId { try? await env.td.deleteMessages(chatId: chatId, ids: old) }
+            item.cloudParts?["e"] = nil
+            item.expectedParts?["e"] = nil
+            item.hasEdit = true
+            item.editedFilename = resource.originalFilename
+            item.editedSize = try CloudUploader.size(of: url)
+            save(item)
+
+            let store = env.store
+            let itemId = item.id
+            let size = item.editedSize ?? 0
+            let name = item.filename
+            let parts = try await env.uploader.upload(
+                itemId: itemId,
+                resource: PreparedResource(role: "e", fileURL: url,
+                                           meta: captionMeta(item, role: .edited, hash: hash, name: resource.originalFilename, size: size)),
+                encrypted: item.encrypted, thumbnail: nil, existing: [],
+                checkpoint: { parts, expected in try store.update(id: itemId) { $0.setParts(parts, role: "e", expected: expected) } },
+                progress: { [weak self] sent, total in
+                    Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: "\(name) (edit)", sent: sent, total: total) } }
+                })
+            item = (try store.item(id: itemId)) ?? item
+            item.setParts(parts, role: "e", expected: parts.count)
+            var hashes = item.roleHashes ?? [:]
+            hashes["e"] = hash
+            item.roleHashes = hashes
+            appLog("Uploaded the new edit of \(item.filename)")
+            return finish(.uploaded)
+        } catch {
+            AppLog.shared.error("Uploading the new edit of \(item.filename) failed: \(error.localizedDescription)")
+            item.lastError = "The newer edit couldn't be uploaded: \(error.localizedDescription)"
+            return finish(.failed, handled: false)
         }
     }
 

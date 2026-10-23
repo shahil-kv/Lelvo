@@ -17,17 +17,17 @@ struct FreeUpSpaceView: View {
         List {
             if !allowed {
                 Section {
-                    EmptyStateView(systemImage: "lock.shield", title: "Free Up Space is off",
-                                   message: "For safety this is disabled until you turn it on. When enabled, CloudGallery only offers to delete photos it has verified are in your Telegram channel and can be downloaded again.")
-                    Toggle("Allow freeing up space", isOn: $allowed)
+                    EmptyStateView(systemImage: "internaldrive", title: "Get storage back",
+                                   message: "Remove photos and videos from this iPhone that are already safely backed up. They stay in CloudGallery, and you can save any of them back to your iPhone anytime.")
+                    Toggle("Allow deleting backed-up photos from iPhone", isOn: $allowed)
                 }
             } else {
                 Section {
                     LabeledContent("Backed up and on this iPhone", value: "\(candidates.count)")
-                    LabeledContent("Verified safe to remove", value: "\(verified.count)")
+                    LabeledContent("Checked, safe to remove", value: "\(verified.count)")
                     LabeledContent("Space you can free", value: Format.bytes(FreeUpSpaceService.bytes(of: verified)))
                 } footer: {
-                    Text("Verification checks each Telegram message still exists and re-fetches the file to compare its size. Files over 20 MB, failed or unverified items are never offered.")
+                    Text("Before anything is offered, CloudGallery checks in Telegram that every part of it is really there. Items not fully backed up, or edited after their backup, are never offered.")
                 }
 
                 Section {
@@ -38,16 +38,16 @@ struct FreeUpSpaceView: View {
                         Button("Stop", role: .cancel) { cancelFlag.cancel() }
                     } else {
                         Button { Task { await verify() } } label: {
-                            Label("Verify backups", systemImage: "checkmark.shield")
+                            Label("Check what's safe to remove", systemImage: "checkmark.shield")
                         }
                         .disabled(candidates.isEmpty)
                     }
                     Button(role: .destructive) { Task { await delete() } } label: {
-                        Label(deleting ? "Deleting…" : "Delete \(verified.count) verified item(s) from iPhone", systemImage: "trash")
+                        Label(deleting ? "Removing…" : "Remove \(verified.count) from iPhone (\(Format.bytes(FreeUpSpaceService.bytes(of: verified))))", systemImage: "trash")
                     }
                     .disabled(verified.isEmpty || verifying || deleting)
                 } footer: {
-                    Text("iOS will ask you to confirm. Deleted items stay in CloudGallery as cloud items. Afterwards, empty “Recently Deleted” in the Photos app to actually free the space.")
+                    Text("iOS asks you to confirm. Removed items move to “Recently Deleted” in Photos for 30 days; empty that album to get the space back right away. They stay in CloudGallery as cloud items.")
                 }
 
                 if !verified.isEmpty {

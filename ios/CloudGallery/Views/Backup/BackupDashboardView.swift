@@ -181,6 +181,7 @@ struct BackupDashboardView: View {
 
                 Section("Tools") {
                     NavigationLink { FreeUpSpaceView() } label: { Label("Free up space", systemImage: "internaldrive") }
+                    NavigationLink { DuplicatesView() } label: { Label("Duplicates", systemImage: "square.on.square") }
                     NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
                     Button {
                         Task {
@@ -323,6 +324,174 @@ private struct FailedThumbnail: View {
                 let env = AppEnvironment.shared
                 guard let localIdentifier, let asset = env.photos.asset(localIdentifier: localIdentifier) else { return }
                 image = await env.photos.image(for: asset, targetSize: CGSize(width: 156, height: 156))
+            }
+    }
+}
+
+/// Review duplicates: extra copies in Telegram (same upload twice, or the same content as two items)
+/// and identical photos on this iPhone. Nothing is removed without a tap; the first copy always stays.
+struct DuplicatesView: View {
+    @State private var messageDuplicates: [Int64] = []
+    @State private var cloudGroups: [BackupEngine.CloudDuplicateGroup] = []
+    @State private var phoneGroups: [BackupEngine.PhoneDuplicateGroup] = []
+    @State private var selectedCopies = Set<String>()
+    @State private var loading = true
+    @State private var busy: String?
+    @State private var alert: GalleryAlert?
+    @State private var confirmCloud = false
+    private var env: AppEnvironment { AppEnvironment.shared }
+
+    var body: some View {
+        List {
+            if loading {
+                HStack { ProgressView(); Text("Looking for duplicates…").foregroundStyle(.secondary) }
+            } else if messageDuplicates.isEmpty && cloudGroups.isEmpty && phoneGroups.isEmpty {
+                EmptyStateView(systemImage: "checkmark.circle", title: "No duplicates",
+                               message: "Nothing is stored twice in your library or on this iPhone.")
+            }
+
+            if !messageDuplicates.isEmpty || !cloudGroups.isEmpty {
+                Section {
+                    if !messageDuplicates.isEmpty {
+                        Label("\(messageDuplicates.count) extra upload\(messageDuplicates.count == 1 ? "" : "s") of files that are already stored",
+                              systemImage: "doc.on.doc")
+                    }
+                    ForEach(cloudGroups) { g in
+                        HStack(spacing: 12) {
+                            DuplicateThumb(item: g.keep, localIdentifier: g.keep.localIdentifier)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(g.keep.filename).lineLimit(1)
+                                Text("Stored \(g.extras.count + 1) times · \(Format.bytes(g.wastedBytes)) extra")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    Button(role: .destructive) { confirmCloud = true } label: {
+                        Label("Remove extra copies from Telegram", systemImage: "trash")
+                    }
+                } header: { Text("In your Telegram library") } footer: {
+                    Text("One copy of each always stays, and photos on this iPhone stay linked to it.")
+                }
+            }
+
+            if !phoneGroups.isEmpty {
+                Section {
+                    ForEach(phoneGroups) { g in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(g.item.filename).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    if let original = g.original {
+                                        DuplicateThumb(item: g.item, localIdentifier: original, size: 72)
+                                            .overlay(alignment: .bottomLeading) {
+                                                Text("Kept").font(.caption2.bold()).padding(4).background(.black.opacity(0.6), in: Capsule()).padding(4)
+                                            }
+                                    }
+                                    ForEach(g.copies, id: \.self) { copy in
+                                        let selected = selectedCopies.contains(copy)
+                                        DuplicateThumb(item: g.item, localIdentifier: copy, size: 72)
+                                            .overlay(alignment: .topTrailing) {
+                                                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                                    .foregroundStyle(selected ? Color.accentColor : .white).padding(4)
+                                            }
+                                            .onTapGesture {
+                                                if selected { selectedCopies.remove(copy) } else { selectedCopies.insert(copy) }
+                                            }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    HStack {
+                        Button("Select all copies") { selectedCopies = Set(phoneGroups.flatMap(\.copies)) }
+                        Spacer()
+                        Button(role: .destructive) { deletePhoneCopies() } label: { Text("Delete \(selectedCopies.count) from iPhone") }
+                            .disabled(selectedCopies.isEmpty)
+                    }
+                    .buttonStyle(.borderless)
+                } header: { Text("On this iPhone") } footer: {
+                    Text("Identical copies of photos that are already backed up. Deleting a copy moves it to Recently Deleted; the backup isn't affected.")
+                }
+            }
+        }
+        .navigationTitle("Duplicates")
+        .disabled(busy != nil)
+        .overlay {
+            if let busy { ProgressView(busy).padding(20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) }
+        }
+        .task { await load() }
+        .refreshable { await load() }
+        .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
+        .confirmationDialog("Remove extra copies from Telegram?", isPresented: $confirmCloud, titleVisibility: .visible) {
+            Button("Remove extra copies", role: .destructive) { removeCloud() }
+        } message: {
+            Text("Deletes only the duplicate messages. One copy of every photo and video stays in your library.")
+        }
+    }
+
+    private func load() async {
+        loading = true
+        let env = self.env
+        let (m, c, p) = await Task.detached {
+            (env.library.duplicateMessageIds, env.engine.cloudDuplicateGroups(), env.engine.phoneDuplicateGroups())
+        }.value
+        messageDuplicates = m
+        cloudGroups = c
+        phoneGroups = p
+        selectedCopies = selectedCopies.intersection(Set(p.flatMap(\.copies)))
+        loading = false
+    }
+
+    private func removeCloud() {
+        Task {
+            busy = "Removing extra copies…"
+            defer { busy = nil }
+            do {
+                if !messageDuplicates.isEmpty { try await env.library.removeDuplicateMessages() }
+                let n = try await env.engine.removeCloudDuplicates(cloudGroups)
+                Haptics.success()
+                alert = GalleryAlert(title: "Done", message: "Removed \(n + messageDuplicates.count) extra copies.")
+            } catch {
+                alert = GalleryAlert(title: "Couldn't remove", message: error.localizedDescription)
+            }
+            await load()
+        }
+    }
+
+    private func deletePhoneCopies() {
+        let ids = Array(selectedCopies)
+        Task {
+            do {
+                let n = try await env.engine.deletePhoneCopies(ids)
+                if n > 0 { Haptics.success() }
+                selectedCopies.removeAll()
+            } catch {
+                // The user cancelled iOS's confirmation.
+            }
+            await load()
+        }
+    }
+}
+
+private struct DuplicateThumb: View {
+    let item: MediaItem
+    let localIdentifier: String?
+    var size: CGFloat = 52
+    @State private var image: UIImage?
+
+    var body: some View {
+        Color(.secondarySystemBackground)
+            .frame(width: size, height: size)
+            .overlay { if let image { Image(uiImage: image).resizable().scaledToFill() } }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .task(id: localIdentifier ?? item.id) {
+                let env = AppEnvironment.shared
+                if let id = localIdentifier, let asset = env.photos.asset(localIdentifier: id) {
+                    image = await env.photos.image(for: asset, targetSize: CGSize(width: size * 3, height: size * 3))
+                } else {
+                    image = try? await env.media.thumbnail(for: item)
+                }
             }
     }
 }

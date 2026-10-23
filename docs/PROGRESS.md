@@ -36,6 +36,7 @@ Read this first when resuming. **Priority: iOS.** Android is paused at the owner
 - Reinstall: restored items re-link to photos (caption `l` asset id, else name + second + size; `RestoreLinker`, unit-tested).
 - UI: Photos-style grid (single scrubber, zoom transition, cancellable thumbnails), Albums media types, viewer with custom video controls (⋯ speed/PiP/AirPlay, zoom), clear backup badges + legend, Backup complete state, redesigned onboarding, Libraries screen (switch / rename / create) in Settings.
 - Back up chosen photos; "Back up new photos automatically" toggle.
+- beta.5/6: nothing uploads on its own (Back up now = everything, Back up = chosen); edited versions backed up (role `e`) and re-uploaded when edited after backup; Duplicates review (Telegram copies, same content twice, identical iPhone copies); Download a copy of the library to Files; Telegram inactivity deletion set to 2 years from Settings; local index excluded from device backups; plain-language Free up space.
 
 ## iOS: not done / known gaps
 
