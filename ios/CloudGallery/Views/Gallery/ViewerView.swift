@@ -640,7 +640,14 @@ struct VideoControls: View {
     var body: some View {
         HStack(spacing: 12) {
             Button { if state.isPlaying { player.pause() } else { player.play() } } label: {
-                Image(systemName: state.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 28)
+                ZStack {
+                    if state.isBuffering {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: state.isPlaying ? "pause.fill" : "play.fill").font(.title3)
+                    }
+                }
+                .frame(width: 28, height: 28)
             }
             .accessibilityLabel(state.isPlaying ? "Pause" : "Play")
             Text(Self.time(scrubbing ? scrubValue : state.current)).font(.caption.monospacedDigit())
@@ -709,6 +716,8 @@ final class PlaybackState: ObservableObject {
     @Published var current: Double = 0
     @Published var duration: Double = 0
     @Published var isPlaying = false
+    /// Waiting for data (slow network): shown as a spinner instead of the play/pause icon.
+    @Published var isBuffering = false
     @Published var isMuted = false
     private var timeObserver: Any?
     private var statusObservation: NSKeyValueObservation?
@@ -721,13 +730,20 @@ final class PlaybackState: ObservableObject {
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 10), queue: .main) { [weak self] t in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                // While waiting for data the player can report an invalid time; keep the last position
+                // instead of snapping the clock and slider back to 0:00.
+                guard t.isValid, t.isNumeric, t.seconds.isFinite, t.seconds >= 0 else { return }
                 self.current = t.seconds
                 if let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
             }
         }
         statusObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] p, _ in
             let playing = p.timeControlStatus != .paused
-            Task { @MainActor in self?.isPlaying = playing }
+            let buffering = p.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            Task { @MainActor in
+                self?.isPlaying = playing
+                self?.isBuffering = buffering
+            }
         }
     }
 
