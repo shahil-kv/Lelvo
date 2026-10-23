@@ -1,36 +1,41 @@
 # Progress and handoff
 
-Read this first when resuming. Each phase ends with CI green and an installable build.
+Read this first when resuming. **Priority: iOS.** Android is paused at the owner's request (2026-10-23).
 
 ## Status
 
 | Phase | Scope | Status |
 |---|---|---|
-| v1.0.0 | iOS app on Bot API (`ios/`), CI, unsigned IPA | ✅ Released |
+| v1.0.0 | iOS app on Bot API, CI, unsigned IPA | ✅ Released (superseded) |
 | 0 | Research: issues, architecture, cloud format | ✅ Done |
-| 1 | iOS on TDLib (user account) with format 1 | ⏳ In progress |
-| 2 | Android on TDLib, Room queue, WorkManager FG, Media3 | ⬜ Not started |
-| 3 | Quality gates: tests both platforms, UI smoke tests, warnings | ⬜ |
-| 4 | Android CI + signed APK, v2.0.0 release with IPA + APK | ⬜ |
+| 1 | iOS on TDLib (user account), format 1 | ✅ Built, CI green; **needs on-device testing** |
+| 3 (iOS part) | Core unit tests, UI smoke tests, no force-unwraps | ✅ Done |
+| 4 (iOS part) | CI on macos-latest + xcode-27, IPA, tag release | ✅ (v2.0.0-beta.1) |
+| 2 | Android on TDLib | ⏸ Paused. Only `android/tdlib.version` and a manual `tdlib-android.yml` workflow exist |
 
-## Phase 1 checklist (iOS)
+## iOS: done
 
-- [ ] Core: format-1 caption codec (plain + encrypted), E2E key derivation (600k, key check), CGFE random-access reader, split-part range mapping, job-queue state machine, FLOOD_WAIT parsing, test vectors
-- [ ] TDLibKit integrated; CI builds with it
-- [ ] Login: api_id/api_hash entry, phone, code, 2FA, logout
-- [ ] Library: create "CloudGallery Library" or pick a channel; header read/write
-- [ ] Backup engine on TDLib: queue states, verify by size, dedupe, split > limit, Live Photos, thumbnails, selection filters (albums, screenshots, photos/videos only, date range, Wi-Fi, charging)
-- [ ] Restore by scanning channel history
-- [ ] Streaming video: AVAssetResourceLoader over TDLib ranges, split + decrypt, PiP, AirPlay, speed
-- [ ] Photos: progressive load, cache caps (300 MB / 1 GB) + TDLib optimizeStorage
-- [ ] Timeline year/month/day + date scrubber, Albums tab, drag-to-select
-- [ ] Free Up Space on TDLib verification
-- [ ] App Intents, BGContinuedProcessingTask, BGProcessingTask on TDLib
-- [ ] Docs: ios/README.md for TDLib login + SideStore
+- TDLib login (api_id/api_hash, phone, code, 2FA), re-sign-in if the session ends
+- Library: create "CloudGallery Library" (plain or E2E) or pick a channel; header pinned + in description
+- Restore by scanning channel history (no index file); incremental scan before each backup run
+- Backup engine: persistent queue (pending → uploading → verified/failed), 2 lanes, FLOOD_WAIT pause, SHA-256 dedupe, per-part size verification and checkpoints, split > 2/4 GB, Live Photos, thumbnails (document thumbnail, or encrypted `t` resource for E2E)
+- Selection: media type, screenshots, albums include/exclude, date-from, Wi-Fi only, charging only
+- Streaming video: AVAssetResourceLoader over TDLib ranged reads, split + chunk decryption, prefetch of neighbours, AVPlayerViewController (PiP, AirPlay, speed)
+- Gallery: unified timeline (day/month/year), pinch, date scrubber, Albums tab, drag-to-select, share/save/delete from cloud/delete from iPhone, info panel (codec, HDR, map)
+- Caches: thumbnails (300 MB), viewed media (1 GB), TDLib `optimizeStorage`, usage + Clear in Settings
+- Free Up Space (off by default) with TDLib verification; App Intents; BGProcessingTask; BGContinuedProcessingTask (iOS 26+)
+- Tests: 64 core unit tests (format, vectors, random-access crypto, split mapping, job machine, FLOOD_WAIT, dedupe, cache), UI smoke tests
 
-## Known limitations right now
-- The released 1.0.0 IPA uses the Bot API (50 MB upload / 20 MB view limits).
+## iOS: not done / known gaps
+
+- Never run against a real Telegram account on a device yet: first-run bugs are likely. Logs: Settings → Logs → Share.
+- "Smooth streaming copies" (1080p preview for > 500 MB videos) is not implemented.
+- One-time import of 1.0 (Bot API) uploads is not implemented; 1.0 files stay in the old channel.
+- Uploads can't run as iOS background transfers (MTProto); they run in-app, in continued-processing (iOS 26+), overnight while charging, or for ~25 s per Shortcut.
+- No dedicated performance profiling on 50k+ items yet.
 
 ## How to verify locally (no Xcode on this machine)
+
 - Core tests: `cd ios/CloudGalleryCore && swift test -Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing`
-- Full app builds only in CI (`.github/workflows/ios.yml`, lanes `macos-latest` and `xcode-27`).
+- TDLib layer typecheck: a scratch SwiftPM package that symlinks `ios/CloudGallery/Services/Telegram/*.swift` plus `KeychainStore.swift` and `AppLog.swift`, depends on a local TDLibKit checkout with TDLibFramework as a local binary target (download `TDLibFramework.zip` from Swiftgram releases with curl).
+- Full app builds only in CI (`.github/workflows/ios.yml`).

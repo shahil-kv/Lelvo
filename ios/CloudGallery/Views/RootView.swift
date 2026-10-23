@@ -22,6 +22,9 @@ struct RootView: View {
                         .tag(AppModel.Tab.settings)
                 }
                 .environmentObject(gallery)
+                .fullScreenCover(isPresented: $model.needsSignIn) {
+                    OnboardingView().environmentObject(model)
+                }
             } else {
                 OnboardingView()
             }

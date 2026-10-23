@@ -173,6 +173,8 @@ jobs:
         run: |
           DIR="${{ steps.pick.outputs.dir }}"
           NOTES="Unsigned iOS build of CloudGallery (built on the ${{ steps.pick.outputs.label }} runner). Install with Sideloadly or AltStore using your Apple ID; see ios/README.md. Requires iOS 17 or later."
-          gh release create "${GITHUB_REF_NAME}" "$DIR/CloudGallery.ipa" "$DIR/CloudGallery.ipa.sha256" \
+          PRE=""
+          case "${GITHUB_REF_NAME}" in *-*) PRE="--prerelease" ;; esac
+          gh release create "${GITHUB_REF_NAME}" "$DIR/CloudGallery.ipa" "$DIR/CloudGallery.ipa.sha256" $PRE \
             --repo "${GITHUB_REPOSITORY}" --title "CloudGallery iOS ${GITHUB_REF_NAME}" --notes "$NOTES" \
             || gh release upload "${GITHUB_REF_NAME}" "$DIR/CloudGallery.ipa" "$DIR/CloudGallery.ipa.sha256" --clobber --repo "${GITHUB_REPOSITORY}"

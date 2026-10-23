@@ -416,6 +416,8 @@ struct InfoSheet: View {
                     let h = entry.asset?.pixelHeight ?? entry.item?.pixelHeight ?? 0
                     if w > 0 { row("Dimensions", "\(w) × \(h)") }
                     if entry.isVideo, let d = entry.duration { row("Duration", Duration.seconds(d).formatted(.time(pattern: .minuteSecond))) }
+                    if let codec = entry.item?.codec { row("Codec", codec.uppercased()) }
+                    if let hdr = entry.item?.hdr, hdr > 0 { row("Dynamic range", hdr == 2 ? "Dolby Vision" : "HDR") }
                 }
                 Section("Backup") {
                     Label(entry.badge.label, systemImage: entry.badge.symbol)

@@ -26,10 +26,25 @@ final class AppModel: ObservableObject {
     @Published var onboardingComplete = Prefs.onboardingComplete
     @Published var selectedTab: Tab = .gallery
     @Published var showFreeUpSpace = false
+    /// The Telegram session ended (logged out elsewhere, revoked): show sign-in again.
+    @Published var needsSignIn = false
+    private var authObserver: UUID?
+
+    init() {
+        authObserver = TDService.shared.observeAuth { _ in
+            Task { @MainActor in
+                // Re-read the current state: the startup "no client yet" state must not flash sign-in.
+                let step = TDService.shared.auth
+                let signedOut = step == .waitPhone || (step == .needsCredentials && TDCredentials.load() == nil)
+                AppModel.shared.needsSignIn = signedOut && AppModel.shared.onboardingComplete
+            }
+        }
+    }
 
     func finishOnboarding() {
         UserDefaults.standard.set(true, forKey: Prefs.Key.onboardingComplete)
         onboardingComplete = true
+        needsSignIn = false
         BackgroundTasks.scheduleAll()
     }
 

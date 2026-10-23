@@ -29,6 +29,8 @@ final class CloudMediaService: @unchecked Sendable {
         let key = Self.thumbnailKey(item)
         let url = try await inflight.run(key) { [self] in
             if let cached = env.thumbnailCache.url(for: key) { return cached }
+            // Cold start: wait for the Telegram session instead of failing the tile.
+            try await env.td.waitUntilReady(timeout: 30)
             let data = try await gate.run { try await self.env.reader.thumbnailData(item) }
             return try env.thumbnailCache.store(data: data, for: key, ext: "jpg")
         }
@@ -46,6 +48,7 @@ final class CloudMediaService: @unchecked Sendable {
         env.originalsCache.setCapacity(Prefs.mediaCacheBytes)
         return try await inflight.run(key) { [self] in
             if let cached = env.originalsCache.url(for: key) { return cached }
+            try await env.td.waitUntilReady(timeout: 30)
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             try await env.reader.download(item, role: r, to: tmp, progress: progress)
             return try env.originalsCache.store(file: tmp, for: key, ext: ext.isEmpty ? "bin" : ext)

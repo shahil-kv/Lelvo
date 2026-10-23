@@ -75,6 +75,7 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
     }
 
     private func serve(_ request: AVAssetResourceLoadingRequest) async throws {
+        try await TDService.shared.waitUntilReady(timeout: 30)
         let total = try await size()
         if let info = request.contentInformationRequest {
             info.contentType = contentType
