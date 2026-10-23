@@ -222,7 +222,7 @@ struct ViewerPage: View {
             case .live(let live):
                 LivePhotoView(livePhoto: live)
             case .video(let player):
-                PlayerView(player: player, onPictureInPicture: { pip = $0 }, onReadyForDisplay: { videoReady = true; trace?.firstFrame() })
+                PlayerView(player: player, zoomed: $zoomed, onPictureInPicture: { pip = $0 }, onReadyForDisplay: { videoReady = true; trace?.firstFrame() })
                     .overlay {
                         if !videoReady {
                             ZStack {
@@ -515,6 +515,8 @@ struct InfoSheet: View {
 /// Bare AVPlayerLayer: no system controls to collide with ours; Picture in Picture via the layer.
 struct PlayerView: UIViewRepresentable {
     let player: AVPlayer
+    /// Pinch/double-tap zoom like Photos; paging is disabled while zoomed.
+    var zoomed: Binding<Bool> = .constant(false)
     var onPictureInPicture: (AVPictureInPictureController?) -> Void = { _ in }
     var onReadyForDisplay: () -> Void = {}
 
@@ -523,18 +525,64 @@ struct PlayerView: UIViewRepresentable {
         var playerLayer: AVPlayerLayer? { layer as? AVPlayerLayer }
     }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, UIScrollViewDelegate {
         var pip: AVPictureInPictureController?
         var readyObservation: NSKeyValueObservation?
-    }
-    func makeCoordinator() -> Coordinator { Coordinator() }
+        var layerView: LayerView?
+        var zoomed: Binding<Bool>
+        init(zoomed: Binding<Bool>) { self.zoomed = zoomed }
 
-    func makeUIView(context: Context) -> LayerView {
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? { layerView }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            let isZoomed = scrollView.zoomScale > 1.01
+            if zoomed.wrappedValue != isZoomed { zoomed.wrappedValue = isZoomed }
+        }
+
+        @objc func doubleTapped(_ g: UITapGestureRecognizer) {
+            guard let scroll = g.view as? UIScrollView else { return }
+            if scroll.zoomScale > 1.01 {
+                scroll.setZoomScale(1, animated: true)
+            } else {
+                let point = g.location(in: layerView)
+                let size = CGSize(width: scroll.bounds.width / 2.5, height: scroll.bounds.height / 2.5)
+                scroll.zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height), animated: true)
+            }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator(zoomed: zoomed) }
+
+    func makeUIView(context: Context) -> UIScrollView {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        let scroll = UIScrollView()
+        scroll.delegate = context.coordinator
+        scroll.maximumZoomScale = 5
+        scroll.minimumZoomScale = 1
+        scroll.showsVerticalScrollIndicator = false
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.backgroundColor = .black
+
         let view = LayerView()
         view.backgroundColor = .black
         view.playerLayer?.player = player
         view.playerLayer?.videoGravity = .resizeAspect
+        view.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
+            view.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
+            view.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            view.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            view.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor)
+        ])
+        context.coordinator.layerView = view
+        let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        scroll.addGestureRecognizer(doubleTap)
+
         player.allowsExternalPlayback = true
         if AVPictureInPictureController.isPictureInPictureSupported(), let layer = view.playerLayer {
             let pip = AVPictureInPictureController(playerLayer: layer)
@@ -547,11 +595,12 @@ struct PlayerView: UIViewRepresentable {
         context.coordinator.readyObservation = view.playerLayer?.observe(\.isReadyForDisplay, options: [.initial, .new]) { layer, _ in
             if layer.isReadyForDisplay { DispatchQueue.main.async { ready() } }
         }
-        return view
+        return scroll
     }
 
-    func updateUIView(_ view: LayerView, context: Context) {
-        if view.playerLayer?.player !== player { view.playerLayer?.player = player }
+    func updateUIView(_ scroll: UIScrollView, context: Context) {
+        context.coordinator.zoomed = zoomed
+        if let layer = context.coordinator.layerView?.playerLayer, layer.player !== player { layer.player = player }
     }
 }
 
