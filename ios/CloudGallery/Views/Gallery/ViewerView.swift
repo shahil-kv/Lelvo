@@ -112,7 +112,7 @@ struct ViewerView: View {
                     .accessibilityLabel("Save to Photos")
                 Spacer()
             }
-            if let current, let id = current.asset?.localIdentifier, [.phoneOnly, .failed].contains(current.badge) {
+            if let current, let id = current.asset?.localIdentifier, [.phoneOnly, .failed, .waiting].contains(current.badge) {
                 Button { backUp(id) } label: { Image(systemName: "icloud.and.arrow.up") }
                     .accessibilityLabel("Back up to the cloud")
                 Spacer()

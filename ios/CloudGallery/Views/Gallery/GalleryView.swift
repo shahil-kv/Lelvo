@@ -276,7 +276,7 @@ struct GalleryView: View {
         let cloudItems = chosen.compactMap(\.item).filter { $0.status == .backedUp }
         let downloadable = chosen.filter { $0.isCloudOnly && $0.item?.isViewableFromCloud == true }
         let onDevice = chosen.filter { $0.asset != nil }
-        let notBackedUp = onDevice.filter { [.phoneOnly, .failed].contains($0.badge) }
+        let notBackedUp = onDevice.filter { [.phoneOnly, .failed, .waiting].contains($0.badge) }
         return HStack {
             Button { Task { await shareSelection(chosen) } } label: { Label("Share", systemImage: "square.and.arrow.up") }
                 .disabled(chosen.isEmpty)

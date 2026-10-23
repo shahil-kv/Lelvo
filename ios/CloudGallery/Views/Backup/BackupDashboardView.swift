@@ -36,13 +36,17 @@ final class BackupStatsModel: ObservableObject {
         let env = AppEnvironment.shared
         Task.detached {
             let counts = (try? env.store.counts()) ?? [:]
+            // Without automatic backup, only picked items are "left to back up"; older queued ones count as not in the cloud.
+            let queued = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
+            let activeQueue = Prefs.autoBackup ? queued.count : queued.filter { $0.chosen == true }.count
+            let idleQueue = queued.count - activeQueue
             let all = (try? env.store.items(status: .backedUp)) ?? []
             var onDevice = 0, notQueued = 0, cloudOnly = 0
             if PhotoLibraryService.hasAccess {
                 let assets = env.photos.fetchAllAssets()
                 onDevice = assets.count
                 let known = (try? env.store.knownLocalIdentifiers()) ?? []
-                notQueued = env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }.count
+                notQueued = env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }.count + idleQueue
                 let present = env.photos.existingIdentifiers(all.compactMap(\.localIdentifier))
                 cloudOnly = all.filter { $0.localIdentifier.map { !present.contains($0) } ?? true }.count
             } else {
@@ -50,7 +54,7 @@ final class BackupStatsModel: ObservableObject {
             }
             await MainActor.run {
                 self.backedUp = counts[.backedUp] ?? 0
-                self.pending = (counts[.queued] ?? 0) + (counts[.uploading] ?? 0) + (Prefs.autoBackup ? notQueued : 0)
+                self.pending = activeQueue + (Prefs.autoBackup ? notQueued : 0)
                 self.failed = counts[.failed] ?? 0
                 self.cloudOnly = cloudOnly
                 self.onDevice = onDevice

@@ -199,12 +199,14 @@ final class BackupEngine: @unchecked Sendable {
         var items: [MediaItem] = []
         for id in localIdentifiers {
             if var existing = try? env.store.item(localIdentifier: id) {
-                if existing.status == .failed {
-                    existing.job = JobMachine.reduce(existing.job, .retry)
-                    items.append(existing)
-                }
+                guard existing.status != .backedUp else { continue }
+                if existing.status == .failed { existing.job = JobMachine.reduce(existing.job, .retry) }
+                existing.chosen = true
+                items.append(existing)
             } else if let asset = env.photos.asset(localIdentifier: id) {
-                items.append(makeItem(asset))
+                var item = makeItem(asset)
+                item.chosen = true
+                items.append(item)
             }
         }
         try? env.store.upsert(items)
@@ -223,9 +225,10 @@ final class BackupEngine: @unchecked Sendable {
         return item
     }
 
-    func runnableItems(now: Date) -> [MediaItem] {
+    /// `onlyChosen`: just the items the user picked (see `MediaItem.chosen`).
+    func runnableItems(now: Date, onlyChosen: Bool = false) -> [MediaItem] {
         let pending = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
-        return pending.filter { $0.localIdentifier != nil && ($0.notBefore.map { $0 <= now } ?? true) }
+        return pending.filter { $0.localIdentifier != nil && ($0.notBefore.map { $0 <= now } ?? true) && (!onlyChosen || $0.chosen == true) }
             .sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
     }
 
@@ -272,7 +275,8 @@ final class BackupEngine: @unchecked Sendable {
             try? env.store.upsert(stale.map { var i = $0; i.job = JobMachine.reduce(i.job, .interrupted); return i })
         }
 
-        let queue = JobQueue(items: runnableItems(now: Date()))
+        let onlyChosen = !includeNew && !Prefs.autoBackup
+        let queue = JobQueue(items: runnableItems(now: Date(), onlyChosen: onlyChosen))
         let total = await queue.count
         await publish { a in
             a.done = 0
@@ -318,7 +322,7 @@ final class BackupEngine: @unchecked Sendable {
         summary.uploaded = counts.uploaded
         summary.alreadyBackedUp = counts.duplicate
         summary.failed = counts.failed
-        summary.remaining = runnableItems(now: .distantFuture).count
+        summary.remaining = runnableItems(now: .distantFuture, onlyChosen: onlyChosen).count
         await env.enforceCacheLimits()
         if summary.uploaded > 0 { UserDefaults.standard.set(Date(), forKey: Prefs.Key.lastBackupAt) }
         if isPauseRequested {
@@ -333,7 +337,8 @@ final class BackupEngine: @unchecked Sendable {
     /// Moves every failed item back to pending (the "Retry failed" button).
     func retryFailed() {
         guard let failed = try? env.store.items(status: .failed) else { return }
-        try? env.store.upsert(failed.map { var i = $0; i.job = JobMachine.reduce(i.job, .retry); return i })
+        // Retrying is an explicit choice: these upload even when the rest of the queue is left alone.
+        try? env.store.upsert(failed.map { var i = $0; i.job = JobMachine.reduce(i.job, .retry); i.chosen = true; return i })
     }
 
     private func waitForFloodPause(isCancelled: () -> Bool) async {

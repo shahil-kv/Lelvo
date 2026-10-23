@@ -285,6 +285,7 @@ final class LibraryService: @unchecked Sendable {
             if let local = existing[item.id] {
                 item.localIdentifier = local.localIdentifier
                 item.verifiedAt = local.verifiedAt
+                item.chosen = local.chosen
                 if item.status != .backedUp, local.status == .uploading || local.status == .queued {
                     // Still being uploaded by this device: keep the queue state, update known parts.
                     item.status = local.status

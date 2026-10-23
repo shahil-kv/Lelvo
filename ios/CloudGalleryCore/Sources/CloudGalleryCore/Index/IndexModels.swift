@@ -89,6 +89,9 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var legacy: Bool?
     /// From the caption `l` field: the asset this was uploaded from (used to re-link after a reinstall).
     public var sourceLocalIdentifier: String?
+    /// Queued because the user picked it (Back up on chosen photos, Retry). Runs that aren't "Back up now"
+    /// upload only these, so picking a few photos never drains an older full queue.
+    public var chosen: Bool?
 
     /// Ids are lowercase, like the caption `id` field, so a channel scan matches the local item.
     public init(id: String = UUID().uuidString.lowercased(), localIdentifier: String?, sha256: String, filename: String,
