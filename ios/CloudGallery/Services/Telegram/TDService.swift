@@ -490,6 +490,11 @@ final class TDService: @unchecked Sendable {
 
     /// Downloads the whole file and returns its local path.
     func download(fileId: Int, priority: Int = 16) async throws -> URL {
+        // Same per-file gate as ranged reads: TDLib runs one download per file and cancels the other
+        // ("Canceled by another downloadFile request"), e.g. sharing a video while it streams.
+        let gate = fileGate(fileId)
+        await gate.acquire()
+        defer { Task { await gate.release() } }
         do {
             let client = try requireClient()
             await dropStaleLocalCopy(client, fileId: fileId)
