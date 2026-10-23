@@ -265,11 +265,26 @@ struct FailedItemsView: View {
                 }
                 Section("\(items.count) failed") {
                     ForEach(items) { item in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.filename).lineLimit(1)
-                            Text(item.lastError ?? "Unknown error").font(.caption).foregroundStyle(.red)
-                            Text("\(Format.date(item.creationDate, style: .medium, time: .none)) · \(item.attempts) attempt(s)")
-                                .font(.caption2).foregroundStyle(.secondary)
+                        HStack(spacing: 12) {
+                            FailedThumbnail(localIdentifier: item.localIdentifier)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.filename).lineLimit(1)
+                                Text(item.lastError ?? "Unknown error").font(.caption).foregroundStyle(.red)
+                                Text("\(Format.date(item.creationDate, style: .medium, time: .none)) · \(item.attempts) attempt(s)")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        .swipeActions {
+                            if let id = item.localIdentifier {
+                                Button(role: .destructive) {
+                                    Task {
+                                        // iOS asks for confirmation; the item is then dropped from the queue.
+                                        guard (try? await AppEnvironment.shared.photos.deleteAssets([id])) != nil else { return }
+                                        await Task.detached { try? AppEnvironment.shared.store.delete(id: item.id) }.value
+                                        await load()
+                                    }
+                                } label: { Label("Delete from iPhone", systemImage: "trash") }
+                            }
                         }
                     }
                 }
@@ -282,5 +297,22 @@ struct FailedItemsView: View {
     /// Off the main thread: the store can be busy with upload checkpoints.
     private func load() async {
         items = await Task.detached { (try? AppEnvironment.shared.store.items(status: .failed)) ?? [] }.value
+    }
+}
+
+private struct FailedThumbnail: View {
+    let localIdentifier: String?
+    @State private var image: UIImage?
+
+    var body: some View {
+        Color(.secondarySystemBackground)
+            .frame(width: 52, height: 52)
+            .overlay { if let image { Image(uiImage: image).resizable().scaledToFill() } }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .task(id: localIdentifier) {
+                let env = AppEnvironment.shared
+                guard let localIdentifier, let asset = env.photos.asset(localIdentifier: localIdentifier) else { return }
+                image = await env.photos.image(for: asset, targetSize: CGSize(width: 156, height: 156))
+            }
     }
 }

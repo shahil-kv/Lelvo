@@ -418,6 +418,7 @@ final class TDService: @unchecked Sendable {
         let gate = fileGate(fileId)
         await gate.acquire()
         defer { Task { await gate.release() } }
+        await dropStaleLocalCopy(client, fileId: fileId)
         var lastError: Swift.Error = TDServiceError.notReady
         for attempt in 0..<3 {
             do {
@@ -435,7 +436,25 @@ final class TDService: @unchecked Sendable {
             }
             try Task.checkCancellation()
         }
+        if let f = try? await client.getFile(fileId: fileId) {
+            let have = (try? await client.getFileDownloadedPrefixSize(fileId: fileId, offset: offset))?.size ?? -1
+            AppLog.shared.warn("Read failed: file \(fileId) size \(f.size) offset \(offset) count \(count) prefixAtOffset \(have) "
+                + "local downloaded \(f.local.downloadedSize) prefix \(f.local.downloadedPrefixSize) complete \(f.local.isDownloadingCompleted) "
+                + "active \(f.local.isDownloadingActive) canDownload \(f.local.canBeDownloaded) path '\(f.local.path)'")
+        }
         throw lastError
+    }
+
+    private var checkedFiles = Set<Int>()
+
+    /// TDLib remembers partial downloads by absolute path, but iOS moves the app container on reinstall,
+    /// so those copies can't be read ("Failed to read the file"). Forget them so TDLib downloads afresh.
+    private func dropStaleLocalCopy(_ client: TDLibClient, fileId: Int) async {
+        guard lock.withLock({ checkedFiles.insert(fileId).inserted }),
+              let f = try? await client.getFile(fileId: fileId), !f.local.path.isEmpty,
+              !FileManager.default.fileExists(atPath: f.local.path) else { return }
+        AppLog.shared.warn("Dropping stale local copy of file \(fileId) (\(f.local.downloadedSize) bytes at a path that no longer exists)")
+        _ = try? await client.deleteFile(fileId: fileId)
     }
 
     private var fileGates: [Int: AsyncGate] = [:]
@@ -472,7 +491,9 @@ final class TDService: @unchecked Sendable {
     /// Downloads the whole file and returns its local path.
     func download(fileId: Int, priority: Int = 16) async throws -> URL {
         do {
-            let file = try await requireClient().downloadFile(fileId: fileId, limit: 0, offset: 0, priority: priority, synchronous: true)
+            let client = try requireClient()
+            await dropStaleLocalCopy(client, fileId: fileId)
+            let file = try await client.downloadFile(fileId: fileId, limit: 0, offset: 0, priority: priority, synchronous: true)
             guard file.local.isDownloadingCompleted else { throw TDServiceError.sendFailed("download incomplete") }
             return URL(fileURLWithPath: file.local.path)
         } catch { throw error.asTD }

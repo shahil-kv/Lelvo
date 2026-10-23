@@ -29,10 +29,10 @@ struct ViewerView: View {
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
                     ForEach(entries) { entry in
-                        ViewerPage(entry: entry, isCurrent: entry.id == currentId, zoomed: $zoomed)
+                        ViewerPage(entry: entry, isCurrent: entry.id == currentId, chromeHidden: chromeHidden, zoomed: $zoomed)
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(entry.id)
-                            .onTapGesture { withAnimation { chromeHidden.toggle() } }
+                            .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { chromeHidden.toggle() } }
                     }
                 }
                 .scrollTargetLayout()
@@ -46,8 +46,8 @@ struct ViewerView: View {
             .onAppear { if let currentId { proxy.scrollTo(currentId) } }
             .onChange(of: currentId) { _, id in prefetchNeighbours(of: id) }
         }
-        .overlay(alignment: .top) { if !chromeHidden { topBar } }
-        .overlay(alignment: .bottom) { if !chromeHidden { bottomBar } }
+        .overlay(alignment: .top) { if !chromeHidden { topBar.transition(.opacity) } }
+        .overlay(alignment: .bottom) { if !chromeHidden { bottomBar.transition(.opacity) } }
         .overlay { if busy { ProgressView().tint(.white).scaleEffect(1.4) } }
         .statusBarHidden(chromeHidden)
         .sheet(isPresented: $showInfo) {
@@ -63,48 +63,58 @@ struct ViewerView: View {
     }
 
     private var topBar: some View {
-        HStack {
-            Button { dismiss() } label: {
-                Image(systemName: "xmark").font(.headline).padding(10).background(.ultraThinMaterial, in: Circle())
-            }
-            .accessibilityLabel("Close")
-            Spacer()
+        ZStack {
             if let current {
-                VStack(spacing: 2) {
-                    Text(Format.date(current.date, style: .medium, time: .none)).font(.subheadline.bold())
-                    Text(Format.date(current.date, style: .none, time: .short)).font(.caption)
+                VStack(spacing: 1) {
+                    Text(Format.date(current.date, style: .medium, time: .none)).font(.subheadline.weight(.semibold))
+                    HStack(spacing: 4) {
+                        Text(Format.date(current.date, style: .none, time: .short))
+                        Image(systemName: current.badge.symbol).foregroundStyle(current.badge.tint)
+                            .accessibilityLabel(current.badge.label)
+                    }
+                    .font(.caption)
                 }
                 .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.4), radius: 4)
+            }
+            HStack {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.white)
+                        .frame(width: 36, height: 36).background(.ultraThinMaterial, in: Circle())
+                }
+                .accessibilityLabel("Close")
                 Spacer()
-                BadgeView(badge: current.badge).scaleEffect(1.4)
-                    .accessibilityHint(current.badge.explanation)
             }
         }
-        .padding(.horizontal)
-        .padding(.top, 8)
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 24)
+        .background(LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 36) {
+        HStack {
             Button { Task { await shareCurrent() } } label: { Image(systemName: "square.and.arrow.up") }
                 .accessibilityLabel("Share")
-            Button { showInfo = true } label: { Image(systemName: "info.circle") }
-                .accessibilityLabel("Info")
+            Spacer()
             if let current, current.isCloudOnly, current.item?.isViewableFromCloud == true {
                 Button { Task { await saveCurrent() } } label: { Image(systemName: "square.and.arrow.down") }
                     .accessibilityLabel("Save to Photos")
+                Spacer()
             }
-            if current?.item?.status == .backedUp {
-                Button(role: .destructive) { confirmDelete = true } label: { Image(systemName: "trash") }
-                    .accessibilityLabel("Delete from cloud")
-            }
+            Button { showInfo = true } label: { Image(systemName: "info.circle") }
+                .accessibilityLabel("Info")
+            Spacer()
+            Button(role: .destructive) { confirmDelete = true } label: { Image(systemName: "trash") }
+                .accessibilityLabel("Delete from cloud")
+                .disabled(current?.item?.status != .backedUp)
         }
         .font(.title3)
         .foregroundStyle(.white)
-        .padding(.vertical, 12)
         .padding(.horizontal, 28)
-        .background(.ultraThinMaterial, in: Capsule())
-        .padding(.bottom, 24)
+        .padding(.top, 28)
+        .padding(.bottom, 8)
+        .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
     }
 
     /// Fetches the first few MB of adjacent cloud videos so swiping to them starts playback instantly.
@@ -157,6 +167,7 @@ struct ViewerView: View {
 struct ViewerPage: View {
     let entry: GalleryEntry
     let isCurrent: Bool
+    let chromeHidden: Bool
     @Binding var zoomed: Bool
 
     enum Content {
@@ -175,15 +186,19 @@ struct ViewerPage: View {
         ZStack {
             switch content {
             case .loading(let placeholder):
-                if let placeholder { Image(uiImage: placeholder).resizable().scaledToFit().blur(radius: 2) }
-                ProgressView().tint(.white)
+                if let placeholder { Image(uiImage: placeholder).resizable().scaledToFit() }
+                ProgressView().tint(.white).padding(14).background(.black.opacity(0.35), in: Circle())
             case .image(let image):
                 ZoomableImageView(image: image, zoomed: $zoomed)
             case .live(let live):
                 LivePhotoView(livePhoto: live)
             case .video(let player):
                 PlayerView(player: player)
-                    .onChange(of: isCurrent) { _, now in if !now { player.pause() } }
+                    .overlay(alignment: .bottom) {
+                        if !chromeHidden { VideoControls(player: player).padding(.bottom, 112).transition(.opacity) }
+                    }
+                    .onAppear { if isCurrent { player.play() } }
+                    .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }
                     .onDisappear { player.pause() }
             case .unavailable(let reason, let placeholder):
                 VStack(spacing: 16) {
@@ -385,7 +400,7 @@ struct LivePhotoView: UIViewRepresentable {
         view.addSubview(badge)
         NSLayoutConstraint.activate([
             badge.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            badge.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 60)
+            badge.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 64)
         ])
         return view
     }
@@ -450,7 +465,7 @@ struct InfoSheet: View {
     }
 }
 
-/// AVPlayerViewController: native controls, scrubbing, playback speed, Picture in Picture and AirPlay.
+/// AVPlayerViewController for rendering (PiP, AirPlay); the controls are `VideoControls`, like Photos.
 struct PlayerView: UIViewControllerRepresentable {
     let player: AVPlayer
 
@@ -458,6 +473,7 @@ struct PlayerView: UIViewControllerRepresentable {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         let vc = AVPlayerViewController()
         vc.player = player
+        vc.showsPlaybackControls = false
         vc.allowsPictureInPicturePlayback = true
         vc.canStartPictureInPictureAutomaticallyFromInline = true
         vc.entersFullScreenWhenPlaybackBegins = false
@@ -470,5 +486,86 @@ struct PlayerView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
         if vc.player !== player { vc.player = player }
+    }
+}
+
+/// Play/pause, scrubber with elapsed and remaining time, and mute, styled like the Photos video bar.
+struct VideoControls: View {
+    let player: AVPlayer
+    @StateObject private var state = PlaybackState()
+    @State private var scrubbing = false
+    @State private var scrubValue: Double = 0
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button { state.isPlaying ? player.pause() : player.play() } label: {
+                Image(systemName: state.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 28)
+            }
+            .accessibilityLabel(state.isPlaying ? "Pause" : "Play")
+            Text(Self.time(scrubbing ? scrubValue : state.current)).font(.caption.monospacedDigit())
+            Slider(value: Binding(get: { scrubbing ? scrubValue : state.current }, set: { scrubValue = $0 }),
+                   in: 0...max(state.duration, 0.1)) { editing in
+                scrubbing = editing
+                if !editing { player.seek(to: CMTime(seconds: scrubValue, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
+                else { scrubValue = state.current }
+            }
+            .tint(.white)
+            .onChange(of: scrubValue) { _, v in
+                if scrubbing { player.seek(to: CMTime(seconds: v, preferredTimescale: 600), toleranceBefore: .positiveInfinity, toleranceAfter: .positiveInfinity) }
+            }
+            Text("-" + Self.time(max(0, state.duration - (scrubbing ? scrubValue : state.current)))).font(.caption.monospacedDigit())
+            Button { player.isMuted.toggle(); state.isMuted = player.isMuted } label: {
+                Image(systemName: state.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill").font(.body).frame(width: 28)
+            }
+            .accessibilityLabel(state.isMuted ? "Unmute" : "Mute")
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
+        .environment(\.colorScheme, .dark)
+        .padding(.horizontal, 16)
+        .onAppear { state.attach(player) }
+        .onDisappear { state.detach() }
+    }
+
+    static func time(_ seconds: Double) -> String {
+        guard seconds.isFinite else { return "0:00" }
+        let s = Int(seconds.rounded(.down))
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+@MainActor
+final class PlaybackState: ObservableObject {
+    @Published var current: Double = 0
+    @Published var duration: Double = 0
+    @Published var isPlaying = false
+    @Published var isMuted = false
+    private var timeObserver: Any?
+    private var statusObservation: NSKeyValueObservation?
+    private weak var player: AVPlayer?
+
+    func attach(_ player: AVPlayer) {
+        detach()
+        self.player = player
+        isMuted = player.isMuted
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 10), queue: .main) { [weak self] t in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.current = t.seconds
+                if let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
+            }
+        }
+        statusObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] p, _ in
+            let playing = p.timeControlStatus != .paused
+            Task { @MainActor in self?.isPlaying = playing }
+        }
+    }
+
+    func detach() {
+        if let timeObserver { player?.removeTimeObserver(timeObserver) }
+        timeObserver = nil
+        statusObservation = nil
     }
 }

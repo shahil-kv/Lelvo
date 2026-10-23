@@ -49,6 +49,9 @@ struct GalleryView: View {
     @State private var dragAnchor: Int?
     @State private var dragBase = Set<String>()
     @State private var showLegend = false
+    @State private var scrollFraction: CGFloat = 0
+    @State private var isScrolling = false
+    @Namespace private var zoomNamespace
 
     private let spacing: CGFloat = 2
 
@@ -77,6 +80,7 @@ struct GalleryView: View {
             }
         }
         .navigationTitle(filter?.title ?? "Photos")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .sheet(isPresented: $showLegend) { BadgeLegendView() }
         .safeAreaInset(edge: .bottom) { if selecting { selectionBar } }
@@ -92,6 +96,7 @@ struct GalleryView: View {
         .onAppear { model.setGrouping(grouping) }
         .fullScreenCover(item: $viewerStart) { start in
             ViewerView(entries: entries, startId: start.id)
+                .zoomTransition(sourceID: start.id, in: zoomNamespace)
         }
         .sheet(item: $share) { ActivityView(items: $0.urls).presentationDetents([.medium, .large]) }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
@@ -122,7 +127,7 @@ struct GalleryView: View {
                 ScrollView {
                     if model.authorization == .limited && filter == nil { limitedBanner.padding(.horizontal) }
                     LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: spacing), count: columns),
-                              spacing: spacing, pinnedViews: [.sectionHeaders]) {
+                              spacing: spacing) {
                         ForEach(sections) { section in
                             Section {
                                 ForEach(section.entries) { entry in
@@ -136,6 +141,7 @@ struct GalleryView: View {
                                                 }
                                             }
                                         }
+                                        .zoomSource(id: entry.id, in: zoomNamespace)
                                         .onTapGesture { tap(entry) }
                                         .onLongPressGesture {
                                             Haptics.tap()
@@ -144,19 +150,15 @@ struct GalleryView: View {
                                         }
                                 }
                             } header: {
-                                Text(section.title)
-                                    .font(.subheadline.weight(.semibold))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(.bar)
+                                SectionHeader(section: section, grouping: grouping)
                                     .id(section.id)
-                                    .accessibilityAddTraits(.isHeader)
                             }
                         }
                     }
                     .scaleEffect(pinchScale, anchor: .top)
                 }
+                .scrollIndicators(.hidden)
+                .trackScroll(fraction: $scrollFraction, isScrolling: $isScrolling)
                 .coordinateSpace(name: "grid")
                 .accessibilityIdentifier("galleryGrid")
                 .onPreferenceChange(CellFramesKey.self) { cellFrames = $0 }
@@ -174,11 +176,12 @@ struct GalleryView: View {
                 )
                 .simultaneousGesture(selecting ? dragSelect : nil)
                 .overlay(alignment: .trailing) {
-                    if sections.count > 8 {
-                        DateScrubber(sections: sections) { id in proxy.scrollTo(id, anchor: .top) }
+                    if sections.count > 3 {
+                        DateScrubber(sections: sections, fraction: scrollFraction, isScrolling: isScrolling) { id in
+                            proxy.scrollTo(id, anchor: .top)
+                        }
                     }
                 }
-                .refreshable { await model.reload() }
             }
         }
     }
@@ -449,39 +452,76 @@ struct CellFramesKey: PreferenceKey {
     }
 }
 
-/// Fast date scrubber on the trailing edge: drag to jump through months/years.
+/// Date header like Photos: bold day/month/year with the item count.
+private struct SectionHeader: View {
+    let section: GallerySection
+    let grouping: GalleryModel.Grouping
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(section.title)
+                .font(grouping == .day ? .headline : .title3.weight(.bold))
+            Spacer()
+            Text("\(section.entries.count)")
+                .font(.footnote.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 18)
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// The only scroll bar: a thumb that follows the scroll position, appears while scrolling, and can be
+/// dragged to jump through dates with the month shown beside it (like Photos and Google Photos).
 struct DateScrubber: View {
     let sections: [GallerySection]
+    let fraction: CGFloat
+    let isScrolling: Bool
     let jump: (String) -> Void
     @State private var dragging = false
+    @State private var dragFraction: CGFloat = 0
     @State private var label = ""
     @State private var lastId = ""
+    @State private var visible = false
+    @State private var hideTask: Task<Void, Never>?
+
+    private let thumbHeight: CGFloat = 44
 
     var body: some View {
         GeometryReader { geo in
-            ZStack(alignment: .trailing) {
-                Capsule()
-                    .fill(.secondary.opacity(dragging ? 0.5 : 0.25))
-                    .frame(width: dragging ? 6 : 4)
-                    .padding(.vertical, 8)
-                if dragging {
-                    Text(label)
-                        .font(.caption.bold())
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(.regularMaterial, in: Capsule())
-                        .offset(x: -18)
-                        .transition(.opacity)
+            let track = max(geo.size.height - thumbHeight - 16, 1)
+            let f = dragging ? dragFraction : min(max(fraction, 0), 1)
+            ZStack(alignment: .topTrailing) {
+                HStack(spacing: 8) {
+                    if dragging {
+                        Text(label)
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(.regularMaterial, in: Capsule())
+                            .transition(.opacity.combined(with: .move(edge: .trailing)))
+                    }
+                    Capsule()
+                        .fill(.regularMaterial)
+                        .overlay(Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary))
+                        .frame(width: 26, height: thumbHeight)
+                        .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
                 }
+                .padding(.trailing, 4)
+                .offset(y: 8 + f * track)
+                .opacity(visible || dragging ? 1 : 0)
             }
-            .frame(width: 44)
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .contentShape(Rectangle().inset(by: 0))
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { v in
-                        dragging = true
-                        let fraction = min(max(v.location.y / max(geo.size.height, 1), 0), 0.9999)
-                        let s = sections[Int(fraction * Double(sections.count))]
+                        guard visible || dragging else { return }
+                        if !dragging { withAnimation(.easeOut(duration: 0.15)) { dragging = true } }
+                        dragFraction = min(max((v.location.y - 8 - thumbHeight / 2) / track, 0), 1)
+                        let s = sections[min(sections.count - 1, Int(dragFraction * CGFloat(sections.count)))]
                         label = s.title
                         if s.id != lastId {
                             lastId = s.id
@@ -489,11 +529,54 @@ struct DateScrubber: View {
                             UISelectionFeedbackGenerator().selectionChanged()
                         }
                     }
-                    .onEnded { _ in withAnimation { dragging = false } }
+                    .onEnded { _ in
+                        withAnimation(.easeOut(duration: 0.2)) { dragging = false }
+                        scheduleHide()
+                    }
             )
-            .accessibilityLabel("Date scrubber")
-            .accessibilityHint("Drag to jump to a date")
+            .allowsHitTesting(visible || dragging)
         }
-        .frame(width: 44)
+        .frame(width: dragging ? 220 : 44)
+        .onChange(of: isScrolling) { _, now in
+            if now { hideTask?.cancel(); withAnimation(.easeOut(duration: 0.15)) { visible = true } } else { scheduleHide() }
+        }
+        .accessibilityLabel("Date scrubber")
+        .accessibilityHint("Drag to jump to a date")
+    }
+
+    private func scheduleHide() {
+        hideTask?.cancel()
+        hideTask = Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled, !dragging else { return }
+            withAnimation(.easeIn(duration: 0.3)) { visible = false }
+        }
+    }
+}
+
+private extension View {
+    /// Scroll position (0…1) and whether the user is scrolling, for the date scrubber.
+    @ViewBuilder func trackScroll(fraction: Binding<CGFloat>, isScrolling: Binding<Bool>) -> some View {
+        if #available(iOS 18.0, *) {
+            self
+                .onScrollGeometryChange(for: CGFloat.self) { g in
+                    let range = g.contentSize.height - g.containerSize.height
+                    return range > 0 ? (g.contentOffset.y + g.contentInsets.top) / range : 0
+                } action: { _, new in fraction.wrappedValue = new }
+                .onScrollPhaseChange { _, phase in isScrolling.wrappedValue = phase != .idle }
+        } else {
+            self
+        }
+    }
+}
+
+extension View {
+    /// Native zoom from a grid tile into the viewer and back (iOS 18+).
+    @ViewBuilder func zoomSource(id: String, in namespace: Namespace.ID) -> some View {
+        if #available(iOS 18.0, *) { self.matchedTransitionSource(id: id, in: namespace) } else { self }
+    }
+
+    @ViewBuilder func zoomTransition(sourceID: String, in namespace: Namespace.ID) -> some View {
+        if #available(iOS 18.0, *) { self.navigationTransition(.zoom(sourceID: sourceID, in: namespace)) } else { self }
     }
 }

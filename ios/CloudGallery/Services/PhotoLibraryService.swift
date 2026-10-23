@@ -162,8 +162,22 @@ final class PhotoLibraryService: @unchecked Sendable {
     func exportOriginal(of asset: PHAsset, into directory: URL) async throws -> ExportedAsset {
         guard let res = originalResources(for: asset) else { throw PhotoLibraryError.noOriginalResource }
         let base = UUID().uuidString
-        let primaryURL = directory.appendingPathComponent("\(base)-\(res.primary.originalFilename.sanitizedFilename)")
-        try await write(res.primary, to: primaryURL)
+        var primaryURL = directory.appendingPathComponent("\(base)-\(res.primary.originalFilename.sanitizedFilename)")
+        var primaryFilename = res.primary.originalFilename
+        var primaryUTI = res.primary.uniformTypeIdentifier
+        do {
+            try await write(res.primary, to: primaryURL)
+        } catch let error as NSError where error.domain == PHPhotosErrorDomain && error.code == PHPhotosError.requestNotSupportedForAsset.rawValue
+                    && Self.kind(of: asset) != .video {
+            // Some edited photos refuse raw resource export (3306); take the rendered image instead, like the share sheet.
+            let (data, uti) = try await renderedImageData(of: asset)
+            let ext = uti.flatMap { UTType($0)?.preferredFilenameExtension } ?? "jpg"
+            primaryFilename = ((res.primary.originalFilename as NSString).deletingPathExtension as NSString).appendingPathExtension(ext) ?? "\(base).\(ext)"
+            primaryUTI = uti ?? UTType.jpeg.identifier
+            primaryURL = directory.appendingPathComponent("\(base)-\(primaryFilename.sanitizedFilename)")
+            try data.write(to: primaryURL)
+            appLog("Exported the rendered image of \(res.primary.originalFilename) (raw export not supported)")
+        }
         var pairedURL: URL?
         if let paired = res.paired {
             let url = directory.appendingPathComponent("\(base)-\(paired.originalFilename.sanitizedFilename)")
@@ -176,9 +190,22 @@ final class PhotoLibraryService: @unchecked Sendable {
             }
         }
         let kind: MediaKind = (Self.kind(of: asset) == .livePhoto && pairedURL == nil) ? .photo : Self.kind(of: asset)
-        return ExportedAsset(kind: kind, primaryURL: primaryURL, primaryFilename: res.primary.originalFilename,
-                             primaryUTI: res.primary.uniformTypeIdentifier, pairedVideoURL: pairedURL,
+        return ExportedAsset(kind: kind, primaryURL: primaryURL, primaryFilename: primaryFilename,
+                             primaryUTI: primaryUTI, pairedVideoURL: pairedURL,
                              pairedVideoFilename: res.paired?.originalFilename)
+    }
+
+    private func renderedImageData(of asset: PHAsset) async throws -> (Data, String?) {
+        let options = PHImageRequestOptions()
+        options.isNetworkAccessAllowed = true
+        options.deliveryMode = .highQualityFormat
+        options.version = .current
+        return try await withCheckedThrowingContinuation { cont in
+            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, uti, _, info in
+                if let data { cont.resume(returning: (data, uti)) }
+                else { cont.resume(throwing: (info?[PHImageErrorKey] as? Error) ?? PhotoLibraryError.noOriginalResource) }
+            }
+        }
     }
 
     private func write(_ resource: PHAssetResource, to url: URL) async throws {

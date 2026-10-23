@@ -241,9 +241,10 @@ final class LibraryService: @unchecked Sendable {
         var messages = cloud
         if !full {
             let ids = Set(cloud.map(\.meta.id))
+            let scanned = Set(cloud.map(\.messageId))
             for item in try store.allItems() where ids.contains(item.id) {
                 for (role, parts) in item.cloudParts ?? [:] {
-                    for (i, f) in parts.enumerated() {
+                    for (i, f) in parts.enumerated() where !scanned.contains(f.messageId) {
                         guard var meta = cloud.first(where: { $0.meta.id == item.id })?.meta,
                               let r = CaptionMeta.Role(rawValue: role) else { continue }
                         meta.r = r
