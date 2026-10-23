@@ -179,11 +179,14 @@ final class OnboardingModel: ObservableObject {
     }
 
     var newPassphraseProblem: String? {
-        guard newLibraryEncrypted else { return nil }
-        if passphrase.count < 10 { return "Use at least 10 characters. A few random words work well." }
-        if passphrase != passphraseConfirm { return "The passphrases don't match." }
-        if !acknowledgedRisk { return "Confirm you understand a lost passphrase means lost photos." }
-        return nil
+        EncryptionChoice.problem(encrypted: newLibraryEncrypted, passphrase: passphrase, confirm: passphraseConfirm, acknowledged: acknowledgedRisk)
+    }
+
+    func renameLibrary(_ channel: LibraryService.ChannelChoice, to title: String) {
+        run {
+            try await self.env.library.rename(chatId: channel.id, to: title)
+            self.channels = try await self.env.library.candidateChannels()
+        }
     }
 
     func createLibrary() {
@@ -412,6 +415,9 @@ private struct LibraryScreen: View {
     @ObservedObject var m: OnboardingModel
     @State private var creating = false
     @State private var pickingChannel = false
+    @State private var selectedId: Int64?
+    @State private var renaming: LibraryService.ChannelChoice?
+    @State private var renameText = ""
 
     private var libraries: [LibraryService.ChannelChoice] { m.channels.filter(\.isLibrary) }
     private var others: [LibraryService.ChannelChoice] { m.channels.filter { !$0.isLibrary } }
@@ -426,15 +432,18 @@ private struct LibraryScreen: View {
                                m: m, button: .init(title: "Try again", enabled: true) { m.loadChannels() }) {
                     secondaryLinks(showCreate: false)
                 }
-            } else if let found = libraries.first {
+            } else if !libraries.isEmpty {
+                let chosen = libraries.first { $0.id == selectedId } ?? libraries[0]
                 OnboardingPage(icon: "checkmark.icloud.fill", title: "Welcome back",
-                               subtitle: "We found your library in Telegram. Restore it to see everything you've backed up.",
-                               m: m, button: .init(title: "Restore my library", enabled: true) { m.choose(found) }) {
-                    VStack(alignment: .leading, spacing: 18) {
-                        LibraryCard(title: found.title, subtitle: "Private channel · only you can see it", highlighted: true)
-                        if libraries.count > 1 {
-                            Text("\(libraries.count) libraries found. Choose another with “Use another channel”.")
-                                .font(.footnote).foregroundStyle(.secondary)
+                               subtitle: libraries.count == 1
+                                 ? "We found your library in Telegram. Restore it to see everything you've backed up."
+                                 : "We found \(libraries.count) libraries in your Telegram. Choose the one to use on this iPhone.",
+                               m: m, button: .init(title: "Restore “\(chosen.title)”", enabled: true) { m.choose(chosen) }) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(libraries) { c in
+                            LibraryCard(title: c.title, encrypted: c.encrypted, selected: c.id == chosen.id,
+                                        onRename: { renameText = c.title; renaming = c })
+                                .onTapGesture { Haptics.tap(); selectedId = c.id }
                         }
                         secondaryLinks(showCreate: true)
                     }
@@ -444,19 +453,27 @@ private struct LibraryScreen: View {
                                subtitle: "CloudGallery keeps your backup in a private Telegram channel that only you can see.",
                                m: m, button: .init(title: "Create my library", enabled: m.newPassphraseProblem == nil) { m.createLibrary() }) {
                     VStack(alignment: .leading, spacing: 18) {
-                        EncryptionChoice(m: m)
+                        OnboardingField(placeholder: "Library name", text: $m.newLibraryName)
+                        EncryptionChoice(encrypted: $m.newLibraryEncrypted, passphrase: $m.passphrase,
+                                         confirm: $m.passphraseConfirm, acknowledged: $m.acknowledgedRisk)
                         secondaryLinks(showCreate: false)
                     }
                 }
             }
         }
+        .alert("Rename library", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $renameText)
+            Button("Cancel", role: .cancel) { renaming = nil }
+            Button("Save") { if let c = renaming { m.renameLibrary(c, to: renameText) }; renaming = nil }
+        } message: { Text("Only the name changes. Your photos stay where they are.") }
         .sheet(isPresented: $creating) {
             NavigationStack {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("A new, empty library is created next to your current one.").foregroundStyle(.secondary)
                         OnboardingField(placeholder: "Library name", text: $m.newLibraryName)
-                        EncryptionChoice(m: m)
+                        EncryptionChoice(encrypted: $m.newLibraryEncrypted, passphrase: $m.passphrase,
+                                         confirm: $m.passphraseConfirm, acknowledged: $m.acknowledgedRisk)
                     }
                     .padding(20)
                 }
@@ -519,8 +536,8 @@ private struct LibraryScreen: View {
             if showCreate {
                 Button { creating = true } label: { Label("Start a new library instead", systemImage: "plus.circle") }
             }
-            if !m.channels.isEmpty && (libraries.count > 1 || !others.isEmpty) {
-                Button { pickingChannel = true } label: { Label("Use another channel", systemImage: "list.bullet") }
+            if !others.isEmpty {
+                Button { pickingChannel = true } label: { Label("Use one of your other channels", systemImage: "list.bullet") }
             }
             Button { m.useDifferentAccount() } label: { Label("Use a different Telegram account", systemImage: "person.crop.circle") }
         }
@@ -539,62 +556,101 @@ private struct LibraryScreen: View {
     }
 }
 
-private struct LibraryCard: View {
+/// A library as a selectable card: name, Standard/Encrypted, and a rename button when selected.
+struct LibraryCard: View {
     let title: String
-    let subtitle: String
-    var highlighted = false
+    let encrypted: Bool
+    var selected = false
+    var badge: String? = nil
+    var onRename: (() -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: "photo.stack.fill")
-                .font(.title2).foregroundStyle(.white)
-                .frame(width: 56, height: 56)
-                .background(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing),
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        HStack(spacing: 14) {
+            Image(systemName: encrypted ? "lock.shield.fill" : "photo.stack.fill")
+                .font(.title3).foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background(LinearGradient(colors: encrypted ? [.purple, .indigo] : [.blue, .indigo],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing),
+                            in: RoundedRectangle(cornerRadius: 15, style: .continuous))
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.headline)
-                Label(subtitle, systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+                HStack(spacing: 6) {
+                    Text(title).font(.headline).lineLimit(1)
+                    if let badge {
+                        Text(badge).font(.caption2.weight(.bold)).padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(Color.accentColor.opacity(0.25), in: Capsule()).foregroundStyle(.tint)
+                    }
+                }
+                Label(encrypted ? "End-to-end encrypted" : "Standard · private channel", systemImage: encrypted ? "lock.fill" : "eye.slash")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+            if selected, let onRename {
+                Button(action: onRename) {
+                    Image(systemName: "pencil").font(.subheadline.weight(.semibold))
+                        .frame(width: 34, height: 34).background(Color.white.opacity(0.1), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Rename \(title)")
+            }
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                .font(.title3).foregroundStyle(selected ? Color.accentColor : .secondary)
         }
-        .padding(18)
-        .background(Color.white.opacity(highlighted ? 0.1 : 0.06), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(highlighted ? Color.accentColor.opacity(0.6) : .clear, lineWidth: 1))
+        .padding(16)
+        .background(Color.white.opacity(selected ? 0.1 : 0.05), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(selected ? Color.accentColor : .clear, lineWidth: 1.5))
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
-/// Standard vs end-to-end encrypted, as two option cards.
-private struct EncryptionChoice: View {
-    @ObservedObject var m: OnboardingModel
+/// Standard vs end-to-end encrypted, as two option cards (onboarding and Settings).
+struct EncryptionChoice: View {
+    @Binding var encrypted: Bool
+    @Binding var passphrase: String
+    @Binding var confirm: String
+    @Binding var acknowledged: Bool
+
+    /// Why the encrypted choice isn't ready yet (nil = ready).
+    static func problem(encrypted: Bool, passphrase: String, confirm: String, acknowledged: Bool) -> String? {
+        guard encrypted else { return nil }
+        if passphrase.count < 10 { return "Use at least 10 characters. A few random words work well." }
+        if passphrase != confirm { return "The passphrases don't match." }
+        if !acknowledged { return "Confirm you understand a lost passphrase means lost photos." }
+        return nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            option(encrypted: false, icon: "photo.on.rectangle", title: "Standard",
+            option(isEncrypted: false, icon: "photo.on.rectangle", title: "Standard",
                    detail: "Fastest. Files can also be opened in the Telegram app.")
-            option(encrypted: true, icon: "lock.shield.fill", title: "End-to-end encrypted",
+            option(isEncrypted: true, icon: "lock.shield.fill", title: "End-to-end encrypted",
                    detail: "Only CloudGallery on your devices can open your files.")
-            if m.newLibraryEncrypted {
+            if encrypted {
                 VStack(alignment: .leading, spacing: 10) {
-                    OnboardingField(placeholder: "Passphrase (10+ characters)", text: $m.passphrase, secure: true, content: .newPassword)
-                    OnboardingField(placeholder: "Repeat passphrase", text: $m.passphraseConfirm, secure: true, content: .newPassword)
-                    Toggle(isOn: $m.acknowledgedRisk) {
+                    OnboardingField(placeholder: "Passphrase (10+ characters)", text: $passphrase, secure: true, content: .newPassword)
+                    OnboardingField(placeholder: "Repeat passphrase", text: $confirm, secure: true, content: .newPassword)
+                    Toggle(isOn: $acknowledged) {
                         Text("I understand that if I lose this passphrase, nobody can recover my photos.")
                             .font(.footnote).foregroundStyle(.orange)
                     }
-                    if let p = m.newPassphraseProblem, !m.passphrase.isEmpty { Text(p).font(.footnote).foregroundStyle(.secondary) }
+                    if let p = Self.problem(encrypted: encrypted, passphrase: passphrase, confirm: confirm, acknowledged: acknowledged),
+                       !passphrase.isEmpty {
+                        Text(p).font(.footnote).foregroundStyle(.secondary)
+                    }
                     Text("This choice can't be changed later for this library.").font(.caption).foregroundStyle(.secondary)
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .animation(.spring(duration: 0.3), value: m.newLibraryEncrypted)
+        .animation(.spring(duration: 0.3), value: encrypted)
     }
 
-    private func option(encrypted: Bool, icon: String, title: String, detail: String) -> some View {
-        let selected = m.newLibraryEncrypted == encrypted
+    private func option(isEncrypted: Bool, icon: String, title: String, detail: String) -> some View {
+        let selected = encrypted == isEncrypted
         return Button {
             Haptics.tap()
-            m.newLibraryEncrypted = encrypted
+            encrypted = isEncrypted
         } label: {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: icon).font(.title3).foregroundStyle(selected ? .white : .secondary)
@@ -715,7 +771,7 @@ struct PressScaleStyle: ButtonStyle {
     }
 }
 
-private struct OnboardingField: View {
+struct OnboardingField: View {
     let placeholder: String
     @Binding var text: String
     var keyboard: UIKeyboardType = .default
@@ -737,6 +793,7 @@ private struct OnboardingField: View {
             .textInputAutocapitalization(.never)
             .focused($focused)
             .onSubmit(onSubmit)
+            .accessibilityLabel(placeholder)
             if secure {
                 Button { revealed.toggle() } label: { Image(systemName: revealed ? "eye.slash" : "eye").foregroundStyle(.secondary) }
                     .accessibilityLabel(revealed ? "Hide" : "Show")

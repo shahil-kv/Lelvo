@@ -11,7 +11,7 @@ final class SmokeTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestReset"]
         app.launch()
-        let start = app.buttons["Get started"]
+        let start = app.buttons["Continue with Telegram"]
         XCTAssertTrue(start.waitForExistence(timeout: 20), "Welcome screen should appear on a fresh install")
         start.tap()
         XCTAssertTrue(app.textFields["api_id"].waitForExistence(timeout: 10), "API credentials step should follow")

@@ -26,15 +26,26 @@ Read this first when resuming. **Priority: iOS.** Android is paused at the owner
 - Free Up Space (off by default) with TDLib verification; App Intents; BGProcessingTask; BGContinuedProcessingTask (iOS 26+)
 - Tests: 64 core unit tests (format, vectors, random-access crypto, split mapping, job machine, FLOOD_WAIT, dedupe, cache), UI smoke tests
 
+## iOS: device-tested fixes (v2.0.0-beta.4, 2026-10-23)
+
+- Tested on a real iPhone with a real account (local Xcode 27.1 + devicectl; see live console / `-verifyCloudReads*` self-tests).
+- Item ids lowercase (scan duplicates + false "not found" failures fixed; store repairs old data on open).
+- Store notifications async (deadlock/watchdog kill on Failed/Retry fixed).
+- Streaming: one continuous TDLib download window, stale-local-copy recovery (uploaded temp copies / moved containers), unique URL per player, neighbour prefetch shares the window, 30 s stuck timeout with diagnostics.
+- TDLib client start serialised (two clients raced on td.binlog).
+- Reinstall: restored items re-link to photos (caption `l` asset id, else name + second + size; `RestoreLinker`, unit-tested).
+- UI: Photos-style grid (single scrubber, zoom transition, cancellable thumbnails), Albums media types, viewer with custom video controls (⋯ speed/PiP/AirPlay, zoom), clear backup badges + legend, Backup complete state, redesigned onboarding, Libraries screen (switch / rename / create) in Settings.
+- Back up chosen photos; "Back up new photos automatically" toggle.
+
 ## iOS: not done / known gaps
 
-- Never run against a real Telegram account on a device yet: first-run bugs are likely. Logs: Settings → Logs → Share.
+- 720p preview copies for instant cloud playback are designed but not built.
 - "Smooth streaming copies" (1080p preview for > 500 MB videos) is not implemented.
 - One-time import of 1.0 (Bot API) uploads is not implemented; 1.0 files stay in the old channel.
 - Uploads can't run as iOS background transfers (MTProto); they run in-app, in continued-processing (iOS 26+), overnight while charging, or for ~25 s per Shortcut.
 - No dedicated performance profiling on 50k+ items yet.
 
-## How to verify locally (no Xcode on this machine)
+## How to verify locally
 
 - Core tests: `cd ios/CloudGalleryCore && swift test -Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing`
 - TDLib layer typecheck: a scratch SwiftPM package that symlinks `ios/CloudGallery/Services/Telegram/*.swift` plus `KeychainStore.swift` and `AppLog.swift`, depends on a local TDLibKit checkout with TDLibFramework as a local binary target (download `TDLibFramework.zip` from Swiftgram releases with curl).

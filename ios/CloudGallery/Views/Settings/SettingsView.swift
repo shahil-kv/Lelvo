@@ -31,6 +31,7 @@ struct SettingsView: View {
                     NavigationLink { LibrarySettingsView() } label: {
                         LabeledContent("Library", value: libraryName)
                     }
+                    .onAppear { Task { libraryName = await env.library.title() } }
                     LabeledContent("Encryption", value: env.library.isEncrypted ? "End-to-end (on)" : "Off")
                     Button("Re-scan library from Telegram") {
                         run("Library re-scanned") {
@@ -232,54 +233,69 @@ struct AboutView: View {
     }
 }
 
-/// The library channel: rename it, or switch to another library (restores it and re-links this iPhone).
+/// Every library in this Telegram account: rename any, switch to another, or create a new one.
+/// The same choice as during sign-in, without signing out.
 struct LibrarySettingsView: View {
-    @State private var name = ""
-    @State private var savedName = ""
     @State private var channels: [LibraryService.ChannelChoice] = []
     @State private var loading = false
-    @State private var switching: LibraryService.ChannelChoice?
-    @State private var passphrase = ""
     @State private var busy: String?
     @State private var alert: GalleryAlert?
+    @State private var renaming: LibraryService.ChannelChoice?
+    @State private var renameText = ""
+    @State private var switching: LibraryService.ChannelChoice?
+    @State private var switchPassphrase = ""
+    @State private var creating = false
+    @State private var newName = ""
+    @State private var newEncrypted = false
+    @State private var newPassphrase = ""
+    @State private var newConfirm = ""
+    @State private var newAcknowledged = false
     private var env: AppEnvironment { AppEnvironment.shared }
 
+    private var libraries: [LibraryService.ChannelChoice] {
+        channels.filter(\.isLibrary).sorted { a, b in (a.id == env.library.chatId ? 0 : 1, a.title) < (b.id == env.library.chatId ? 0 : 1, b.title) }
+    }
+
     var body: some View {
-        Form {
-            Section {
-                TextField("Library name", text: $name)
-                    .submitLabel(.done)
-                    .onSubmit(save)
-                if name != savedName && !name.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Button("Save name", action: save)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Your photos live in one library at a time. Tap another to switch; nothing is deleted from either.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                if loading && libraries.isEmpty {
+                    HStack(spacing: 10) { ProgressView(); Text("Looking for your libraries…").foregroundStyle(.secondary) }
+                        .padding(.vertical, 20)
                 }
-            } header: { Text("Name") } footer: {
-                Text("Renames the channel in Telegram. CloudGallery recognises your library by a hidden marker, so the name can be anything.")
-            }
-
-            Section {
-                LabeledContent("Encryption", value: env.library.isEncrypted ? "End-to-end" : "Standard")
-            }
-
-            Section {
-                if loading { HStack { ProgressView(); Text("Looking for libraries…").foregroundStyle(.secondary) } }
-                ForEach(channels.filter { $0.isLibrary && $0.id != env.library.chatId }) { c in
-                    Button { switching = c; passphrase = "" } label: {
-                        HStack {
-                            Label(c.title, systemImage: c.encrypted ? "lock.shield.fill" : "photo.stack.fill")
-                            Spacer()
-                            Text(c.encrypted ? "Encrypted" : "Standard").font(.caption).foregroundStyle(.secondary)
+                ForEach(libraries) { c in
+                    let current = c.id == env.library.chatId
+                    LibraryCard(title: c.title, encrypted: c.encrypted, selected: current, badge: current ? "CURRENT" : nil,
+                                onRename: { renameText = c.title; renaming = c })
+                        .onTapGesture {
+                            guard !current else { return }
+                            Haptics.tap()
+                            switchPassphrase = ""
+                            switching = c
                         }
-                    }
+                        .contextMenu {
+                            Button { renameText = c.title; renaming = c } label: { Label("Rename", systemImage: "pencil") }
+                            if !current {
+                                Button { switchPassphrase = ""; switching = c } label: { Label("Switch to this library", systemImage: "arrow.left.arrow.right") }
+                            }
+                        }
                 }
-                if !loading && !channels.contains(where: { $0.isLibrary && $0.id != env.library.chatId }) {
-                    Text("No other libraries in this Telegram account.").foregroundStyle(.secondary)
+                Button {
+                    newName = ""; newEncrypted = false; newPassphrase = ""; newConfirm = ""; newAcknowledged = false
+                    creating = true
+                } label: {
+                    Label("New library", systemImage: "plus").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 14)
                 }
-            } header: { Text("Switch library") } footer: {
-                Text("Switching loads the other library from Telegram and links your photos to it. Nothing is deleted from either library.")
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle(radius: 16))
+                .padding(.top, 6)
             }
+            .padding(16)
         }
-        .navigationTitle("Library")
+        .navigationTitle("Libraries")
+        .refreshable { await load() }
         .disabled(busy != nil)
         .overlay {
             if let busy {
@@ -288,65 +304,111 @@ struct LibrarySettingsView: View {
         }
         .task { await load() }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
-        .sheet(item: $switching) { c in
-            NavigationStack {
-                Form {
-                    Section {
-                        Text("Switch to “\(c.title)”? The backup restarts against that library.")
-                        if c.encrypted {
-                            SecureField("Passphrase", text: $passphrase).textContentType(.password)
-                        }
-                    }
+        .alert("Rename library", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $renameText)
+            Button("Cancel", role: .cancel) { renaming = nil }
+            Button("Save") { if let c = renaming { rename(c, to: renameText) }; renaming = nil }
+        } message: { Text("Only the name changes. Your photos stay where they are.") }
+        .sheet(item: $switching) { c in switchSheet(c) }
+        .sheet(isPresented: $creating) { createSheet }
+    }
+
+    private func switchSheet(_ c: LibraryService.ChannelChoice) -> some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                LibraryCard(title: c.title, encrypted: c.encrypted, selected: true)
+                Text("CloudGallery loads this library from Telegram and links your iPhone photos to it. Backups then go here.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                if c.encrypted {
+                    OnboardingField(placeholder: "Passphrase", text: $switchPassphrase, secure: true, content: .password, autofocus: true)
                 }
-                .navigationTitle("Switch library")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { switching = nil } }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Switch") { switchTo(c) }.disabled(c.encrypted && passphrase.isEmpty)
-                    }
+                Spacer()
+                PrimaryCapsuleButton(title: "Switch to “\(c.title)”", enabled: !c.encrypted || !switchPassphrase.isEmpty) {
+                    switchTo(c, passphrase: c.encrypted ? switchPassphrase : nil)
                 }
             }
-            .presentationDetents([.medium])
+            .padding(20)
+            .navigationTitle("Switch library")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { switching = nil } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var createSheet: some View {
+        let problem = EncryptionChoice.problem(encrypted: newEncrypted, passphrase: newPassphrase, confirm: newConfirm, acknowledged: newAcknowledged)
+        return NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("A new, empty library in your Telegram. Your current library stays as it is.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    OnboardingField(placeholder: "Library name", text: $newName, autofocus: true)
+                    EncryptionChoice(encrypted: $newEncrypted, passphrase: $newPassphrase, confirm: $newConfirm, acknowledged: $newAcknowledged)
+                }
+                .padding(20)
+            }
+            .safeAreaInset(edge: .bottom) {
+                PrimaryCapsuleButton(title: "Create and switch",
+                                     enabled: problem == nil && !newName.trimmingCharacters(in: .whitespaces).isEmpty) { create() }
+                    .padding(20)
+            }
+            .navigationTitle("New library")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { creating = false } } }
         }
     }
 
     private func load() async {
         loading = true
-        savedName = await env.library.title()
-        if name.isEmpty { name = savedName }
-        channels = (try? await env.library.candidateChannels()) ?? []
+        channels = (try? await env.library.candidateChannels()) ?? channels
         loading = false
     }
 
-    private func save() {
-        let new = name
+    private func rename(_ c: LibraryService.ChannelChoice, to title: String) {
         Task {
             busy = "Renaming…"
             defer { busy = nil }
             do {
-                try await env.library.rename(new)
-                savedName = new
+                try await env.library.rename(chatId: c.id, to: title)
                 Haptics.success()
+                await load()
             } catch { alert = GalleryAlert(title: "Couldn't rename", message: error.localizedDescription) }
         }
     }
 
-    private func switchTo(_ c: LibraryService.ChannelChoice) {
-        let pass = c.encrypted ? passphrase : nil
+    private func switchTo(_ c: LibraryService.ChannelChoice, passphrase: String?) {
         switching = nil
         Task {
             busy = "Switching to \(c.title)…"
             defer { busy = nil }
             do {
-                try await env.switchLibrary(to: c.id, passphrase: pass)
+                try await env.switchLibrary(to: c.id, passphrase: passphrase)
                 Haptics.success()
                 ContinuedBackup.start()
                 await load()
-                alert = GalleryAlert(title: "Switched", message: "Now using “\(c.title)”.")
             } catch {
                 Haptics.error()
                 alert = GalleryAlert(title: "Couldn't switch", message: error.localizedDescription)
+                await load()
+            }
+        }
+    }
+
+    private func create() {
+        let title = String(newName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(128))
+        let passphrase = newEncrypted ? newPassphrase : nil
+        creating = false
+        Task {
+            busy = "Creating “\(title)”…"
+            defer { busy = nil }
+            do {
+                try await env.createLibraryAndSwitch(title: title, passphrase: passphrase)
+                Haptics.success()
+                ContinuedBackup.start()
+                await load()
+            } catch {
+                Haptics.error()
+                alert = GalleryAlert(title: "Couldn't create the library", message: error.localizedDescription)
             }
         }
     }

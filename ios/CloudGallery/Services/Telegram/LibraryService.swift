@@ -94,6 +94,10 @@ final class LibraryService: @unchecked Sendable {
     /// Renames the channel. Libraries are recognised by their header, never by name, so this is safe.
     func rename(_ title: String) async throws {
         guard let chatId else { throw LibraryError.noLibrary }
+        try await rename(chatId: chatId, to: title)
+    }
+
+    func rename(chatId: Int64, to title: String) async throws {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         do { _ = try await td.api().setChatTitle(chatId: chatId, title: String(clean.prefix(128))) } catch { throw error.asTD }
