@@ -84,6 +84,8 @@ struct CloudGalleryApp: App {
                 env.td.start()
                 Task { await env.enforceCacheLimits() }
                 CloudReadCheck.runIfRequested()
+                // Cheap no-op unless restored items are still unlinked (e.g. right after a reinstall).
+                Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
             case .background:
                 env.originalsCache.flush()
                 env.thumbnailCache.flush()
