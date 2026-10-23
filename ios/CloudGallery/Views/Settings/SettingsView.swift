@@ -28,6 +28,11 @@ struct SettingsView: View {
                         LabeledContent("Library", value: libraryName)
                     }
                     .onAppear { Task { libraryName = await env.library.title() } }
+                    if let days = accountTtl, days >= 730 {
+                        Label("Account kept for 2 years without use", systemImage: "checkmark.shield.fill")
+                            .foregroundStyle(.green)
+                            .font(.subheadline)
+                    }
                     if let days = accountTtl, days < 730 {
                         VStack(alignment: .leading, spacing: 6) {
                             Label("Telegram deletes your account after \(days >= 365 ? "\(days / 365) year" : "\(days / 30) months") of inactivity, and your library with it.",
