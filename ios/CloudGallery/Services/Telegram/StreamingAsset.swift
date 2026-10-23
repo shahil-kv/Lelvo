@@ -29,7 +29,9 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
         var parts = URLComponents()
         parts.scheme = Self.scheme
         parts.host = "item"
-        parts.path = "/\(item.id)/\(role).\(ext)"
+        // Unique per player: AVFoundation reuses state for an identical URL, so reopening a video whose
+        // previous loader is gone failed with -11870 and took ~9 s to recover.
+        parts.path = "/\(item.id)/\(UUID().uuidString)/\(role).\(ext)"
         let url = parts.url ?? URL(fileURLWithPath: "/\(item.id).\(ext)")
         asset = AVURLAsset(url: url)
         super.init()
