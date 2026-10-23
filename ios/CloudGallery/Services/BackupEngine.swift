@@ -16,6 +16,8 @@ final class BackupActivity: ObservableObject {
     @Published var uploaded = 0
     @Published var failed = 0
     @Published var message: String?
+    /// Temporary notice while Telegram's requested pause is in effect; cleared when it ends.
+    @Published var notice: String?
 
     struct LaneProgress: Equatable {
         var name: String
@@ -83,7 +85,20 @@ final class BackupEngine: @unchecked Sendable {
         }
     }
 
-    enum Outcome { case uploaded, duplicate, failed, skipped }
+    enum Outcome { case uploaded, duplicate, failed, skipped, retryLater }
+
+    /// Minimum gap between starting uploads (across both lanes), so Telegram rarely has to say "slow down".
+    static let uploadSpacing: TimeInterval = 1.5
+    private var nextUploadStart = Date.distantPast
+
+    private func paceUploadStart() async {
+        let wait: TimeInterval = gate.withLock {
+            let slot = max(Date(), nextUploadStart)
+            nextUploadStart = slot.addingTimeInterval(Self.uploadSpacing)
+            return slot.timeIntervalSinceNow
+        }
+        if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+    }
 
     static let maxConcurrentUploads = 2
 
@@ -204,7 +219,12 @@ final class BackupEngine: @unchecked Sendable {
                             break
                         }
                         await waitForFloodPause(isCancelled: isCancelled)
+                        await paceUploadStart()
                         let outcome = await process(item, lane: lane, isCancelled: isCancelled)
+                        if outcome == .retryLater, await queue.requeue(item) {
+                            // Slowed down or a temporary network error: try again later in this same run.
+                            continue
+                        }
                         let done = await counter.record(outcome)
                         let snap = await counter.snapshot()
                         progress?(done, total)
@@ -222,7 +242,7 @@ final class BackupEngine: @unchecked Sendable {
         await env.enforceCacheLimits()
         if summary.uploaded > 0 { UserDefaults.standard.set(Date(), forKey: Prefs.Key.lastBackupAt) }
         let final = summary
-        await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.lanes = [:] }
+        await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.lanes = [:]; a.notice = nil }
         appLog("Backup run finished: \(summary.text)")
         return summary
     }
@@ -234,12 +254,16 @@ final class BackupEngine: @unchecked Sendable {
     }
 
     private func waitForFloodPause(isCancelled: () -> Bool) async {
+        var paused = false
         while !isCancelled() {
             let wait = gate.withLock { pausedUntil }.timeIntervalSinceNow
-            if wait <= 0 { return }
-            await publish { $0.message = "Telegram asked us to wait \(Int(wait)) s." }
-            try? await Task.sleep(nanoseconds: UInt64(min(wait, 5) * 1_000_000_000))
+            if wait <= 0 { break }
+            paused = true
+            let seconds = Int(wait.rounded(.up))
+            await publish { $0.notice = "Telegram asked to slow down: resuming in \(seconds) s." }
+            try? await Task.sleep(nanoseconds: UInt64(min(wait, 1) * 1_000_000_000))
         }
+        if paused { await publish { $0.notice = nil } }
     }
 
     // MARK: - One item
@@ -379,8 +403,12 @@ final class BackupEngine: @unchecked Sendable {
             item.job = JobMachine.reduce(item.job, .error(reason: error.localizedDescription, transient: false))
         }
         save(item)
-        AppLog.shared.error("Upload of \(item.filename) failed: \(error.localizedDescription)")
-        return item.status == .failed ? .failed : .skipped
+        if item.status == .failed {
+            AppLog.shared.error("Upload of \(item.filename) failed: \(error.localizedDescription)")
+            return .failed
+        }
+        appLog("Upload of \(item.filename) will be retried: \(error.localizedDescription)")
+        return .retryLater
     }
 
     private func captionMeta(_ item: MediaItem, role: CaptionMeta.Role, hash: String, name: String, size: Int64) -> CaptionMeta {
@@ -405,8 +433,18 @@ actor JobQueue {
     private var items: [MediaItem]
     init(items: [MediaItem]) { self.items = items.reversed() }
     var count: Int { items.count }
+    private var requeues: [String: Int] = [:]
     func next() -> MediaItem? { items.popLast() }
     func drain() { items.removeAll() }
+
+    /// Puts an item back at the end of the queue (at most 5 times per run). Returns false when exhausted.
+    func requeue(_ item: MediaItem) -> Bool {
+        let n = requeues[item.id, default: 0]
+        guard n < 5 else { return false }
+        requeues[item.id] = n + 1
+        items.insert(item, at: 0)
+        return true
+    }
 }
 
 actor Counter {
@@ -416,7 +454,7 @@ actor Counter {
         case .uploaded: uploaded += 1
         case .duplicate: duplicate += 1
         case .failed: failed += 1
-        case .skipped: break
+        case .skipped, .retryLater: break
         }
         done += 1
         return done

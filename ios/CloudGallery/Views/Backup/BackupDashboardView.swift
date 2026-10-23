@@ -87,6 +87,9 @@ struct BackupDashboardView: View {
                             Text("\(activity.done) of \(activity.total) done · \(activity.remaining) left")
                                 .font(.subheadline.monospacedDigit())
                         }
+                        if let notice = activity.notice {
+                            Label(notice, systemImage: "hourglass").font(.caption).foregroundStyle(.orange)
+                        }
                         if activity.failed > 0 {
                             Text("\(activity.failed) failed in this run (see Failed below)").font(.caption).foregroundStyle(.red)
                         }
