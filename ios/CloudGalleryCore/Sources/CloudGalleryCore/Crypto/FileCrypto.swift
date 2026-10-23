@@ -35,6 +35,11 @@ public enum FileCrypto {
     }
 
     public static func encrypt(input: URL, output: URL, masterKey: SymmetricKey, chunkSize: Int = defaultChunkSize) throws {
+        try encrypt(input: input, output: output, masterKey: masterKey, chunkSize: chunkSize, fileSalt: KeyDerivation.randomSalt(), nonces: nil)
+    }
+
+    /// `fileSalt`/`nonces` are fixed only when generating test vectors.
+    static func encrypt(input: URL, output: URL, masterKey: SymmetricKey, chunkSize: Int, fileSalt: Data, nonces: [Data]?) throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: output.path) { try fm.removeItem(at: output) }
         fm.createFile(atPath: output.path, contents: nil)
@@ -43,7 +48,7 @@ public enum FileCrypto {
         let writer = try FileHandle(forWritingTo: output)
         defer { try? writer.close() }
 
-        let salt = KeyDerivation.randomSalt()
+        let salt = fileSalt
         var header = magic
         header.append(version)
         header.append(contentsOf: withUnsafeBytes(of: UInt32(chunkSize).bigEndian) { Array($0) })
@@ -56,7 +61,8 @@ public enum FileCrypto {
         while true {
             let next = current.count == chunkSize ? (try reader.read(upToCount: chunkSize) ?? Data()) : Data()
             let isFinal = next.isEmpty
-            let box = try AES.GCM.seal(current, using: key, authenticating: aad(header: header, index: index, final: isFinal))
+            let nonce = try nonces.map { try AES.GCM.Nonce(data: $0[Int(index)]) } ?? AES.GCM.Nonce()
+            let box = try AES.GCM.seal(current, using: key, nonce: nonce, authenticating: aad(header: header, index: index, final: isFinal))
             try writer.write(contentsOf: box.combined!)
             if isFinal { break }
             current = next
@@ -78,7 +84,7 @@ public enum FileCrypto {
         guard Data(h[0..<4]) == magic else { throw CryptoError.badFormat }
         guard h[4] == version else { throw CryptoError.unsupportedVersion(h[4]) }
         let chunkSize = Int(h[5..<9].reduce(UInt32(0)) { $0 << 8 | UInt32($1) })
-        guard chunkSize > 0, chunkSize <= 64 << 20 else { throw CryptoError.badFormat }
+        guard chunkSize >= 1, chunkSize <= 64 << 20 else { throw CryptoError.badFormat }
         let key = fileKey(master: masterKey, salt: Data(h[9..<headerLength]))
         let sealedChunk = chunkSize + overheadPerChunk
 
@@ -103,6 +109,11 @@ public enum FileCrypto {
 
     public static func encrypt(data: Data, masterKey: SymmetricKey) throws -> Data {
         try roundTripViaFiles(data) { try encrypt(input: $0, output: $1, masterKey: masterKey) }
+    }
+
+    /// Deterministic encryption for cross-platform test vectors only.
+    public static func encryptForTesting(data: Data, masterKey: SymmetricKey, chunkSize: Int, fileSalt: Data, nonces: [Data]) throws -> Data {
+        try roundTripViaFiles(data) { try encrypt(input: $0, output: $1, masterKey: masterKey, chunkSize: chunkSize, fileSalt: fileSalt, nonces: nonces) }
     }
 
     public static func decrypt(data: Data, masterKey: SymmetricKey) throws -> Data {
