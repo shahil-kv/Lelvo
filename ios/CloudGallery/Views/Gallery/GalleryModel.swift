@@ -52,7 +52,13 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     private let env = AppEnvironment.shared
     private var reloadTask: Task<Void, Never>?
     private var observer: NSObjectProtocol?
-    private var groupByMonth = false
+    private var grouping: Grouping = .day
+
+    enum Grouping: Equatable {
+        case day, month, year
+        /// Denser grids group more coarsely, like Photos.
+        init(columns: Int) { self = columns >= 8 ? .year : (columns >= 6 ? .month : .day) }
+    }
 
     override init() {
         super.init()
@@ -70,10 +76,10 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         Task { @MainActor in self.scheduleReload() }
     }
 
-    func setGrouping(byMonth: Bool) {
-        guard byMonth != groupByMonth else { return }
-        groupByMonth = byMonth
-        sections = Self.group(entries, byMonth: byMonth)
+    func setGrouping(_ g: Grouping) {
+        guard g != grouping else { return }
+        grouping = g
+        sections = Self.group(entries, grouping: g)
     }
 
     func scheduleReload() {
@@ -88,12 +94,12 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     func reload() async {
         authorization = PhotoLibraryService.authorizationStatus
         let env = self.env
-        let byMonth = groupByMonth
+        let grouping = self.grouping
         let (entries, sections) = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection]) in
             let assets: PHFetchResult<PHAsset>? = PhotoLibraryService.hasAccess ? env.photos.fetchAllAssets() : nil
             let items = (try? env.store.allItems()) ?? []
             let merged = Self.merge(assets: assets, items: items)
-            return (merged, Self.group(merged, byMonth: byMonth))
+            return (merged, Self.group(merged, grouping: grouping))
         }.value
         self.entries = entries
         self.sections = sections
@@ -131,7 +137,7 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         return out
     }
 
-    nonisolated static func group(_ entries: [GalleryEntry], byMonth: Bool) -> [GallerySection] {
+    nonisolated static func group(_ entries: [GalleryEntry], grouping: Grouping) -> [GallerySection] {
         let cal = Calendar.current
         let dayFormatter = DateFormatter()
         dayFormatter.setLocalizedDateFormatFromTemplate("EEE d MMM yyyy")
@@ -144,15 +150,25 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         var bucket: [GalleryEntry] = []
         for entry in entries {
             let key: String
-            let title: String
+            var title = currentTitle
             if let date = entry.date {
                 let c = cal.dateComponents([.year, .month, .day], from: date)
-                key = byMonth ? "\(c.year!)-\(c.month!)" : "\(c.year!)-\(c.month!)-\(c.day!)"
+                let y = c.year ?? 0, m = c.month ?? 0, d = c.day ?? 0
+                switch grouping {
+                case .day: key = "\(y)-\(m)-\(d)"
+                case .month: key = "\(y)-\(m)"
+                case .year: key = "\(y)"
+                }
                 if key != currentKey {
-                    if cal.isDateInToday(date) && !byMonth { title = "Today" }
-                    else if cal.isDateInYesterday(date) && !byMonth { title = "Yesterday" }
-                    else { title = (byMonth ? monthFormatter : dayFormatter).string(from: date) }
-                } else { title = currentTitle }
+                    switch grouping {
+                    case .day:
+                        if cal.isDateInToday(date) { title = "Today" }
+                        else if cal.isDateInYesterday(date) { title = "Yesterday" }
+                        else { title = dayFormatter.string(from: date) }
+                    case .month: title = monthFormatter.string(from: date)
+                    case .year: title = String(y)
+                    }
+                }
             } else {
                 key = "unknown"
                 title = "Unknown date"
@@ -166,7 +182,14 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             bucket.append(entry)
         }
         if let currentKey, !bucket.isEmpty { sections.append(GallerySection(id: currentKey, title: currentTitle, entries: bucket)) }
-        return sections
+        // Undated items may appear in several runs; keep section ids unique for ScrollViewReader.
+        var seen = Set<String>()
+        return sections.map { s in
+            var id = s.id
+            var n = 1
+            while !seen.insert(id).inserted { n += 1; id = "\(s.id)#\(n)" }
+            return GallerySection(id: id, title: s.title, entries: s.entries)
+        }
     }
 
     func registerForChangesIfNeeded() {

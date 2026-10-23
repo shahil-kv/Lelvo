@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 final class AppModel: ObservableObject {
     static let shared = AppModel()
 
-    enum Tab: Hashable { case gallery, backup, settings }
+    enum Tab: Hashable { case gallery, albums, backup, settings }
 
     @Published var onboardingComplete = Prefs.onboardingComplete
     @Published var selectedTab: Tab = .gallery
