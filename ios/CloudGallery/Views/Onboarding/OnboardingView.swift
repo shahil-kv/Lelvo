@@ -301,68 +301,7 @@ struct OnboardingView: View {
         }
     }
 
-    private var library: some View {
-        OnboardingPage(icon: "photo.stack.fill", title: "Your library",
-                       subtitle: "Everything lives in one private Telegram channel that only you can see.", m: m) {
-            VStack(alignment: .leading, spacing: 22) {
-                let libraries = m.channels.filter(\.isLibrary)
-                let others = m.channels.filter { !$0.isLibrary }
-                if m.loadingChannels {
-                    HStack(spacing: 10) { ProgressView(); Text("Looking for your library…").foregroundStyle(.secondary) }
-                }
-                if !libraries.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        sectionLabel("Restore")
-                        ForEach(libraries) { c in
-                            channelRow(c, icon: "arrow.clockwise.icloud.fill", subtitle: "Your CloudGallery library", highlight: true)
-                        }
-                    }
-                }
-                VStack(alignment: .leading, spacing: 10) {
-                    sectionLabel(libraries.isEmpty ? "Start fresh" : "Or start a new one")
-                    VStack(alignment: .leading, spacing: 12) {
-                        Toggle(isOn: $m.newLibraryEncrypted) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("End-to-end encryption").font(.subheadline.weight(.semibold))
-                                Text(m.newLibraryEncrypted ? "Only CloudGallery can open your files." : "Files can also be opened in Telegram.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        if m.newLibraryEncrypted {
-                            OnboardingField(placeholder: "Passphrase (10+ characters)", text: $m.passphrase, secure: true, content: .newPassword)
-                            OnboardingField(placeholder: "Repeat passphrase", text: $m.passphraseConfirm, secure: true, content: .newPassword)
-                            Toggle(isOn: $m.acknowledgedRisk) {
-                                Text("I understand a lost passphrase means lost photos.").font(.caption).foregroundStyle(.orange)
-                            }
-                            if let p = m.newPassphraseProblem, !m.passphrase.isEmpty { Text(p).font(.caption).foregroundStyle(.secondary) }
-                        }
-                        Button { m.createLibrary() } label: {
-                            Label("Create “\(LibraryService.titleDefault)”", systemImage: "plus")
-                                .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 12)
-                        }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .disabled(m.busy || m.newPassphraseProblem != nil)
-                    }
-                    .padding(16)
-                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                }
-                if !others.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        sectionLabel("Use one of your channels")
-                        ForEach(others) { c in channelRow(c, icon: "megaphone.fill", subtitle: "Turn it into your library", highlight: false) }
-                    }
-                }
-                HStack {
-                    Button("Refresh") { m.loadChannels() }
-                    Spacer()
-                    Button("Use a different account") { m.useDifferentAccount() }
-                }
-                .font(.footnote.weight(.medium))
-                .disabled(m.busy)
-            }
-        }
-    }
+    private var library: some View { LibraryScreen(m: m) }
 
     private var unlock: some View {
         OnboardingPage(icon: "lock.shield.fill", title: "Unlock your library",
@@ -428,10 +367,6 @@ struct OnboardingView: View {
         }
     }
 
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(.secondary).tracking(0.6)
-    }
-
     private func feature(_ icon: String, _ title: String, _ detail: String) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: icon).font(.title3).foregroundStyle(.tint).frame(width: 30)
@@ -443,25 +378,211 @@ struct OnboardingView: View {
         .padding(.vertical, 4)
     }
 
-    private func channelRow(_ c: LibraryService.ChannelChoice, icon: String, subtitle: String, highlight: Bool) -> some View {
-        Button { m.choose(c) } label: {
-            HStack(spacing: 14) {
-                Image(systemName: icon).font(.title3).foregroundStyle(highlight ? .white : .accentColor)
-                    .frame(width: 44, height: 44)
-                    .background(highlight ? Color.accentColor : Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(c.title).font(.headline).foregroundStyle(.primary)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+}
+
+// MARK: - Library
+
+/// One clear decision: restore the library we found, or create one. Everything else is a secondary link.
+private struct LibraryScreen: View {
+    @ObservedObject var m: OnboardingModel
+    @State private var creating = false
+    @State private var pickingChannel = false
+
+    private var libraries: [LibraryService.ChannelChoice] { m.channels.filter(\.isLibrary) }
+    private var others: [LibraryService.ChannelChoice] { m.channels.filter { !$0.isLibrary } }
+
+    var body: some View {
+        Group {
+            if m.loadingChannels && m.channels.isEmpty {
+                searching
+            } else if let found = libraries.first {
+                OnboardingPage(icon: "checkmark.icloud.fill", title: "Welcome back",
+                               subtitle: "We found your library in Telegram. Restore it to see everything you've backed up.",
+                               m: m, button: .init(title: "Restore my library", enabled: true) { m.choose(found) }) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        LibraryCard(title: found.title, subtitle: "Private channel · only you can see it", highlighted: true)
+                        if libraries.count > 1 {
+                            Text("\(libraries.count) libraries found. Choose another with “Use another channel”.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        secondaryLinks(showCreate: true)
+                    }
                 }
-                Spacer()
-                if m.busy { ProgressView() } else { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
+            } else {
+                OnboardingPage(icon: "photo.stack.fill", title: "Create your library",
+                               subtitle: "CloudGallery keeps your backup in a private Telegram channel that only you can see.",
+                               m: m, button: .init(title: "Create my library", enabled: m.newPassphraseProblem == nil) { m.createLibrary() }) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        EncryptionChoice(m: m)
+                        secondaryLinks(showCreate: false)
+                    }
+                }
             }
-            .padding(14)
-            .background(Color.white.opacity(highlight ? 0.1 : 0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .sheet(isPresented: $creating) {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("A new, empty library is created next to your current one.").foregroundStyle(.secondary)
+                        EncryptionChoice(m: m)
+                    }
+                    .padding(20)
+                }
+                .safeAreaInset(edge: .bottom) {
+                    PrimaryCapsuleButton(title: "Create library", enabled: m.newPassphraseProblem == nil, busy: m.busy) {
+                        creating = false
+                        m.createLibrary()
+                    }
+                    .padding(20)
+                }
+                .navigationTitle("New library")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { creating = false } } }
+            }
+            .presentationDetents([.large])
+            .preferredColorScheme(.dark)
+        }
+        .sheet(isPresented: $pickingChannel) {
+            NavigationStack {
+                List {
+                    if !libraries.isEmpty {
+                        Section("CloudGallery libraries") {
+                            ForEach(libraries) { c in channelButton(c, icon: "photo.stack.fill") }
+                        }
+                    }
+                    if !others.isEmpty {
+                        Section {
+                            ForEach(others) { c in channelButton(c, icon: "megaphone.fill") }
+                        } header: { Text("Your channels") } footer: {
+                            Text("Any channel you own can become your library.")
+                        }
+                    }
+                    if m.channels.isEmpty { Text("No channels found.").foregroundStyle(.secondary) }
+                }
+                .navigationTitle("Choose a channel")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { pickingChannel = false } }
+                    ToolbarItem(placement: .primaryAction) { Button { m.loadChannels() } label: { Image(systemName: "arrow.clockwise") } }
+                }
+            }
+            .presentationDetents([.medium, .large])
+            .preferredColorScheme(.dark)
+        }
+    }
+
+    private var searching: some View {
+        VStack(spacing: 18) {
+            Spacer()
+            ProgressView().controlSize(.large)
+            Text("Looking for your library…").font(.title3.weight(.semibold))
+            Text("Checking your Telegram channels").foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder private func secondaryLinks(showCreate: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if showCreate {
+                Button { creating = true } label: { Label("Start a new library instead", systemImage: "plus.circle") }
+            }
+            if !m.channels.isEmpty && (libraries.count > 1 || !others.isEmpty) {
+                Button { pickingChannel = true } label: { Label("Use another channel", systemImage: "list.bullet") }
+            }
+            Button { m.useDifferentAccount() } label: { Label("Use a different Telegram account", systemImage: "person.crop.circle") }
+        }
+        .font(.subheadline.weight(.medium))
+        .disabled(m.busy)
+        .padding(.top, 4)
+    }
+
+    private func channelButton(_ c: LibraryService.ChannelChoice, icon: String) -> some View {
+        Button {
+            pickingChannel = false
+            m.choose(c)
+        } label: {
+            Label { Text(c.title).foregroundStyle(.primary) } icon: { Image(systemName: icon) }
+        }
+    }
+}
+
+private struct LibraryCard: View {
+    let title: String
+    let subtitle: String
+    var highlighted = false
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: "photo.stack.fill")
+                .font(.title2).foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .background(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing),
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline)
+                Label(subtitle, systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(18)
+        .background(Color.white.opacity(highlighted ? 0.1 : 0.06), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(highlighted ? Color.accentColor.opacity(0.6) : .clear, lineWidth: 1))
+    }
+}
+
+/// Standard vs end-to-end encrypted, as two option cards.
+private struct EncryptionChoice: View {
+    @ObservedObject var m: OnboardingModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            option(encrypted: false, icon: "photo.on.rectangle", title: "Standard",
+                   detail: "Fastest. Files can also be opened in the Telegram app.")
+            option(encrypted: true, icon: "lock.shield.fill", title: "End-to-end encrypted",
+                   detail: "Only CloudGallery on your devices can open your files.")
+            if m.newLibraryEncrypted {
+                VStack(alignment: .leading, spacing: 10) {
+                    OnboardingField(placeholder: "Passphrase (10+ characters)", text: $m.passphrase, secure: true, content: .newPassword)
+                    OnboardingField(placeholder: "Repeat passphrase", text: $m.passphraseConfirm, secure: true, content: .newPassword)
+                    Toggle(isOn: $m.acknowledgedRisk) {
+                        Text("I understand that if I lose this passphrase, nobody can recover my photos.")
+                            .font(.footnote).foregroundStyle(.orange)
+                    }
+                    if let p = m.newPassphraseProblem, !m.passphrase.isEmpty { Text(p).font(.footnote).foregroundStyle(.secondary) }
+                    Text("This choice can't be changed later for this library.").font(.caption).foregroundStyle(.secondary)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.spring(duration: 0.3), value: m.newLibraryEncrypted)
+    }
+
+    private func option(encrypted: Bool, icon: String, title: String, detail: String) -> some View {
+        let selected = m.newLibraryEncrypted == encrypted
+        return Button {
+            Haptics.tap()
+            m.newLibraryEncrypted = encrypted
+        } label: {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: icon).font(.title3).foregroundStyle(selected ? .white : .secondary)
+                    .frame(width: 42, height: 42)
+                    .background(selected ? Color.accentColor : Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.headline).foregroundStyle(.primary)
+                    Text(detail).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3).foregroundStyle(selected ? Color.accentColor : .secondary)
+            }
+            .padding(16)
+            .background(Color.white.opacity(selected ? 0.1 : 0.05), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(selected ? Color.accentColor : .clear, lineWidth: 1.5))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(m.busy)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
