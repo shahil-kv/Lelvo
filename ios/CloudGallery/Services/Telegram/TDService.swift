@@ -456,11 +456,21 @@ final class TDService: @unchecked Sendable {
         let started = Foundation.Date()
         var myWindow: Int64?
         var lastIssue: Foundation.Date?
+        var lastReport = started
         while true {
             try Task.checkCancellation()
             let have = (try? await client.getFileDownloadedPrefixSize(fileId: fileId, offset: offset))?.size ?? 0
             if have >= count { break }
             let file = try await client.getFile(fileId: fileId)
+            if Foundation.Date().timeIntervalSince(lastReport) > 5 {
+                lastReport = Foundation.Date()
+                let waited = Int(lastReport.timeIntervalSince(started))
+                let window = lock.withLock { streamWindows[fileId] }
+                AppLog.shared.warn("Stream stuck \(waited) s: file \(fileId) want \(count) at \(offset), have \(have); window \(window.map(String.init) ?? "none"); "
+                    + "active \(file.local.isDownloadingActive) downloaded \(file.local.downloadedSize)/\(file.size) canDownload \(file.local.canBeDownloaded) "
+                    + "remote '\(file.remote.id.prefix(12))…' uploaded \(file.remote.isUploadingCompleted) path '\(file.local.path.suffix(60))'")
+                if waited >= 30 { throw TDServiceError.sendFailed("Telegram didn't deliver this video's data for 30 s") }
+            }
             if file.local.isDownloadingCompleted || (file.size > 0 && offset + have >= Int64(file.size)) { break }
             let window = lock.withLock { streamWindows[fileId] }
             let reach: Int64 = await {

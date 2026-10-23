@@ -171,7 +171,9 @@ final class MediaReader: @unchecked Sendable {
     func prefetch(_ item: MediaItem, role: String = "o", bytes: Int64 = 2 << 20) {
         Task.detached(priority: .utility) { [self] in
             let size = (try? await plaintextSize(item, role: role)) ?? 0
-            _ = try? await read(item, role: role, range: 0..<min(size, bytes), priority: 4)
+            // Same streaming path as the player, so swiping to this video shares the download instead of
+            // waiting behind a separate low-priority one holding the file gate (AVPlayer timed out at 18 s).
+            _ = try? await read(item, role: role, range: 0..<min(size, bytes), streaming: true)
         }
     }
 

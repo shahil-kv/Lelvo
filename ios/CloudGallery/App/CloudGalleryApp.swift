@@ -126,12 +126,17 @@ enum CloudReadCheck {
     private static var started = false
 
     @MainActor static func runIfRequested() {
-        guard ProcessInfo.processInfo.arguments.contains("-verifyCloudReads"), !started else { return }
+        let args = ProcessInfo.processInfo.arguments
+        guard args.contains("-verifyCloudReads") || args.contains("-verifyCloudReadsName"), !started else { return }
         started = true
         Task.detached(priority: .utility) {
             let env = AppEnvironment.shared
             try? await env.td.waitUntilReady(timeout: 60)
-            let videos = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.kind == .video && $0.isViewableFromCloud }
+            // Optional `-verifyCloudReadsName <filename>` limits the check to one file.
+            let args = ProcessInfo.processInfo.arguments
+            let only = args.firstIndex(of: "-verifyCloudReadsName").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
+            let videos = ((try? env.store.items(status: .backedUp)) ?? [])
+                .filter { $0.kind == .video && $0.isViewableFromCloud && (only == nil || $0.filename == only) }
             appLog("Cloud read check: \(videos.count) videos")
             var failed = 0
             for item in videos {
@@ -140,6 +145,21 @@ enum CloudReadCheck {
                     let head = try await env.reader.read(item, role: "o", range: 0..<min(size, 65536), streaming: true)
                     let tail = try await env.reader.read(item, role: "o", range: max(0, size - 65536)..<size, streaming: true)
                     if head.isEmpty || tail.isEmpty { throw MediaReader.ReadError.missing }
+                    if args.contains("-verifyCloudReadsFull") {
+                        // Sequential 1 MB reads like the player, timing the slow ones.
+                        let started = Date()
+                        var offset: Int64 = 0
+                        while offset < size {
+                            let t = Date()
+                            let chunk = try await env.reader.read(item, role: "o", range: offset..<min(size, offset + (1 << 20)), streaming: true)
+                            if chunk.isEmpty { throw MediaReader.ReadError.missing }
+                            let dt = Date().timeIntervalSince(t)
+                            if dt > 1 { appLog(String(format: "Cloud read check: %@ slice at %lld took %.1f s", item.filename, offset, dt)) }
+                            offset += Int64(chunk.count)
+                        }
+                        let total = Date().timeIntervalSince(started)
+                        appLog(String(format: "Cloud read check: %@ read fully in %.1f s (%.1f MB/s)", item.filename, total, Double(size) / 1_048_576 / max(total, 0.01)))
+                    }
                 } catch {
                     failed += 1
                     AppLog.shared.error("Cloud read check: \(item.filename) failed: \(error.localizedDescription)")
