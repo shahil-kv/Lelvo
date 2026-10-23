@@ -203,11 +203,12 @@ jobs:
       - name: Choose IPA (newest SDK that built)
         id: pick
         run: |
-          ls -R artifacts
-          for label in xcode-27 macos-latest; do
-            if [ -f "artifacts/CloudGallery-ipa-$label/CloudGallery.ipa" ]; then
-              echo "dir=artifacts/CloudGallery-ipa-$label" >> "$GITHUB_OUTPUT"
-              echo "label=$label" >> "$GITHUB_OUTPUT"
+          find artifacts -type f | sort
+          # With one artifact, download-artifact puts files directly in artifacts/ (no per-artifact folder).
+          for dir in artifacts/CloudGallery-ipa-xcode-27 artifacts/CloudGallery-ipa-macos-latest artifacts; do
+            if [ -f "$dir/CloudGallery.ipa" ]; then
+              echo "dir=$dir" >> "$GITHUB_OUTPUT"
+              echo "label=$(basename "$dir" | sed 's/CloudGallery-ipa-//')" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           done
