@@ -54,6 +54,7 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
                 try await self.serve(loadingRequest)
                 if !Task.isCancelled { loadingRequest.finishLoading() }
             } catch {
+                AppLog.shared.error("Streaming \(self.item.filename) failed: \(error) / \(error.localizedDescription)")
                 if !Task.isCancelled { loadingRequest.finishLoading(with: error) }
             }
             _ = self.lock.withLock { self.tasks.removeValue(forKey: key) }

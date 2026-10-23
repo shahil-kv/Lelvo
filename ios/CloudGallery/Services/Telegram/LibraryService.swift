@@ -136,6 +136,7 @@ final class LibraryService: @unchecked Sendable {
     /// Reads the header of an existing channel (pinned header message first, then the description).
     func readHeader(chatId: Int64) async -> LibraryHeader? {
         guard let api = try? td.api() else { return nil }
+        await td.ensureChat(chatId)
         if let pinned = try? await api.getChatPinnedMessage(chatId: chatId),
            case .messageText(let t) = pinned.content, let h = LibraryHeader.parse(t.text.text) {
             return h
@@ -188,6 +189,7 @@ final class LibraryService: @unchecked Sendable {
         guard let chatId else { throw LibraryError.noLibrary }
         guard isUnlocked else { throw LibraryError.locked }
         let api = try td.api()
+        await td.ensureChat(chatId)
         let stopAt: Int64 = full ? 0 : Int64(UserDefaults.standard.integer(forKey: Self.lastScanKey))
         var summary = ScanSummary()
         var cloud: [CloudMessage] = []

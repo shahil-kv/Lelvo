@@ -184,7 +184,7 @@ final class TDService: @unchecked Sendable {
             self?.handle(data, client: client)
         }
         _ = try? newClient.execute(query: DTO(SetLogVerbosityLevel(newVerbosityLevel: 1)))
-        lock.lock(); client = newClient; lock.unlock()
+        lock.lock(); client = newClient; loadedChats.removeAll(); lock.unlock()
         setAuth(.starting)
     }
 
@@ -340,6 +340,7 @@ final class TDService: @unchecked Sendable {
     /// `progress` reports (uploaded, total) bytes.
     func sendDocument(chatId: Int64, fileURL: URL, caption: String, thumbnail: (URL, Int, Int)?,
                       progress: ((Int64, Int64) -> Void)? = nil) async throws -> Message {
+        await ensureChat(chatId)
         let client = try requireClient()
         let content = InputMessageContent.inputMessageDocument(InputMessageDocument(
             caption: FormattedText(entities: [], text: caption),
@@ -375,6 +376,7 @@ final class TDService: @unchecked Sendable {
     }
 
     func sendText(chatId: Int64, text: String) async throws -> Message {
+        await ensureChat(chatId)
         let client = try requireClient()
         let content = InputMessageContent.inputMessageText(InputMessageText(
             clearDraft: false, linkPreviewOptions: nil, text: FormattedText(entities: [], text: text)))
@@ -395,10 +397,12 @@ final class TDService: @unchecked Sendable {
 
     /// The document file of a message, or nil if the message is gone or isn't a document.
     func documentFile(chatId: Int64, messageId: Int64) async throws -> (File, Document)? {
+        await ensureChat(chatId)
         let msg: Message
         do { msg = try await requireClient().getMessage(chatId: chatId, messageId: messageId) }
         catch {
             let mapped = error.asTD
+            AppLog.shared.warn("Reading message \(messageId) failed: \(mapped.localizedDescription)")
             if case TDServiceError.telegram(let code, _)? = mapped as? TDServiceError, code == 404 || code == 400 { return nil }
             throw mapped
         }
@@ -435,6 +439,26 @@ final class TDService: @unchecked Sendable {
     }
 
     private var fileGates: [Int: AsyncGate] = [:]
+    private var loadedChats = Set<Int64>()
+
+    /// TDLib only knows chats it has loaded in this session; after a restart the library channel must be
+    /// loaded before its messages can be read ("Chat not found" otherwise).
+    func ensureChat(_ chatId: Int64) async {
+        if lock.withLock({ loadedChats.contains(chatId) }) { return }
+        guard let client = try? requireClient() else { return }
+        var ok = (try? await client.getChat(chatId: chatId)) != nil
+        if !ok {
+            // Channel chat ids are -100<supergroup id>.
+            let supergroupId = -(chatId + 1_000_000_000_000)
+            if supergroupId > 0 { ok = (try? await client.createSupergroupChat(force: true, supergroupId: supergroupId)) != nil }
+        }
+        if !ok {
+            _ = try? await client.loadChats(chatList: .chatListMain, limit: 500)
+            ok = (try? await client.getChat(chatId: chatId)) != nil
+        }
+        if ok { lock.withLock { _ = loadedChats.insert(chatId) } }
+        else { AppLog.shared.warn("Couldn't load the library channel") }
+    }
 
     private func fileGate(_ id: Int) -> AsyncGate {
         lock.withLock {
@@ -460,6 +484,7 @@ final class TDService: @unchecked Sendable {
     }
 
     func history(chatId: Int64, fromMessageId: Int64, limit: Int = 100) async throws -> [Message] {
+        await ensureChat(chatId)
         do {
             return try await requireClient().getChatHistory(chatId: chatId, fromMessageId: fromMessageId, limit: limit,
                                                             offset: 0, onlyLocal: false).messages ?? []
@@ -467,6 +492,7 @@ final class TDService: @unchecked Sendable {
     }
 
     func deleteMessages(chatId: Int64, ids: [Int64]) async throws {
+        await ensureChat(chatId)
         guard !ids.isEmpty else { return }
         do { _ = try await requireClient().deleteMessages(chatId: chatId, messageIds: ids, revoke: true) } catch { throw error.asTD }
     }
