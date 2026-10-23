@@ -635,6 +635,24 @@ final class TDService: @unchecked Sendable {
                                                        size: maxBytes, ttl: 7 * 24 * 3600)
     }
 
+    /// Deletes every downloaded file (Settings → Storage → Clear): TDLib's cache with no age/size/immunity
+    /// exceptions, then any leftovers TDLib no longer tracks (stale partial downloads). Anything needed again
+    /// is re-downloaded from Telegram on demand (see `readPart` recovery).
+    func clearAllFiles() async {
+        if let client = try? requireClient() {
+            _ = try? await client.optimizeStorage(chatIds: nil, chatLimit: 0, count: 0, excludeChatIds: nil,
+                                                 fileTypes: nil, immunityDelay: 0, returnDeletedFileStatistics: false,
+                                                 size: 0, ttl: 0)
+        }
+        let fm = FileManager.default
+        for sub in (try? fm.contentsOfDirectory(at: filesDirectory, includingPropertiesForKeys: nil)) ?? [] {
+            for file in (try? fm.contentsOfDirectory(at: sub, includingPropertiesForKeys: nil)) ?? [] {
+                try? fm.removeItem(at: file)
+            }
+        }
+        lock.withLock { streamWindows.removeAll() }
+    }
+
     func storageUsage() -> Int64 {
         let fm = FileManager.default
         guard let e = fm.enumerator(at: filesDirectory, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }

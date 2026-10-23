@@ -28,6 +28,7 @@ struct SettingsView: View {
                         LabeledContent("Library", value: libraryName)
                     }
                     .onAppear { Task { libraryName = await env.library.title() } }
+                    LabeledContent("Encryption", value: env.library.isEncrypted ? "End-to-end" : "Standard")
                     if let days = accountTtl, days >= 730 {
                         Label("Account kept for 2 years without use", systemImage: "checkmark.shield.fill")
                             .foregroundStyle(.green)

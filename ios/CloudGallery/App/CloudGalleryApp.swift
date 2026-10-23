@@ -84,6 +84,14 @@ struct CloudGalleryApp: App {
                 env.td.start()
                 Task { await env.enforceCacheLimits() }
                 CloudReadCheck.runIfRequested()
+                if ProcessInfo.processInfo.arguments.contains("-clearCacheTest") {
+                    Task.detached {
+                        try? await env.td.waitUntilReady(timeout: 30)
+                        let before = env.media.cacheUsage
+                        appLog("Clear test: before \(Format.bytes(before.total)) (thumbnails \(Format.bytes(before.thumbnails)), viewed \(Format.bytes(before.originals)), Telegram \(Format.bytes(before.telegram)))")
+                        await env.media.clearCaches()
+                    }
+                }
                 // Cheap no-op unless restored items are still unlinked (e.g. right after a reinstall).
                 Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
             case .background:

@@ -103,7 +103,10 @@ final class CloudMediaService: @unchecked Sendable {
         memory.removeAllObjects()
         env.thumbnailCache.clear()
         env.originalsCache.clear()
-        if env.td.isReady { await env.td.optimizeStorage(maxBytes: 0) }
+        await env.td.clearAllFiles()
+        env.reader.forgetCaches()
+        let left = cacheUsage
+        appLog("Cleared caches: \(Format.bytes(left.total)) left (thumbnails \(Format.bytes(left.thumbnails)), viewed \(Format.bytes(left.originals)), Telegram \(Format.bytes(left.telegram)))")
     }
 
     func trimMemory() { memory.removeAllObjects() }
