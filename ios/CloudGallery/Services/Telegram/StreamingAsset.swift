@@ -92,7 +92,7 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
         var offset = start
         while offset < end {
             try Task.checkCancellation()
-            let chunk = try await reader.read(item, role: role, range: offset ..< min(end, offset + Self.slice))
+            let chunk = try await reader.read(item, role: role, range: offset ..< min(end, offset + Self.slice), streaming: true)
             if chunk.isEmpty { break }
             data.respond(with: chunk)
             offset += Int64(chunk.count)

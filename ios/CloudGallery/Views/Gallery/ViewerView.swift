@@ -244,7 +244,6 @@ struct ViewerPage: View {
                 let s = StreamingAsset(item: item, role: "o", reader: env.reader)
                 stream = s
                 let playerItem = AVPlayerItem(asset: s.asset)
-                playerItem.preferredForwardBufferDuration = 4
                 content = .video(AVPlayer(playerItem: playerItem))
             case .livePhoto:
                 let url = try await env.media.original(for: item)

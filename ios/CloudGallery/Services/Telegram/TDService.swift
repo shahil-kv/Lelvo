@@ -445,6 +445,52 @@ final class TDService: @unchecked Sendable {
         throw lastError
     }
 
+    /// Where the continuous streaming download of each file started (TDLib keeps one download per file).
+    private var streamWindows: [Int: Int64] = [:]
+
+    /// Streaming read for the video player: keeps one continuous TDLib download running ahead of the
+    /// playhead, like Telegram's own player, instead of one request per slice (which can't keep up with 4K).
+    /// The window only moves when the player asks for bytes outside it (a seek, or the `moov` at the end).
+    func streamRead(fileId: Int, offset: Int64, count: Int64) async throws -> Data {
+        let client = try requireClient()
+        let started = Foundation.Date()
+        var lastIssue: Foundation.Date?
+        while true {
+            try Task.checkCancellation()
+            let have = (try? await client.getFileDownloadedPrefixSize(fileId: fileId, offset: offset))?.size ?? 0
+            if have >= count { break }
+            let file = try await client.getFile(fileId: fileId)
+            if file.local.isDownloadingCompleted || (file.size > 0 && offset + have >= Int64(file.size)) { break }
+            let window = lock.withLock { streamWindows[fileId] }
+            let windowCovers: Bool = await {
+                guard let window, window <= offset, file.local.isDownloadingActive else { return false }
+                let reach = (try? await client.getFileDownloadedPrefixSize(fileId: fileId, offset: window))?.size ?? 0
+                return offset <= window + reach + (2 << 20)
+            }()
+            // A download just started may not report as active yet; give it a moment before moving the window.
+            if !windowCovers && lastIssue.map({ Foundation.Date().timeIntervalSince($0) > 2 }) ?? true {
+                // Same gate as full downloads (share/save), so a running full download isn't cancelled.
+                let gate = fileGate(fileId)
+                await gate.acquire()
+                await dropStaleLocalCopy(client, fileId: fileId)
+                do {
+                    _ = try await client.downloadFile(fileId: fileId, limit: 0, offset: offset, priority: 32, synchronous: false)
+                    lock.withLock { streamWindows[fileId] = offset }
+                } catch {
+                    await gate.release()
+                    throw error.asTD
+                }
+                await gate.release()
+                lastIssue = Foundation.Date()
+            }
+            try await Task.sleep(nanoseconds: 40_000_000)
+        }
+        let waited = Foundation.Date().timeIntervalSince(started)
+        if waited > 1 { AppLog.shared.warn(String(format: "Playback waited %.1f s for %lld bytes at %lld (file %d)", waited, count, offset, fileId)) }
+        do { return try await client.readFilePart(count: count, fileId: fileId, offset: offset).data }
+        catch { throw error.asTD }
+    }
+
     private var checkedFiles = Set<Int>()
 
     /// TDLib remembers partial downloads by absolute path, but iOS moves the app container on reinstall,

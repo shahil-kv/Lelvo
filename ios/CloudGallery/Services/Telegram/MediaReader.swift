@@ -58,7 +58,8 @@ final class MediaReader: @unchecked Sendable {
     }
 
     /// Raw stream bytes for `range`, spanning split parts.
-    func readStream(_ item: MediaItem, role: String, range: Range<Int64>, priority: Int = 32) async throws -> Data {
+    /// `streaming` uses the player's continuous download window instead of one request per range.
+    func readStream(_ item: MediaItem, role: String, range: Range<Int64>, priority: Int = 32, streaming: Bool = false) async throws -> Data {
         let ps = parts(item, role: role)
         guard !ps.isEmpty else { throw ReadError.missing }
         let partSize = ps.count > 1 ? ps[0].size : max(ps[0].size, 1)
@@ -66,7 +67,9 @@ final class MediaReader: @unchecked Sendable {
         var out = Data()
         for seg in layout.segments(for: range) {
             let fileId = try await tdFileId(for: ps[seg.part])
-            out.append(try await td.read(fileId: fileId, offset: seg.offset, count: seg.length, priority: priority))
+            out.append(streaming
+                       ? try await td.streamRead(fileId: fileId, offset: seg.offset, count: seg.length)
+                       : try await td.read(fileId: fileId, offset: seg.offset, count: seg.length, priority: priority))
         }
         return out
     }
@@ -95,14 +98,14 @@ final class MediaReader: @unchecked Sendable {
     }
 
     /// Plaintext bytes for `range` (decrypting only the chunks needed).
-    func read(_ item: MediaItem, role: String, range: Range<Int64>, priority: Int = 32) async throws -> Data {
-        guard isEncrypted(item) else { return try await readStream(item, role: role, range: range, priority: priority) }
+    func read(_ item: MediaItem, role: String, range: Range<Int64>, priority: Int = 32, streaming: Bool = false) async throws -> Data {
+        guard isEncrypted(item) else { return try await readStream(item, role: role, range: range, priority: priority, streaming: streaming) }
         let r = try await reader(item, role: role)
         let clamped = max(0, range.lowerBound) ..< min(r.layout.plaintextSize, range.upperBound)
         guard !clamped.isEmpty else { return Data() }
         let chunks = r.layout.chunks(coveringPlaintext: clamped)
         let cipherRange = r.layout.cipherRange(ofChunk: chunks.lowerBound).lowerBound ..< r.layout.cipherRange(ofChunk: chunks.upperBound).upperBound
-        let cipher = try await readStream(item, role: role, range: cipherRange, priority: priority)
+        let cipher = try await readStream(item, role: role, range: cipherRange, priority: priority, streaming: streaming)
         var out = Data()
         for i in chunks {
             let cr = r.layout.cipherRange(ofChunk: i)
