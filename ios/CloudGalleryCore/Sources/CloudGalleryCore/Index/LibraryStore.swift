@@ -45,6 +45,40 @@ public final class LibraryStore: @unchecked Sendable {
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE IF NOT EXISTS aliases (local_id TEXT PRIMARY KEY, item_id TEXT NOT NULL);
         """)
+        try normalizeItemIds()
+    }
+
+    /// Older builds created uppercase item ids while captions store them lowercase, so every scan added an
+    /// unlinked cloud copy and a full scan marked the phone's item "not found". Folds each uppercase item
+    /// into its scanned twin (keeping the phone link and queue state), or renames it.
+    private func normalizeItemIds() throws {
+        lock.lock(); defer { lock.unlock() }
+        let mixed = try withStatement("SELECT json FROM items WHERE id <> lower(id);", readItems)
+        guard !mixed.isEmpty else { return }
+        try exec("BEGIN IMMEDIATE;")
+        do {
+            for old in mixed {
+                var item = old
+                item.id = old.id.lowercased()
+                if var twin = try self.item(id: item.id) {
+                    twin.localIdentifier = twin.localIdentifier ?? old.localIdentifier
+                    twin.verifiedAt = twin.verifiedAt ?? old.verifiedAt
+                    twin.favorite = twin.favorite ?? old.favorite
+                    if twin.status != .backedUp, old.status == .queued || old.status == .uploading {
+                        twin.status = old.status
+                        twin.lastError = old.lastError
+                    }
+                    item = twin
+                }
+                try withStatement("DELETE FROM items WHERE id = ?;", bind: { bindText($0, 1, old.id) }) { _ = sqlite3_step($0) }
+                try insert(item)
+            }
+            try exec("UPDATE aliases SET item_id = lower(item_id);")
+            try exec("COMMIT;")
+        } catch {
+            try? exec("ROLLBACK;")
+            throw error
+        }
     }
 
     deinit { sqlite3_close(db) }
@@ -105,25 +139,33 @@ public final class LibraryStore: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         try exec("BEGIN IMMEDIATE;")
         do {
-            for item in items {
-                let json = try encoder.encode(item)
-                try withStatement("INSERT OR REPLACE INTO items (id, local_id, sha256, status, creation_date, json) VALUES (?,?,?,?,?,?);", bind: { s in
-                    bindText(s, 1, item.id)
-                    bindText(s, 2, item.localIdentifier)
-                    bindText(s, 3, item.sha256)
-                    bindText(s, 4, item.status.rawValue)
-                    if let d = item.creationDate { sqlite3_bind_double(s, 5, d.timeIntervalSince1970) } else { sqlite3_bind_null(s, 5) }
-                    _ = json.withUnsafeBytes { sqlite3_bind_blob(s, 6, $0.baseAddress, Int32(json.count), SQLITE_TRANSIENT) }
-                }) { s in
-                    guard sqlite3_step(s) == SQLITE_DONE else { throw StoreError.sqlite(String(cString: sqlite3_errmsg(db))) }
-                }
-            }
+            for item in items { try insert(item) }
             try exec("COMMIT;")
         } catch {
             try? exec("ROLLBACK;")
             throw error
         }
-        NotificationCenter.default.post(name: Self.didChange, object: self)
+        notifyChanged()
+    }
+
+    private func insert(_ item: MediaItem) throws {
+        let json = try encoder.encode(item)
+        try withStatement("INSERT OR REPLACE INTO items (id, local_id, sha256, status, creation_date, json) VALUES (?,?,?,?,?,?);", bind: { s in
+            bindText(s, 1, item.id)
+            bindText(s, 2, item.localIdentifier)
+            bindText(s, 3, item.sha256)
+            bindText(s, 4, item.status.rawValue)
+            if let d = item.creationDate { sqlite3_bind_double(s, 5, d.timeIntervalSince1970) } else { sqlite3_bind_null(s, 5) }
+            _ = json.withUnsafeBytes { sqlite3_bind_blob(s, 6, $0.baseAddress, Int32(json.count), SQLITE_TRANSIENT) }
+        }) { s in
+            guard sqlite3_step(s) == SQLITE_DONE else { throw StoreError.sqlite(String(cString: sqlite3_errmsg(db))) }
+        }
+    }
+
+    /// Posted asynchronously: observers run on the main queue, and a synchronous post from a writer that
+    /// still holds `lock` (e.g. inside `update`) deadlocks against any main-thread read.
+    private func notifyChanged() {
+        DispatchQueue.main.async { [weak self] in NotificationCenter.default.post(name: Self.didChange, object: self) }
     }
 
     /// Atomically reads, modifies and writes one item.
@@ -193,13 +235,13 @@ public final class LibraryStore: @unchecked Sendable {
     public func delete(id: String) throws {
         try withStatement("DELETE FROM items WHERE id = ?;", bind: { bindText($0, 1, id) }) { _ = sqlite3_step($0) }
         try withStatement("DELETE FROM aliases WHERE item_id = ?;", bind: { bindText($0, 1, id) }) { _ = sqlite3_step($0) }
-        NotificationCenter.default.post(name: Self.didChange, object: self)
+        notifyChanged()
     }
 
     public func deleteAll() throws {
         lock.lock(); defer { lock.unlock() }
         try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases;")
-        NotificationCenter.default.post(name: Self.didChange, object: self)
+        notifyChanged()
     }
 
     // MARK: - Meta

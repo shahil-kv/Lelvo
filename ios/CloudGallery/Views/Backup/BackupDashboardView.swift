@@ -221,9 +221,11 @@ struct FailedItemsView: View {
             } else {
                 Section {
                     Button {
-                        AppEnvironment.shared.engine.retryFailed()
-                        load()
-                        ContinuedBackup.start()
+                        Task {
+                            await Task.detached { AppEnvironment.shared.engine.retryFailed() }.value
+                            await load()
+                            ContinuedBackup.start()
+                        }
                     } label: { Label("Retry all failed", systemImage: "arrow.clockwise") }
                 }
                 Section("\(items.count) failed") {
@@ -239,8 +241,11 @@ struct FailedItemsView: View {
             }
         }
         .navigationTitle("Failed uploads")
-        .onAppear(perform: load)
+        .task { await load() }
     }
 
-    private func load() { items = (try? AppEnvironment.shared.store.items(status: .failed)) ?? [] }
+    /// Off the main thread: the store can be busy with upload checkpoints.
+    private func load() async {
+        items = await Task.detached { (try? AppEnvironment.shared.store.items(status: .failed)) ?? [] }.value
+    }
 }

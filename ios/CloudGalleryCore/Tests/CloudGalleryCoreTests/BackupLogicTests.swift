@@ -204,3 +204,34 @@ import CloudGalleryCore
         reopened.clear()
     }
 }
+
+@Suite struct ItemIdCaseTests {
+    func item(id: String, local: String?, status: ItemStatus) -> MediaItem {
+        MediaItem(id: id, localIdentifier: local, sha256: "h", filename: "a.jpg", kind: .photo, creationDate: Date(), fileSize: 10, status: status)
+    }
+
+    @Test func newIdsMatchCaptionIds() {
+        let id = MediaItem(localIdentifier: "A", sha256: "", filename: "a.jpg", kind: .photo, creationDate: nil, fileSize: 0).id
+        #expect(id == CaptionMeta(id: id, role: .original, kind: .photo, sha256: "", name: "a.jpg", size: 0).id)
+    }
+
+    @Test func uppercaseItemFoldsIntoScannedTwin() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("idcase-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let upper = "BFBC0639-C389-4DAD-91ED-D734484D6B7E"
+        do {
+            let store = try LibraryStore(url: url)
+            try store.upsert(item(id: upper, local: "PHONE/L0/001", status: .failed))
+            try store.upsert(item(id: upper.lowercased(), local: nil, status: .backedUp))
+            try store.upsert(item(id: "AAAAAAAA-0000-0000-0000-000000000001", local: "PHONE/L0/002", status: .queued))
+        }
+        let store = try LibraryStore(url: url)
+        let all = try store.allItems()
+        #expect(all.count == 2)
+        let twin = try #require(try store.item(id: upper.lowercased()))
+        #expect(twin.status == .backedUp)
+        #expect(twin.localIdentifier == "PHONE/L0/001")
+        #expect(try store.item(id: "aaaaaaaa-0000-0000-0000-000000000001")?.status == .queued)
+        #expect(try store.items(status: .failed).isEmpty)
+    }
+}

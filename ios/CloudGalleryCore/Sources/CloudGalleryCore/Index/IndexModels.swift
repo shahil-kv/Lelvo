@@ -88,7 +88,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     /// Uploaded by the 1.0 Bot API app (not format 1).
     public var legacy: Bool?
 
-    public init(id: String = UUID().uuidString, localIdentifier: String?, sha256: String, filename: String,
+    /// Ids are lowercase, like the caption `id` field, so a channel scan matches the local item.
+    public init(id: String = UUID().uuidString.lowercased(), localIdentifier: String?, sha256: String, filename: String,
                 kind: MediaKind, uti: String? = nil, creationDate: Date?, latitude: Double? = nil, longitude: Double? = nil,
                 pixelWidth: Int = 0, pixelHeight: Int = 0, duration: Double? = nil, fileSize: Int64,
                 encrypted: Bool = false, status: ItemStatus = .queued) {
