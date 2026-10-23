@@ -181,6 +181,7 @@ struct ViewerPage: View {
     @State private var content: Content = .loading(nil)
     /// Keeps the resource loader alive while a cloud video plays.
     @State private var stream: StreamingAsset?
+    @State private var pip: AVPictureInPictureController?
 
     var body: some View {
         ZStack {
@@ -193,9 +194,9 @@ struct ViewerPage: View {
             case .live(let live):
                 LivePhotoView(livePhoto: live)
             case .video(let player):
-                PlayerView(player: player)
+                PlayerView(player: player) { pip = $0 }
                     .overlay(alignment: .bottom) {
-                        if !chromeHidden { VideoControls(player: player).padding(.bottom, 112).transition(.opacity) }
+                        if !chromeHidden { VideoControls(player: player, pip: pip).padding(.bottom, 112).transition(.opacity) }
                     }
                     .onAppear { if isCurrent { player.play() } }
                     .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }
@@ -464,40 +465,77 @@ struct InfoSheet: View {
     }
 }
 
-/// AVPlayerViewController for rendering (PiP, AirPlay); the controls are `VideoControls`, like Photos.
-struct PlayerView: UIViewControllerRepresentable {
+/// Bare AVPlayerLayer: no system controls to collide with ours; Picture in Picture via the layer.
+struct PlayerView: UIViewRepresentable {
     let player: AVPlayer
+    var onPictureInPicture: (AVPictureInPictureController?) -> Void = { _ in }
 
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
+    final class LayerView: UIView {
+        override class var layerClass: AnyClass { AVPlayerLayer.self }
+        var playerLayer: AVPlayerLayer? { layer as? AVPlayerLayer }
+    }
+
+    final class Coordinator { var pip: AVPictureInPictureController? }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> LayerView {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-        let vc = AVPlayerViewController()
-        vc.player = player
-        vc.showsPlaybackControls = false
-        vc.allowsPictureInPicturePlayback = true
-        vc.canStartPictureInPictureAutomaticallyFromInline = true
-        vc.entersFullScreenWhenPlaybackBegins = false
-        vc.videoGravity = .resizeAspect
-        if #available(iOS 16.0, *) { vc.speeds = [0.5, 1, 1.25, 1.5, 2].map { AVPlaybackSpeed(rate: $0, localizedName: "\($0)×") } }
-        vc.view.backgroundColor = .black
+        let view = LayerView()
+        view.backgroundColor = .black
+        view.playerLayer?.player = player
+        view.playerLayer?.videoGravity = .resizeAspect
         player.allowsExternalPlayback = true
-        return vc
+        if AVPictureInPictureController.isPictureInPictureSupported(), let layer = view.playerLayer {
+            let pip = AVPictureInPictureController(playerLayer: layer)
+            pip?.canStartPictureInPictureAutomaticallyFromInline = true
+            context.coordinator.pip = pip
+        }
+        let pip = context.coordinator.pip
+        DispatchQueue.main.async { onPictureInPicture(pip) }
+        return view
     }
 
-    func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
-        if vc.player !== player { vc.player = player }
+    func updateUIView(_ view: LayerView, context: Context) {
+        if view.playerLayer?.player !== player { view.playerLayer?.player = player }
     }
+}
+
+/// Hidden system AirPlay picker, opened from the ⋯ menu.
+private struct AirPlayPicker: UIViewRepresentable {
+    let trigger: Int
+
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let v = AVRoutePickerView()
+        v.prioritizesVideoDevices = true
+        v.alpha = 0.011
+        return v
+    }
+
+    func updateUIView(_ v: AVRoutePickerView, context: Context) {
+        guard trigger != context.coordinator.last else { return }
+        context.coordinator.last = trigger
+        (v.subviews.first { $0 is UIButton } as? UIButton)?.sendActions(for: .touchUpInside)
+    }
+
+    final class Coordinator { var last = 0 }
+    func makeCoordinator() -> Coordinator { Coordinator() }
 }
 
 /// Play/pause, scrubber with elapsed and remaining time, and mute, styled like the Photos video bar.
 struct VideoControls: View {
     let player: AVPlayer
+    let pip: AVPictureInPictureController?
     @StateObject private var state = PlaybackState()
+    @State private var speed: Float = 1
+    @State private var airPlayTrigger = 0
+
+    private static let speeds: [Float] = [0.5, 1, 1.25, 1.5, 2]
     @State private var scrubbing = false
     @State private var scrubValue: Double = 0
 
     var body: some View {
         HStack(spacing: 12) {
-            Button { state.isPlaying ? player.pause() : player.play() } label: {
+            Button { if state.isPlaying { player.pause() } else { player.play() } } label: {
                 Image(systemName: state.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 28)
             }
             .accessibilityLabel(state.isPlaying ? "Pause" : "Play")
@@ -517,6 +555,23 @@ struct VideoControls: View {
                 Image(systemName: state.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill").font(.body).frame(width: 28)
             }
             .accessibilityLabel(state.isMuted ? "Unmute" : "Mute")
+            Menu {
+                Menu {
+                    ForEach(Self.speeds, id: \.self) { s in
+                        Button { setSpeed(s) } label: {
+                            if s == speed { Label(Self.speedLabel(s), systemImage: "checkmark") } else { Text(Self.speedLabel(s)) }
+                        }
+                    }
+                } label: { Label("Playback Speed · \(Self.speedLabel(speed))", systemImage: "gauge.with.dots.needle.67percent") }
+                if let pip {
+                    Button { pip.startPictureInPicture() } label: { Label("Picture in Picture", systemImage: "pip.enter") }
+                }
+                Button { airPlayTrigger += 1 } label: { Label("AirPlay", systemImage: "airplayvideo") }
+            } label: {
+                Image(systemName: "ellipsis").font(.body.weight(.semibold)).frame(width: 28, height: 28).contentShape(Rectangle())
+            }
+            .accessibilityLabel("More options")
+            .background(AirPlayPicker(trigger: airPlayTrigger).frame(width: 1, height: 1))
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 14)
@@ -526,6 +581,16 @@ struct VideoControls: View {
         .padding(.horizontal, 16)
         .onAppear { state.attach(player) }
         .onDisappear { state.detach() }
+    }
+
+    private func setSpeed(_ s: Float) {
+        speed = s
+        player.defaultRate = s
+        if state.isPlaying { player.rate = s }
+    }
+
+    static func speedLabel(_ s: Float) -> String {
+        s == 1 ? "Normal" : (s.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(s))×" : "\(s)×")
     }
 
     static func time(_ seconds: Double) -> String {
