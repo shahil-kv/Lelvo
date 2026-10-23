@@ -89,15 +89,17 @@ struct FreeUpSpaceView: View {
         verifying = true
         checked = 0
         defer { verifying = false }
-        var ok: [MediaItem] = []
+        var passed: [MediaItem] = []
         for item in candidates {
             if cancelFlag.isCancelled { break }
-            if service.isFreshlyVerified(item) || (await service.verify(item)) {
-                ok.append((try? AppEnvironment.shared.store.item(id: item.id)) ?? item)
+            var ok = service.isFreshlyVerified(item)
+            if !ok { ok = await service.verify(item) }
+            if ok {
+                passed.append((try? AppEnvironment.shared.store.item(id: item.id)) ?? item)
             }
             checked += 1
         }
-        verified = ok
+        verified = passed
         Haptics.success()
     }
 
