@@ -401,6 +401,10 @@ struct ZoomableImageView: UIViewRepresentable {
         if context.coordinator.imageView?.image !== image { context.coordinator.imageView?.image = image }
     }
 
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIScrollView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
     final class Coordinator: NSObject, UIScrollViewDelegate {
         var imageView: UIImageView?
         let zoomed: Binding<Bool>
@@ -431,12 +435,23 @@ struct ZoomableImageView: UIViewRepresentable {
 struct LivePhotoView: UIViewRepresentable {
     let livePhoto: PHLivePhoto
 
-    func makeUIView(context: Context) -> PHLivePhotoView {
-        let view = PHLivePhotoView()
+    /// PHLivePhotoView reports the live photo's pixel size as its intrinsic size, so SwiftUI laid it out
+    /// several screens wide (photos opened zoomed in). A plain container has no intrinsic size and fills the page.
+    final class Container: UIView {
+        let live = PHLivePhotoView()
+    }
+
+    func makeUIView(context: Context) -> Container {
+        let container = Container()
+        container.backgroundColor = .clear
+        let view = container.live
         view.contentMode = .scaleAspectFit
         view.livePhoto = livePhoto
+        view.frame = container.bounds
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.isAccessibilityElement = true
         view.accessibilityLabel = "Live Photo. Touch and hold to play."
+        container.addSubview(view)
         let badge = UIButton(type: .system)
         badge.setImage(UIImage(systemName: "livephoto.play"), for: .normal)
         badge.setTitle(" LIVE", for: .normal)
@@ -446,16 +461,21 @@ struct LivePhotoView: UIViewRepresentable {
         badge.contentEdgeInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         badge.translatesAutoresizingMaskIntoConstraints = false
         badge.addAction(UIAction { [weak view] _ in view?.startPlayback(with: .full) }, for: .touchUpInside)
-        view.addSubview(badge)
+        container.addSubview(badge)
         NSLayoutConstraint.activate([
-            badge.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            badge.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 64)
+            badge.leadingAnchor.constraint(equalTo: container.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            badge.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 64)
         ])
-        return view
+        return container
     }
 
-    func updateUIView(_ view: PHLivePhotoView, context: Context) {
-        if view.livePhoto !== livePhoto { view.livePhoto = livePhoto }
+    func updateUIView(_ container: Container, context: Context) {
+        if container.live.livePhoto !== livePhoto { container.live.livePhoto = livePhoto }
+    }
+
+    /// Always exactly the space offered (the page), never the photo's own size.
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: Container, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions()
     }
 }
 
