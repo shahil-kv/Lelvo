@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage(Prefs.Key.cacheCapMB) private var cacheCapMB = 1000
     @AppStorage(Prefs.Key.thumbnailCacheMB) private var thumbnailCacheMB = 300
     @AppStorage(Prefs.Key.allowFreeUpSpace) private var allowFreeUpSpace = false
+    @AppStorage(Prefs.Key.autoBackup) private var autoBackup = true
 
     @State private var accountName = "…"
     @State private var usage: CloudMediaService.CacheUsage?
@@ -35,6 +36,14 @@ struct SettingsView: View {
                                                  message: "\(s.items) items found\(s.incomplete > 0 ? ", \(s.incomplete) incomplete" : "")\(s.orphans.isEmpty ? "" : ", \(s.orphans.count) duplicate messages").")
                         }
                     }
+                }
+
+                Section {
+                    Toggle("Back up new photos automatically", isOn: $autoBackup)
+                } footer: {
+                    Text(autoBackup
+                         ? "New photos matching the choices below are backed up on every run. You can also back up any photo with its Back up button."
+                         : "Only photos you choose are backed up: tap Back up on a photo, or select several in Photos and tap Back up.")
                 }
 
                 Section {

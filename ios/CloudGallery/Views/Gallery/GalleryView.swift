@@ -44,15 +44,15 @@ struct GalleryView: View {
     @State private var alert: GalleryAlert?
     @State private var confirmCloudDelete = false
     @State private var confirmDeviceDelete = false
-    @State private var pinchScale: CGFloat = 1
     @State private var cellFrames: [String: CGRect] = [:]
     @State private var dragAnchor: Int?
     @State private var dragBase = Set<String>()
     @State private var showLegend = false
     /// The item showing in the viewer (changes as the user swipes).
     @State private var viewerCurrentId: String?
-    @State private var scrollFraction: CGFloat = 0
-    @State private var isScrolling = false
+    /// Per-frame scroll and pinch values live here, read only by the scrubber and the scale wrapper,
+    /// so the grid itself isn't rebuilt on every frame.
+    @State private var motion = GridMotion()
     @Namespace private var zoomNamespace
 
     private let spacing: CGFloat = 2
@@ -157,10 +157,10 @@ struct GalleryView: View {
                             }
                         }
                     }
-                    .scaleEffect(pinchScale, anchor: .top)
+                    .pinchScaled(by: motion)
                 }
                 .scrollIndicators(.hidden)
-                .trackScroll(fraction: $scrollFraction, isScrolling: $isScrolling)
+                .trackScroll(motion)
                 .onChange(of: viewerCurrentId) { _, id in
                     // Keep the grid under the viewer on the current item, like Photos.
                     if let id { proxy.scrollTo(id, anchor: .center) }
@@ -170,10 +170,10 @@ struct GalleryView: View {
                 .onPreferenceChange(CellFramesKey.self) { cellFrames = $0 }
                 .simultaneousGesture(
                     MagnifyGesture()
-                        .onChanged { v in pinchScale = min(1.15, max(0.85, v.magnification)) }
+                        .onChanged { v in motion.pinch = min(1.2, max(0.8, v.magnification)) }
                         .onEnded { v in
                             withAnimation(.spring(duration: 0.3)) {
-                                pinchScale = 1
+                                motion.pinch = 1
                                 if v.magnification > 1.15 { columns = max(1, columns - 1) }
                                 else if v.magnification < 0.85 { columns = min(10, columns + 1) }
                             }
@@ -183,7 +183,7 @@ struct GalleryView: View {
                 .simultaneousGesture(selecting ? dragSelect : nil)
                 .overlay(alignment: .trailing) {
                     if sections.count > 3 {
-                        DateScrubber(sections: sections, fraction: scrollFraction, isScrolling: isScrolling) { id in
+                        DateScrubber(sections: sections, motion: motion) { id in
                             proxy.scrollTo(id, anchor: .top)
                         }
                     }
@@ -276,6 +276,7 @@ struct GalleryView: View {
         let cloudItems = chosen.compactMap(\.item).filter { $0.status == .backedUp }
         let downloadable = chosen.filter { $0.isCloudOnly && $0.item?.isViewableFromCloud == true }
         let onDevice = chosen.filter { $0.asset != nil }
+        let notBackedUp = onDevice.filter { [.phoneOnly, .failed].contains($0.badge) }
         return HStack {
             Button { Task { await shareSelection(chosen) } } label: { Label("Share", systemImage: "square.and.arrow.up") }
                 .disabled(chosen.isEmpty)
@@ -283,7 +284,11 @@ struct GalleryView: View {
             Button { Task { await download(downloadable) } } label: { Label("Save", systemImage: "square.and.arrow.down") }
                 .disabled(downloadable.isEmpty)
             Spacer()
-            Text("\(selection.count) selected").font(.footnote).foregroundStyle(.secondary)
+            Button { backUp(notBackedUp) } label: { Label("Back up", systemImage: "icloud.and.arrow.up") }
+                .disabled(notBackedUp.isEmpty)
+                .accessibilityLabel("Back up \(notBackedUp.count) to the cloud")
+            Spacer()
+            Text("\(selection.count)").font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
             Spacer()
             Button { confirmDeviceDelete = true } label: { Label("Delete from iPhone", systemImage: "iphone.slash") }
                 .disabled(onDevice.isEmpty)
@@ -351,6 +356,18 @@ struct GalleryView: View {
         } else {
             Haptics.error()
             alert = GalleryAlert(title: "Saved \(saved), \(failures.count) failed", message: failures.first ?? "")
+        }
+    }
+
+    private func backUp(_ chosen: [GalleryEntry]) {
+        let ids = chosen.compactMap { $0.asset?.localIdentifier }
+        Task {
+            let n = await Task.detached { AppEnvironment.shared.engine.enqueue(localIdentifiers: ids) }.value
+            Haptics.success()
+            selecting = false
+            selection.removeAll()
+            ContinuedBackup.start()
+            alert = GalleryAlert(title: "Backing up \(n) item\(n == 1 ? "" : "s")", message: "Progress is on the Backup tab.")
         }
     }
 
@@ -436,14 +453,18 @@ struct ThumbnailCell: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.accessibilityLabel)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .task(id: entry.id) { await load() }
+        .task(id: ThumbRequest(id: entry.id, pixels: Int(side * scale / 64) * 64 + 64)) { await load() }
     }
+
+    private struct ThumbRequest: Equatable { let id: String; let pixels: Int }
 
     private func load() async {
         let env = AppEnvironment.shared
         if let asset = entry.asset {
-            let px = side * scale
-            image = await env.photos.image(for: asset, targetSize: CGSize(width: px, height: px))
+            // Keeps the current image while a sharper one for a new grid size arrives.
+            for await img in env.photos.thumbnails(for: asset, pixels: CGFloat(Int(side * scale / 64) * 64 + 64)) {
+                image = img
+            }
         } else if let item = entry.item {
             if let cached = env.media.cachedThumbnail(for: item) { image = cached; return }
             do { image = try await env.media.thumbnail(for: item) } catch { failed = true }
@@ -485,8 +506,7 @@ private struct SectionHeader: View {
 /// dragged to jump through dates with the month shown beside it (like Photos and Google Photos).
 struct DateScrubber: View {
     let sections: [GallerySection]
-    let fraction: CGFloat
-    let isScrolling: Bool
+    let motion: GridMotion
     let jump: (String) -> Void
     @State private var dragging = false
     @State private var dragFraction: CGFloat = 0
@@ -500,7 +520,7 @@ struct DateScrubber: View {
     var body: some View {
         GeometryReader { geo in
             let track = max(geo.size.height - thumbHeight - 16, 1)
-            let f = dragging ? dragFraction : min(max(fraction, 0), 1)
+            let f = dragging ? dragFraction : min(max(motion.fraction, 0), 1)
             ZStack(alignment: .topTrailing) {
                 HStack(spacing: 8) {
                     if dragging {
@@ -544,7 +564,7 @@ struct DateScrubber: View {
             .allowsHitTesting(visible || dragging)
         }
         .frame(width: dragging ? 220 : 44)
-        .onChange(of: isScrolling) { _, now in
+        .onChange(of: motion.isScrolling) { _, now in
             if now { hideTask?.cancel(); withAnimation(.easeOut(duration: 0.15)) { visible = true } } else { scheduleHide() }
         }
         .accessibilityLabel("Date scrubber")
@@ -563,18 +583,33 @@ struct DateScrubber: View {
 
 private extension View {
     /// Scroll position (0…1) and whether the user is scrolling, for the date scrubber.
-    @ViewBuilder func trackScroll(fraction: Binding<CGFloat>, isScrolling: Binding<Bool>) -> some View {
+    @ViewBuilder func trackScroll(_ motion: GridMotion) -> some View {
         if #available(iOS 18.0, *) {
             self
                 .onScrollGeometryChange(for: CGFloat.self) { g in
                     let range = g.contentSize.height - g.containerSize.height
                     return range > 0 ? (g.contentOffset.y + g.contentInsets.top) / range : 0
-                } action: { _, new in fraction.wrappedValue = new }
-                .onScrollPhaseChange { _, phase in isScrolling.wrappedValue = phase != .idle }
+                } action: { _, new in motion.fraction = new }
+                .onScrollPhaseChange { _, phase in motion.isScrolling = phase != .idle }
         } else {
             self
         }
     }
+
+    func pinchScaled(by motion: GridMotion) -> some View { PinchScaled(motion: motion, content: self) }
+}
+
+/// Values that change every frame while scrolling or pinching (Observation: only readers redraw).
+@Observable final class GridMotion {
+    var fraction: CGFloat = 0
+    var isScrolling = false
+    var pinch: CGFloat = 1
+}
+
+private struct PinchScaled<Content: View>: View {
+    let motion: GridMotion
+    let content: Content
+    var body: some View { content.scaleEffect(motion.pinch, anchor: .top) }
 }
 
 extension View {

@@ -112,6 +112,11 @@ struct ViewerView: View {
                     .accessibilityLabel("Save to Photos")
                 Spacer()
             }
+            if let current, let id = current.asset?.localIdentifier, [.phoneOnly, .failed].contains(current.badge) {
+                Button { backUp(id) } label: { Image(systemName: "icloud.and.arrow.up") }
+                    .accessibilityLabel("Back up to the cloud")
+                Spacer()
+            }
             Button { showInfo = true } label: { Image(systemName: "info.circle") }
                 .accessibilityLabel("Info")
             Spacer()
@@ -134,6 +139,15 @@ struct ViewerView: View {
             if let item = entries[j].item, entries[j].isCloudOnly, item.kind == .video, item.isViewableFromCloud {
                 AppEnvironment.shared.reader.prefetch(item)
             }
+        }
+    }
+
+    private func backUp(_ localIdentifier: String) {
+        Task {
+            _ = await Task.detached { AppEnvironment.shared.engine.enqueue(localIdentifiers: [localIdentifier]) }.value
+            Haptics.success()
+            ContinuedBackup.start()
+            message = GalleryAlert(title: "Backing up", message: "This item is queued; progress is on the Backup tab.")
         }
     }
 

@@ -155,22 +155,42 @@ final class BackupEngine: @unchecked Sendable {
     /// Adds phone assets that match the backup selection and aren't known yet as pending jobs.
     @discardableResult
     func enqueueNewAssets() -> Int {
+        guard Prefs.autoBackup else { return 0 }
         let known = (try? env.store.knownLocalIdentifiers()) ?? []
         let fresh = env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }
-        let encrypted = env.library.isEncrypted
-        let items: [MediaItem] = fresh.map { asset in
-            let name = env.photos.originalResources(for: asset)?.primary.originalFilename ?? "IMG_\(asset.localIdentifier.prefix(8))"
-            var item = MediaItem(localIdentifier: asset.localIdentifier, sha256: "", filename: name,
-                                 kind: PhotoLibraryService.kind(of: asset), creationDate: asset.creationDate,
-                                 latitude: asset.location?.coordinate.latitude, longitude: asset.location?.coordinate.longitude,
-                                 pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight,
-                                 duration: asset.mediaType == .video ? asset.duration : nil, fileSize: 0,
-                                 encrypted: encrypted, status: .queued)
-            item.favorite = asset.isFavorite ? true : nil
-            return item
+        let items = fresh.map(makeItem)
+        try? env.store.upsert(items)
+        return items.count
+    }
+
+    /// "Back up" on chosen photos: queues them regardless of the backup selection (and retries failed ones).
+    @discardableResult
+    func enqueue(localIdentifiers: [String]) -> Int {
+        var items: [MediaItem] = []
+        for id in localIdentifiers {
+            if var existing = try? env.store.item(localIdentifier: id) {
+                if existing.status == .failed {
+                    existing.job = JobMachine.reduce(existing.job, .retry)
+                    items.append(existing)
+                }
+            } else if let asset = env.photos.asset(localIdentifier: id) {
+                items.append(makeItem(asset))
+            }
         }
         try? env.store.upsert(items)
         return items.count
+    }
+
+    private func makeItem(_ asset: PHAsset) -> MediaItem {
+        let name = env.photos.originalResources(for: asset)?.primary.originalFilename ?? "IMG_\(asset.localIdentifier.prefix(8))"
+        var item = MediaItem(localIdentifier: asset.localIdentifier, sha256: "", filename: name,
+                             kind: PhotoLibraryService.kind(of: asset), creationDate: asset.creationDate,
+                             latitude: asset.location?.coordinate.latitude, longitude: asset.location?.coordinate.longitude,
+                             pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight,
+                             duration: asset.mediaType == .video ? asset.duration : nil, fileSize: 0,
+                             encrypted: env.library.isEncrypted, status: .queued)
+        item.favorite = asset.isFavorite ? true : nil
+        return item
     }
 
     func runnableItems(now: Date) -> [MediaItem] {

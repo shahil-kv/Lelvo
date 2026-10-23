@@ -42,7 +42,7 @@ final class BackupStatsModel: ObservableObject {
                 let assets = env.photos.fetchAllAssets()
                 onDevice = assets.count
                 let known = (try? env.store.knownLocalIdentifiers()) ?? []
-                notQueued = env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }.count
+                notQueued = Prefs.autoBackup ? env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }.count : 0
                 let present = env.photos.existingIdentifiers(all.compactMap(\.localIdentifier))
                 cloudOnly = all.filter { $0.localIdentifier.map { !present.contains($0) } ?? true }.count
             } else {

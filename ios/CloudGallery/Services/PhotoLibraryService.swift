@@ -41,6 +41,27 @@ enum PhotoLibraryError: LocalizedError {
 }
 
 final class PhotoLibraryService: @unchecked Sendable {
+    private let gridImages = PHCachingImageManager()
+
+    /// Grid thumbnails like Photos: a quick low-res image first, then the sharp one. The request is
+    /// cancelled as soon as the cell scrolls away, so fast scrolling doesn't queue up hundreds of loads.
+    func thumbnails(for asset: PHAsset, pixels: CGFloat) -> AsyncStream<UIImage> {
+        let manager = gridImages
+        return AsyncStream { cont in
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .opportunistic
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = true
+            let id = manager.requestImage(for: asset, targetSize: CGSize(width: pixels, height: pixels),
+                                          contentMode: .aspectFill, options: options) { image, info in
+                if let image { cont.yield(image) }
+                let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                if !degraded || info?[PHImageCancelledKey] != nil || info?[PHImageErrorKey] != nil { cont.finish() }
+            }
+            cont.onTermination = { _ in manager.cancelImageRequest(id) }
+        }
+    }
+
     static var authorizationStatus: PHAuthorizationStatus { PHPhotoLibrary.authorizationStatus(for: .readWrite) }
 
     static var hasAccess: Bool {

@@ -6,9 +6,34 @@ import CloudGalleryCore
 struct AlbumsView: View {
     @EnvironmentObject private var model: GalleryModel
     @State private var albums: [(title: String, ids: Set<String>)] = []
+    /// iPhone media types from Photos' smart albums (Selfies, Screenshots, …), empty ones dropped.
+    @State private var smartTypes: [(title: String, symbol: String, ids: Set<String>)] = []
 
     private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
-    private let mediaTypes: [GalleryFilter] = [.videos, .livePhotos, .favorites, .cloudOnly]
+    private static let smartAlbums: [(PHAssetCollectionSubtype, String, String)] = [
+        (.smartAlbumSelfPortraits, "Selfies", "person.crop.square"),
+        (.smartAlbumDepthEffect, "Portrait", "cube"),
+        (.smartAlbumPanoramas, "Panoramas", "pano"),
+        (.smartAlbumTimelapses, "Time-lapse", "timelapse"),
+        (.smartAlbumSlomoVideos, "Slo-mo", "slowmo"),
+        (.smartAlbumBursts, "Bursts", "square.stack.3d.down.right"),
+        (.smartAlbumScreenshots, "Screenshots", "camera.viewfinder"),
+        (.smartAlbumAnimated, "Animated", "square.stack.3d.forward.dottedline"),
+        (.smartAlbumRAW, "RAW", "r.square")
+    ]
+
+    /// Media Types in Photos' order; Live Photos sits after Selfies there.
+    private var mediaRows: [(GalleryFilter, String)] {
+        var rows: [(GalleryFilter, String)] = [(.videos, "video")]
+        for t in smartTypes {
+            rows.append((.album(title: t.title, localIds: t.ids), t.symbol))
+            if t.title == "Selfies" { rows.append((.livePhotos, "livephoto")) }
+        }
+        if !rows.contains(where: { $0.0 == .livePhotos }) { rows.insert((.livePhotos, "livephoto"), at: 1) }
+        rows.append((.favorites, "heart"))
+        rows.append((.cloudOnly, "icloud"))
+        return rows
+    }
 
     var body: some View {
         NavigationStack {
@@ -29,10 +54,11 @@ struct AlbumsView: View {
                     }
                     VStack(alignment: .leading, spacing: 12) {
                         sectionTitle("Media Types")
+                        let rows = mediaRows
                         VStack(spacing: 0) {
-                            ForEach(Array(mediaTypes.enumerated()), id: \.element) { i, f in
-                                mediaRow(f)
-                                if i < mediaTypes.count - 1 { Divider().padding(.leading, 52) }
+                            ForEach(Array(rows.enumerated()), id: \.element.0) { i, row in
+                                mediaRow(row.0, symbol: row.1)
+                                if i < rows.count - 1 { Divider().padding(.leading, 52) }
                             }
                         }
                         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
@@ -64,13 +90,13 @@ struct AlbumsView: View {
         .accessibilityLabel("\(filter.title), \(matching.count) items")
     }
 
-    private func mediaRow(_ filter: GalleryFilter) -> some View {
+    private func mediaRow(_ filter: GalleryFilter, symbol: String) -> some View {
         let count = model.entries.lazy.filter(filter.matches).count
         return NavigationLink {
             GalleryView(filter: filter, embedInNavigation: false)
         } label: {
             HStack(spacing: 14) {
-                Image(systemName: symbol(filter)).font(.body).foregroundStyle(.tint).frame(width: 24)
+                Image(systemName: symbol).font(.body).foregroundStyle(.tint).frame(width: 24)
                 Text(filter.title).foregroundStyle(.primary)
                 Spacer()
                 Text(count.formatted()).foregroundStyle(.secondary).monospacedDigit()
@@ -109,6 +135,17 @@ struct AlbumsView: View {
             return byTitle.map { ($0.key, $0.value) }.sorted { $0.0.localizedCaseInsensitiveCompare($1.0) == .orderedAscending }
         }.value
         albums = result.map { (title: $0.0, ids: $0.1) }
+        let types = Self.smartAlbums
+        smartTypes = await Task.detached {
+            guard PhotoLibraryService.hasAccess else { return [] }
+            return types.compactMap { subtype, title, symbol -> (title: String, symbol: String, ids: Set<String>)? in
+                var ids = Set<String>()
+                PHAssetCollection.fetchAssetCollections(with: .smartAlbum, subtype: subtype, options: nil).enumerateObjects { c, _, _ in
+                    PHAsset.fetchAssets(in: c, options: nil).enumerateObjects { a, _, _ in ids.insert(a.localIdentifier) }
+                }
+                return ids.isEmpty ? nil : (title: title, symbol: symbol, ids: ids)
+            }
+        }.value
     }
 }
 
