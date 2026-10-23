@@ -87,6 +87,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var notBefore: Date?
     /// Uploaded by the 1.0 Bot API app (not format 1).
     public var legacy: Bool?
+    /// From the caption `l` field: the asset this was uploaded from (used to re-link after a reinstall).
+    public var sourceLocalIdentifier: String?
 
     /// Ids are lowercase, like the caption `id` field, so a channel scan matches the local item.
     public init(id: String = UUID().uuidString.lowercased(), localIdentifier: String?, sha256: String, filename: String,

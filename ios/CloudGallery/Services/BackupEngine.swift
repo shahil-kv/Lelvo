@@ -164,39 +164,33 @@ final class BackupEngine: @unchecked Sendable {
     }
 
     /// After a reinstall the restored cloud items aren't linked to this iPhone's photos (the link lived only in
-    /// the local database), so every photo looked "not backed up" and would be hashed again. Re-link them by
-    /// what each caption recorded: original filename, capture time to the second, and pixel size. Queued
-    /// duplicates of linked photos are dropped. Returns the number of items linked.
+    /// the local database), so every photo looked "not backed up" and would be hashed again. Re-links them with
+    /// `RestoreLinker` (caption asset id, else filename + capture second + pixel size) and drops queued
+    /// duplicates of the linked photos. Returns the number of items linked.
     @discardableResult
     func relinkRestoredItems() -> Int {
         guard PhotoLibraryService.hasAccess else { return 0 }
         let all = (try? env.store.allItems()) ?? []
         let unlinked = all.filter { $0.status == .backedUp && $0.localIdentifier == nil }
         guard !unlinked.isEmpty else { return 0 }
-        func key(_ name: String, _ date: Date?, _ w: Int, _ h: Int) -> String {
-            "\(name.lowercased())|\(Int(date?.timeIntervalSince1970 ?? 0))|\(w)x\(h)"
-        }
-        var byKey: [String: MediaItem] = [:]
-        for item in unlinked { byKey[key(item.filename, item.creationDate, item.pixelWidth, item.pixelHeight)] = item }
         let linked = Set(all.filter { $0.status == .backedUp }.compactMap(\.localIdentifier))
-        var pending: [String: MediaItem] = [:]
-        for item in all where item.status != .backedUp {
-            if let id = item.localIdentifier, pending[id] == nil { pending[id] = item }
-        }
-        var updates: [MediaItem] = []
-        var dropped: [String] = []
+        var assets: [AssetKey] = []
         env.photos.fetchAllAssets().enumerateObjects { asset, _, _ in
             guard !linked.contains(asset.localIdentifier),
-                  let name = self.env.photos.originalResources(for: asset)?.primary.originalFilename,
-                  var item = byKey.removeValue(forKey: key(name, asset.creationDate, asset.pixelWidth, asset.pixelHeight)) else { return }
-            item.localIdentifier = asset.localIdentifier
-            updates.append(item)
-            if let p = pending[asset.localIdentifier], p.status != .uploading { dropped.append(p.id) }
+                  let name = self.env.photos.originalResources(for: asset)?.primary.originalFilename else { return }
+            assets.append(AssetKey(localIdentifier: asset.localIdentifier, filename: name, creationDate: asset.creationDate,
+                                   pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight))
         }
-        for id in dropped { try? env.store.delete(id: id) }
-        try? env.store.upsert(updates)
-        appLog("Relinked \(updates.count) of \(unlinked.count) restored items to photos on this iPhone (\(dropped.count) queued duplicates removed)")
-        return updates.count
+        let links = RestoreLinker.match(unlinked: unlinked, assets: assets)
+        guard !links.isEmpty else { return 0 }
+        let linkedAssets = Set(links.values)
+        let duplicates = all.filter { $0.status != .backedUp && $0.status != .uploading && $0.localIdentifier.map(linkedAssets.contains) == true }
+        for d in duplicates { try? env.store.delete(id: d.id) }
+        try? env.store.upsert(unlinked.compactMap { item in
+            links[item.id].map { var i = item; i.localIdentifier = $0; return i }
+        })
+        appLog("Relinked \(links.count) of \(unlinked.count) restored items to photos on this iPhone (\(duplicates.count) queued duplicates removed)")
+        return links.count
     }
 
     /// "Back up" on chosen photos: queues them regardless of the backup selection (and retries failed ones).
@@ -510,6 +504,7 @@ final class BackupEngine: @unchecked Sendable {
         m.hdr = item.hdr
         m.a = item.albums
         m.fav = item.favorite == true ? 1 : nil
+        m.l = item.localIdentifier
         return m
     }
 }

@@ -57,6 +57,7 @@ public enum LibraryIndexer {
             item.tzOffsetMinutes = primary.tz
             item.albums = primary.a
             item.favorite = primary.fav == 1 ? true : nil
+            item.sourceLocalIdentifier = primary.l
             var hashes: [String: String] = [:]
             for (role, parts) in roles {
                 let ordered = parts.sorted { $0.key < $1.key }.map(\.value)

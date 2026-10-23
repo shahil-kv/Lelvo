@@ -4,7 +4,7 @@ import CloudGalleryCore
 
 @MainActor
 final class OnboardingModel: ObservableObject {
-    enum Step: Equatable { case welcome, credentials, phone, code, password, otherDevice, library, unlock, scanning, photos }
+    enum Step: Equatable { case welcome, credentials, phone, code, password, otherDevice, noAccount, library, unlock, scanning, photos }
 
     @Published var step: Step = .welcome
     @Published var apiId = ""
@@ -59,7 +59,7 @@ final class OnboardingModel: ObservableObject {
         case .waitPassword(let hint): passwordHint = hint; step = .password
         case .waitOtherDevice(let link): otherDeviceLink = link; step = .otherDevice
         case .waitEmail: error = "Telegram asks for an email login on this account. Sign in once in the official Telegram app, then try again."
-        case .waitRegistration: error = "This phone number has no Telegram account yet. Create one in the Telegram app first."
+        case .waitRegistration: step = .noAccount
         case .ready:
             busy = false
             if [.welcome, .credentials, .phone, .code, .password, .otherDevice].contains(step) { goToLibrary() }
@@ -106,7 +106,10 @@ final class OnboardingModel: ObservableObject {
     private var credentialsTimeout: Task<Void, Never>?
 
     var fullPhone: String { "+" + dialCode.filter(\.isNumber) + nationalNumber.filter(\.isNumber) }
-    var phoneIsValid: Bool { !dialCode.filter(\.isNumber).isEmpty && nationalNumber.filter(\.isNumber).count >= 6 }
+    /// Valid when the number has the right length for the country (India: 10 digits).
+    var phoneIsValid: Bool {
+        !dialCode.filter(\.isNumber).isEmpty && Countries.lengths(forDialCode: dialCode).contains(nationalNumber.filter(\.isNumber).count)
+    }
 
     func submitPhone() {
         phone = fullPhone
@@ -114,7 +117,7 @@ final class OnboardingModel: ObservableObject {
     }
 
     /// Steps with a back button, like every sign-in flow people know.
-    var canGoBack: Bool { [.credentials, .phone, .code, .password, .otherDevice, .unlock].contains(step) }
+    var canGoBack: Bool { [.credentials, .phone, .code, .password, .otherDevice, .noAccount, .unlock].contains(step) }
 
     func back() {
         error = nil
@@ -122,6 +125,7 @@ final class OnboardingModel: ObservableObject {
         switch step {
         case .credentials, .phone: step = .welcome
         case .code, .password, .otherDevice: useDifferentAccount(keepNumber: true)
+        case .noAccount: useDifferentAccount()
         case .unlock:
             env.library.forget()
             passphrase = ""
@@ -230,6 +234,7 @@ struct OnboardingView: View {
                 case .code: CodeScreen(m: m)
                 case .password: password
                 case .otherDevice: otherDevice
+                case .noAccount: noAccount
                 case .library: library
                 case .unlock: unlock
                 case .scanning: scanning
@@ -281,6 +286,18 @@ struct OnboardingView: View {
         OnboardingPage(icon: "iphone.and.arrow.forward", title: "Confirm on another device",
                        subtitle: "Open Telegram on a device where you're signed in and approve this login.", m: m) {
             Text(m.otherDeviceLink).font(.footnote.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+        }
+    }
+
+    private var noAccount: some View {
+        OnboardingPage(icon: "person.crop.circle.badge.questionmark", title: "No Telegram account",
+                       subtitle: "\(m.phone) isn't registered on Telegram yet. Create an account in the Telegram app (it's free), then come back and sign in.",
+                       m: m, button: .init(title: "Get Telegram", enabled: true) {
+                           if let url = URL(string: "https://apps.apple.com/app/telegram-messenger/id686449807") { UIApplication.shared.open(url) }
+                       }) {
+            Button { m.back() } label: {
+                Label("Use a different number", systemImage: "arrow.uturn.backward").font(.subheadline.weight(.semibold))
+            }
         }
     }
 
@@ -722,8 +739,8 @@ private struct PhoneScreen: View {
                             if v.hasPrefix("+"), let c = Countries.match(prefixOf: digits) {
                                 m.dialCode = c.dialCode
                                 m.nationalNumber = String(digits.dropFirst(c.dialCode.count))
-                            } else if digits.count > 15 {
-                                m.nationalNumber = String(digits.prefix(15))
+                            } else if digits.count > Countries.lengths(forDialCode: m.dialCode).upperBound || digits != v {
+                                m.nationalNumber = String(digits.prefix(Countries.lengths(forDialCode: m.dialCode).upperBound))
                             }
                         }
                 }
@@ -876,6 +893,19 @@ enum Countries {
     static func match(prefixOf digits: String) -> Country? {
         codes.filter { digits.hasPrefix($0.1) }.max { $0.1.count < $1.1.count }.map { Country(region: $0.0, dialCode: $0.1) }
     }
+
+    /// National number lengths (without the country code) for common countries; others accept 6–15 digits.
+    private static let nationalLengths: [String: ClosedRange<Int>] = [
+        "91": 10...10, "1": 10...10, "44": 10...10, "971": 9...9, "966": 9...9, "974": 8...8, "965": 8...8, "968": 8...8,
+        "973": 8...8, "92": 10...10, "880": 10...10, "94": 9...9, "977": 10...10, "960": 7...7, "61": 9...9, "64": 8...10,
+        "49": 10...11, "33": 9...9, "39": 9...10, "34": 9...9, "351": 9...9, "31": 9...9, "32": 9...9, "41": 9...9,
+        "353": 9...9, "46": 9...9, "47": 8...8, "45": 8...8, "48": 9...9, "90": 10...10, "380": 9...9, "7": 10...10,
+        "972": 9...9, "20": 10...10, "234": 10...10, "254": 9...9, "27": 9...9, "86": 11...11, "81": 10...10,
+        "82": 9...10, "65": 8...8, "60": 9...10, "62": 9...12, "66": 9...9, "84": 9...10, "63": 10...10, "55": 10...11,
+        "52": 10...10, "54": 10...10, "57": 10...10
+    ]
+
+    static func lengths(forDialCode code: String) -> ClosedRange<Int> { nationalLengths[code] ?? 6...15 }
 
     static var defaultDialCode: String {
         let region = Locale.current.region?.identifier ?? "IN"

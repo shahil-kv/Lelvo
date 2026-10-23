@@ -26,6 +26,9 @@ public struct CaptionMeta: Codable, Equatable, Sendable {
     public var p: [Int64]?
     public var e: Int?
     public var src: String?
+    /// Photos local identifier of the asset on the uploading device. iOS keeps it across app reinstalls on
+    /// that device, so a restore links cloud items back to their photos exactly.
+    public var l: String?
 
     public init(id: String, role: Role, kind: Kind, sha256: String, name: String, size: Int64) {
         self.id = id.lowercased()
@@ -79,13 +82,14 @@ public enum CaptionCodec {
     /// Builds the caption, dropping optional fields until it fits in `maxLength` characters (§3.1).
     public static func encode(_ meta: CaptionMeta, captionKey: SymmetricKey? = nil) throws -> String {
         var m = meta
-        for step in 0...3 {
+        for step in 0...4 {
             let caption = try render(m, captionKey: captionKey)
             if caption.count <= maxLength { return caption }
             switch step {
             case 0: m.a = nil
             case 1: m.c = nil
-            case 2: m.n = truncatedName(m.n, by: caption.count - maxLength + 8)
+            case 2: m.l = nil
+            case 3: m.n = truncatedName(m.n, by: caption.count - maxLength + 8)
             default: break
             }
         }

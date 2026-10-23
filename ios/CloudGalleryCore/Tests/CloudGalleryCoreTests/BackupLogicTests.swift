@@ -235,3 +235,56 @@ import CloudGalleryCore
         #expect(try store.items(status: .failed).isEmpty)
     }
 }
+
+@Suite struct RestoreLinkerTests {
+    let date = Date(timeIntervalSince1970: 1_790_000_000)
+
+    func cloud(_ name: String, at t: Date?, _ w: Int = 4032, _ h: Int = 3024, source: String? = nil) -> MediaItem {
+        var i = MediaItem(localIdentifier: nil, sha256: "h", filename: name, kind: .photo, creationDate: t,
+                          pixelWidth: w, pixelHeight: h, fileSize: 1, status: .backedUp)
+        i.sourceLocalIdentifier = source
+        return i
+    }
+
+    @Test func linksByUploadedAssetIdFirst() {
+        let item = cloud("IMG_1.HEIC", at: date, source: "A/L0/001")
+        // Renamed/edited on the phone since: only the id still matches.
+        let assets = [AssetKey(localIdentifier: "A/L0/001", filename: "IMG_1 (edited).HEIC", creationDate: date, pixelWidth: 100, pixelHeight: 100)]
+        #expect(RestoreLinker.match(unlinked: [item], assets: assets) == [item.id: "A/L0/001"])
+    }
+
+    @Test func fallsBackToNameSecondAndSize() {
+        let item = cloud("IMG_2.HEIC", at: date)
+        let assets = [
+            AssetKey(localIdentifier: "B", filename: "img_2.heic", creationDate: date.addingTimeInterval(0.4), pixelWidth: 4032, pixelHeight: 3024),
+            AssetKey(localIdentifier: "C", filename: "IMG_2.HEIC", creationDate: date.addingTimeInterval(1), pixelWidth: 4032, pixelHeight: 3024)
+        ]
+        #expect(RestoreLinker.match(unlinked: [item], assets: assets) == [item.id: "B"])
+    }
+
+    @Test func differentSizeOrMissingDateDoesNotMatch() {
+        let a = cloud("IMG_3.HEIC", at: date)
+        let b = cloud("IMG_4.HEIC", at: nil)
+        let assets = [
+            AssetKey(localIdentifier: "D", filename: "IMG_3.HEIC", creationDate: date, pixelWidth: 3024, pixelHeight: 4032),
+            AssetKey(localIdentifier: "E", filename: "IMG_4.HEIC", creationDate: nil, pixelWidth: 4032, pixelHeight: 3024)
+        ]
+        #expect(RestoreLinker.match(unlinked: [a, b], assets: assets).isEmpty)
+    }
+
+    @Test func eachAssetLinksOnce() {
+        let a = cloud("IMG_5.HEIC", at: date)
+        let b = cloud("IMG_5.HEIC", at: date)
+        let assets = [AssetKey(localIdentifier: "F", filename: "IMG_5.HEIC", creationDate: date, pixelWidth: 4032, pixelHeight: 3024)]
+        let links = RestoreLinker.match(unlinked: [a, b], assets: assets)
+        #expect(links.count == 1)
+        #expect(Set(links.values) == ["F"])
+    }
+
+    @Test func captionCarriesTheAssetId() throws {
+        var m = CaptionMeta(id: UUID().uuidString, role: .original, kind: .photo, sha256: String(repeating: "a", count: 64), name: "x.jpg", size: 1)
+        m.l = "A/L0/001"
+        let decoded = try CaptionCodec.decode(try CaptionCodec.encode(m))
+        #expect(decoded.l == "A/L0/001")
+    }
+}

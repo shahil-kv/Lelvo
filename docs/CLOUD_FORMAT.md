@@ -74,6 +74,7 @@ Each resource (or each part of a split resource, §5) is **one message** in the 
 | `p` | [int, int, int] |  | Split info: part index (0-based), part count, part size in bytes of the **uploaded** stream (§5). |
 | `e` | int |  | `1` if the file content is CGFE ciphertext (§6.2). Always present in E2E libraries. |
 | `src` | string |  | Writer: `ios` or `android`. |
+| `l` | string |  | Photos/MediaStore local id of the source asset on the uploading device. Lets a reinstall on that device re-link items exactly (otherwise: name + `t` + `wh`). Dropped before `n` is truncated when the caption is too long. |
 
 Example (plain):
 
