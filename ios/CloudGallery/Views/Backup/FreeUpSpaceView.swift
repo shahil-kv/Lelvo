@@ -2,7 +2,6 @@ import SwiftUI
 import CloudGalleryCore
 
 struct FreeUpSpaceView: View {
-    @AppStorage(Prefs.Key.allowFreeUpSpace) private var allowed = false
     @State private var candidates: [MediaItem] = []
     @State private var verified: [MediaItem] = []
     @State private var verifying = false
@@ -15,13 +14,11 @@ struct FreeUpSpaceView: View {
 
     var body: some View {
         List {
-            if !allowed {
-                Section {
-                    EmptyStateView(systemImage: "internaldrive", title: "Get storage back",
-                                   message: "Remove photos and videos from this iPhone that are already safely backed up. They stay in CloudGallery, and you can save any of them back to your iPhone anytime.")
-                    Toggle("Allow deleting backed-up photos from iPhone", isOn: $allowed)
-                }
-            } else {
+            Section {
+                Text("Remove photos and videos from this iPhone that are already safely backed up, to get storage back. They stay in CloudGallery, and you can save any of them back anytime.")
+                    .font(.subheadline)
+            }
+            Group {
                 Section {
                     LabeledContent("Backed up and on this iPhone", value: "\(candidates.count)")
                     LabeledContent("Checked, safe to remove", value: "\(verified.count)")
@@ -33,7 +30,7 @@ struct FreeUpSpaceView: View {
                 Section {
                     if verifying {
                         ProgressView(value: Double(checked), total: Double(max(candidates.count, 1))) {
-                            Text("Verifying \(checked) of \(candidates.count)…")
+                            Text("Checking \(checked) of \(candidates.count)…")
                         }
                         Button("Stop", role: .cancel) { cancelFlag.cancel() }
                     } else {
@@ -51,7 +48,7 @@ struct FreeUpSpaceView: View {
                 }
 
                 if !verified.isEmpty {
-                    Section("Verified items") {
+                    Section("Safe to remove") {
                         ForEach(verified.prefix(200)) { item in
                             HStack {
                                 Text(item.filename).lineLimit(1)
@@ -67,13 +64,11 @@ struct FreeUpSpaceView: View {
         }
         .navigationTitle("Free Up Space")
         .onAppear(perform: load)
-        .onChange(of: allowed) { _, _ in load() }
         .onDisappear { cancelFlag.cancel() }
         .alert(item: $result) { a in Alert(title: Text(a.title), message: Text(a.message)) }
     }
 
     private func load() {
-        guard allowed else { return }
         Task.detached {
             let c = AppEnvironment.shared.freeUpSpace.candidates()
             let v = c.filter { AppEnvironment.shared.freeUpSpace.isFreshlyVerified($0) }

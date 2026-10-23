@@ -7,12 +7,6 @@ struct SettingsView: View {
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.mediaFilter) private var mediaFilter = Prefs.MediaFilter.all.rawValue
-    @AppStorage(Prefs.Key.includeScreenshots) private var includeScreenshots = true
-    @AppStorage(Prefs.Key.dateFromEnabled) private var dateFromEnabled = false
-    @AppStorage(Prefs.Key.dateFrom) private var dateFrom: Double = Date().addingTimeInterval(-365 * 86400).timeIntervalSince1970
-    @AppStorage(Prefs.Key.cacheCapMB) private var cacheCapMB = 1000
-    @AppStorage(Prefs.Key.thumbnailCacheMB) private var thumbnailCacheMB = 300
-    @AppStorage(Prefs.Key.allowFreeUpSpace) private var allowFreeUpSpace = false
     @AppStorage(Prefs.Key.autoBackup) private var autoBackup = true
 
     @State private var accountName = "…"
@@ -28,89 +22,46 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Telegram") {
+                Section {
                     LabeledContent("Signed in as", value: accountName)
                     NavigationLink { LibrarySettingsView() } label: {
                         LabeledContent("Library", value: libraryName)
                     }
                     .onAppear { Task { libraryName = await env.library.title() } }
-                    LabeledContent("Encryption", value: env.library.isEncrypted ? "End-to-end (on)" : "Off")
-                    if let days = accountTtl {
-                        LabeledContent("Delete account if away for", value: days >= 365 ? "\(days / 365) year\(days >= 730 ? "s" : "")" : "\(days / 30) months")
-                        if days < 730 {
-                            Button("Keep my account for 2 years of inactivity") {
+                    if let days = accountTtl, days < 730 {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label("Telegram deletes your account after \(days >= 365 ? "\(days / 365) year" : "\(days / 30) months") of inactivity, and your library with it.",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote).foregroundStyle(.orange)
+                            Button("Change to 2 years (the maximum)") {
                                 run("Set to 2 years") {
                                     try await env.td.setAccountTtl(days: 730)
                                     accountTtl = 730
                                 }
                             }
-                            Text("Telegram deletes inactive accounts, and your library with them. 2 years is the maximum; using CloudGallery also counts as activity.")
-                                .font(.caption).foregroundStyle(.orange)
+                            .font(.subheadline.weight(.semibold))
                         }
+                        .padding(.vertical, 4)
                     }
-                    Button("Re-scan library from Telegram") {
-                        run("Library re-scanned") {
-                            let s = try await env.library.scan(full: true)
-                            alert = GalleryAlert(title: "Library re-scanned",
-                                                 message: "\(s.items) items found\(s.incomplete > 0 ? ", \(s.incomplete) incomplete" : "")\(s.orphans.isEmpty ? "" : ", \(s.orphans.count) duplicate messages").")
-                        }
-                    }
-                }
+                } header: { Text("Telegram") }
 
                 Section {
                     Toggle("Back up new photos automatically", isOn: $autoBackup)
-                } footer: {
+                    NavigationLink { BackupOptionsView() } label: {
+                        LabeledContent("Backup options", value: backupSummary)
+                    }
+                } header: { Text("Backup") } footer: {
                     Text(autoBackup
-                         ? "New photos matching the choices below are backed up automatically (also overnight and from Shortcuts)."
-                         : "Nothing uploads on its own. Tap Back up now on the Backup tab for everything, or Back up on the photos you choose.")
+                         ? "New photos are backed up on their own, including overnight while charging."
+                         : "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.")
                 }
 
                 Section {
-                    Picker("Back up", selection: $mediaFilter) {
-                        ForEach(Prefs.MediaFilter.allCases) { Text($0.title).tag($0.rawValue) }
+                    NavigationLink { StorageSettingsView() } label: {
+                        LabeledContent("Storage", value: usage.map { Format.bytes($0.thumbnails + $0.originals + $0.telegram) } ?? "…")
                     }
-                    Toggle("Include screenshots", isOn: $includeScreenshots)
-                    NavigationLink("Albums") { AlbumPickerView() }
-                    Toggle("Only photos taken after a date", isOn: $dateFromEnabled)
-                    if dateFromEnabled {
-                        DatePicker("From", selection: Binding(get: { Date(timeIntervalSince1970: dateFrom) },
-                                                              set: { dateFrom = $0.timeIntervalSince1970 }),
-                                   displayedComponents: .date)
-                    }
-                    Toggle("Wi-Fi only", isOn: $wifiOnly)
-                    Toggle("Only while charging", isOn: $chargingOnly)
-                } header: { Text("What to back up") } footer: {
-                    Text("Wi-Fi only also pauses on personal hotspots and Low Data Mode.")
-                }
-
-                Section {
-                    Picker("Viewing cache", selection: $cacheCapMB) {
-                        ForEach([250, 500, 1000, 2000, 5000], id: \.self) { mb in Text(mb >= 1000 ? "\(mb / 1000) GB" : "\(mb) MB").tag(mb) }
-                    }
-                    Picker("Thumbnail cache", selection: $thumbnailCacheMB) {
-                        ForEach([100, 300, 600, 1000], id: \.self) { mb in Text(mb >= 1000 ? "1 GB" : "\(mb) MB").tag(mb) }
-                    }
-                    if let usage {
-                        LabeledContent("Thumbnails", value: Format.bytes(usage.thumbnails))
-                        LabeledContent("Viewed photos", value: Format.bytes(usage.originals))
-                        LabeledContent("Video & Telegram files", value: Format.bytes(usage.telegram))
-                    }
-                    Button("Clear cache", role: .destructive) {
-                        run(nil) {
-                            await env.media.clearCaches()
-                            refreshUsage()
-                            Haptics.success()
-                        }
-                    }
-                } header: { Text("Storage") } footer: {
-                    Text("Viewing cloud items only fills these caches; the oldest entries are removed automatically and iOS may clear them when space is low.")
-                }
-
-                Section {
-                    Toggle("Allow deleting backed-up photos from iPhone", isOn: $allowFreeUpSpace)
-                    if allowFreeUpSpace { Button("Open Free Up Space") { app.openFreeUpSpace() } }
-                } header: { Text("Free up space") } footer: {
-                    Text("Turns on the Free up space tool (Backup tab), which removes photos and videos from this iPhone that are already safely in your Telegram library, to get storage back. They stay in CloudGallery and can be saved back anytime. Off by default so nothing is deleted by accident.")
+                } footer: {
+                    Text("Space used on this iPhone by cloud previews you've viewed. Your photos aren't affected.")
                 }
 
                 Section {
@@ -142,13 +93,18 @@ struct SettingsView: View {
                 libraryName = await env.library.title()
                 accountTtl = await env.td.accountTtlDays()
             }
-            .onChange(of: cacheCapMB) { _, _ in Task { await env.enforceCacheLimits(); refreshUsage() } }
-            .onChange(of: thumbnailCacheMB) { _, _ in Task { await env.enforceCacheLimits(); refreshUsage() } }
             .confirmationDialog("Sign out and reset CloudGallery on this iPhone?", isPresented: $confirmReset, titleVisibility: .visible) {
                 Button("Sign out and reset", role: .destructive) { run(nil) { await app.reset() } }
             }
             .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
         }
+    }
+
+    private var backupSummary: String {
+        var parts: [String] = [Prefs.MediaFilter(rawValue: mediaFilter)?.title ?? "Photos and videos"]
+        if wifiOnly { parts.append("Wi-Fi") }
+        if chargingOnly { parts.append("charging") }
+        return parts.joined(separator: ", ")
     }
 
     private func refreshUsage() {
@@ -306,6 +262,11 @@ struct LibrarySettingsView: View {
                             }
                         }
                 }
+                Button { rescan() } label: {
+                    Label("Re-scan the current library from Telegram", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.subheadline)
+                }
+                .padding(.top, 4)
                 Button {
                     newName = ""; newEncrypted = false; newPassphrase = ""; newConfirm = ""; newAcknowledged = false
                     creating = true
@@ -386,6 +347,19 @@ struct LibrarySettingsView: View {
         loading = true
         channels = (try? await env.library.candidateChannels()) ?? channels
         loading = false
+    }
+
+    private func rescan() {
+        Task {
+            busy = "Re-scanning…"
+            defer { busy = nil }
+            do {
+                let s = try await env.library.scan(full: true)
+                env.engine.relinkRestoredItems()
+                alert = GalleryAlert(title: "Library re-scanned",
+                                     message: "\(s.items) items found\(s.incomplete > 0 ? ", \(s.incomplete) incomplete (tap Retry on the Backup tab)" : "")\(s.orphans.isEmpty ? "" : ", \(s.orphans.count) duplicate uploads (see Backup → Duplicates)").")
+            } catch { alert = GalleryAlert(title: "Couldn't re-scan", message: error.localizedDescription) }
+        }
     }
 
     private func rename(_ c: LibraryService.ChannelChoice, to title: String) {
@@ -573,5 +547,86 @@ private struct FolderPicker: UIViewControllerRepresentable {
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             if let url = urls.first { picked(url) }
         }
+    }
+}
+
+/// What gets backed up, and when (moved off the main Settings page).
+struct BackupOptionsView: View {
+    @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
+    @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
+    @AppStorage(Prefs.Key.mediaFilter) private var mediaFilter = Prefs.MediaFilter.all.rawValue
+    @AppStorage(Prefs.Key.includeScreenshots) private var includeScreenshots = true
+    @AppStorage(Prefs.Key.dateFromEnabled) private var dateFromEnabled = false
+    @AppStorage(Prefs.Key.dateFrom) private var dateFrom: Double = Date().addingTimeInterval(-365 * 86400).timeIntervalSince1970
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Back up", selection: $mediaFilter) {
+                    ForEach(Prefs.MediaFilter.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                Toggle("Include screenshots", isOn: $includeScreenshots)
+                NavigationLink("Albums") { AlbumPickerView() }
+                Toggle("Only photos taken after a date", isOn: $dateFromEnabled)
+                if dateFromEnabled {
+                    DatePicker("From", selection: Binding(get: { Date(timeIntervalSince1970: dateFrom) },
+                                                          set: { dateFrom = $0.timeIntervalSince1970 }),
+                               displayedComponents: .date)
+                }
+            } header: { Text("What Back up now includes") }
+
+            Section {
+                Toggle("Wi-Fi only", isOn: $wifiOnly)
+                Toggle("Only while charging", isOn: $chargingOnly)
+            } header: { Text("When to upload") } footer: {
+                Text("Wi-Fi only also pauses on personal hotspots and Low Data Mode.")
+            }
+        }
+        .navigationTitle("Backup options")
+    }
+}
+
+/// Cache sizes and clearing (moved off the main Settings page).
+struct StorageSettingsView: View {
+    @AppStorage(Prefs.Key.cacheCapMB) private var cacheCapMB = 1000
+    @AppStorage(Prefs.Key.thumbnailCacheMB) private var thumbnailCacheMB = 300
+    @State private var usage: CloudMediaService.CacheUsage?
+    private var env: AppEnvironment { AppEnvironment.shared }
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Thumbnails", value: usage.map { Format.bytes($0.thumbnails) } ?? "…")
+                LabeledContent("Viewed photos", value: usage.map { Format.bytes($0.originals) } ?? "…")
+                LabeledContent("Videos & Telegram files", value: usage.map { Format.bytes($0.telegram) } ?? "…")
+                Button("Clear", role: .destructive) {
+                    Task {
+                        await env.media.clearCaches()
+                        refresh()
+                        Haptics.success()
+                    }
+                }
+            } header: { Text("Used on this iPhone") } footer: {
+                Text("Previews of cloud items you've viewed, kept so they open instantly next time. Clearing never touches your photos or your backup.")
+            }
+            Section {
+                Picker("Viewed photos & videos", selection: $cacheCapMB) {
+                    ForEach([250, 500, 1000, 2000, 5000], id: \.self) { mb in Text(mb >= 1000 ? "\(mb / 1000) GB" : "\(mb) MB").tag(mb) }
+                }
+                Picker("Thumbnails", selection: $thumbnailCacheMB) {
+                    ForEach([100, 300, 600, 1000], id: \.self) { mb in Text(mb >= 1000 ? "1 GB" : "\(mb) MB").tag(mb) }
+                }
+            } header: { Text("Limits") } footer: {
+                Text("The oldest previews are removed automatically past these limits.")
+            }
+        }
+        .navigationTitle("Storage")
+        .task { refresh() }
+        .onChange(of: cacheCapMB) { _, _ in Task { await env.enforceCacheLimits(); refresh() } }
+        .onChange(of: thumbnailCacheMB) { _, _ in Task { await env.enforceCacheLimits(); refresh() } }
+    }
+
+    private func refresh() {
+        Task.detached { let u = AppEnvironment.shared.media.cacheUsage; await MainActor.run { usage = u } }
     }
 }
