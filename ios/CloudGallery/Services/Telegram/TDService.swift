@@ -31,6 +31,12 @@ enum TDServiceError: LocalizedError {
         case let m where m.contains("PHONE_CODE_EXPIRED"): return "The login code expired. Request a new one."
         case let m where m.contains("PASSWORD_HASH_INVALID"): return "Wrong two-step verification password."
         case let m where m.contains("API_ID_INVALID"): return "api_id / api_hash are invalid. Copy them again from my.telegram.org."
+        case let m where m.contains("USER_RESTRICTED"):
+            return "Telegram has limited this account, so it can't create channels. In Telegram, message @SpamBot to see why and appeal, or use a different Telegram account."
+        case let m where m.contains("CHANNELS_TOO_MUCH"):
+            return "This account is in too many channels and groups. Leave some in Telegram, or pick an existing channel below."
+        case let m where m.contains("PHONE_NUMBER_BANNED"):
+            return "Telegram has banned this phone number. Use a different Telegram account."
         case let m where m.contains("FLOOD_WAIT") || code == 429:
             let s = TelegramErrorClassifier.floodWaitSeconds(m) ?? 0
             return "Telegram asked us to slow down. Waiting \(s) s."
@@ -268,6 +274,16 @@ final class TDService: @unchecked Sendable {
 
     func logOut() async {
         _ = try? await requireClient().logOut()
+    }
+
+    /// Signs out of the current account and starts a fresh login (the api_id/api_hash are kept).
+    func switchAccount() async {
+        await logOut()
+        for _ in 0..<40 where lock.withLock({ client != nil }) {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        lock.withLock { client = nil }
+        start()
     }
 
     func me() async throws -> User {

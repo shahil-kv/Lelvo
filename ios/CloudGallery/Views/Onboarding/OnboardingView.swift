@@ -169,6 +169,23 @@ final class OnboardingModel: ObservableObject {
         }
     }
 
+    /// Sign out and log in with another phone number (keeps the API keys).
+    func useDifferentAccount() {
+        error = nil
+        info = nil
+        busy = true
+        phone = ""
+        code = ""
+        password = ""
+        channels = []
+        env.library.forget()
+        Task {
+            await env.td.switchAccount()
+            step = .phone
+            busy = false
+        }
+    }
+
     func requestPhotos() {
         Task { photoStatus = await PhotoLibraryService.requestAuthorization() }
     }
@@ -342,6 +359,10 @@ struct OnboardingView: View {
                     Button("Refresh list") { m.loadChannels() }.font(.footnote)
                 }
             }
+            Button { m.useDifferentAccount() } label: {
+                Label("Use a different Telegram account", systemImage: "person.crop.circle.badge.arrow.forward")
+            }
+            .disabled(m.busy)
         }
     }
 
