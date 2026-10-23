@@ -82,7 +82,7 @@ struct BackupDashboardView: View {
                         }
                         .buttonStyle(.bordered)
                         .listRowSeparator(.hidden)
-                    } else {
+                    } else if stats.pending > 0 {
                         Button {
                             Haptics.tap()
                             ContinuedBackup.start()
@@ -96,6 +96,19 @@ struct BackupDashboardView: View {
                             Label("Paused. Shortcuts and overnight backups won't run until you resume.", systemImage: "pause.circle")
                                 .font(.footnote).foregroundStyle(.orange)
                         }
+                    } else if stats.failed > 0 {
+                        Button {
+                            Haptics.tap()
+                            Task {
+                                await Task.detached { AppEnvironment.shared.engine.retryFailed() }.value
+                                ContinuedBackup.start()
+                            }
+                        } label: {
+                            Label("Retry \(stats.failed) failed", systemImage: "arrow.clockwise")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .listRowSeparator(.hidden)
                     }
                     if activity.isRunning && activity.total > 0 {
                         ProgressView(value: Double(activity.done), total: Double(max(activity.total, 1))) {
@@ -128,16 +141,18 @@ struct BackupDashboardView: View {
                             }
                         }
                     }
-                    if let message = activity.message, !(activity.isRunning && activity.total > 0) {
-                        Text(message).font(.footnote).foregroundStyle(.secondary)
+                    if headerState == .running || headerState == .pending {
+                        if let message = activity.message, !(activity.isRunning && activity.total > 0) {
+                            Text(message).font(.footnote).foregroundStyle(.secondary)
+                        }
+                        if wifiOnly || chargingOnly {
+                            Label([wifiOnly ? "Wi-Fi only" : nil, chargingOnly ? "charging only" : nil].compactMap { $0 }.joined(separator: ", ") + ". Change in Settings.",
+                                  systemImage: "slider.horizontal.3")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        Text("Keep CloudGallery open for big first backups. On iOS 26+, “Back up now” keeps running in the background with progress on the Lock Screen.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    if wifiOnly || chargingOnly {
-                        Label([wifiOnly ? "Wi-Fi only" : nil, chargingOnly ? "charging only" : nil].compactMap { $0 }.joined(separator: ", ") + ". Change in Settings.",
-                              systemImage: "slider.horizontal.3")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                    Text("Keep CloudGallery open for big first backups. On iOS 26+, “Back up now” keeps running in the background with progress on the Lock Screen.")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
 
                 if PhotoLibraryService.authorizationStatus == .limited {
@@ -179,18 +194,38 @@ struct BackupDashboardView: View {
         }
     }
 
+    private enum HeaderState { case running, complete, completeWithFailures, pending }
+
+    private var headerState: HeaderState {
+        if activity.isRunning { return .running }
+        if stats.pending > 0 { return .pending }
+        return stats.failed > 0 ? .completeWithFailures : .complete
+    }
+
+    /// Mirrors Google Photos: "Backup complete" when nothing is left, failures called out separately.
     private var statusHeader: some View {
         let left = activity.isRunning && activity.total > 0 ? activity.remaining : stats.pending
-        let upToDate = left == 0 && stats.failed == 0 && !activity.isRunning
+        let state = headerState
+        let icon: String, tint: Color, title: String
+        switch state {
+        case .complete:
+            (icon, tint, title) = ("checkmark.icloud.fill", .green, "Backup complete")
+        case .completeWithFailures:
+            (icon, tint, title) = ("exclamationmark.icloud.fill", .orange,
+                                   "Backup complete, \(stats.failed) item\(stats.failed == 1 ? "" : "s") couldn't be backed up")
+        case .running, .pending:
+            (icon, tint, title) = ("icloud.and.arrow.up", .blue, "\(left) item\(left == 1 ? "" : "s") left to back up")
+        }
         return HStack(spacing: 14) {
-            Image(systemName: upToDate ? "checkmark.icloud.fill" : "icloud.and.arrow.up")
+            Image(systemName: icon)
                 .font(.system(size: 40))
-                .foregroundStyle(upToDate ? .green : .blue)
+                .foregroundStyle(tint)
                 .symbolEffect(.pulse, isActive: activity.isRunning)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text(upToDate ? "Backup is up to date" : "\(left) item\(left == 1 ? "" : "s") left to back up").font(.headline)
-                Text("To \(LibraryService.titleDefault)").font(.subheadline).foregroundStyle(.secondary)
+                Text(title).font(.headline)
+                Text(state == .complete ? "Everything on this iPhone is in \(LibraryService.titleDefault)" : "To \(LibraryService.titleDefault)")
+                    .font(.subheadline).foregroundStyle(.secondary)
                 if let last = UserDefaults.standard.object(forKey: Prefs.Key.lastBackupAt) as? Date {
                     Text("Last upload \(Format.relative(last))").font(.caption).foregroundStyle(.secondary)
                 }
