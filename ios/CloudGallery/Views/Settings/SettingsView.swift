@@ -99,8 +99,11 @@ struct SettingsView: View {
                 libraryName = await env.library.title()
                 accountTtl = await env.td.accountTtlDays()
             }
-            .confirmationDialog("Sign out and reset CloudGallery on this iPhone?", isPresented: $confirmReset, titleVisibility: .visible) {
-                Button("Sign out and reset", role: .destructive) { run(nil) { await app.reset() } }
+            .alert("Sign out of CloudGallery?", isPresented: $confirmReset) {
+                Button("Cancel", role: .cancel) {}
+                Button("Sign Out", role: .destructive) { run(nil) { await app.reset() } }
+            } message: {
+                Text("This iPhone is signed out of Telegram and CloudGallery's local data is removed. Your backup in Telegram isn't touched; sign in again to get it back.")
             }
             .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
         }

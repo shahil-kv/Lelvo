@@ -423,8 +423,9 @@ struct DuplicatesView: View {
         .task { await load() }
         .refreshable { await load() }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
-        .confirmationDialog("Remove extra copies from Telegram?", isPresented: $confirmCloud, titleVisibility: .visible) {
-            Button("Remove extra copies", role: .destructive) { removeCloud() }
+        .alert("Remove extra copies?", isPresented: $confirmCloud) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) { removeCloud() }
         } message: {
             Text("Deletes only the duplicate messages. One copy of every photo and video stays in your library.")
         }

@@ -102,13 +102,14 @@ struct GalleryView: View {
         }
         .sheet(item: $share) { ActivityView(items: $0.urls).presentationDetents([.medium, .large]) }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
-        .confirmationDialog("Delete \(selection.count) item(s) from your Telegram library?", isPresented: $confirmCloudDelete,
-                            titleVisibility: .visible) {
-            Button("Delete from cloud", role: .destructive) { Task { await deleteFromCloud() } }
+        .alert("Delete \(selection.count) from your backup?", isPresented: $confirmCloudDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete from Backup", role: .destructive) { Task { await deleteFromCloud() } }
         } message: {
-            Text("Every message of these items is deleted from the channel. Items still on this iPhone stay there and will be backed up again on the next run.")
+            Text("They're removed from your Telegram library. Any still on this iPhone stay there.")
         }
-        .confirmationDialog("Delete from this iPhone?", isPresented: $confirmDeviceDelete, titleVisibility: .visible) {
+        .alert("Delete \(selection.count) from this iPhone?", isPresented: $confirmDeviceDelete) {
+            Button("Cancel", role: .cancel) {}
             Button("Delete from iPhone", role: .destructive) { Task { await deleteFromDevice() } }
         } message: {
             let notBacked = selectedEntries.filter { $0.asset != nil && $0.badge != .backedUp }.count

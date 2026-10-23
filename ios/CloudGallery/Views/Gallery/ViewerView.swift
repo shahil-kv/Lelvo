@@ -62,10 +62,11 @@ struct ViewerView: View {
         }
         .sheet(item: $share) { ActivityView(items: $0.urls).presentationDetents([.medium, .large]) }
         .alert(item: $message) { a in Alert(title: Text(a.title), message: Text(a.message)) }
-        .confirmationDialog("Delete from your Telegram backup?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete from cloud", role: .destructive) { Task { await deleteCurrent() } }
+        .alert("Delete from your backup?", isPresented: $confirmDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete from Backup", role: .destructive) { Task { await deleteCurrent() } }
         } message: {
-            Text("The photo stays on this iPhone if it's still here, and will be backed up again next time.")
+            Text("It's removed from your Telegram library. If it's still on this iPhone, it stays there.")
         }
     }
 
