@@ -46,6 +46,8 @@ final class OnboardingModel: ObservableObject {
 
     private func apply(_ auth: TDService.AuthStep) {
         guard step != .welcome || auth == .ready else { return }
+        // Any new state from Telegram means the previous request finished: never leave the spinner on.
+        if auth != .starting { busy = false; credentialsTimeout?.cancel() }
         switch auth {
         case .needsCredentials: if step != .credentials { step = .credentials }
         case .starting, .loggingOut, .closed: break
@@ -85,9 +87,20 @@ final class OnboardingModel: ObservableObject {
             return
         }
         TDCredentials.save(apiId: id, apiHash: apiHash.trimmingCharacters(in: .whitespaces))
+        error = nil
         busy = true
         env.td.start()
+        // If Telegram doesn't answer (wrong keys, no network), show a message instead of spinning forever.
+        credentialsTimeout?.cancel()
+        credentialsTimeout = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 25_000_000_000)
+            guard let self, !Task.isCancelled, self.busy, self.step == .credentials else { return }
+            self.busy = false
+            self.error = "Telegram didn't respond. Check your internet connection and that api_id / api_hash are copied exactly from my.telegram.org, then try again."
+        }
     }
+
+    private var credentialsTimeout: Task<Void, Never>?
 
     func submitPhone() {
         let digits = phone.filter { $0.isNumber || $0 == "+" }
