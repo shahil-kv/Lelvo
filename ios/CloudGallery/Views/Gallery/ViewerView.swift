@@ -7,6 +7,8 @@ import CloudGalleryCore
 
 struct ViewerView: View {
     let entries: [GalleryEntry]
+    /// Reports the item on screen, so the grid can follow and the close animation returns to it.
+    var onPageChange: (String) -> Void = { _ in }
     @State private var currentId: String?
     @State private var chromeHidden = false
     @State private var zoomed = false
@@ -17,8 +19,9 @@ struct ViewerView: View {
     @State private var confirmDelete = false
     @Environment(\.dismiss) private var dismiss
 
-    init(entries: [GalleryEntry], startId: String) {
+    init(entries: [GalleryEntry], startId: String, onPageChange: @escaping (String) -> Void = { _ in }) {
         self.entries = entries
+        self.onPageChange = onPageChange
         _currentId = State(initialValue: startId)
     }
 
@@ -44,7 +47,10 @@ struct ViewerView: View {
             .background(Color.black.ignoresSafeArea())
             .ignoresSafeArea()
             .onAppear { if let currentId { proxy.scrollTo(currentId) } }
-            .onChange(of: currentId) { _, id in prefetchNeighbours(of: id) }
+            .onChange(of: currentId) { _, id in
+                prefetchNeighbours(of: id)
+                if let id { onPageChange(id) }
+            }
         }
         .overlay(alignment: .top) { if !chromeHidden { topBar.transition(.opacity) } }
         .overlay(alignment: .bottom) { if !chromeHidden { bottomBar.transition(.opacity) } }

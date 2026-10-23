@@ -49,6 +49,8 @@ struct GalleryView: View {
     @State private var dragAnchor: Int?
     @State private var dragBase = Set<String>()
     @State private var showLegend = false
+    /// The item showing in the viewer (changes as the user swipes).
+    @State private var viewerCurrentId: String?
     @State private var scrollFraction: CGFloat = 0
     @State private var isScrolling = false
     @Namespace private var zoomNamespace
@@ -95,8 +97,8 @@ struct GalleryView: View {
         .onChange(of: columns) { _, c in model.setGrouping(GalleryModel.Grouping(columns: c)) }
         .onAppear { model.setGrouping(grouping) }
         .fullScreenCover(item: $viewerStart) { start in
-            ViewerView(entries: entries, startId: start.id)
-                .zoomTransition(sourceID: start.id, in: zoomNamespace)
+            ViewerView(entries: entries, startId: start.id) { viewerCurrentId = $0 }
+                .zoomTransition(sourceID: viewerCurrentId ?? start.id, in: zoomNamespace)
         }
         .sheet(item: $share) { ActivityView(items: $0.urls).presentationDetents([.medium, .large]) }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
@@ -159,6 +161,10 @@ struct GalleryView: View {
                 }
                 .scrollIndicators(.hidden)
                 .trackScroll(fraction: $scrollFraction, isScrolling: $isScrolling)
+                .onChange(of: viewerCurrentId) { _, id in
+                    // Keep the grid under the viewer on the current item, like Photos.
+                    if let id { proxy.scrollTo(id, anchor: .center) }
+                }
                 .coordinateSpace(name: "grid")
                 .accessibilityIdentifier("galleryGrid")
                 .onPreferenceChange(CellFramesKey.self) { cellFrames = $0 }
@@ -298,6 +304,7 @@ struct GalleryView: View {
             if selection.contains(entry.id) { selection.remove(entry.id) } else { selection.insert(entry.id) }
             Haptics.tap()
         } else {
+            viewerCurrentId = entry.id
             viewerStart = entry
         }
     }
