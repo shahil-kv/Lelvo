@@ -1,13 +1,22 @@
 name: iOS
 
+# Everyday pushes: one lane (newest Xcode on the xcode-27 image), unit tests, IPA artifact.
+# Full runs (tags v*, or "Run workflow" with full = true): both lanes, UI tests, and a GitHub Release on tags.
+# Docs-only changes (*.md) never trigger a build.
 on:
   push:
     branches: [main]
     tags: ["v*"]
     paths:
       - "ios/**"
+      - "!ios/**/*.md"
       - ".github/workflows/ios.yml"
   workflow_dispatch:
+    inputs:
+      full:
+        description: "Full run: both Xcode lanes + UI tests"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -17,22 +26,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.p.outputs.full }}
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - id: p
+        run: |
+          FULL=false
+          if [[ "$GITHUB_REF" == refs/tags/v* ]] || [[ "${{ inputs.full }}" == "true" ]]; then FULL=true; fi
+          XC27='{"runner":"xcode-27","label":"xcode-27","experimental":false}'
+          LATEST='{"runner":"macos-latest","label":"macos-latest","experimental":true}'
+          if [ "$FULL" = true ]; then MATRIX="{\"include\":[$XC27,$LATEST]}"; else MATRIX="{\"include\":[$XC27]}"; fi
+          echo "full=$FULL" >> "$GITHUB_OUTPUT"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "full=$FULL matrix=$MATRIX"
+
   build:
     name: Build (${{ matrix.label }})
+    needs: plan
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
-    # The Xcode 27 image is a GitHub preview; it must not block the stable build.
+    # The secondary lane must not block the main one.
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - runner: macos-latest
-            label: macos-latest
-            experimental: false
-          - runner: xcode-27
-            label: xcode-27
-            experimental: true
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      FULL: ${{ needs.plan.outputs.full }}
     defaults:
       run:
         working-directory: ios
@@ -40,6 +64,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Select newest Xcode
+        id: xcode
         run: |
           set -euo pipefail
           # Resolve symlinks (Xcode_27.2.app may point at a beta), skip betas, take the newest version.
@@ -53,6 +78,7 @@ jobs:
           [ -n "$XCODE" ] || XCODE=$(echo "$CANDIDATES" | sort -V | tail -1 | cut -d' ' -f2-)
           echo "Using $XCODE"
           sudo xcode-select -s "$XCODE/Contents/Developer"
+          echo "build=$(xcodebuild -version | tail -1 | awk '{print $3}')" >> "$GITHUB_OUTPUT"
           xcodebuild -version
           xcodebuild -showsdks | grep -i ios
 
@@ -61,6 +87,19 @@ jobs:
 
       - name: Generate Xcode project
         run: xcodegen generate
+
+      # TDLib (~350 MB download) and TDLibKit (~66k lines) dominate build time: keep the resolved
+      # packages and their compiled products between runs.
+      - name: Cache Swift packages and build products
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/build/SourcePackages
+            ios/build/DerivedData
+          key: ios-${{ matrix.label }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('ios/project.yml', 'ios/CloudGalleryCore/Package.swift') }}-${{ github.sha }}
+          restore-keys: |
+            ios-${{ matrix.label }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('ios/project.yml', 'ios/CloudGalleryCore/Package.swift') }}-
+            ios-${{ matrix.label }}-${{ steps.xcode.outputs.build }}-
 
       - name: Pick an iPhone simulator
         id: sim
@@ -89,13 +128,18 @@ jobs:
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           xcrun simctl list devices | grep "$UDID"
 
-      - name: Run unit tests
+      - name: Run tests (UI tests only on full runs)
         run: |
+          SKIP=""
+          if [ "$FULL" != true ]; then SKIP="-skip-testing:CloudGalleryUITests"; fi
           xcodebuild test \
             -project CloudGallery.xcodeproj \
             -scheme CloudGallery \
             -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build/DerivedData \
+            -clonedSourcePackagesDirPath build/SourcePackages \
             -resultBundlePath build/TestResults.xcresult \
+            $SKIP \
             CODE_SIGNING_ALLOWED=NO \
             > build-test.log 2>&1 || { grep -E "error:|✘|failed" build-test.log | head -100; tail -80 build-test.log; exit 1; }
           grep -E "✔ Test run|✘|Executed|\*\* TEST" build-test.log || tail -20 build-test.log
@@ -108,6 +152,8 @@ jobs:
             -configuration Release \
             -destination "generic/platform=iOS" \
             -archivePath build/CloudGallery.xcarchive \
+            -derivedDataPath build/DerivedData \
+            -clonedSourcePackagesDirPath build/SourcePackages \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -146,7 +192,7 @@ jobs:
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v') && always()
-    needs: build
+    needs: [plan, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v5
@@ -172,7 +218,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           DIR="${{ steps.pick.outputs.dir }}"
-          NOTES="Unsigned iOS build of CloudGallery (built on the ${{ steps.pick.outputs.label }} runner). Install with Sideloadly or AltStore using your Apple ID; see ios/README.md. Requires iOS 17 or later."
+          NOTES="Unsigned iOS build of CloudGallery (built on the ${{ steps.pick.outputs.label }} runner). Install with SideStore, AltStore or Sideloadly using your Apple ID; see ios/README.md for Telegram sign-in setup. Requires iOS 17 or later."
           PRE=""
           case "${GITHUB_REF_NAME}" in *-*) PRE="--prerelease" ;; esac
           gh release create "${GITHUB_REF_NAME}" "$DIR/CloudGallery.ipa" "$DIR/CloudGallery.ipa.sha256" $PRE \
