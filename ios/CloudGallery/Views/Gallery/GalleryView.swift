@@ -48,6 +48,7 @@ struct GalleryView: View {
     @State private var cellFrames: [String: CGRect] = [:]
     @State private var dragAnchor: Int?
     @State private var dragBase = Set<String>()
+    @State private var showLegend = false
 
     private let spacing: CGFloat = 2
 
@@ -77,6 +78,7 @@ struct GalleryView: View {
         }
         .navigationTitle(filter?.title ?? "Photos")
         .toolbar { toolbar }
+        .sheet(isPresented: $showLegend) { BadgeLegendView() }
         .safeAreaInset(edge: .bottom) { if selecting { selectionBar } }
         .overlay {
             if let busyMessage {
@@ -252,6 +254,8 @@ struct GalleryView: View {
                     Picker("Columns", selection: $columns) {
                         ForEach([2, 3, 4, 5, 6, 8, 10], id: \.self) { Text("\($0) columns").tag($0) }
                     }
+                    Divider()
+                    Button { showLegend = true } label: { Label("What the icons mean", systemImage: "info.circle") }
                 } label: { Image(systemName: "square.grid.3x3") }
                 .accessibilityLabel("Grid size")
             }
@@ -407,7 +411,7 @@ struct ThumbnailCell: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if entry.badge != .backedUp || side > 70 { BadgeView(badge: entry.badge).padding(4) }
+            if side > 30 { BadgeView(badge: entry.badge).padding(4) }
         }
         .overlay(alignment: .bottomTrailing) {
             if selecting {

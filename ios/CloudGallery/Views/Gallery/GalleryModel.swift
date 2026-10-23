@@ -22,7 +22,8 @@ struct GalleryEntry: Identifiable, Equatable, Hashable {
             if item.sizeClass == .uploadOnly { return .viewNeedsV2 }
             return asset == nil ? .cloudOnly : .backedUp
         case .tooLarge: return .tooLarge
-        case .queued, .uploading: return .uploading
+        case .queued: return .waiting
+        case .uploading: return .uploading
         case .failed: return .failed
         }
     }

@@ -152,9 +152,9 @@ struct BackupDashboardView: View {
 
                 Section("Library") {
                     statRow("On this iPhone", stats.onDevice, "iphone", .secondary)
-                    statRow("Backed up (verified)", stats.backedUp, "checkmark.icloud.fill", .green)
-                    statRow("Only in the cloud", stats.cloudOnly, "icloud.fill", .cyan)
-                    statRow("Waiting to upload", stats.pending, "arrow.up.circle", .blue)
+                    statRow("Backed up (verified)", stats.backedUp, BackupBadge.backedUp.symbol, BackupBadge.backedUp.tint)
+                    statRow("Only in the cloud", stats.cloudOnly, BackupBadge.cloudOnly.symbol, BackupBadge.cloudOnly.tint)
+                    statRow("Waiting to upload", stats.pending, BackupBadge.waiting.symbol, .secondary)
                     NavigationLink { FailedItemsView() } label: {
                         statRow("Failed", stats.failed, "exclamationmark.icloud.fill", stats.failed > 0 ? .red : .secondary)
                     }

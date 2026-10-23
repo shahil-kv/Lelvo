@@ -77,6 +77,7 @@ struct ViewerView: View {
                 .foregroundStyle(.white)
                 Spacer()
                 BadgeView(badge: current.badge).scaleEffect(1.4)
+                    .accessibilityHint(current.badge.explanation)
             }
         }
         .padding(.horizontal)
