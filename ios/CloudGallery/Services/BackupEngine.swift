@@ -69,7 +69,7 @@ final class BackupEngine: @unchecked Sendable {
         return files.reduce(0) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
     }
 
-    @MainActor private func publish(_ change: (BackupActivity) -> Void) { change(BackupActivity.shared) }
+    @MainActor private func publish(_ change: @MainActor (BackupActivity) -> Void) { change(BackupActivity.shared) }
 
     // MARK: - Queueing
 
@@ -99,7 +99,7 @@ final class BackupEngine: @unchecked Sendable {
         let known = (try? env.store.knownLocalIdentifiers()) ?? []
         let fresh = env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }
 
-        var work: [(PHAsset, LibraryItem?)] = []
+        var work: [(PHAsset, MediaItem?)] = []
         let retryIds = unfinished.compactMap(\.localIdentifier)
         var retryAssets: [String: PHAsset] = [:]
         if !retryIds.isEmpty {
@@ -187,7 +187,7 @@ final class BackupEngine: @unchecked Sendable {
 
     // MARK: - Preparing one asset
 
-    private func prepare(asset: PHAsset, existing: LibraryItem?) async -> Outcome {
+    private func prepare(asset: PHAsset, existing: MediaItem?) async -> Outcome {
         let exported: ExportedAsset
         do {
             exported = try await env.photos.exportOriginal(of: asset, into: rawDirectory)
@@ -205,7 +205,7 @@ final class BackupEngine: @unchecked Sendable {
             if let paired = exported.pairedVideoURL { hashes.append(try Deduplicator.sha256(of: paired)) }
             let sha = Deduplicator.combinedHash(hashes)
 
-            var item: LibraryItem
+            var item: MediaItem
             if let existing {
                 item = existing
             } else {
@@ -218,7 +218,7 @@ final class BackupEngine: @unchecked Sendable {
                     try dedupe.link(localIdentifier: asset.localIdentifier, to: match, existingAssetIsMissing: missing)
                     return .duplicate
                 case .upload:
-                    item = LibraryItem(localIdentifier: asset.localIdentifier, sha256: sha, filename: exported.primaryFilename,
+                    item = MediaItem(localIdentifier: asset.localIdentifier, sha256: sha, filename: exported.primaryFilename,
                                        kind: exported.kind, uti: exported.primaryUTI, creationDate: asset.creationDate,
                                        latitude: asset.location?.coordinate.latitude, longitude: asset.location?.coordinate.longitude,
                                        pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight,
@@ -292,7 +292,7 @@ final class BackupEngine: @unchecked Sendable {
         }
     }
 
-    private func buildJob(item: LibraryItem, role: UploadRole, source: URL, plainName: String) throws -> UploadJob {
+    private func buildJob(item: MediaItem, role: UploadRole, source: URL, plainName: String) throws -> UploadJob {
         guard let chatId = env.chatId else { throw TelegramError.api(code: 401, description: "Not configured") }
         var payload = source
         var fileName = plainName

@@ -47,8 +47,8 @@ import CloudGalleryCore
 
 @Suite struct IndexEncryptionTests {
     func sampleIndex(count: Int = 3) -> CloudIndex {
-        let items = (0..<count).map { i -> LibraryItem in
-            var item = LibraryItem(localIdentifier: "LOCAL-\(i)", sha256: String(repeating: "a", count: 64),
+        let items = (0..<count).map { i -> MediaItem in
+            var item = MediaItem(localIdentifier: "LOCAL-\(i)", sha256: String(repeating: "a", count: 64),
                                    filename: "IMG_\(i).HEIC", kind: i % 2 == 0 ? .photo : .livePhoto,
                                    creationDate: Date(timeIntervalSince1970: 1_700_000_000 + Double(i)),
                                    latitude: 48.85, longitude: 2.35, pixelWidth: 4032, pixelHeight: 3024,

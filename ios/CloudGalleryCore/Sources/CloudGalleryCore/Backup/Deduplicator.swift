@@ -7,9 +7,9 @@ import CryptoKit
 public struct Deduplicator {
     public enum Decision: Equatable {
         /// Known by local identifier — nothing to do (`item` may still be in progress).
-        case known(LibraryItem)
+        case known(MediaItem)
         /// Same bytes already backed up/in progress under another identifier — link, don't upload.
-        case duplicateContent(LibraryItem)
+        case duplicateContent(MediaItem)
         /// Never seen: upload.
         case upload
     }
@@ -19,7 +19,7 @@ public struct Deduplicator {
     public init(store: LibraryStore) { self.store = store }
 
     /// Stage 1, before exporting any bytes.
-    public func check(localIdentifier: String) throws -> LibraryItem? {
+    public func check(localIdentifier: String) throws -> MediaItem? {
         try store.item(localIdentifier: localIdentifier)
     }
 
@@ -37,7 +37,7 @@ public struct Deduplicator {
     /// Adopts the identifier when the existing item has none or its asset is gone (restore / new device);
     /// otherwise stores an alias for the duplicate asset. Returns true if the identifier was adopted.
     @discardableResult
-    public func link(localIdentifier: String, to existing: LibraryItem, existingAssetIsMissing: Bool) throws -> Bool {
+    public func link(localIdentifier: String, to existing: MediaItem, existingAssetIsMissing: Bool) throws -> Bool {
         if existing.localIdentifier == nil || existingAssetIsMissing {
             try store.update(id: existing.id) { $0.localIdentifier = localIdentifier }
             return true

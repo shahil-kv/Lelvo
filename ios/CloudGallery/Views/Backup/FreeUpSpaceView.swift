@@ -3,8 +3,8 @@ import CloudGalleryCore
 
 struct FreeUpSpaceView: View {
     @AppStorage(Prefs.Key.allowFreeUpSpace) private var allowed = false
-    @State private var candidates: [LibraryItem] = []
-    @State private var verified: [LibraryItem] = []
+    @State private var candidates: [MediaItem] = []
+    @State private var verified: [MediaItem] = []
     @State private var verifying = false
     @State private var checked = 0
     @State private var cancelFlag = CancelFlag()
@@ -89,7 +89,7 @@ struct FreeUpSpaceView: View {
         verifying = true
         checked = 0
         defer { verifying = false }
-        var ok: [LibraryItem] = []
+        var ok: [MediaItem] = []
         for item in candidates {
             if cancelFlag.isCancelled { break }
             if service.isFreshlyVerified(item) || (await service.verify(item)) {

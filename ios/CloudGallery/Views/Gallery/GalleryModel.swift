@@ -8,7 +8,7 @@ struct GalleryEntry: Identifiable, Equatable, Hashable {
     let id: String
     let date: Date?
     let asset: PHAsset?
-    let item: LibraryItem?
+    let item: MediaItem?
 
     var isVideo: Bool { asset.map { $0.mediaType == .video } ?? (item?.kind == .video) }
     var isLive: Bool { asset.map { $0.mediaSubtypes.contains(.photoLive) } ?? (item?.kind == .livePhoto) }
@@ -100,8 +100,8 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         loaded = true
     }
 
-    nonisolated static func merge(assets: PHFetchResult<PHAsset>?, items: [LibraryItem]) -> [GalleryEntry] {
-        var byLocal: [String: LibraryItem] = [:]
+    nonisolated static func merge(assets: PHFetchResult<PHAsset>?, items: [MediaItem]) -> [GalleryEntry] {
+        var byLocal: [String: MediaItem] = [:]
         for item in items { if let id = item.localIdentifier, byLocal[id] == nil { byLocal[id] = item } }
 
         var local: [GalleryEntry] = []

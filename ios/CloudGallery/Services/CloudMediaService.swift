@@ -15,11 +15,11 @@ final class CloudMediaService: @unchecked Sendable {
         memory.countLimit = 600
     }
 
-    func cachedThumbnail(for item: LibraryItem) -> UIImage? {
+    func cachedThumbnail(for item: MediaItem) -> UIImage? {
         memory.object(forKey: item.id as NSString)
     }
 
-    func thumbnail(for item: LibraryItem) async throws -> UIImage {
+    func thumbnail(for item: MediaItem) async throws -> UIImage {
         if let img = memory.object(forKey: item.id as NSString) { return img }
         guard let remote = item.thumbnail else { throw TelegramError.missingResult }
         let key = "t_\(remote.fileUniqueId)"
@@ -33,7 +33,7 @@ final class CloudMediaService: @unchecked Sendable {
     }
 
     /// Downloads (or returns the cached) original/paired video. Throws for files over 20 MB.
-    func original(for item: LibraryItem, role: UploadRole = .original) async throws -> URL {
+    func original(for item: MediaItem, role: UploadRole = .original) async throws -> URL {
         guard let remote = item.remote(for: role) else { throw TelegramError.missingResult }
         guard remote.size <= TelegramClient.maxDownloadBytes else { throw TelegramError.fileTooLargeToDownload }
         let name = role == .pairedVideo ? (item.pairedVideoFilename ?? "video.mov") : item.filename

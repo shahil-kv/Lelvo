@@ -157,8 +157,8 @@ struct BackupDashboardView: View {
 
 /// Files the Bot API can't fully handle. Never presented as backed up when they aren't.
 struct LargeFilesView: View {
-    @State private var tooLarge: [LibraryItem] = []
-    @State private var uploadOnly: [LibraryItem] = []
+    @State private var tooLarge: [MediaItem] = []
+    @State private var uploadOnly: [MediaItem] = []
 
     var body: some View {
         List {
@@ -195,7 +195,7 @@ struct LargeFilesView: View {
 }
 
 private struct LargeFileRow: View {
-    let item: LibraryItem
+    let item: MediaItem
     @State private var image: UIImage?
 
     var body: some View {

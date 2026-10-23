@@ -23,6 +23,7 @@ enum BackgroundTasks {
     /// Continued-processing tasks are registered just before their first submission (per Apple's guidance).
     @MainActor private static var continuedRegistered = false
 
+    #if !targetEnvironment(macCatalyst)
     @available(iOS 26.0, *)
     @MainActor static func registerContinuedIfNeeded() {
         guard !continuedRegistered else { return }
@@ -31,6 +32,7 @@ enum BackgroundTasks {
             ContinuedBackup.handle(task)
         }
     }
+    #endif
 
     static func scheduleAll() {
         scheduleProcessing()
@@ -88,6 +90,7 @@ enum ContinuedBackup {
 
     @MainActor
     static func start() {
+        #if !targetEnvironment(macCatalyst)
         if #available(iOS 26.0, *) {
             BackgroundTasks.registerContinuedIfNeeded()
             let request = BGContinuedProcessingTaskRequest(identifier: BackgroundTasks.continuedId,
@@ -102,6 +105,7 @@ enum ContinuedBackup {
                 AppLog.shared.warn("Continued processing unavailable (\(error.localizedDescription)); running in app")
             }
         }
+        #endif
         runInForeground()
     }
 
@@ -117,6 +121,7 @@ enum ContinuedBackup {
         }
     }
 
+    #if !targetEnvironment(macCatalyst)
     @available(iOS 26.0, *)
     static func handle(_ task: BGContinuedProcessingTask) {
         let flag = CancelFlag()
@@ -132,4 +137,5 @@ enum ContinuedBackup {
             task.setTaskCompleted(success: !flag.isCancelled && summary.error == nil)
         }
     }
+    #endif
 }

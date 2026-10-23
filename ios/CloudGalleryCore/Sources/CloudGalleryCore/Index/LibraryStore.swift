@@ -12,7 +12,7 @@ public enum StoreError: Error, LocalizedError {
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 /// Local database of every item the app knows about. SQLite with indexed lookup columns and the
-/// full `LibraryItem` stored as JSON, so the schema stays stable while the model evolves.
+/// full `MediaItem` stored as JSON, so the schema stays stable while the model evolves.
 public final class LibraryStore: @unchecked Sendable {
     private var db: OpaquePointer?
     private let lock = NSRecursiveLock()
@@ -73,23 +73,23 @@ public final class LibraryStore: @unchecked Sendable {
         if let value { sqlite3_bind_text(stmt, idx, value, -1, SQLITE_TRANSIENT) } else { sqlite3_bind_null(stmt, idx) }
     }
 
-    private func readItems(_ stmt: OpaquePointer?) throws -> [LibraryItem] {
-        var result: [LibraryItem] = []
+    private func readItems(_ stmt: OpaquePointer?) throws -> [MediaItem] {
+        var result: [MediaItem] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             guard let blob = sqlite3_column_blob(stmt, 0) else { continue }
             let data = Data(bytes: blob, count: Int(sqlite3_column_bytes(stmt, 0)))
-            if let item = try? decoder.decode(LibraryItem.self, from: data) { result.append(item) }
+            if let item = try? decoder.decode(MediaItem.self, from: data) { result.append(item) }
         }
         return result
     }
 
     // MARK: - Items
 
-    public func upsert(_ item: LibraryItem) throws {
+    public func upsert(_ item: MediaItem) throws {
         try upsert([item])
     }
 
-    public func upsert(_ items: [LibraryItem]) throws {
+    public func upsert(_ items: [MediaItem]) throws {
         guard !items.isEmpty else { return }
         lock.lock(); defer { lock.unlock() }
         try exec("BEGIN IMMEDIATE;")
@@ -117,7 +117,7 @@ public final class LibraryStore: @unchecked Sendable {
 
     /// Atomically reads, modifies and writes one item.
     @discardableResult
-    public func update(id: String, _ change: (inout LibraryItem) -> Void) throws -> LibraryItem? {
+    public func update(id: String, _ change: (inout MediaItem) -> Void) throws -> MediaItem? {
         lock.lock(); defer { lock.unlock() }
         guard var item = try item(id: id) else { return nil }
         change(&item)
@@ -125,12 +125,12 @@ public final class LibraryStore: @unchecked Sendable {
         return item
     }
 
-    public func item(id: String) throws -> LibraryItem? {
+    public func item(id: String) throws -> MediaItem? {
         try withStatement("SELECT json FROM items WHERE id = ? LIMIT 1;", bind: { bindText($0, 1, id) }, readItems).first
     }
 
     /// Looks up by local identifier, including duplicate assets aliased to an item.
-    public func item(localIdentifier: String) throws -> LibraryItem? {
+    public func item(localIdentifier: String) throws -> MediaItem? {
         if let direct = try withStatement("SELECT json FROM items WHERE local_id = ? LIMIT 1;", bind: { bindText($0, 1, localIdentifier) }, readItems).first {
             return direct
         }
@@ -144,15 +144,15 @@ public final class LibraryStore: @unchecked Sendable {
                           bind: { bindText($0, 1, localIdentifier); bindText($0, 2, itemId) }) { _ = sqlite3_step($0) }
     }
 
-    public func items(sha256: String) throws -> [LibraryItem] {
+    public func items(sha256: String) throws -> [MediaItem] {
         try withStatement("SELECT json FROM items WHERE sha256 = ?;", bind: { bindText($0, 1, sha256) }, readItems)
     }
 
-    public func items(status: ItemStatus) throws -> [LibraryItem] {
+    public func items(status: ItemStatus) throws -> [MediaItem] {
         try withStatement("SELECT json FROM items WHERE status = ? ORDER BY creation_date DESC;", bind: { bindText($0, 1, status.rawValue) }, readItems)
     }
 
-    public func allItems() throws -> [LibraryItem] {
+    public func allItems() throws -> [MediaItem] {
         try withStatement("SELECT json FROM items ORDER BY creation_date DESC;", readItems)
     }
 

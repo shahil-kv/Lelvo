@@ -12,19 +12,19 @@ final class FreeUpSpaceService: @unchecked Sendable {
     init(environment: AppEnvironment) { self.env = environment }
 
     /// Backed-up items still on the phone whose originals the Bot API can re-download.
-    func candidates() -> [LibraryItem] {
+    func candidates() -> [MediaItem] {
         let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.sizeClass == .normal && $0.localIdentifier != nil }
         let present = env.photos.existingIdentifiers(items.compactMap(\.localIdentifier))
         return items.filter { present.contains($0.localIdentifier!) }
     }
 
-    func isFreshlyVerified(_ item: LibraryItem) -> Bool {
+    func isFreshlyVerified(_ item: MediaItem) -> Bool {
         guard let at = item.verifiedAt else { return false }
         return Date().timeIntervalSince(at) < Self.verificationLifetime
     }
 
     /// Checks every required message still exists and every file_id still resolves to the recorded size.
-    func verify(_ item: LibraryItem) async -> Bool {
+    func verify(_ item: MediaItem) async -> Bool {
         guard let client = env.client(), let chatId = env.chatId, item.status == .backedUp, item.sizeClass == .normal else { return false }
         do {
             for role in item.requiredRoles {
@@ -49,7 +49,7 @@ final class FreeUpSpaceService: @unchecked Sendable {
     }
 
     /// Deletes verified items from the photo library. Their records stay, so they remain in the gallery as cloud items.
-    func delete(_ items: [LibraryItem]) async throws -> Int {
+    func delete(_ items: [MediaItem]) async throws -> Int {
         let safe = items.filter { isFreshlyVerified($0) && $0.sizeClass == .normal && $0.status == .backedUp }
         let ids = safe.compactMap(\.localIdentifier)
         guard !ids.isEmpty else { return 0 }
@@ -60,7 +60,7 @@ final class FreeUpSpaceService: @unchecked Sendable {
         return deleted.count
     }
 
-    static func bytes(of items: [LibraryItem]) -> Int64 {
+    static func bytes(of items: [MediaItem]) -> Int64 {
         items.reduce(0) { $0 + $1.fileSize + ($1.pairedVideoSize ?? 0) }
     }
 }

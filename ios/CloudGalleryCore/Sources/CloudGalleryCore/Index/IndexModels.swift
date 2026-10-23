@@ -44,7 +44,7 @@ public enum UploadRole: String, Codable, Sendable {
 }
 
 /// Everything known about one photo/video, persisted locally and (when backed up) in the cloud index.
-public struct LibraryItem: Codable, Equatable, Identifiable, Sendable {
+public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var localIdentifier: String?
     public var sha256: String
@@ -167,10 +167,10 @@ public struct CloudIndex: Codable, Equatable {
     public var deviceName: String
     /// Salt for deriving the E2E master key from the passphrase (nil if E2E was never enabled).
     public var fileKeySalt: Data?
-    public var items: [LibraryItem]
+    public var items: [MediaItem]
 
     public init(version: Int = CloudIndex.currentVersion, createdAt: Date = Date(), deviceName: String,
-                fileKeySalt: Data?, items: [LibraryItem]) {
+                fileKeySalt: Data?, items: [MediaItem]) {
         self.version = version
         self.createdAt = createdAt
         self.deviceName = deviceName

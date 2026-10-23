@@ -227,7 +227,7 @@ final class PhotoLibraryService: @unchecked Sendable {
     }
 
     /// Saves a downloaded original back into Photos, restoring date and location. Returns the new local identifier.
-    func saveToPhotos(item: LibraryItem, primary: URL, pairedVideo: URL?) async throws -> String? {
+    func saveToPhotos(item: MediaItem, primary: URL, pairedVideo: URL?) async throws -> String? {
         var placeholderId: String?
         try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetCreationRequest.forAsset()

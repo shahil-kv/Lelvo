@@ -22,7 +22,7 @@ enum GalleryActions {
     }
 
     /// Downloads a cloud item (≤ 20 MB) into Photos and links it so it is not uploaded again.
-    static func saveToPhotos(_ item: LibraryItem) async throws {
+    static func saveToPhotos(_ item: MediaItem) async throws {
         let env = AppEnvironment.shared
         let status = PhotoLibraryService.authorizationStatus
         guard status == .authorized || status == .limited else { throw PhotoLibraryError.notAuthorized }
@@ -43,7 +43,7 @@ enum GalleryActions {
     }
 
     /// Deletes the item's messages from the channel, drops it from the index and re-uploads the index.
-    static func deleteFromCloud(_ items: [LibraryItem]) async throws {
+    static func deleteFromCloud(_ items: [MediaItem]) async throws {
         let env = AppEnvironment.shared
         guard let client = env.client(), let chatId = env.chatId else { throw IndexSyncError.notConfigured }
         for item in items {

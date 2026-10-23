@@ -142,7 +142,7 @@ actor IndexSyncService {
         }
         // Keep identifiers only for assets that still exist on this device; others become cloud-only.
         let existing = env.photos.existingIdentifiers(index.items.compactMap(\.localIdentifier))
-        var merged: [LibraryItem] = []
+        var merged: [MediaItem] = []
         for var item in index.items {
             if let local = try env.store.item(id: item.id), local.status == .backedUp {
                 item.localIdentifier = local.localIdentifier ?? item.localIdentifier

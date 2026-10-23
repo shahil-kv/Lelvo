@@ -3,8 +3,8 @@ import Testing
 import CloudGalleryCore
 
 @Suite struct DedupeTests {
-    func item(_ local: String?, sha: String, status: ItemStatus = .backedUp) -> LibraryItem {
-        LibraryItem(localIdentifier: local, sha256: sha, filename: "a.jpg", kind: .photo, creationDate: Date(), fileSize: 10, status: status)
+    func item(_ local: String?, sha: String, status: ItemStatus = .backedUp) -> MediaItem {
+        MediaItem(localIdentifier: local, sha256: sha, filename: "a.jpg", kind: .photo, creationDate: Date(), fileSize: 10, status: status)
     }
 
     @Test func unknownAssetUploads() throws {
@@ -61,7 +61,7 @@ import CloudGalleryCore
     }
 
     @Test func backedUpRequiresAllParts() {
-        var live = LibraryItem(localIdentifier: "L", sha256: "h", filename: "IMG.HEIC", kind: .livePhoto, creationDate: nil, fileSize: 1)
+        var live = MediaItem(localIdentifier: "L", sha256: "h", filename: "IMG.HEIC", kind: .livePhoto, creationDate: nil, fileSize: 1)
         let f = RemoteFile(messageId: 1, fileId: "f", fileUniqueId: "u", size: 1)
         live.setRemote(f, for: .original)
         live.setRemote(f, for: .thumbnail)
