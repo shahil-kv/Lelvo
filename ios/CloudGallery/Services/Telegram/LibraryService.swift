@@ -82,6 +82,22 @@ final class LibraryService: @unchecked Sendable {
         let id: Int64
         let title: String
         let isLibrary: Bool
+        var encrypted = false
+    }
+
+    /// The library channel's current name in Telegram.
+    func title() async -> String {
+        guard let chatId, let chat = try? await td.chat(chatId) else { return Self.titleDefault }
+        return chat.title
+    }
+
+    /// Renames the channel. Libraries are recognised by their header, never by name, so this is safe.
+    func rename(_ title: String) async throws {
+        guard let chatId else { throw LibraryError.noLibrary }
+        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        do { _ = try await td.api().setChatTitle(chatId: chatId, title: String(clean.prefix(128))) } catch { throw error.asTD }
+        appLog("Renamed library channel")
     }
 
     /// Channels the user owns or administers, marking ones that already hold a CloudGallery header.
@@ -99,7 +115,7 @@ final class LibraryService: @unchecked Sendable {
             default: continue
             }
             let header = await readHeader(chatId: id)
-            out.append(ChannelChoice(id: id, title: chat.title, isLibrary: header != nil))
+            out.append(ChannelChoice(id: id, title: chat.title, isLibrary: header != nil, encrypted: header?.encrypted == true))
         }
         return out.sorted { ($0.isLibrary ? 0 : 1, $0.title) < ($1.isLibrary ? 0 : 1, $1.title) }
     }

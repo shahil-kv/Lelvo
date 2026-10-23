@@ -54,6 +54,24 @@ final class AppEnvironment: @unchecked Sendable {
         if td.isReady { await td.optimizeStorage(maxBytes: Prefs.mediaCacheBytes) }
     }
 
+    /// Moves to another library channel: stops the backup, clears the local index (it belongs to the old
+    /// library), restores the chosen one from Telegram and re-links this iPhone's photos to it.
+    func switchLibrary(to chatId: Int64, passphrase: String?) async throws {
+        engine.pause()
+        for _ in 0..<40 where engine.isRunning { try? await Task.sleep(nanoseconds: 250_000_000) }
+        try store.deleteAll()
+        reader.forgetCaches()
+        library.forget()
+        let header = try await library.useExisting(chatId: chatId)
+        if header.encrypted {
+            guard let passphrase, !passphrase.isEmpty else { throw LibraryError.locked }
+            try library.unlock(passphrase: passphrase)
+        }
+        let summary = try await library.scan(full: true)
+        let linked = engine.relinkRestoredItems()
+        appLog("Switched library: \(summary.items) items, \(linked) linked to this iPhone")
+    }
+
     /// Wipes local state (sign out / reset). The Telegram channel is not touched.
     func resetEverything() async {
         await td.logOut()

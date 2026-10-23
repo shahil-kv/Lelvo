@@ -22,6 +22,7 @@ final class OnboardingModel: ObservableObject {
     @Published var loadingChannels = false
     @Published var newLibraryEncrypted = false
     @Published var passphrase = ""
+    @Published var newLibraryName = LibraryService.titleDefault
     @Published var passphraseConfirm = ""
     @Published var acknowledgedRisk = false
     @Published var scanned = 0
@@ -66,12 +67,18 @@ final class OnboardingModel: ObservableObject {
         }
     }
 
-    func run(_ work: @escaping () async throws -> Void) {
+    func run(_ label: String = #function, _ work: @escaping () async throws -> Void) {
         error = nil
         info = nil
         busy = true
+        let started = Date()
+        appLog("Onboarding: \(label) started (step \(step))")
         Task {
-            do { try await work() } catch {
+            do {
+                try await work()
+                appLog(String(format: "Onboarding: %@ finished in %.1f s", label, Date().timeIntervalSince(started)))
+            } catch {
+                AppLog.shared.error(String(format: "Onboarding: %@ failed after %.1f s: %@", label, Date().timeIntervalSince(started), error.localizedDescription))
                 self.error = error.localizedDescription
                 Haptics.error()
             }
@@ -181,7 +188,9 @@ final class OnboardingModel: ObservableObject {
 
     func createLibrary() {
         run {
-            try await self.env.library.createLibrary(passphrase: self.newLibraryEncrypted ? self.passphrase : nil)
+            let name = self.newLibraryName.trimmingCharacters(in: .whitespacesAndNewlines)
+            try await self.env.library.createLibrary(title: name.isEmpty ? LibraryService.titleDefault : String(name.prefix(128)),
+                                                     passphrase: self.newLibraryEncrypted ? self.passphrase : nil)
             Haptics.success()
             self.step = .photos
         }
@@ -446,6 +455,7 @@ private struct LibraryScreen: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("A new, empty library is created next to your current one.").foregroundStyle(.secondary)
+                        OnboardingField(placeholder: "Library name", text: $m.newLibraryName)
                         EncryptionChoice(m: m)
                     }
                     .padding(20)

@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage(Prefs.Key.autoBackup) private var autoBackup = true
 
     @State private var accountName = "…"
+    @State private var libraryName = LibraryService.titleDefault
     @State private var usage: CloudMediaService.CacheUsage?
     @State private var alert: GalleryAlert?
     @State private var busy = false
@@ -27,7 +28,9 @@ struct SettingsView: View {
             Form {
                 Section("Telegram") {
                     LabeledContent("Signed in as", value: accountName)
-                    LabeledContent("Library", value: LibraryService.titleDefault)
+                    NavigationLink { LibrarySettingsView() } label: {
+                        LabeledContent("Library", value: libraryName)
+                    }
                     LabeledContent("Encryption", value: env.library.isEncrypted ? "End-to-end (on)" : "Off")
                     Button("Re-scan library from Telegram") {
                         run("Library re-scanned") {
@@ -112,6 +115,7 @@ struct SettingsView: View {
             .task {
                 refreshUsage()
                 accountName = await env.td.displayName() ?? (env.td.isReady ? "—" : "Not connected")
+                libraryName = await env.library.title()
             }
             .onChange(of: cacheCapMB) { _, _ in Task { await env.enforceCacheLimits(); refreshUsage() } }
             .onChange(of: thumbnailCacheMB) { _, _ in Task { await env.enforceCacheLimits(); refreshUsage() } }
@@ -225,5 +229,125 @@ struct AboutView: View {
             }
         }
         .navigationTitle("About")
+    }
+}
+
+/// The library channel: rename it, or switch to another library (restores it and re-links this iPhone).
+struct LibrarySettingsView: View {
+    @State private var name = ""
+    @State private var savedName = ""
+    @State private var channels: [LibraryService.ChannelChoice] = []
+    @State private var loading = false
+    @State private var switching: LibraryService.ChannelChoice?
+    @State private var passphrase = ""
+    @State private var busy: String?
+    @State private var alert: GalleryAlert?
+    private var env: AppEnvironment { AppEnvironment.shared }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Library name", text: $name)
+                    .submitLabel(.done)
+                    .onSubmit(save)
+                if name != savedName && !name.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Button("Save name", action: save)
+                }
+            } header: { Text("Name") } footer: {
+                Text("Renames the channel in Telegram. CloudGallery recognises your library by a hidden marker, so the name can be anything.")
+            }
+
+            Section {
+                LabeledContent("Encryption", value: env.library.isEncrypted ? "End-to-end" : "Standard")
+            }
+
+            Section {
+                if loading { HStack { ProgressView(); Text("Looking for libraries…").foregroundStyle(.secondary) } }
+                ForEach(channels.filter { $0.isLibrary && $0.id != env.library.chatId }) { c in
+                    Button { switching = c; passphrase = "" } label: {
+                        HStack {
+                            Label(c.title, systemImage: c.encrypted ? "lock.shield.fill" : "photo.stack.fill")
+                            Spacer()
+                            Text(c.encrypted ? "Encrypted" : "Standard").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if !loading && !channels.contains(where: { $0.isLibrary && $0.id != env.library.chatId }) {
+                    Text("No other libraries in this Telegram account.").foregroundStyle(.secondary)
+                }
+            } header: { Text("Switch library") } footer: {
+                Text("Switching loads the other library from Telegram and links your photos to it. Nothing is deleted from either library.")
+            }
+        }
+        .navigationTitle("Library")
+        .disabled(busy != nil)
+        .overlay {
+            if let busy {
+                ProgressView(busy).padding(20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            }
+        }
+        .task { await load() }
+        .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
+        .sheet(item: $switching) { c in
+            NavigationStack {
+                Form {
+                    Section {
+                        Text("Switch to “\(c.title)”? The backup restarts against that library.")
+                        if c.encrypted {
+                            SecureField("Passphrase", text: $passphrase).textContentType(.password)
+                        }
+                    }
+                }
+                .navigationTitle("Switch library")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { switching = nil } }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Switch") { switchTo(c) }.disabled(c.encrypted && passphrase.isEmpty)
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+        }
+    }
+
+    private func load() async {
+        loading = true
+        savedName = await env.library.title()
+        if name.isEmpty { name = savedName }
+        channels = (try? await env.library.candidateChannels()) ?? []
+        loading = false
+    }
+
+    private func save() {
+        let new = name
+        Task {
+            busy = "Renaming…"
+            defer { busy = nil }
+            do {
+                try await env.library.rename(new)
+                savedName = new
+                Haptics.success()
+            } catch { alert = GalleryAlert(title: "Couldn't rename", message: error.localizedDescription) }
+        }
+    }
+
+    private func switchTo(_ c: LibraryService.ChannelChoice) {
+        let pass = c.encrypted ? passphrase : nil
+        switching = nil
+        Task {
+            busy = "Switching to \(c.title)…"
+            defer { busy = nil }
+            do {
+                try await env.switchLibrary(to: c.id, passphrase: pass)
+                Haptics.success()
+                ContinuedBackup.start()
+                await load()
+                alert = GalleryAlert(title: "Switched", message: "Now using “\(c.title)”.")
+            } catch {
+                Haptics.error()
+                alert = GalleryAlert(title: "Couldn't switch", message: error.localizedDescription)
+            }
+        }
     }
 }
