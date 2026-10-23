@@ -18,9 +18,21 @@ concurrency:
 
 jobs:
   build:
-    name: Test, archive and package unsigned IPA
-    runs-on: macos-latest
+    name: Build (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    # The Xcode 27 image is a GitHub preview; it must not block the stable build.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            label: macos-latest
+            experimental: false
+          - runner: xcode-27
+            label: xcode-27
+            experimental: true
     defaults:
       run:
         working-directory: ios
@@ -30,11 +42,15 @@ jobs:
       - name: Select newest Xcode
         run: |
           set -euo pipefail
-          ls -d /Applications/Xcode*.app
-          # Prefer the newest stable Xcode; fall back to the newest of any kind (beta/RC).
-          STABLE=$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|rc|release_candidate' | sort -V | tail -1 || true)
-          ANY=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
-          XCODE=${STABLE:-$ANY}
+          # Resolve symlinks (Xcode_27.2.app may point at a beta), skip betas, take the newest version.
+          CANDIDATES=$(for x in /Applications/Xcode*.app; do
+              real=$(cd "$x" && pwd -P)
+              ver=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$real/Contents/Info.plist" 2>/dev/null || echo 0)
+              echo "$ver $real"
+            done | sort -u)
+          echo "$CANDIDATES"
+          XCODE=$(echo "$CANDIDATES" | grep -viE 'beta' | sort -V | tail -1 | cut -d' ' -f2-)
+          [ -n "$XCODE" ] || XCODE=$(echo "$CANDIDATES" | sort -V | tail -1 | cut -d' ' -f2-)
           echo "Using $XCODE"
           sudo xcode-select -s "$XCODE/Contents/Developer"
           xcodebuild -version
@@ -50,14 +66,19 @@ jobs:
         id: sim
         run: |
           set -euo pipefail
-          UDID=$(xcrun simctl list devices available -j | python3 -c '
-          import json, sys
+          SDKVER=$(xcrun --sdk iphonesimulator --show-sdk-version)
+          echo "Simulator SDK $SDKVER"
+          UDID=$(xcrun simctl list devices available -j | SDKVER="$SDKVER" python3 -c '
+          import json, os, sys
           data = json.load(sys.stdin)["devices"]
+          limit = tuple(int(p) for p in os.environ["SDKVER"].split("."))
           best = None
           for runtime, devices in data.items():
               if "iOS" not in runtime:
                   continue
               version = tuple(int(p) for p in runtime.rsplit("iOS-", 1)[-1].split("-") if p.isdigit())
+              if version[:2] > limit[:2]:
+                  continue  # runtime newer than this Xcode supports
               for d in devices:
                   if d["name"].startswith("iPhone") and d.get("isAvailable", True):
                       if best is None or version > best[0]:
@@ -108,7 +129,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v5
         with:
-          name: logs
+          name: logs-${{ matrix.label }}
           path: |
             ios/build-*.log
             ios/build/TestResults.xcresult
@@ -117,18 +138,41 @@ jobs:
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v5
         with:
-          name: CloudGallery-ipa
+          name: CloudGallery-ipa-${{ matrix.label }}
           path: |
             ios/build/CloudGallery.ipa
             ios/build/CloudGallery.ipa.sha256
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v') && always()
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: CloudGallery-ipa-*
+          path: artifacts
+
+      - name: Choose IPA (newest SDK that built)
+        id: pick
+        run: |
+          ls -R artifacts
+          for label in xcode-27 macos-latest; do
+            if [ -f "artifacts/CloudGallery-ipa-$label/CloudGallery.ipa" ]; then
+              echo "dir=artifacts/CloudGallery-ipa-$label" >> "$GITHUB_OUTPUT"
+              echo "label=$label" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "No IPA was built"; exit 1
+
+      - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" build/CloudGallery.ipa build/CloudGallery.ipa.sha256 \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "CloudGallery iOS ${GITHUB_REF_NAME}" \
-            --notes "Unsigned iOS build of CloudGallery. Install with Sideloadly or AltStore using your Apple ID (see ios/README.md). Requires iOS 17 or later." \
-            || gh release upload "${GITHUB_REF_NAME}" build/CloudGallery.ipa build/CloudGallery.ipa.sha256 --clobber --repo "${GITHUB_REPOSITORY}"
+          DIR="${{ steps.pick.outputs.dir }}"
+          NOTES="Unsigned iOS build of CloudGallery (built on the ${{ steps.pick.outputs.label }} runner). Install with Sideloadly or AltStore using your Apple ID; see ios/README.md. Requires iOS 17 or later."
+          gh release create "${GITHUB_REF_NAME}" "$DIR/CloudGallery.ipa" "$DIR/CloudGallery.ipa.sha256" \
+            --repo "${GITHUB_REPOSITORY}" --title "CloudGallery iOS ${GITHUB_REF_NAME}" --notes "$NOTES" \
+            || gh release upload "${GITHUB_REF_NAME}" "$DIR/CloudGallery.ipa" "$DIR/CloudGallery.ipa.sha256" --clobber --repo "${GITHUB_REPOSITORY}"
