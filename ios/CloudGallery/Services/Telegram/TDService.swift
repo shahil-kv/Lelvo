@@ -1,0 +1,478 @@
+import Foundation
+import TDLibKit
+import CloudGalleryCore
+
+/// Errors surfaced to the UI from the Telegram layer.
+enum TDServiceError: LocalizedError {
+    case notReady
+    case missingCredentials
+    case telegram(code: Int, message: String)
+    case sendFailed(String)
+    case unexpectedContent
+    case sizeMismatch(expected: Int64, actual: Int64)
+    case cancelled
+
+    var errorDescription: String? {
+        switch self {
+        case .notReady: return "Not connected to Telegram yet."
+        case .missingCredentials: return "Enter your api_id and api_hash from my.telegram.org first."
+        case .telegram(let code, let message): return TDServiceError.friendly(code: code, message: message)
+        case .sendFailed(let m): return "Upload failed: \(m)"
+        case .unexpectedContent: return "That message isn't a CloudGallery file."
+        case .sizeMismatch(let e, let a): return "Telegram stored \(a) bytes but \(e) were uploaded."
+        case .cancelled: return "Cancelled."
+        }
+    }
+
+    static func friendly(code: Int, message: String) -> String {
+        switch message {
+        case let m where m.contains("PHONE_NUMBER_INVALID"): return "That phone number isn't valid. Use international format, e.g. +91 98765 43210."
+        case let m where m.contains("PHONE_CODE_INVALID"): return "Wrong login code. Check the code Telegram sent you."
+        case let m where m.contains("PHONE_CODE_EXPIRED"): return "The login code expired. Request a new one."
+        case let m where m.contains("PASSWORD_HASH_INVALID"): return "Wrong two-step verification password."
+        case let m where m.contains("API_ID_INVALID"): return "api_id / api_hash are invalid. Copy them again from my.telegram.org."
+        case let m where m.contains("FLOOD_WAIT") || code == 429:
+            let s = TelegramErrorClassifier.floodWaitSeconds(m) ?? 0
+            return "Telegram asked us to slow down. Waiting \(s) s."
+        default: return "Telegram error \(code): \(message)"
+        }
+    }
+
+    /// Classification used by the backup job machine.
+    var kind: TelegramErrorKind {
+        switch self {
+        case .telegram(let code, let message): return TelegramErrorClassifier.classify(code: code, message: message)
+        case .sendFailed(let m): return TelegramErrorClassifier.classify(code: 400, message: m)
+        case .notReady: return .transient
+        case .missingCredentials: return .auth
+        default: return .permanent
+        }
+    }
+}
+
+extension Swift.Error {
+    /// Normalises TDLibKit errors into `TDServiceError`.
+    var asTD: Swift.Error {
+        if let e = self as? TDLibKit.Error { return TDServiceError.telegram(code: e.code, message: e.message) }
+        return self
+    }
+}
+
+/// Owns the single TDLib client: authorization, uploads that wait for server confirmation,
+/// ranged downloads and history. UIKit-free so it can be compiled and reasoned about on its own.
+final class TDService: @unchecked Sendable {
+    static let shared = TDService()
+
+    enum AuthStep: Equatable {
+        case needsCredentials
+        case starting
+        case waitPhone
+        case waitCode(info: String)
+        case waitPassword(hint: String)
+        case waitEmail
+        case waitOtherDevice(link: String)
+        case waitRegistration
+        case ready
+        case loggingOut
+        case closed
+    }
+
+    private let manager = TDLibClientManager()
+    private let lock = NSLock()
+    private(set) var client: TDLibClient?
+    private var _auth: AuthStep = .needsCredentials
+    private var authObservers: [UUID: (AuthStep) -> Void] = [:]
+    private var sendWaiters: [Int64: CheckedContinuation<Message, Swift.Error>] = [:]
+    private var finishedSends: [Int64: Result<Message, Swift.Error>] = [:]
+    private var uploadObservers: [Int: (Int64, Int64) -> Void] = [:]
+    private var readyWaiters: [CheckedContinuation<Void, Never>] = []
+
+    let databaseDirectory: URL
+    let filesDirectory: URL
+
+    private init() {
+        let fm = FileManager.default
+        let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        databaseDirectory = support.appendingPathComponent("tdlib", isDirectory: true)
+        filesDirectory = caches.appendingPathComponent("tdlib-files", isDirectory: true)
+        try? fm.createDirectory(at: databaseDirectory, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: filesDirectory, withIntermediateDirectories: true)
+        var noBackup = URLResourceValues()
+        noBackup.isExcludedFromBackup = true
+        var db = databaseDirectory
+        try? db.setResourceValues(noBackup)
+    }
+
+    // MARK: - Auth state
+
+    var auth: AuthStep {
+        lock.lock(); defer { lock.unlock() }
+        return _auth
+    }
+
+    var isReady: Bool { auth == .ready }
+
+    @discardableResult
+    func observeAuth(_ handler: @escaping (AuthStep) -> Void) -> UUID {
+        let id = UUID()
+        lock.lock()
+        authObservers[id] = handler
+        let current = _auth
+        lock.unlock()
+        handler(current)
+        return id
+    }
+
+    func removeObserver(_ id: UUID) {
+        lock.lock(); authObservers[id] = nil; lock.unlock()
+    }
+
+    private func setAuth(_ step: AuthStep) {
+        lock.lock()
+        _auth = step
+        let observers = Array(authObservers.values)
+        let waiters = step == .ready ? readyWaiters : []
+        if step == .ready { readyWaiters.removeAll() }
+        lock.unlock()
+        observers.forEach { $0(step) }
+        waiters.forEach { $0.resume() }
+    }
+
+    /// Waits until authorised (or returns immediately if already ready). Throws after `timeout`.
+    func waitUntilReady(timeout: TimeInterval = 30) async throws {
+        if isReady { return }
+        guard TDCredentials.load() != nil else { throw TDServiceError.missingCredentials }
+        start()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                    self.lock.lock()
+                    if self._auth == .ready { self.lock.unlock(); c.resume(); return }
+                    self.readyWaiters.append(c)
+                    self.lock.unlock()
+                }
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                throw TDServiceError.notReady
+            }
+            try await group.next()
+            group.cancelAll()
+        }
+    }
+
+    // MARK: - Lifecycle
+
+    /// Creates the TDLib client if credentials exist. Safe to call repeatedly.
+    func start() {
+        lock.lock()
+        if client != nil { lock.unlock(); return }
+        guard TDCredentials.load() != nil else {
+            lock.unlock()
+            setAuth(.needsCredentials)
+            return
+        }
+        lock.unlock()
+        let newClient = manager.createClient { [weak self] data, client in
+            self?.handle(data, client: client)
+        }
+        _ = try? newClient.execute(query: DTO(SetLogVerbosityLevel(newVerbosityLevel: 1)))
+        lock.lock(); client = newClient; lock.unlock()
+        setAuth(.starting)
+    }
+
+    private func requireClient() throws -> TDLibClient {
+        lock.lock(); defer { lock.unlock() }
+        guard let client else { throw TDServiceError.notReady }
+        return client
+    }
+
+    private func handle(_ data: Data, client: TDLibClient) {
+        guard let update = try? client.decoder.decode(Update.self, from: data) else { return }
+        switch update {
+        case .updateAuthorizationState(let u):
+            handleAuth(u.authorizationState, client: client)
+        case .updateMessageSendSucceeded(let u):
+            finishSend(oldId: u.oldMessageId, result: .success(u.message))
+        case .updateMessageSendFailed(let u):
+            finishSend(oldId: u.oldMessageId, result: .failure(TDServiceError.telegram(code: u.error.code, message: u.error.message)))
+        case .updateFile(let u):
+            lock.lock()
+            let observer = uploadObservers[u.file.id]
+            lock.unlock()
+            observer?(u.file.remote.uploadedSize, u.file.size)
+        default:
+            break
+        }
+    }
+
+    private func handleAuth(_ state: AuthorizationState, client: TDLibClient) {
+        switch state {
+        case .authorizationStateWaitTdlibParameters:
+            guard let creds = TDCredentials.load() else { setAuth(.needsCredentials); return }
+            Task {
+                do {
+                    _ = try await client.setTdlibParameters(
+                        apiHash: creds.apiHash, apiId: creds.apiId,
+                        applicationVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0",
+                        databaseDirectory: databaseDirectory.path, databaseEncryptionKey: TDCredentials.databaseKey(),
+                        deviceModel: "iPhone", filesDirectory: filesDirectory.path,
+                        systemLanguageCode: Locale.preferredLanguages.first ?? "en", systemVersion: "",
+                        useChatInfoDatabase: true, useFileDatabase: true,
+                        // No message database: interrupted sends are reconciled from history instead of auto-resent.
+                        useMessageDatabase: false, useSecretChats: false, useTestDc: false)
+                } catch {
+                    AppLog.shared.error("setTdlibParameters failed: \(error.asTD.localizedDescription)")
+                }
+            }
+        case .authorizationStateWaitPhoneNumber: setAuth(.waitPhone)
+        case .authorizationStateWaitCode(let s):
+            setAuth(.waitCode(info: Self.describe(s.codeInfo)))
+        case .authorizationStateWaitPassword(let s): setAuth(.waitPassword(hint: s.passwordHint))
+        case .authorizationStateWaitEmailAddress, .authorizationStateWaitEmailCode: setAuth(.waitEmail)
+        case .authorizationStateWaitOtherDeviceConfirmation(let s): setAuth(.waitOtherDevice(link: s.link))
+        case .authorizationStateWaitRegistration, .authorizationStateWaitPremiumPurchase: setAuth(.waitRegistration)
+        case .authorizationStateReady:
+            setAuth(.ready)
+            appLog("Telegram session ready")
+        case .authorizationStateLoggingOut, .authorizationStateClosing: setAuth(.loggingOut)
+        case .authorizationStateClosed:
+            lock.lock(); self.client = nil; lock.unlock()
+            setAuth(.closed)
+        }
+    }
+
+    private static func describe(_ info: AuthenticationCodeInfo) -> String {
+        switch info.type {
+        case .authenticationCodeTypeTelegramMessage: return "Enter the code Telegram sent to your other device or app."
+        case .authenticationCodeTypeSms: return "Enter the code sent by SMS to \(info.phoneNumber)."
+        case .authenticationCodeTypeCall: return "You'll receive a call with the code."
+        default: return "Enter the login code sent to \(info.phoneNumber)."
+        }
+    }
+
+    // MARK: - Login
+
+    func submitPhone(_ phone: String) async throws {
+        do { _ = try await requireClient().setAuthenticationPhoneNumber(phoneNumber: phone, settings: nil) } catch { throw error.asTD }
+    }
+
+    func submitCode(_ code: String) async throws {
+        do { _ = try await requireClient().checkAuthenticationCode(code: code) } catch { throw error.asTD }
+    }
+
+    func submitPassword(_ password: String) async throws {
+        do { _ = try await requireClient().checkAuthenticationPassword(password: password) } catch { throw error.asTD }
+    }
+
+    func logOut() async {
+        _ = try? await requireClient().logOut()
+    }
+
+    func me() async throws -> User {
+        do { return try await requireClient().getMe() } catch { throw error.asTD }
+    }
+
+    /// "First Last (+phone)" of the signed-in account.
+    func displayName() async -> String? {
+        guard let u = try? await me() else { return nil }
+        let name = [u.firstName, u.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+        return u.phoneNumber.isEmpty ? name : "\(name) (+\(u.phoneNumber))"
+    }
+
+    /// Per-file upload limit: 4000 MiB with Premium, otherwise 2000 MiB.
+    func uploadLimit() async -> Int64 {
+        (try? await me())?.isPremium == true ? PartLayout.premiumLimit : PartLayout.standardLimit
+    }
+
+    // MARK: - Chats
+
+    func api() throws -> TDLibClient { try requireClient() }
+
+    func chat(_ id: Int64) async throws -> Chat {
+        do { return try await requireClient().getChat(chatId: id) } catch { throw error.asTD }
+    }
+
+    // MARK: - Sending
+
+    private func setUploadObserver(_ id: Int, _ observer: ((Int64, Int64) -> Void)?) {
+        lock.withLock { uploadObservers[id] = observer }
+    }
+
+    private func awaitSend(_ id: Int64, _ c: CheckedContinuation<Message, Swift.Error>) {
+        let done: Result<Message, Swift.Error>? = lock.withLock {
+            if let r = finishedSends.removeValue(forKey: id) { return r }
+            sendWaiters[id] = c
+            return nil
+        }
+        if let done { c.resume(with: done) }
+    }
+
+    private func finishSend(oldId: Int64, result: Result<Message, Swift.Error>) {
+        lock.lock()
+        if let waiter = sendWaiters.removeValue(forKey: oldId) {
+            lock.unlock()
+            waiter.resume(with: result)
+        } else {
+            finishedSends[oldId] = result
+            lock.unlock()
+        }
+    }
+
+    /// Sends a local file as a document and returns only after Telegram confirms it.
+    /// `progress` reports (uploaded, total) bytes.
+    func sendDocument(chatId: Int64, fileURL: URL, caption: String, thumbnail: (URL, Int, Int)?,
+                      progress: ((Int64, Int64) -> Void)? = nil) async throws -> Message {
+        let client = try requireClient()
+        let content = InputMessageContent.inputMessageDocument(InputMessageDocument(
+            caption: FormattedText(entities: [], text: caption),
+            document: InputDocument(
+                disableContentTypeDetection: true,
+                document: .inputFileLocal(InputFileLocal(path: fileURL.path)),
+                thumbnail: thumbnail.map { InputThumbnail(height: $0.2, thumbnail: .inputFileLocal(InputFileLocal(path: $0.0.path)), width: $0.1) })))
+        let options = MessageSendOptions(allowPaidBroadcast: false, disableNotification: true, effectId: TdInt64(0),
+                                         fromBackground: true, onlyPreview: false, paidMessageStarCount: 0,
+                                         protectContent: false, schedulingState: nil, sendingId: 0,
+                                         suggestedPostInfo: nil, updateOrderOfInstalledStickerSets: false)
+        let pending: Message
+        do {
+            pending = try await client.sendMessage(chatId: chatId, inputMessageContent: content, options: options,
+                                                   replyMarkup: nil, replyTo: nil, topicId: nil)
+        } catch { throw error.asTD }
+
+        var fileId: Int?
+        if case .messageDocument(let doc) = pending.content {
+            fileId = doc.document.document.id
+            if let progress, let id = fileId { setUploadObserver(id, progress) }
+        }
+        defer { if let id = fileId { setUploadObserver(id, nil) } }
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Message, Swift.Error>) in
+                self.awaitSend(pending.id, c)
+            }
+        } onCancel: {
+            Task { _ = try? await client.deleteMessages(chatId: chatId, messageIds: [pending.id], revoke: true) }
+            self.finishSend(oldId: pending.id, result: .failure(TDServiceError.cancelled))
+        }
+    }
+
+    func sendText(chatId: Int64, text: String) async throws -> Message {
+        let client = try requireClient()
+        let content = InputMessageContent.inputMessageText(InputMessageText(
+            clearDraft: false, linkPreviewOptions: nil, text: FormattedText(entities: [], text: text)))
+        do {
+            let pending = try await client.sendMessage(chatId: chatId, inputMessageContent: content, options: nil,
+                                                       replyMarkup: nil, replyTo: nil, topicId: nil)
+            return try await withCheckedThrowingContinuation { (c: CheckedContinuation<Message, Swift.Error>) in
+                self.awaitSend(pending.id, c)
+            }
+        } catch { throw error.asTD }
+    }
+
+    // MARK: - Messages & files
+
+    func message(chatId: Int64, id: Int64) async throws -> Message {
+        do { return try await requireClient().getMessage(chatId: chatId, messageId: id) } catch { throw error.asTD }
+    }
+
+    /// The document file of a message, or nil if the message is gone or isn't a document.
+    func documentFile(chatId: Int64, messageId: Int64) async throws -> (File, Document)? {
+        let msg: Message
+        do { msg = try await requireClient().getMessage(chatId: chatId, messageId: messageId) }
+        catch {
+            let mapped = error.asTD
+            if case TDServiceError.telegram(let code, _)? = mapped as? TDServiceError, code == 404 || code == 400 { return nil }
+            throw mapped
+        }
+        guard case .messageDocument(let d) = msg.content else { return nil }
+        return (d.document.document, d.document)
+    }
+
+    /// Reads `count` bytes at `offset`, downloading just that range with high priority.
+    func read(fileId: Int, offset: Int64, count: Int64, priority: Int = 32) async throws -> Data {
+        let client = try requireClient()
+        do {
+            _ = try await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: priority, synchronous: true)
+            let part = try await client.readFilePart(count: count, fileId: fileId, offset: offset)
+            return part.data
+        } catch { throw error.asTD }
+    }
+
+    /// Downloads the whole file and returns its local path.
+    func download(fileId: Int, priority: Int = 16) async throws -> URL {
+        do {
+            let file = try await requireClient().downloadFile(fileId: fileId, limit: 0, offset: 0, priority: priority, synchronous: true)
+            guard file.local.isDownloadingCompleted else { throw TDServiceError.sendFailed("download incomplete") }
+            return URL(fileURLWithPath: file.local.path)
+        } catch { throw error.asTD }
+    }
+
+    func cancelDownload(fileId: Int) {
+        guard let client = try? requireClient() else { return }
+        Task { _ = try? await client.cancelDownloadFile(fileId: fileId, onlyIfPending: false) }
+    }
+
+    func history(chatId: Int64, fromMessageId: Int64, limit: Int = 100) async throws -> [Message] {
+        do {
+            return try await requireClient().getChatHistory(chatId: chatId, fromMessageId: fromMessageId, limit: limit,
+                                                            offset: 0, onlyLocal: false).messages ?? []
+        } catch { throw error.asTD }
+    }
+
+    func deleteMessages(chatId: Int64, ids: [Int64]) async throws {
+        guard !ids.isEmpty else { return }
+        do { _ = try await requireClient().deleteMessages(chatId: chatId, messageIds: ids, revoke: true) } catch { throw error.asTD }
+    }
+
+    /// Keeps TDLib's own file cache within `maxBytes`.
+    func optimizeStorage(maxBytes: Int64) async {
+        _ = try? await requireClient().optimizeStorage(chatIds: nil, chatLimit: 0, count: -1, excludeChatIds: nil,
+                                                       fileTypes: nil, immunityDelay: 60, returnDeletedFileStatistics: false,
+                                                       size: maxBytes, ttl: 7 * 24 * 3600)
+    }
+
+    func storageUsage() -> Int64 {
+        let fm = FileManager.default
+        guard let e = fm.enumerator(at: filesDirectory, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in e { total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        return total
+    }
+
+    /// Wipes the TDLib session and files (used by "Sign out & reset").
+    func destroyLocalData() async {
+        _ = try? await requireClient().destroy()
+        lock.withLock { client = nil }
+        try? FileManager.default.removeItem(at: databaseDirectory)
+        try? FileManager.default.removeItem(at: filesDirectory)
+        try? FileManager.default.createDirectory(at: databaseDirectory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: filesDirectory, withIntermediateDirectories: true)
+        setAuth(TDCredentials.load() == nil ? .needsCredentials : .closed)
+    }
+}
+
+/// api_id / api_hash from my.telegram.org plus the TDLib database key, all in the Keychain.
+struct TDCredentials {
+    let apiId: Int
+    let apiHash: String
+
+    static func load() -> TDCredentials? {
+        guard let idString = KeychainStore.string(for: .tdApiId), let id = Int(idString),
+              let hash = KeychainStore.string(for: .tdApiHash), !hash.isEmpty else { return nil }
+        return TDCredentials(apiId: id, apiHash: hash)
+    }
+
+    static func save(apiId: Int, apiHash: String) {
+        KeychainStore.set(String(apiId), for: .tdApiId)
+        KeychainStore.set(apiHash, for: .tdApiHash)
+    }
+
+    static func databaseKey() -> Data {
+        if let key = KeychainStore.data(for: .tdDatabaseKey), key.count == 32 { return key }
+        let key = KeyDerivation.randomSalt(count: 32)
+        KeychainStore.set(key, for: .tdDatabaseKey)
+        return key
+    }
+}

@@ -49,6 +49,17 @@ public final class LibraryStore: @unchecked Sendable {
 
     deinit { sqlite3_close(db) }
 
+    /// Opens the database at `url`; if it is corrupt, moves it aside and starts fresh (the channel is the
+    /// source of truth, so a rescan restores everything). Falls back to memory only if the disk is unusable.
+    public static func openOrFallback(url: URL) -> LibraryStore {
+        if let store = try? LibraryStore(url: url) { return store }
+        let aside = url.appendingPathExtension("corrupt-\(Int(Date().timeIntervalSince1970))")
+        try? FileManager.default.moveItem(at: url, to: aside)
+        if let store = try? LibraryStore(url: url) { return store }
+        if let store = try? LibraryStore(url: nil) { return store }
+        fatalError("SQLite is unavailable")
+    }
+
     private func exec(_ sql: String) throws {
         var err: UnsafeMutablePointer<CChar>?
         if sqlite3_exec(db, sql, nil, nil, &err) != SQLITE_OK {

@@ -44,6 +44,7 @@ struct ViewerView: View {
             .background(Color.black.ignoresSafeArea())
             .ignoresSafeArea()
             .onAppear { if let currentId { proxy.scrollTo(currentId) } }
+            .onChange(of: currentId) { _, id in prefetchNeighbours(of: id) }
         }
         .overlay(alignment: .top) { if !chromeHidden { topBar } }
         .overlay(alignment: .bottom) { if !chromeHidden { bottomBar } }
@@ -105,6 +106,16 @@ struct ViewerView: View {
         .padding(.bottom, 24)
     }
 
+    /// Fetches the first few MB of adjacent cloud videos so swiping to them starts playback instantly.
+    private func prefetchNeighbours(of id: String?) {
+        guard let id, let i = entries.firstIndex(where: { $0.id == id }) else { return }
+        for j in [i - 1, i + 1] where entries.indices.contains(j) {
+            if let item = entries[j].item, entries[j].isCloudOnly, item.kind == .video, item.isViewableFromCloud {
+                AppEnvironment.shared.reader.prefetch(item)
+            }
+        }
+    }
+
     private func shareCurrent() async {
         guard let current else { return }
         busy = true
@@ -156,6 +167,8 @@ struct ViewerPage: View {
     }
 
     @State private var content: Content = .loading(nil)
+    /// Keeps the resource loader alive while a cloud video plays.
+    @State private var stream: StreamingAsset?
 
     var body: some View {
         ZStack {
@@ -168,7 +181,7 @@ struct ViewerPage: View {
             case .live(let live):
                 LivePhotoView(livePhoto: live)
             case .video(let player):
-                VideoPlayer(player: player)
+                PlayerView(player: player)
                     .onChange(of: isCurrent) { _, now in if !now { player.pause() } }
                     .onDisappear { player.pause() }
             case .unavailable(let reason, let placeholder):
@@ -205,23 +218,29 @@ struct ViewerPage: View {
         let thumb = try? await env.media.thumbnail(for: item)
         content = .loading(thumb)
         guard item.isViewableFromCloud else {
-            content = .unavailable("This file is larger than 20 MB. It is safely in your Telegram channel and can be opened there; viewing it in the app needs version 2.", thumb)
+            content = .unavailable("This item isn't fully in your Telegram library yet.", thumb)
             return
         }
         do {
-            let url = try await env.media.original(for: item)
             switch item.kind {
             case .video:
-                content = .video(AVPlayer(url: url))
+                // Stream byte ranges straight from Telegram: no full download needed.
+                let s = StreamingAsset(item: item, role: "o", reader: env.reader)
+                stream = s
+                let playerItem = AVPlayerItem(asset: s.asset)
+                playerItem.preferredForwardBufferDuration = 4
+                content = .video(AVPlayer(playerItem: playerItem))
             case .livePhoto:
-                if item.pairedVideo != nil, let video = try? await env.media.original(for: item, role: .pairedVideo),
+                let url = try await env.media.original(for: item)
+                if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) { content = .image(image) }
+                if let video = try? await env.media.original(for: item, role: .pairedVideo),
                    let live = await Self.livePhoto(urls: [url, video]) {
                     content = .live(live)
-                } else if let image = UIImage(contentsOfFile: url.path) {
-                    content = .image(image)
                 }
             case .photo:
-                if let image = await Task.detached(operation: { UIImage(contentsOfFile: url.path)?.preparingForDisplay() }).value {
+                // Progressive: thumbnail → screen-size decode → full detail when zooming.
+                let url = try await env.media.original(for: item)
+                if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) {
                     content = .image(image)
                 } else {
                     content = .unavailable("This file format can't be previewed. Use Share to open it in another app.", thumb)
@@ -230,6 +249,12 @@ struct ViewerPage: View {
         } catch {
             content = .unavailable(error.localizedDescription, thumb)
         }
+    }
+
+    static func decode(_ url: URL, maxPixel: CGFloat) async -> UIImage? {
+        await Task.detached(priority: .userInitiated) {
+            CloudMediaService.downsampled(url, maxPixel: maxPixel)?.preparingForDisplay()
+        }.value
     }
 
     static func playerItem(for asset: PHAsset) async -> AVPlayerItem? {
@@ -419,5 +444,28 @@ struct InfoSheet: View {
 
     private func row(_ title: String, _ value: String) -> some View {
         LabeledContent(title, value: value)
+    }
+}
+
+/// AVPlayerViewController: native controls, scrubbing, playback speed, Picture in Picture and AirPlay.
+struct PlayerView: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        let vc = AVPlayerViewController()
+        vc.player = player
+        vc.allowsPictureInPicturePlayback = true
+        vc.canStartPictureInPictureAutomaticallyFromInline = true
+        vc.entersFullScreenWhenPlaybackBegins = false
+        vc.videoGravity = .resizeAspect
+        if #available(iOS 16.0, *) { vc.speeds = [0.5, 1, 1.25, 1.5, 2].map { AVPlaybackSpeed(rate: $0, localizedName: "\($0)×") } }
+        vc.view.backgroundColor = .black
+        player.allowsExternalPlayback = true
+        return vc
+    }
+
+    func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
+        if vc.player !== player { vc.player = player }
     }
 }

@@ -5,14 +5,15 @@ import CloudGalleryCore
 /// Runs without opening the app: queues new photos as background uploads and reports what it did.
 struct BackUpNewPhotosIntent: AppIntent {
     static var title: LocalizedStringResource = "Back Up New Photos"
-    static var description = IntentDescription("Uploads new photos and videos to your Telegram backup in the background.")
+    static var description = IntentDescription("Uploads new photos and videos to your Telegram library for about 25 seconds without opening the app; the rest continues later.")
     static var openAppWhenRun: Bool = false
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
         let env = AppEnvironment.shared
-        env.uploader.activate()
-        // Shortcuts gives intents limited time; prepare for ~20 s, the rest continues on later runs.
-        let summary = await env.engine.queueNewItems(deadline: Date().addingTimeInterval(20))
+        env.td.start()
+        // Shortcuts gives intents limited time: upload for ~25 s, then the overnight task and the
+        // next run continue where this one stopped (nothing is lost; the queue is persistent).
+        let summary = await env.engine.run(deadline: Date().addingTimeInterval(25))
         BackgroundTasks.scheduleAll()
         return .result(value: summary.text, dialog: IntentDialog(stringLiteral: summary.text))
     }
@@ -26,11 +27,9 @@ struct BackupStatusIntent: AppIntent {
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
         let env = AppEnvironment.shared
         let counts = (try? env.store.counts()) ?? [:]
-        let inFlight = await env.uploader.allTasks().count
         let pending = (counts[.queued] ?? 0) + (counts[.uploading] ?? 0)
-        var text = "\(counts[.backedUp] ?? 0) backed up, \(pending) pending (\(inFlight) uploads in progress)"
+        var text = "\(counts[.backedUp] ?? 0) backed up, \(pending) pending"
         if let failed = counts[.failed], failed > 0 { text += ", \(failed) failed" }
-        if let large = counts[.tooLarge], large > 0 { text += ", \(large) too large for version 1" }
         text += "."
         return .result(value: text, dialog: IntentDialog(stringLiteral: text))
     }

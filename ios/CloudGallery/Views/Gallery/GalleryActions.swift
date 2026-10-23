@@ -21,14 +21,14 @@ enum GalleryActions {
         return try env.media.shareableCopy(of: cached, filename: item.filename)
     }
 
-    /// Downloads a cloud item (≤ 20 MB) into Photos and links it so it is not uploaded again.
+    /// Downloads a cloud item into Photos and links it so it is not uploaded again.
     static func saveToPhotos(_ item: MediaItem) async throws {
         let env = AppEnvironment.shared
         let status = PhotoLibraryService.authorizationStatus
         guard status == .authorized || status == .limited else { throw PhotoLibraryError.notAuthorized }
         let primary = try env.media.shareableCopy(of: try await env.media.original(for: item), filename: item.filename)
         var paired: URL?
-        if item.kind == .livePhoto, item.pairedVideo != nil {
+        if item.kind == .livePhoto, !item.parts("pv").isEmpty || item.pairedVideo != nil {
             paired = try env.media.shareableCopy(of: try await env.media.original(for: item, role: .pairedVideo),
                                                  filename: item.pairedVideoFilename ?? "video.mov")
         }
@@ -38,26 +38,19 @@ enum GalleryActions {
         }
         if let newId = try await env.photos.saveToPhotos(item: item, primary: primary, pairedVideo: paired) {
             try env.store.update(id: item.id) { $0.localIdentifier = newId }
-            env.engine.markIndexDirty()
         }
     }
 
-    /// Deletes the item's messages from the channel, drops it from the index and re-uploads the index.
+    /// Deletes every message of the items (all resources and parts) from the channel.
     static func deleteFromCloud(_ items: [MediaItem]) async throws {
         let env = AppEnvironment.shared
-        guard let client = env.client(), let chatId = env.chatId else { throw IndexSyncError.notConfigured }
+        guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
+        try await env.td.waitUntilReady(timeout: 20)
         for item in items {
-            for remote in [item.original, item.pairedVideo, item.thumbnail].compactMap({ $0 }) {
-                do {
-                    try await client.deleteMessage(chatId: chatId, messageId: remote.messageId)
-                } catch TelegramError.api(_, let d) where d.lowercased().contains("not found") {
-                    // Already gone.
-                }
-            }
+            try await env.td.deleteMessages(chatId: chatId, ids: item.allMessageIds)
             try env.store.delete(id: item.id)
-            appLog("Deleted \(item.id) from cloud")
+            env.thumbnailCache.remove(CloudMediaService.thumbnailKey(item))
+            appLog("Deleted \(item.filename) from cloud")
         }
-        env.engine.markIndexDirty()
-        try await env.indexSync.upload()
     }
 }

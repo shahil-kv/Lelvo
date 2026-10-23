@@ -5,7 +5,7 @@ struct AutomationGuideView: View {
     var body: some View {
         List {
             Section {
-                Text("Shortcuts can start a backup automatically, without opening CloudGallery. Uploads then continue in the background.")
+                Text("Shortcuts can start a backup automatically, without opening CloudGallery.")
                 Button {
                     UIApplication.shared.open(URL(string: "shortcuts://")!)
                 } label: { Label("Open Shortcuts", systemImage: "square.2.layers.3d") }
@@ -35,7 +35,7 @@ struct AutomationGuideView: View {
             }
 
             Section {
-                Text("Each run prepares as many items as it can in about 20 seconds; the rest are picked up by the next run, the overnight task, or **Back up now** in the app.")
+                Text("Each run uploads for about 25 seconds (iOS limits how long Shortcuts can run in the background). The queue is saved, so the next run, the overnight charging task or **Back up now** continues exactly where it stopped. For a big first backup, open the app and tap **Back up now**.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

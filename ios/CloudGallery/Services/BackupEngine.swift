@@ -1,60 +1,89 @@
 import Foundation
 import Photos
+import UIKit
+import Network
 import CloudGalleryCore
 
 /// Live state for the UI (Backup tab, progress bars).
 @MainActor
 final class BackupActivity: ObservableObject {
     static let shared = BackupActivity()
-    @Published var isPreparing = false
-    @Published var prepared = 0
+    @Published var isRunning = false
+    @Published var done = 0
     @Published var total = 0
-    @Published var inFlight = 0
+    @Published var currentNames: [String: String] = [:]
+    @Published var bytesSent: Int64 = 0
+    @Published var bytesTotal: Int64 = 0
     @Published var message: String?
     @Published var lastSummary: BackupEngine.Summary?
 }
 
-/// Scans the library, exports originals, de-duplicates, and hands multipart bodies to the background uploader.
-/// An item becomes `.backedUp` only after Telegram has confirmed every required message with a file_id.
+/// Current network path (for Wi-Fi only).
+final class NetworkStatus: @unchecked Sendable {
+    static let shared = NetworkStatus()
+    private let monitor = NWPathMonitor()
+    private let lock = NSLock()
+    private var path: NWPath?
+
+    private init() {
+        monitor.pathUpdateHandler = { [weak self] p in
+            guard let self else { return }
+            self.lock.withLock { self.path = p }
+        }
+        monitor.start(queue: DispatchQueue(label: "cloudgallery.network"))
+    }
+
+    /// Unknown counts as online so the first run isn't blocked before the monitor reports.
+    var isOnline: Bool { lock.withLock { path.map { $0.status == .satisfied } ?? true } }
+    /// Cellular, personal hotspot or Low Data Mode.
+    var isExpensive: Bool { lock.withLock { (path?.isExpensive ?? false) || (path?.isConstrained ?? false) } }
+}
+
+/// Runs the persistent upload queue: pending → uploading → verified | failed(reason).
+/// An item is verified only after Telegram confirms every part and the stored sizes match.
 final class BackupEngine: @unchecked Sendable {
     struct Summary: Equatable {
-        var queued = 0
+        var uploaded = 0
         var alreadyBackedUp = 0
-        var tooLarge = 0
         var failed = 0
         var remaining = 0
-        var inFlight = 0
         var error: String?
 
         var text: String {
             if let error { return error }
-            var parts = ["Queued \(queued) item\(queued == 1 ? "" : "s")"]
-            if alreadyBackedUp > 0 { parts.append("\(alreadyBackedUp) already backed up") }
-            if tooLarge > 0 { parts.append("\(tooLarge) too large (need version 2)") }
+            var parts = ["Backed up \(uploaded) item\(uploaded == 1 ? "" : "s")"]
+            if alreadyBackedUp > 0 { parts.append("\(alreadyBackedUp) already in the cloud") }
             if failed > 0 { parts.append("\(failed) failed") }
-            if remaining > 0 { parts.append("\(remaining) left for later") }
+            if remaining > 0 { parts.append("\(remaining) still waiting") }
             return parts.joined(separator: ", ") + "."
         }
     }
 
-    enum Outcome { case queued, duplicate, tooLarge, failed(Error) }
+    enum StopReason: LocalizedError {
+        case notConfigured, noPhotoAccess, waitingForWiFi, waitingForPower, offline, alreadyRunning
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured: return "CloudGallery isn't set up yet. Open the app to sign in to Telegram."
+            case .noPhotoAccess: return "CloudGallery has no access to your photos."
+            case .waitingForWiFi: return "Waiting for Wi-Fi (Wi-Fi only is on)."
+            case .waitingForPower: return "Waiting for the charger (Charging only is on)."
+            case .offline: return "No internet connection."
+            case .alreadyRunning: return "A backup is already running."
+            }
+        }
+    }
 
-    /// Keep at most this much prepared data on disk waiting to upload.
-    static let stagingBudget: Int64 = 1_500 * 1024 * 1024
-    /// Multipart headers add a little; stay safely under the 50 MB limit.
-    static let uploadLimit: Int64 = TelegramClient.maxUploadBytes - 64 * 1024
+    enum Outcome { case uploaded, duplicate, failed, skipped }
+
+    static let maxConcurrentUploads = 2
 
     private unowned let env: AppEnvironment
     private let gate = NSLock()
     private var running = false
-    private let backoff = BackoffPolicy()
+    private var pausedUntil = Date.distantPast
 
     init(environment: AppEnvironment) {
         self.env = environment
-        env.uploader.onJobFinished = { [weak self] job, result in self?.handle(job: job, result: result) }
-        env.uploader.onAllEventsDelivered = { [weak self] in
-            Task { await self?.syncIndexIfIdle() }
-        }
     }
 
     private var rawDirectory: URL {
@@ -63,336 +92,320 @@ final class BackupEngine: @unchecked Sendable {
         return dir
     }
 
-    private func stagingBytes() -> Int64 {
-        let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(at: env.stagingDirectory, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
-        return files.reduce(0) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
-    }
-
     @MainActor private func publish(_ change: @MainActor (BackupActivity) -> Void) { change(BackupActivity.shared) }
 
-    // MARK: - Queueing
+    var isRunning: Bool { gate.withLock { running } }
 
-    /// Prepares and enqueues new/unfinished items until done, `deadline` passes, the staging budget is full,
-    /// or `isCancelled` returns true. Safe to call from the UI, App Intents and BGTasks; concurrent calls return early.
-    func queueNewItems(deadline: Date? = nil, maxItems: Int? = nil,
-                       isCancelled: @escaping () -> Bool = { false },
-                       progress: ((Int, Int) -> Void)? = nil) async -> Summary {
-        var summary = Summary()
-        guard env.isConfigured else { summary.error = "CloudGallery isn't set up yet. Open the app to connect your bot."; return summary }
-        guard PhotoLibraryService.hasAccess else { summary.error = "CloudGallery has no access to your photos."; return summary }
+    /// Why the queue can't run right now (nil = OK).
+    @MainActor func blocker() -> StopReason? {
+        if !env.isConfigured { return .notConfigured }
+        if !PhotoLibraryService.hasAccess { return .noPhotoAccess }
+        if !NetworkStatus.shared.isOnline { return .offline }
+        if Prefs.wifiOnly && NetworkStatus.shared.isExpensive { return .waitingForWiFi }
+        if Prefs.chargingOnly {
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            let state = UIDevice.current.batteryState
+            if state != .charging && state != .full { return .waitingForPower }
+        }
+        return nil
+    }
 
-        gate.lock()
-        if running { gate.unlock(); summary.error = "A backup is already running."; return summary }
-        running = true
-        gate.unlock()
-        defer { gate.lock(); running = false; gate.unlock() }
+    // MARK: - Queue
 
-        let inFlightJobs = await env.uploader.inFlightJobs()
-        let inFlightIds = Set(inFlightJobs.map(\.itemId))
-        summary.inFlight = inFlightJobs.count
-
-        // Unfinished items (failed, interrupted, or tasks lost when the app was force-quit).
-        let unfinished = ((try? env.store.items(status: .failed)) ?? []) +
-                         ((try? env.store.items(status: .queued)) ?? []) +
-                         ((try? env.store.items(status: .uploading)) ?? []).filter { !inFlightIds.contains($0.id) }
+    /// Adds phone assets that match the backup selection and aren't known yet as pending jobs.
+    @discardableResult
+    func enqueueNewAssets() -> Int {
         let known = (try? env.store.knownLocalIdentifiers()) ?? []
         let fresh = env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }
-
-        var work: [(PHAsset, MediaItem?)] = []
-        let retryIds = unfinished.compactMap(\.localIdentifier)
-        var retryAssets: [String: PHAsset] = [:]
-        if !retryIds.isEmpty {
-            PHAsset.fetchAssets(withLocalIdentifiers: retryIds, options: nil).enumerateObjects { a, _, _ in retryAssets[a.localIdentifier] = a }
+        let encrypted = env.library.isEncrypted
+        let items: [MediaItem] = fresh.map { asset in
+            let name = env.photos.originalResources(for: asset)?.primary.originalFilename ?? "IMG_\(asset.localIdentifier.prefix(8))"
+            var item = MediaItem(localIdentifier: asset.localIdentifier, sha256: "", filename: name,
+                                 kind: PhotoLibraryService.kind(of: asset), creationDate: asset.creationDate,
+                                 latitude: asset.location?.coordinate.latitude, longitude: asset.location?.coordinate.longitude,
+                                 pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight,
+                                 duration: asset.mediaType == .video ? asset.duration : nil, fileSize: 0,
+                                 encrypted: encrypted, status: .queued)
+            item.favorite = asset.isFavorite ? true : nil
+            return item
         }
-        for item in unfinished {
-            if let id = item.localIdentifier, let asset = retryAssets[id] { work.append((asset, item)) }
+        try? env.store.upsert(items)
+        return items.count
+    }
+
+    func runnableItems(now: Date) -> [MediaItem] {
+        let pending = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
+        return pending.filter { $0.localIdentifier != nil && ($0.notBefore.map { $0 <= now } ?? true) }
+            .sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
+    }
+
+    /// Processes the queue with up to two concurrent uploads until it is empty, `deadline` passes,
+    /// or `isCancelled` returns true. Safe to call from the UI, App Intents and BGTasks.
+    func run(deadline: Date? = nil, isCancelled: @escaping @Sendable () -> Bool = { false },
+             progress: (@Sendable (Int, Int) -> Void)? = nil) async -> Summary {
+        var summary = Summary()
+        if let reason = await blocker() { summary.error = reason.localizedDescription; return summary }
+        let alreadyRunning: Bool = gate.withLock {
+            if running { return true }
+            running = true
+            return false
         }
-        work += fresh.map { ($0, nil) }
+        if alreadyRunning { summary.error = StopReason.alreadyRunning.localizedDescription; return summary }
+        defer { gate.withLock { running = false } }
 
-        let total = maxItems.map { min($0, work.count) } ?? work.count
-        await publish { $0.isPreparing = true; $0.prepared = 0; $0.total = total; $0.message = "Preparing \(total) items…" }
-        appLog("Backup run: \(fresh.count) new, \(unfinished.count) unfinished, \(inFlightJobs.count) uploads in flight")
+        await publish { $0.isRunning = true; $0.message = "Connecting to Telegram…" }
+        do {
+            try await env.td.waitUntilReady(timeout: 25)
+        } catch {
+            summary.error = error.localizedDescription
+            await publish { $0.isRunning = false; $0.message = summary.error }
+            return summary
+        }
+        // Reconcile anything sent before an interruption so it isn't uploaded twice.
+        _ = try? await env.library.scan(full: false)
+        enqueueNewAssets()
 
-        var processed = 0
-        for (asset, existing) in work {
-            if processed >= total || isCancelled() { break }
-            if let deadline, Date() > deadline { break }
-            if stagingBytes() > Self.stagingBudget { appLog("Staging budget full; pausing preparation"); break }
+        // Items left "uploading" by a killed process go back to pending.
+        if let stale = try? env.store.items(status: .uploading) {
+            try? env.store.upsert(stale.map { var i = $0; i.job = JobMachine.reduce(i.job, .interrupted); return i })
+        }
 
-            let outcome = await prepare(asset: asset, existing: existing)
-            switch outcome {
-            case .queued: summary.queued += 1
-            case .duplicate: summary.alreadyBackedUp += 1
-            case .tooLarge: summary.tooLarge += 1
-            case .failed(let e):
-                summary.failed += 1
-                AppLog.shared.error("Preparing \(asset.localIdentifier) failed: \(e.localizedDescription)")
+        let queue = JobQueue(items: runnableItems(now: Date()))
+        let total = await queue.count
+        await publish { a in
+            a.done = 0
+            a.total = total
+            a.message = total == 0 ? "Everything is backed up." : "Backing up \(total) items…"
+            a.currentNames = [:]
+        }
+        appLog("Backup run: \(total) items queued")
+
+        let counter = Counter()
+        await withTaskGroup(of: Void.self) { group in
+            for lane in 0..<Self.maxConcurrentUploads {
+                group.addTask { [self] in
+                    while let item = await queue.next() {
+                        if isCancelled() || deadline.map({ Date() > $0 }) == true { await queue.drain(); break }
+                        if let reason = await blocker() {
+                            await publish { $0.message = reason.localizedDescription }
+                            await queue.drain()
+                            break
+                        }
+                        await waitForFloodPause(isCancelled: isCancelled)
+                        let outcome = await process(item, lane: lane, isCancelled: isCancelled)
+                        let done = await counter.record(outcome)
+                        progress?(done, total)
+                        await publish { $0.done = done }
+                    }
+                }
             }
-            processed += 1
-            progress?(processed, total)
-            let done = processed
-            await publish { $0.prepared = done }
         }
-        summary.remaining = work.count - processed
-        summary.inFlight = await env.uploader.allTasks().count
+
+        let counts = await counter.snapshot()
+        summary.uploaded = counts.uploaded
+        summary.alreadyBackedUp = counts.duplicate
+        summary.failed = counts.failed
+        summary.remaining = runnableItems(now: .distantFuture).count
+        await env.enforceCacheLimits()
+        if summary.uploaded > 0 { UserDefaults.standard.set(Date(), forKey: Prefs.Key.lastBackupAt) }
         let final = summary
-        await publish { $0.isPreparing = false; $0.lastSummary = final; $0.message = final.text; $0.inFlight = final.inFlight }
+        await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.currentNames = [:] }
         appLog("Backup run finished: \(summary.text)")
         return summary
     }
 
-    /// Keeps preparing until nothing is left and every upload has finished (used by the continued-processing task).
-    func runToCompletion(isCancelled: @escaping () -> Bool, progress: @escaping (_ done: Int, _ total: Int) -> Void) async -> Summary {
-        var combined = Summary()
-        let startCounts = (try? env.store.counts()) ?? [:]
-        let startBacked = startCounts[.backedUp] ?? 0
-        let pending = env.photos.backupCandidates().count - ((try? env.store.knownLocalIdentifiers().count) ?? 0)
-        let target = max(1, pending + (startCounts[.failed] ?? 0) + (startCounts[.queued] ?? 0) + (startCounts[.uploading] ?? 0))
+    /// Moves every failed item back to pending (the "Retry failed" button).
+    func retryFailed() {
+        guard let failed = try? env.store.items(status: .failed) else { return }
+        try? env.store.upsert(failed.map { var i = $0; i.job = JobMachine.reduce(i.job, .retry); return i })
+    }
 
-        func report() {
-            let now = ((try? env.store.counts()) ?? [:])
-            let done = (now[.backedUp] ?? 0) - startBacked + (now[.tooLarge] ?? 0) - (startCounts[.tooLarge] ?? 0)
-            progress(min(max(0, done), target), target)
-        }
-
+    private func waitForFloodPause(isCancelled: () -> Bool) async {
         while !isCancelled() {
-            let s = await queueNewItems(isCancelled: isCancelled) { _, _ in report() }
-            combined.queued += s.queued
-            combined.alreadyBackedUp += s.alreadyBackedUp
-            combined.tooLarge += s.tooLarge
-            combined.failed += s.failed
-            combined.error = s.error
-            if s.error != nil && s.queued == 0 { break }
-            // Wait for uploads to drain (or free staging space) before the next round.
-            repeat {
-                report()
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-            } while !isCancelled() && stagingBytes() > Self.stagingBudget / 2
-            let inFlight = await env.uploader.allTasks().count
-            if s.remaining == 0 && inFlight == 0 { break }
-            if s.remaining == 0 && s.queued == 0 && s.failed == 0 {
-                // Only waiting for the last uploads.
-                while !isCancelled(), await env.uploader.allTasks().count > 0 {
-                    report()
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                }
-                break
-            }
+            let wait = gate.withLock { pausedUntil }.timeIntervalSinceNow
+            if wait <= 0 { return }
+            await publish { $0.message = "Telegram asked us to wait \(Int(wait)) s." }
+            try? await Task.sleep(nanoseconds: UInt64(min(wait, 5) * 1_000_000_000))
         }
-        report()
-        await syncIndexIfIdle()
-        return combined
     }
 
-    // MARK: - Preparing one asset
+    // MARK: - One item
 
-    private func prepare(asset: PHAsset, existing: MediaItem?) async -> Outcome {
-        let exported: ExportedAsset
+    private func save(_ item: MediaItem) { try? env.store.upsert(item) }
+
+    private func process(_ queued: MediaItem, lane: Int, isCancelled: @escaping @Sendable () -> Bool) async -> Outcome {
+        guard var item = try? env.store.item(id: queued.id), item.status == .queued || item.status == .uploading else { return .skipped }
+        guard let localId = item.localIdentifier, let asset = env.photos.asset(localIdentifier: localId) else {
+            // Deleted from the phone before it was uploaded: nothing left to back up.
+            try? env.store.delete(id: item.id)
+            return .skipped
+        }
+        item.job = JobMachine.reduce(item.job, .start)
+        save(item)
+        let laneKey = "\(lane)"
+        let displayName = item.filename
+        await publish { $0.currentNames[laneKey] = displayName }
+
+        var exported: ExportedAsset?
+        defer {
+            exported?.cleanup()
+            Task { await self.publish { $0.currentNames[laneKey] = nil } }
+        }
         do {
-            exported = try await env.photos.exportOriginal(of: asset, into: rawDirectory)
+            let exp = try await env.photos.exportOriginal(of: asset, into: rawDirectory)
+            exported = exp
+
+            // Content hash and de-duplication against everything already in the cloud.
+            let primaryHash = try Deduplicator.sha256(of: exp.primaryURL)
+            let pairedHash = try exp.pairedVideoURL.map { try Deduplicator.sha256(of: $0) }
+            if item.cloudParts == nil,
+               let twin = try env.store.items(sha256: primaryHash).first(where: { $0.id != item.id && $0.status == .backedUp }) {
+                let missing = twin.localIdentifier.map { env.photos.asset(localIdentifier: $0) == nil } ?? true
+                try env.store.delete(id: item.id)
+                try Deduplicator(store: env.store).link(localIdentifier: localId, to: twin, existingAssetIsMissing: missing)
+                return .duplicate
+            }
+            item.sha256 = primaryHash
+            item.filename = exp.primaryFilename
+            item.kind = exp.kind
+            item.uti = exp.primaryUTI
+            item.fileSize = try CloudUploader.size(of: exp.primaryURL)
+            item.pairedVideoFilename = exp.pairedVideoFilename
+            item.pairedVideoSize = try exp.pairedVideoURL.map { try CloudUploader.size(of: $0) }
+            item.encrypted = env.library.isEncrypted
+            item.mimeType = exp.primaryFilename.mimeTypeForFilename
+            if let video = await VideoInfo.inspect(asset: asset) {
+                item.codec = video.codec
+                item.hdr = video.hdr
+            }
+            item.tzOffsetMinutes = TimeZone.current.secondsFromGMT(for: asset.creationDate ?? Date()) / 60
+            item.albums = env.photos.albumNames(for: asset)
+            save(item)
+
+            // Thumbnail: attached to the document (plain) or uploaded encrypted as role "t" (E2E).
+            let thumbData = await env.photos.thumbnailJPEG(for: asset)
+            let thumbURL = rawDirectory.appendingPathComponent("\(item.id)-thumb.jpg")
+            var thumbSize = (320, 320)
+            if let thumbData {
+                try thumbData.write(to: thumbURL)
+                if let img = UIImage(data: thumbData) { thumbSize = (Int(img.size.width * img.scale), Int(img.size.height * img.scale)) }
+                _ = try? env.thumbnailCache.store(data: thumbData, for: CloudMediaService.thumbnailKey(item), ext: "jpg")
+            }
+            defer { try? FileManager.default.removeItem(at: thumbURL) }
+
+            var resources = [PreparedResource(role: "o", fileURL: exp.primaryURL,
+                                              meta: captionMeta(item, role: .original, hash: primaryHash, name: item.filename, size: item.fileSize))]
+            if let paired = exp.pairedVideoURL, let pairedHash {
+                resources.append(PreparedResource(role: "pv", fileURL: paired,
+                                                  meta: captionMeta(item, role: .pairedVideo, hash: pairedHash,
+                                                                    name: item.pairedVideoFilename ?? "\(item.id).MOV", size: item.pairedVideoSize ?? 0)))
+            }
+            if item.encrypted, let thumbData {
+                resources.append(PreparedResource(role: "t", fileURL: thumbURL,
+                                                  meta: captionMeta(item, role: .thumbnail, hash: IndexCodec.sha256Hex(thumbData),
+                                                                    name: "thumb.jpg", size: Int64(thumbData.count))))
+            }
+
+            let streamTotal = resources.reduce(Int64(0)) { $0 + ((try? CloudUploader.size(of: $1.fileURL)) ?? 0) }
+            var sentBefore: Int64 = 0
+            let store = env.store
+            let itemId = item.id
+            for resource in resources {
+                try Task.checkCancellation()
+                if isCancelled() { throw CancellationError() }
+                let base = sentBefore
+                let parts = try await env.uploader.upload(
+                    itemId: itemId, resource: resource, encrypted: item.encrypted,
+                    thumbnail: thumbData != nil ? (thumbURL, thumbSize.0, thumbSize.1) : nil,
+                    existing: item.parts(resource.role),
+                    checkpoint: { parts, expected in
+                        try store.update(id: itemId) { $0.setParts(parts, role: resource.role, expected: expected) }
+                    },
+                    progress: { [weak self] sent, _ in
+                        Task { await self?.publish { $0.bytesSent = base + sent; $0.bytesTotal = streamTotal } }
+                    })
+                item = (try store.item(id: itemId)) ?? item
+                item.setParts(parts, role: resource.role, expected: parts.count)
+                sentBefore += (try? CloudUploader.size(of: resource.fileURL)) ?? 0
+            }
+
+            item.job = JobMachine.reduce(item.job, .sent(sizeMatches: item.isCompleteInCloud))
+            item.uploadedAt = Date()
+            var hashes = ["o": primaryHash]
+            if let pairedHash { hashes["pv"] = pairedHash }
+            item.roleHashes = hashes
+            save(item)
+            return item.status == .backedUp ? .uploaded : .failed
         } catch {
-            if let existing { markFailed(existing.id, error) }
-            return .failed(error)
-        }
-        defer { exported.cleanup() }
-
-        do {
-            let fm = FileManager.default
-            let primarySize = (try fm.attributesOfItem(atPath: exported.primaryURL.path)[.size] as? NSNumber)?.int64Value ?? 0
-            let pairedSize = try exported.pairedVideoURL.map { (try fm.attributesOfItem(atPath: $0.path)[.size] as? NSNumber)?.int64Value ?? 0 }
-            var hashes = [try Deduplicator.sha256(of: exported.primaryURL)]
-            if let paired = exported.pairedVideoURL { hashes.append(try Deduplicator.sha256(of: paired)) }
-            let sha = Deduplicator.combinedHash(hashes)
-
-            var item: MediaItem
-            if let existing {
-                item = existing
-            } else {
-                let dedupe = Deduplicator(store: env.store)
-                switch try dedupe.decide(localIdentifier: asset.localIdentifier, sha256: sha) {
-                case .known:
-                    return .duplicate
-                case .duplicateContent(let match):
-                    let missing = match.localIdentifier.map { env.photos.asset(localIdentifier: $0) == nil } ?? true
-                    try dedupe.link(localIdentifier: asset.localIdentifier, to: match, existingAssetIsMissing: missing)
-                    return .duplicate
-                case .upload:
-                    item = MediaItem(localIdentifier: asset.localIdentifier, sha256: sha, filename: exported.primaryFilename,
-                                       kind: exported.kind, uti: exported.primaryUTI, creationDate: asset.creationDate,
-                                       latitude: asset.location?.coordinate.latitude, longitude: asset.location?.coordinate.longitude,
-                                       pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight,
-                                       duration: asset.mediaType == .video ? asset.duration : nil,
-                                       fileSize: primarySize, encrypted: Prefs.encryptionEnabled, status: .queued)
-                    item.pairedVideoFilename = exported.pairedVideoFilename
-                    item.pairedVideoSize = pairedSize
-                }
-            }
-            // Nothing confirmed yet for a retried item: refresh content (it may have been edited) and settings.
-            if existing != nil && item.original == nil {
-                item.sha256 = sha
-                item.fileSize = primarySize
-                item.pairedVideoSize = pairedSize
-                item.kind = exported.kind
-                if item.encrypted != Prefs.encryptionEnabled {
-                    item.encrypted = Prefs.encryptionEnabled
-                    item.thumbnail = nil
-                    item.pairedVideo = nil
-                }
-            }
-
-            // Bot API limit: refuse anything over 50 MB — never pretend it is backed up.
-            let uploadSize: (Int64) -> Int64 = { item.encrypted ? FileCrypto.encryptedSize(plaintextSize: $0) : $0 }
-            if uploadSize(primarySize) > Self.uploadLimit || uploadSize(pairedSize ?? 0) > Self.uploadLimit {
-                item.status = .tooLarge
-                item.lastError = "Larger than the Bot API's 50 MB upload limit. Needs version 2."
-                try env.store.upsert(item)
-                return .tooLarge
-            }
-
-            guard let thumb = await env.photos.thumbnailJPEG(for: asset) else {
-                throw PhotoLibraryError.noOriginalResource
-            }
-
-            let roles = item.requiredRoles.filter { item.remote(for: $0) == nil }
-            var jobs: [UploadJob] = []
-            for role in roles {
-                let source: URL
-                let plainName: String
-                switch role {
-                case .original:
-                    source = exported.primaryURL
-                    plainName = item.filename
-                case .pairedVideo:
-                    guard let url = exported.pairedVideoURL else { continue }
-                    source = url
-                    plainName = item.pairedVideoFilename ?? "\((item.filename as NSString).deletingPathExtension).MOV"
-                case .thumbnail:
-                    source = rawDirectory.appendingPathComponent("\(item.id)-thumb.jpg")
-                    try thumb.write(to: source)
-                    plainName = "\((item.filename as NSString).deletingPathExtension).thumb.jpg"
-                }
-                jobs.append(try buildJob(item: item, role: role, source: source, plainName: plainName))
-                if role == .thumbnail { try? fm.removeItem(at: source) }
-            }
-
-            item.status = .uploading
-            item.attempts += 1
-            item.lastError = nil
-            try env.store.upsert(item)
-
-            for job in jobs {
-                let delay = await env.limiter.reserve()
-                try env.uploader.enqueue(job, delay: delay)
-            }
-            return .queued
-        } catch {
-            if let existing { markFailed(existing.id, error) }
-            return .failed(error)
+            return fail(&item, error)
         }
     }
 
-    private func buildJob(item: MediaItem, role: UploadRole, source: URL, plainName: String) throws -> UploadJob {
-        guard let chatId = env.chatId else { throw TelegramError.api(code: 401, description: "Not configured") }
-        var payload = source
-        var fileName = plainName
-        var mime = plainName.mimeTypeForFilename
-        var encryptedTemp: URL?
-        if item.encrypted {
-            let out = rawDirectory.appendingPathComponent("\(item.id)-\(role.rawValue).cge")
-            try FileCrypto.encrypt(input: source, output: out, masterKey: try env.fileMasterKey())
-            payload = out
-            encryptedTemp = out
-            fileName = "\(item.id)-\(role.rawValue).cge"
-            mime = "application/octet-stream"
+    private func fail(_ item: inout MediaItem, _ error: Error) -> Outcome {
+        let cancelled: Bool
+        if error is CancellationError { cancelled = true }
+        else if case TDServiceError.cancelled? = error as? TDServiceError { cancelled = true }
+        else { cancelled = false }
+        if cancelled {
+            item.job = JobMachine.reduce(item.job, .interrupted)
+            save(item)
+            return .skipped
         }
-        defer { if let encryptedTemp { try? FileManager.default.removeItem(at: encryptedTemp) } }
-
-        let bodyFile = "\(item.id)-\(role.rawValue).body"
-        let body = MultipartBody()
-        try body.write(fields: [("chat_id", chatId),
-                                ("caption", item.caption(for: role)),
-                                ("disable_notification", "true"),
-                                ("disable_content_type_detection", "true")],
-                       file: .init(fieldName: "document", fileName: fileName, mimeType: mime, fileURL: payload),
-                       to: env.stagingDirectory.appendingPathComponent(bodyFile))
-        return UploadJob(itemId: item.id, role: role, bodyFile: bodyFile, contentType: body.contentType, attempt: 0)
+        let kind: TelegramErrorKind
+        if let td = error as? TDServiceError { kind = td.kind }
+        else if error is CryptoError || error is PhotoLibraryError || error is LibraryError { kind = .permanent }
+        else { kind = .transient }
+        switch kind {
+        case .floodWait(let s):
+            gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+            item.job = JobMachine.reduce(item.job, .floodWait(seconds: s))
+        case .transient:
+            item.job = JobMachine.reduce(item.job, .error(reason: error.localizedDescription, transient: true))
+        case .auth, .permanent:
+            item.job = JobMachine.reduce(item.job, .error(reason: error.localizedDescription, transient: false))
+        }
+        save(item)
+        AppLog.shared.error("Upload of \(item.filename) failed: \(error.localizedDescription)")
+        return item.status == .failed ? .failed : .skipped
     }
 
-    private func markFailed(_ id: String, _ error: Error) {
-        _ = try? env.store.update(id: id) {
-            $0.status = .failed
-            $0.lastError = error.localizedDescription
-        }
+    private func captionMeta(_ item: MediaItem, role: CaptionMeta.Role, hash: String, name: String, size: Int64) -> CaptionMeta {
+        let kind: CaptionMeta.Kind = item.kind == .livePhoto ? .live : (item.kind == .video ? .video : .photo)
+        var m = CaptionMeta(id: item.id, role: role, kind: kind, sha256: hash, name: name, size: size)
+        m.m = name.mimeTypeForFilename
+        m.t = item.creationDate.map { Int64($0.timeIntervalSince1970) }
+        m.tz = item.tzOffsetMinutes
+        if let lat = item.latitude, let lon = item.longitude { m.g = CaptionMeta.roundedGPS(lat, lon) }
+        if item.pixelWidth > 0 { m.wh = [item.pixelWidth, item.pixelHeight] }
+        m.d = role == .thumbnail ? nil : item.duration
+        m.c = item.codec
+        m.hdr = item.hdr
+        m.a = item.albums
+        m.fav = item.favorite == true ? 1 : nil
+        return m
     }
+}
 
-    // MARK: - Upload completion
+/// Hands out queue items to the upload lanes, one at a time.
+actor JobQueue {
+    private var items: [MediaItem]
+    init(items: [MediaItem]) { self.items = items.reversed() }
+    var count: Int { items.count }
+    func next() -> MediaItem? { items.popLast() }
+    func drain() { items.removeAll() }
+}
 
-    func handle(job: UploadJob, result: Result<TGMessage, Error>) {
-        let body = env.uploader.bodyURL(job)
-        switch result {
-        case .success(let message):
-            try? FileManager.default.removeItem(at: body)
-            do {
-                let remote = try RemoteFile(message: message)
-                let updated = try env.store.update(id: job.itemId) { item in
-                    item.setRemote(remote, for: job.role)
-                    if item.isFullyUploaded {
-                        item.status = .backedUp
-                        item.uploadedAt = Date()
-                        item.lastError = nil
-                    }
-                }
-                if updated?.status == .backedUp {
-                    markIndexDirty()
-                    UserDefaults.standard.set(Date(), forKey: Prefs.Key.lastBackupAt)
-                }
-            } catch {
-                AppLog.shared.error("Upload \(job.role.rawValue) of \(job.itemId) returned no document: \(error)")
-                markFailed(job.itemId, error)
-            }
-        case .failure(let error):
-            if error is CancellationError {
-                try? FileManager.default.removeItem(at: body)
-                return
-            }
-            Task {
-                if case TelegramError.rateLimited(let s) = error { await env.limiter.penalize(retryAfter: TimeInterval(s)) }
-                switch backoff.decide(error: error, attempt: job.attempt) {
-                case .retry(let after):
-                    var next = job
-                    next.attempt += 1
-                    let slot = await env.limiter.reserve()
-                    do {
-                        guard FileManager.default.fileExists(atPath: body.path) else { throw PhotoLibraryError.noOriginalResource }
-                        try env.uploader.enqueue(next, delay: max(after, slot))
-                        appLog("Retrying \(job.role.rawValue) of \(job.itemId) in \(Int(max(after, slot)))s (\(error.localizedDescription))")
-                    } catch {
-                        markFailed(job.itemId, error)
-                    }
-                case .giveUp:
-                    try? FileManager.default.removeItem(at: body)
-                    AppLog.shared.error("Giving up on \(job.role.rawValue) of \(job.itemId): \(error.localizedDescription)")
-                    markFailed(job.itemId, error)
-                }
-            }
+actor Counter {
+    private var uploaded = 0, duplicate = 0, failed = 0, done = 0
+    func record(_ o: BackupEngine.Outcome) -> Int {
+        switch o {
+        case .uploaded: uploaded += 1
+        case .duplicate: duplicate += 1
+        case .failed: failed += 1
+        case .skipped: break
         }
+        done += 1
+        return done
     }
-
-    // MARK: - Index
-
-    func markIndexDirty() { env.store.setMeta("indexDirty", "1") }
-    var isIndexDirty: Bool { env.store.meta("indexDirty") == "1" }
-
-    /// Uploads the index once no uploads are pending (end of a batch).
-    func syncIndexIfIdle() async {
-        let inFlight = await env.uploader.allTasks().count
-        await publish { $0.inFlight = inFlight }
-        guard inFlight == 0, isIndexDirty else { return }
-        do {
-            try await env.indexSync.upload()
-        } catch {
-            AppLog.shared.error("Index upload failed: \(error.localizedDescription)")
-        }
-    }
+    func snapshot() -> (uploaded: Int, duplicate: Int, failed: Int) { (uploaded, duplicate, failed) }
 }

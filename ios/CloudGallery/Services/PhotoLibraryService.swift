@@ -88,9 +88,10 @@ final class PhotoLibraryService: @unchecked Sendable {
         return result.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
-    /// Assets that match the backup filters (videos, screenshots, album include/exclude), newest first.
+    /// Assets that match the backup selection (media type, screenshots, date range, albums), newest first.
     func backupCandidates() -> [PHAsset] {
-        let includeVideos = Prefs.backupVideos
+        let filter = Prefs.mediaFilter
+        let since = Prefs.dateFrom
         let includeScreenshots = Prefs.includeScreenshots
         let mode = Prefs.albumMode
         let albumIds = Prefs.albumIds
@@ -109,13 +110,24 @@ final class PhotoLibraryService: @unchecked Sendable {
 
         var out: [PHAsset] = []
         fetchAllAssets().enumerateObjects { a, _, _ in
-            if a.mediaType == .video && !includeVideos { return }
+            if a.mediaType == .video && filter == .photos { return }
+            if a.mediaType == .image && filter == .videos { return }
+            if let since, (a.creationDate ?? .distantPast) < since { return }
             if !includeScreenshots && a.mediaSubtypes.contains(.photoScreenshot) { return }
             if let included, !included.contains(a.localIdentifier) { return }
             if excluded.contains(a.localIdentifier) { return }
             out.append(a)
         }
         return out
+    }
+
+    /// Names of the user albums containing `asset` (stored in the caption so albums survive restore).
+    func albumNames(for asset: PHAsset) -> [String]? {
+        var names: [String] = []
+        PHAssetCollection.fetchAssetCollectionsContaining(asset, with: .album, options: nil).enumerateObjects { c, _, _ in
+            if let t = c.localizedTitle { names.append(t) }
+        }
+        return names.isEmpty ? nil : names
     }
 
     // MARK: - Export
@@ -279,5 +291,44 @@ extension String {
     var mimeTypeForFilename: String {
         let ext = (self as NSString).pathExtension
         return UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
+    }
+}
+
+import AVFoundation
+
+/// Codec and HDR flavour of a video, for the caption (`c`, `hdr`).
+enum VideoInfo {
+    struct Result { let codec: String?; let hdr: Int }
+
+    static func inspect(asset: PHAsset) async -> Result? {
+        guard asset.mediaType == .video else { return nil }
+        let options = PHVideoRequestOptions()
+        options.isNetworkAccessAllowed = true
+        options.version = .original
+        let avAsset: AVAsset? = await withCheckedContinuation { cont in
+            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { a, _, _ in cont.resume(returning: a) }
+        }
+        guard let avAsset, let track = try? await avAsset.loadTracks(withMediaType: .video).first,
+              let formats = try? await track.load(.formatDescriptions), let desc = formats.first else { return nil }
+        let subtype = CMFormatDescriptionGetMediaSubType(desc)
+        let codec: String?
+        switch subtype {
+        case kCMVideoCodecType_HEVC, kCMVideoCodecType_HEVCWithAlpha: codec = "hevc"
+        case kCMVideoCodecType_H264: codec = "h264"
+        case kCMVideoCodecType_AppleProRes422, kCMVideoCodecType_AppleProRes422HQ, kCMVideoCodecType_AppleProRes422LT,
+             kCMVideoCodecType_AppleProRes422Proxy, kCMVideoCodecType_AppleProRes4444, kCMVideoCodecType_AppleProRes4444XQ:
+            codec = "prores"
+        case 0x64766831 /* dvh1 */, 0x64766865 /* dvhe */: codec = "hevc"
+        default: codec = nil
+        }
+        var hdr = 0
+        let characteristics = (try? await track.load(.mediaCharacteristics)) ?? []
+        if characteristics.contains(.containsHDRVideo) { hdr = 1 }
+        if subtype == 0x64766831 || subtype == 0x64766865 { hdr = 2 }
+        if let ext = CMFormatDescriptionGetExtensions(desc) as? [String: Any],
+           let atoms = ext["SampleDescriptionExtensionAtoms"] as? [String: Any], atoms["dvcC"] != nil || atoms["dvvC"] != nil {
+            hdr = 2
+        }
+        return Result(codec: codec, hdr: hdr)
     }
 }

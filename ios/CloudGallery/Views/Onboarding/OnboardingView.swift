@@ -4,27 +4,61 @@ import CloudGalleryCore
 
 @MainActor
 final class OnboardingModel: ObservableObject {
-    enum Step: Int, CaseIterable { case welcome, botFather, channel, token, chat, test, passphrase, photos }
+    enum Step: Equatable { case welcome, credentials, phone, code, password, otherDevice, library, unlock, scanning, photos }
 
     @Published var step: Step = .welcome
-    @Published var token = ""
-    @Published var botName: String?
-    @Published var chatIdText = ""
-    @Published var detectedChats: [TGChat] = []
-    @Published var report: BotPermissionReport?
-    @Published var chatTitle: String?
-    @Published var existingIndexFound = false
+    @Published var apiId = ""
+    @Published var apiHash = ""
+    @Published var phone = ""
+    @Published var code = ""
+    @Published var password = ""
+    @Published var codeInfo = ""
+    @Published var passwordHint = ""
+    @Published var otherDeviceLink = ""
+    @Published var channels: [LibraryService.ChannelChoice] = []
+    @Published var loadingChannels = false
+    @Published var newLibraryEncrypted = false
     @Published var passphrase = ""
     @Published var passphraseConfirm = ""
     @Published var acknowledgedRisk = false
+    @Published var scanned = 0
     @Published var busy = false
     @Published var error: String?
     @Published var info: String?
     @Published var photoStatus = PhotoLibraryService.authorizationStatus
 
-    private var client: TelegramClient? {
-        let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.isEmpty ? nil : TelegramClient(token: t)
+    private let env = AppEnvironment.shared
+    private var observer: UUID?
+
+    init() {
+        if let creds = TDCredentials.load() {
+            apiId = String(creds.apiId)
+            apiHash = creds.apiHash
+        }
+        observer = env.td.observeAuth { [weak self] step in
+            Task { @MainActor in self?.apply(step) }
+        }
+    }
+
+    deinit {
+        if let observer { TDService.shared.removeObserver(observer) }
+    }
+
+    private func apply(_ auth: TDService.AuthStep) {
+        guard step != .welcome || auth == .ready else { return }
+        switch auth {
+        case .needsCredentials: if step != .credentials { step = .credentials }
+        case .starting, .loggingOut, .closed: break
+        case .waitPhone: step = .phone
+        case .waitCode(let info): codeInfo = info; step = .code
+        case .waitPassword(let hint): passwordHint = hint; step = .password
+        case .waitOtherDevice(let link): otherDeviceLink = link; step = .otherDevice
+        case .waitEmail: error = "Telegram asks for an email login on this account. Sign in once in the official Telegram app, then try again."
+        case .waitRegistration: error = "This phone number has no Telegram account yet. Create one in the Telegram app first."
+        case .ready:
+            busy = false
+            if [.welcome, .credentials, .phone, .code, .password, .otherDevice].contains(step) { goToLibrary() }
+        }
     }
 
     func run(_ work: @escaping () async throws -> Void) {
@@ -40,83 +74,90 @@ final class OnboardingModel: ObservableObject {
         }
     }
 
-    func verifyToken() {
-        run { [self] in
-            guard let client else { throw TelegramError.api(code: 401, description: "Enter the token from @BotFather") }
-            let me = try await client.getMe()
-            botName = me.username.map { "@\($0)" } ?? me.firstName
-            Haptics.success()
-            step = .chat
+    func start() {
+        if env.td.isReady { goToLibrary() } else if TDCredentials.load() != nil { step = .phone; env.td.start() } else { step = .credentials }
+    }
+
+    func saveCredentials() {
+        guard let id = Int(apiId.trimmingCharacters(in: .whitespaces)), id > 0,
+              apiHash.trimmingCharacters(in: .whitespaces).count == 32 else {
+            error = "api_id is a number and api_hash is 32 characters. Copy both from my.telegram.org → API development tools."
+            return
+        }
+        TDCredentials.save(apiId: id, apiHash: apiHash.trimmingCharacters(in: .whitespaces))
+        busy = true
+        env.td.start()
+    }
+
+    func submitPhone() {
+        let digits = phone.filter { $0.isNumber || $0 == "+" }
+        run { try await self.env.td.submitPhone(digits) }
+    }
+
+    func submitCode() { run { try await self.env.td.submitCode(self.code.filter(\.isNumber)) } }
+    func submitPassword() { run { try await self.env.td.submitPassword(self.password) } }
+
+    func goToLibrary() {
+        if env.library.isConfigured {
+            step = env.library.isUnlocked ? .scanning : .unlock
+            if step == .scanning { scan() }
+            return
+        }
+        step = .library
+        loadChannels()
+    }
+
+    func loadChannels() {
+        loadingChannels = true
+        Task {
+            do { channels = try await env.library.candidateChannels() } catch { self.error = error.localizedDescription }
+            loadingChannels = false
         }
     }
 
-    func detectChats() {
-        run { [self] in
-            guard let client else { return }
-            let updates = try await client.getUpdates()
-            var seen = Set<Int64>()
-            detectedChats = updates.compactMap(\.chat).filter { $0.isChannelOrGroup && seen.insert($0.id).inserted }
-            if detectedChats.count == 1 { chatIdText = String(detectedChats[0].id) }
-            if detectedChats.isEmpty {
-                info = "No channel found yet. Add the bot as an admin, post any message in the channel, then tap Detect again."
-            }
-        }
-    }
-
-    func testConnection() {
-        run { [self] in
-            guard let client else { return }
-            let chatId = chatIdText.trimmingCharacters(in: .whitespaces)
-            let chat = try await client.getChat(chatId)
-            chatTitle = chat.title
-            let report = try await client.checkPermissions(chatId: chatId)
-            self.report = report
-            guard report.isSufficient else {
-                Haptics.error()
-                return
-            }
-            existingIndexFound = chat.pinnedMessage?.value.document?.fileName == IndexCodec.pinnedFileName
-            KeychainStore.set(token.trimmingCharacters(in: .whitespacesAndNewlines), for: .botToken)
-            KeychainStore.set(chatId, for: .chatId)
-            UserDefaults.standard.set(chat.type, forKey: Prefs.Key.chatType)
-            UserDefaults.standard.set(chat.title, forKey: Prefs.Key.chatTitle)
-            UserDefaults.standard.set(botName, forKey: Prefs.Key.botUsername)
-            Haptics.success()
-        }
-    }
-
-    var passphraseProblem: String? {
+    var newPassphraseProblem: String? {
+        guard newLibraryEncrypted else { return nil }
         if passphrase.count < 10 { return "Use at least 10 characters. A few random words work well." }
-        if !existingIndexFound && passphrase != passphraseConfirm { return "The passphrases don't match." }
-        if !existingIndexFound && !acknowledgedRisk { return "Confirm you understand the passphrase can't be recovered." }
+        if passphrase != passphraseConfirm { return "The passphrases don't match." }
+        if !acknowledgedRisk { return "Confirm you understand a lost passphrase means lost photos." }
         return nil
     }
 
-    func savePassphrase() {
-        run { [self] in
-            if existingIndexFound {
-                KeychainStore.set(passphrase, for: .passphrase)
-                do {
-                    let count = try await AppEnvironment.shared.indexSync.restore(passphrase: passphrase)
-                    info = "Restored \(count) items from your cloud index."
-                } catch {
-                    KeychainStore.set(nil as String?, for: .passphrase)
-                    throw error
-                }
-            } else {
-                KeychainStore.set(passphrase, for: .passphrase)
-                KeychainStore.set(nil as Data?, for: .fileMasterKey)
-                _ = AppEnvironment.shared.ensureFileKeySalt()
-            }
+    func createLibrary() {
+        run {
+            try await self.env.library.createLibrary(passphrase: self.newLibraryEncrypted ? self.passphrase : nil)
             Haptics.success()
-            step = .photos
+            self.step = .photos
+        }
+    }
+
+    func choose(_ channel: LibraryService.ChannelChoice) {
+        run {
+            let header = try await self.env.library.useExisting(chatId: channel.id)
+            if header.encrypted { self.step = .unlock } else { self.step = .scanning; self.scan() }
+        }
+    }
+
+    func unlock() {
+        run {
+            try self.env.library.unlock(passphrase: self.passphrase)
+            self.step = .scanning
+            self.scan()
+        }
+    }
+
+    func scan() {
+        run {
+            let summary = try await self.env.library.scan(full: true) { n in
+                Task { @MainActor in self.scanned = n }
+            }
+            self.info = summary.items == 0 ? "Your library is empty: a fresh start." : "Found \(summary.items) items in your library."
+            self.step = .photos
         }
     }
 
     func requestPhotos() {
-        Task {
-            photoStatus = await PhotoLibraryService.requestAuthorization()
-        }
+        Task { photoStatus = await PhotoLibraryService.requestAuthorization() }
     }
 }
 
@@ -128,8 +169,6 @@ struct OnboardingView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    ProgressView(value: Double(m.step.rawValue), total: Double(OnboardingModel.Step.allCases.count - 1))
-                        .accessibilityLabel("Setup step \(m.step.rawValue + 1) of \(OnboardingModel.Step.allCases.count)")
                     content
                     if let error = m.error { ErrorBanner(message: error) }
                     if let info = m.info {
@@ -141,30 +180,22 @@ struct OnboardingView: View {
                 .frame(maxWidth: .infinity)
             }
             .navigationTitle(title)
-            .toolbar {
-                if m.step != .welcome {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("Back") {
-                            m.error = nil
-                            m.step = OnboardingModel.Step(rawValue: m.step.rawValue - 1) ?? .welcome
-                        }
-                        .disabled(m.busy)
-                    }
-                }
-            }
             .safeAreaInset(edge: .bottom) { footer }
+            .scrollDismissesKeyboard(.interactively)
         }
     }
 
     private var title: String {
         switch m.step {
         case .welcome: return "Welcome"
-        case .botFather: return "Create a bot"
-        case .channel: return "Create a channel"
-        case .token: return "Bot token"
-        case .chat: return "Backup chat"
-        case .test: return "Test connection"
-        case .passphrase: return m.existingIndexFound ? "Restore" : "Passphrase"
+        case .credentials: return "Telegram API key"
+        case .phone: return "Sign in"
+        case .code: return "Login code"
+        case .password: return "Two-step password"
+        case .otherDevice: return "Confirm login"
+        case .library: return "Your library"
+        case .unlock: return "Unlock library"
+        case .scanning: return "Restoring"
         case .photos: return "Photos access"
         }
     }
@@ -173,182 +204,173 @@ struct OnboardingView: View {
         switch m.step {
         case .welcome:
             VStack(alignment: .leading, spacing: 16) {
-                Image(systemName: "photo.stack.fill").font(.system(size: 64)).foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                Text("Back up your photos to your own Telegram").font(.title.bold())
-                Text("CloudGallery uploads your original photos and videos, untouched, to a private Telegram channel that only you control. No accounts, no servers, no tracking.")
-                bullet("checkmark.seal", "Originals, never compressed (HEIC, HEVC, Live Photos)")
-                bullet("lock.shield", "Encrypted index so you can restore after reinstalling")
-                bullet("bolt.horizontal", "Runs from Shortcuts automations, even overnight")
-                bullet("exclamationmark.triangle", "Version 1 uses the Bot API: files over 50 MB can't be uploaded and files over 20 MB can't be viewed back in the app.")
+                Image(systemName: "photo.stack.fill").font(.system(size: 64)).foregroundStyle(.tint).accessibilityHidden(true)
+                Text("Your photos, in your own Telegram").font(.title.bold())
+                Text("CloudGallery backs up original photos and videos, bit for bit, to a private channel in your own Telegram account. No servers, no tracking.")
+                bullet("film.stack", "Videos of any size: 4K, HDR, Dolby Vision, ProRes. Big files are split automatically.")
+                bullet("play.circle", "Stream videos without downloading them")
+                bullet("arrow.counterclockwise.icloud", "Reinstall or switch phones and your library comes back")
+                bullet("lock.shield", "Optional end-to-end encryption")
             }
-        case .botFather:
+        case .credentials:
             VStack(alignment: .leading, spacing: 12) {
-                step(1, "Open Telegram and start a chat with **@BotFather**.")
-                step(2, "Send **/newbot**, choose a name and a username ending in “bot”.")
-                step(3, "BotFather replies with a token like `123456789:AAH…`. Copy it. Treat it like a password.")
-                Link(destination: URL(string: "https://t.me/BotFather")!) {
-                    Label("Open @BotFather", systemImage: "paperplane.fill")
-                }
-                .buttonStyle(.bordered)
+                Text("Telegram requires every app to use an API key. You create your own; it stays on this iPhone.")
+                step(1, "Open **my.telegram.org** and log in with your phone number.")
+                step(2, "Tap **API development tools** and create an app (any name, e.g. “CloudGallery”, platform iOS).")
+                step(3, "Copy **App api_id** (a number) and **App api_hash** (32 characters) here.")
+                Link(destination: URL(string: "https://my.telegram.org/apps")!) { Label("Open my.telegram.org", systemImage: "safari") }
+                    .buttonStyle(.bordered)
+                field("api_id", text: $m.apiId, keyboard: .numberPad)
+                field("api_hash", text: $m.apiHash, secure: true)
+                Text("Stored only in this iPhone's Keychain. Never share them.").font(.footnote).foregroundStyle(.secondary)
             }
-        case .channel:
+        case .phone:
             VStack(alignment: .leading, spacing: 12) {
-                step(1, "In Telegram, create a **New Channel** and make it **Private**. A private supergroup also works.")
-                step(2, "Open the channel → Administrators → **Add Admin** → search your bot.")
-                step(3, "Give it **Post Messages**, **Edit Messages of Others**, **Delete Messages** and (for groups) **Pin Messages**.")
-                step(4, "Post any message in the channel (e.g. “hi”) so the app can find it.")
-                Text("Use a chat only for CloudGallery. Don't delete or unpin the pinned index file.")
+                Text("Sign in with the Telegram account that will store your library. Telegram sends you a login code.")
+                field("Phone number, e.g. +91 98765 43210", text: $m.phone, keyboard: .phonePad, content: .telephoneNumber)
+            }
+        case .code:
+            VStack(alignment: .leading, spacing: 12) {
+                Text(m.codeInfo)
+                field("Code", text: $m.code, keyboard: .numberPad, content: .oneTimeCode)
+            }
+        case .password:
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Your account has two-step verification. Enter its password.")
+                field(m.passwordHint.isEmpty ? "Password" : "Password (hint: \(m.passwordHint))", text: $m.password, secure: true, content: .password)
+            }
+        case .otherDevice:
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Confirm this login from another device where you're signed in to Telegram.")
+                Text(m.otherDeviceLink).font(.footnote.monospaced()).textSelection(.enabled)
+            }
+        case .library:
+            libraryContent
+        case .unlock:
+            VStack(alignment: .leading, spacing: 12) {
+                Text("This library is end-to-end encrypted. Enter its passphrase. It's checked before anything is decrypted.")
+                field("Passphrase", text: $m.passphrase, secure: true, content: .password)
+            }
+        case .scanning:
+            VStack(alignment: .leading, spacing: 12) {
+                ProgressView()
+                Text("Reading your library from Telegram… \(m.scanned) files so far.")
+                Text("The channel is the source of truth, so this restores everything after a reinstall.")
                     .font(.footnote).foregroundStyle(.secondary)
-            }
-        case .token:
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Paste the token from @BotFather. It's stored only in this iPhone's Keychain.")
-                SecureField("123456789:AAH…", text: $m.token)
-                    .textContentType(.password)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .padding(12)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                    .accessibilityLabel("Bot token")
-                if let name = m.botName { Label("Connected to \(name)", systemImage: "checkmark.circle.fill").foregroundStyle(.green) }
-            }
-        case .chat:
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Find your channel automatically, or enter its ID (it starts with -100).")
-                Button { m.detectChats() } label: { Label("Detect chats", systemImage: "magnifyingglass") }
-                    .buttonStyle(.bordered).disabled(m.busy)
-                ForEach(m.detectedChats, id: \.id) { chat in
-                    Button {
-                        m.chatIdText = String(chat.id)
-                        Haptics.tap()
-                    } label: {
-                        HStack {
-                            Image(systemName: chat.type == "channel" ? "megaphone" : "person.3")
-                            VStack(alignment: .leading) {
-                                Text(chat.title ?? "Untitled").bold()
-                                Text("\(chat.type) · \(String(chat.id))").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if m.chatIdText == String(chat.id) { Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint) }
-                        }
-                        .padding(10)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                    }
-                    .buttonStyle(.plain)
-                }
-                TextField("Chat ID, e.g. -1001234567890", text: $m.chatIdText)
-                    .keyboardType(.numbersAndPunctuation)
-                    .autocorrectionDisabled()
-                    .padding(12)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                    .accessibilityLabel("Chat ID")
-            }
-        case .test:
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Checks that the bot is an admin of **\(m.chatTitle ?? m.chatIdText)** with the rights CloudGallery needs.")
-                Button { m.testConnection() } label: { Label("Test connection", systemImage: "antenna.radiowaves.left.and.right") }
-                    .buttonStyle(.bordered).disabled(m.busy)
-                if let r = m.report {
-                    check("Bot is an administrator", r.isAdmin)
-                    check("Can post messages", r.canPost)
-                    check("Can delete messages", r.canDelete)
-                    check("Can pin messages", r.canPin)
-                    if !r.isSufficient {
-                        Text("Fix the missing rights in Telegram (channel → Administrators → your bot), then test again.")
-                            .font(.footnote).foregroundStyle(.orange)
-                    } else if m.existingIndexFound {
-                        Label("Found an existing CloudGallery backup in this chat. You can restore it next.", systemImage: "arrow.counterclockwise.icloud")
-                            .foregroundStyle(.tint)
-                    }
-                }
-            }
-        case .passphrase:
-            VStack(alignment: .leading, spacing: 12) {
-                if m.existingIndexFound {
-                    Text("Enter the passphrase you used before. Your whole gallery will reappear; thumbnails download as you scroll.")
-                } else {
-                    Text("This passphrase encrypts your cloud index (and your photos, if you turn on end-to-end encryption). You need it to restore after reinstalling.")
-                }
-                SecureField("Passphrase", text: $m.passphrase)
-                    .textContentType(m.existingIndexFound ? .password : .newPassword)
-                    .padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                if !m.existingIndexFound {
-                    SecureField("Repeat passphrase", text: $m.passphraseConfirm)
-                        .textContentType(.newPassword)
-                        .padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                    Label("If you forget this passphrase, nobody can recover your index or encrypted photos. Store it in a password manager.",
-                          systemImage: "exclamationmark.octagon.fill")
-                        .font(.footnote).foregroundStyle(.red)
-                    Toggle("I understand it can't be recovered", isOn: $m.acknowledgedRisk)
-                }
-                if let p = m.passphraseProblem, !m.passphrase.isEmpty {
-                    Text(p).font(.footnote).foregroundStyle(.secondary)
-                }
             }
         case .photos:
             VStack(alignment: .leading, spacing: 12) {
-                Text("CloudGallery needs **Full Access** to back up your whole library. With limited access it can only back up the photos you pick.")
+                Text("Allow **Full Access** to back up your whole library. With limited access only the photos you pick are backed up.")
                 switch m.photoStatus {
-                case .authorized:
-                    Label("Full access granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                case .authorized: Label("Full access granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                 case .limited:
-                    Label("Limited access: only selected photos will be backed up. You can change this in Settings any time.", systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
+                    Label("Limited access: only selected photos will be backed up.", systemImage: "exclamationmark.circle").foregroundStyle(.orange)
                 case .denied, .restricted:
-                    Label("Access denied. Enable it in the Settings app.", systemImage: "xmark.octagon").foregroundStyle(.red)
-                    Button("Open Settings") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
+                    Label("Access denied. You can still browse your cloud library. Enable access in Settings to back up.", systemImage: "xmark.octagon")
+                        .foregroundStyle(.red)
+                    Button("Open Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
                 default:
-                    Button { m.requestPhotos() } label: { Label("Allow photo access", systemImage: "photo") }
-                        .buttonStyle(.bordered)
+                    Button { m.requestPhotos() } label: { Label("Allow photo access", systemImage: "photo") }.buttonStyle(.bordered)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var libraryContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Everything is stored in one private channel. Create a new one, or pick an existing CloudGallery library to restore it.")
+            GroupBox("Create a new library") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle("End-to-end encryption", isOn: $m.newLibraryEncrypted)
+                    Text(m.newLibraryEncrypted
+                         ? "Photos, videos and their details are encrypted on this iPhone. Telegram can't see them, and they can only be viewed in CloudGallery."
+                         : "Files are stored as-is: you can also open them in Telegram. Telegram can see them like any cloud.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if m.newLibraryEncrypted {
+                        field("Passphrase (10+ characters)", text: $m.passphrase, secure: true, content: .newPassword)
+                        field("Repeat passphrase", text: $m.passphraseConfirm, secure: true, content: .newPassword)
+                        Label("If you lose this passphrase, nobody, including you, can ever decrypt your backup.", systemImage: "exclamationmark.octagon.fill")
+                            .font(.footnote).foregroundStyle(.red)
+                        Toggle("I understand", isOn: $m.acknowledgedRisk)
+                        if let p = m.newPassphraseProblem, !m.passphrase.isEmpty { Text(p).font(.footnote).foregroundStyle(.secondary) }
+                        Text("Encryption is chosen once per library and can't be changed later.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button { m.createLibrary() } label: {
+                        Label("Create “\(LibraryService.titleDefault)”", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(m.busy || m.newPassphraseProblem != nil)
+                }
+            }
+            GroupBox("Or use one of your channels") {
+                VStack(alignment: .leading, spacing: 8) {
+                    if m.loadingChannels { ProgressView() }
+                    if !m.loadingChannels && m.channels.isEmpty {
+                        Text("No channels you own were found.").font(.footnote).foregroundStyle(.secondary)
+                    }
+                    ForEach(m.channels) { c in
+                        Button { m.choose(c) } label: {
+                            HStack {
+                                Image(systemName: c.isLibrary ? "photo.stack" : "megaphone")
+                                VStack(alignment: .leading) {
+                                    Text(c.title).bold()
+                                    Text(c.isLibrary ? "CloudGallery library: restore it" : "Any channel can become a library")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                            }
+                            .padding(8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(m.busy)
+                    }
+                    Button("Refresh list") { m.loadChannels() }.font(.footnote)
                 }
             }
         }
     }
 
     @ViewBuilder private var footer: some View {
-        HStack {
-            if m.busy { ProgressView().padding(.trailing, 8) }
-            Button(action: next) {
-                Text(nextTitle).frame(maxWidth: .infinity).padding(.vertical, 6)
+        if let action = primaryAction {
+            HStack {
+                if m.busy { ProgressView().padding(.trailing, 8) }
+                Button(action: action.run) { Text(action.title).frame(maxWidth: .infinity).padding(.vertical, 6) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!action.enabled || m.busy)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(!canAdvance || m.busy)
-        }
-        .padding()
-        .background(.bar)
-    }
-
-    private var nextTitle: String {
-        switch m.step {
-        case .welcome: return "Get started"
-        case .token: return "Verify token"
-        case .passphrase: return m.existingIndexFound ? "Restore my gallery" : "Save passphrase"
-        case .photos: return "Finish"
-        default: return "Continue"
+            .padding()
+            .background(.bar)
         }
     }
 
-    private var canAdvance: Bool {
+    private struct PrimaryAction { let title: String; let enabled: Bool; let run: () -> Void }
+
+    private var primaryAction: PrimaryAction? {
         switch m.step {
-        case .token: return !m.token.trimmingCharacters(in: .whitespaces).isEmpty
-        case .chat: return m.chatIdText.trimmingCharacters(in: .whitespaces).count > 3
-        case .test: return m.report?.isSufficient == true
-        case .passphrase: return m.passphraseProblem == nil
-        case .photos: return m.photoStatus != .notDetermined
-        default: return true
+        case .welcome: return PrimaryAction(title: "Get started", enabled: true) { m.start() }
+        case .credentials: return PrimaryAction(title: "Continue", enabled: !m.apiId.isEmpty && !m.apiHash.isEmpty) { m.saveCredentials() }
+        case .phone: return PrimaryAction(title: "Send code", enabled: m.phone.filter(\.isNumber).count >= 7) { m.submitPhone() }
+        case .code: return PrimaryAction(title: "Sign in", enabled: m.code.filter(\.isNumber).count >= 4) { m.submitCode() }
+        case .password: return PrimaryAction(title: "Continue", enabled: !m.password.isEmpty) { m.submitPassword() }
+        case .unlock: return PrimaryAction(title: "Unlock", enabled: !m.passphrase.isEmpty) { m.unlock() }
+        case .photos: return PrimaryAction(title: "Finish", enabled: m.photoStatus != .notDetermined) { app.finishOnboarding() }
+        case .otherDevice, .library, .scanning: return nil
         }
     }
 
-    private func next() {
-        switch m.step {
-        case .token: m.verifyToken()
-        case .passphrase: m.savePassphrase()
-        case .photos: app.finishOnboarding()
-        default:
-            m.error = nil
-            m.step = OnboardingModel.Step(rawValue: m.step.rawValue + 1) ?? .photos
+    private func field(_ title: String, text: Binding<String>, keyboard: UIKeyboardType = .default, secure: Bool = false,
+                       content: UITextContentType? = nil) -> some View {
+        Group {
+            if secure { SecureField(title, text: text) } else { TextField(title, text: text).keyboardType(keyboard) }
         }
+        .textContentType(content)
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
+        .padding(12)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityLabel(title)
     }
 
     private func bullet(_ icon: String, _ text: String) -> some View {
@@ -361,10 +383,5 @@ struct OnboardingView: View {
                 .accessibilityHidden(true)
             Text(text)
         }
-    }
-
-    private func check(_ text: String, _ ok: Bool) -> some View {
-        Label(text, systemImage: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-            .foregroundStyle(ok ? .green : .red)
     }
 }

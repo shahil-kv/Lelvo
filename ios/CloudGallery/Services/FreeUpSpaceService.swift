@@ -23,27 +23,37 @@ final class FreeUpSpaceService: @unchecked Sendable {
         return Date().timeIntervalSince(at) < Self.verificationLifetime
     }
 
-    /// Checks every required message still exists and every file_id still resolves to the recorded size.
+    /// Confirms every part of every required resource is still in the channel with the recorded size.
     func verify(_ item: MediaItem) async -> Bool {
-        guard let client = env.client(), let chatId = env.chatId, item.status == .backedUp, item.sizeClass == .normal else { return false }
+        guard item.status == .backedUp, item.sizeClass == .normal, let chatId = env.library.chatId else { return false }
+        var parts: [RemoteFile] = []
+        if item.cloudParts != nil {
+            for role in item.requiredCaptionRoles where role != "t" {
+                let p = item.parts(role)
+                guard !p.isEmpty, p.count == (item.expectedParts?[role] ?? 1) else { return false }
+                parts += p
+            }
+        } else {
+            parts = [item.original, item.pairedVideo].compactMap { $0 }
+            if item.kind == .livePhoto && item.pairedVideo == nil { return false }
+        }
+        guard !parts.isEmpty else { return false }
         do {
-            for role in item.requiredRoles {
-                guard let remote = item.remote(for: role) else { return false }
-                if role == .thumbnail { continue }
-                guard try await client.messageExists(chatId: chatId, messageId: remote.messageId, caption: item.caption(for: role)) else {
-                    AppLog.shared.warn("Verification: message for \(item.id) \(role.rawValue) is gone")
+            try await env.td.waitUntilReady(timeout: 20)
+            for part in parts {
+                guard let (file, _) = try await env.td.documentFile(chatId: chatId, messageId: part.messageId) else {
+                    AppLog.shared.warn("Verification: message \(part.messageId) of \(item.filename) is gone")
                     return false
                 }
-                let file = try await client.getFile(remote.fileId)
-                guard let size = file.fileSize, size == remote.size, file.filePath != nil else {
-                    AppLog.shared.warn("Verification: size mismatch for \(item.id) \(role.rawValue)")
+                guard file.size == part.size, file.remote.isUploadingCompleted || !file.remote.id.isEmpty else {
+                    AppLog.shared.warn("Verification: size mismatch for \(item.filename)")
                     return false
                 }
             }
             try env.store.update(id: item.id) { $0.verifiedAt = Date() }
             return true
         } catch {
-            AppLog.shared.warn("Verification of \(item.id) failed: \(error.localizedDescription)")
+            AppLog.shared.warn("Verification of \(item.filename) failed: \(error.localizedDescription)")
             return false
         }
     }

@@ -40,8 +40,8 @@ enum BackupBadge: Equatable {
         case .uploading: return "Uploading"
         case .backedUp: return "Backed up"
         case .cloudOnly: return "In cloud only"
-        case .tooLarge: return "Not backed up: needs version 2 (large file)"
-        case .viewNeedsV2: return "Backed up; viewing in app needs version 2 (large file)"
+        case .tooLarge: return "Not backed up"
+        case .viewNeedsV2: return "Backed up (legacy bot upload)"
         case .failed: return "Backup failed, will retry"
         }
     }

@@ -9,8 +9,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "2.0.0"
+    CURRENT_PROJECT_VERSION: "2"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
@@ -19,6 +19,9 @@ settings:
 packages:
   CloudGalleryCore:
     path: CloudGalleryCore
+  TDLibKit:
+    url: https://github.com/Swiftgram/TDLibKit
+    exactVersion: 1.5.2-tdlib-1.8.68-18c8f7a0
 
 targets:
   CloudGallery:
@@ -28,6 +31,7 @@ targets:
       - path: CloudGallery
     dependencies:
       - package: CloudGalleryCore
+      - package: TDLibKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.cloudgallery
@@ -63,6 +67,7 @@ targets:
         NSPhotoLibraryAddUsageDescription: CloudGallery saves photos you download from your Telegram backup back into your library.
         PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
         UIBackgroundModes:
+          - audio
           - fetch
           - processing
         BGTaskSchedulerPermittedIdentifiers:

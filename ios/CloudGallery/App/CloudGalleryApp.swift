@@ -7,13 +7,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let env = AppEnvironment.shared
         BackgroundTasks.register()
-        env.uploader.activate()
+        env.td.start()
         return true
     }
 
-    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
-                     completionHandler: @escaping () -> Void) {
-        AppEnvironment.shared.uploader.attach(identifier: identifier, completion: completionHandler)
+    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+        AppEnvironment.shared.media.trimMemory()
     }
 }
 
@@ -39,8 +38,8 @@ final class AppModel: ObservableObject {
         showFreeUpSpace = true
     }
 
-    func reset() {
-        AppEnvironment.shared.resetEverything()
+    func reset() async {
+        await AppEnvironment.shared.resetEverything()
         onboardingComplete = false
         selectedTab = .gallery
     }
@@ -63,7 +62,8 @@ struct CloudGalleryApp: App {
             switch phase {
             case .active:
                 guard model.onboardingComplete else { return }
-                Task { await env.engine.syncIndexIfIdle() }
+                env.td.start()
+                Task { await env.enforceCacheLimits() }
             case .background:
                 env.originalsCache.flush()
                 env.thumbnailCache.flush()

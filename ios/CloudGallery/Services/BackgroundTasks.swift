@@ -58,10 +58,8 @@ enum BackgroundTasks {
         let flag = CancelFlag()
         task.expirationHandler = { flag.cancel() }
         Task {
-            let env = AppEnvironment.shared
-            let summary = await env.engine.queueNewItems(isCancelled: { flag.isCancelled })
+            let summary = await AppEnvironment.shared.engine.run(isCancelled: { flag.isCancelled })
             appLog("Overnight backup: \(summary.text)")
-            await env.engine.syncIndexIfIdle()
             task.setTaskCompleted(success: summary.error == nil)
         }
     }
@@ -69,7 +67,11 @@ enum BackgroundTasks {
     private static func handleRefresh(_ task: BGAppRefreshTask) {
         scheduleRefresh()
         let work = Task {
-            await AppEnvironment.shared.engine.syncIndexIfIdle()
+            let env = AppEnvironment.shared
+            if env.isConfigured, (try? await env.td.waitUntilReady(timeout: 20)) != nil {
+                _ = try? await env.library.scan(full: false)
+            }
+            await env.enforceCacheLimits()
             task.setTaskCompleted(success: true)
         }
         task.expirationHandler = { work.cancel() }
@@ -115,7 +117,7 @@ enum ContinuedBackup {
         foregroundTask = Task {
             let flag = CancelFlag()
             let bg = UIApplication.shared.beginBackgroundTask(withName: "Backup") { flag.cancel() }
-            _ = await AppEnvironment.shared.engine.runToCompletion(isCancelled: { flag.isCancelled }) { _, _ in }
+            _ = await AppEnvironment.shared.engine.run(isCancelled: { flag.isCancelled })
             UIApplication.shared.endBackgroundTask(bg)
             foregroundTask = nil
         }
@@ -128,8 +130,8 @@ enum ContinuedBackup {
         task.expirationHandler = { flag.cancel() }
         task.progress.totalUnitCount = 1
         Task {
-            let summary = await AppEnvironment.shared.engine.runToCompletion(isCancelled: { flag.isCancelled }) { done, total in
-                task.progress.totalUnitCount = Int64(total)
+            let summary = await AppEnvironment.shared.engine.run(isCancelled: { flag.isCancelled }) { done, total in
+                task.progress.totalUnitCount = Int64(max(total, 1))
                 task.progress.completedUnitCount = Int64(done)
                 task.updateTitle("Backing up to Telegram", subtitle: "\(done) of \(total) items")
             }

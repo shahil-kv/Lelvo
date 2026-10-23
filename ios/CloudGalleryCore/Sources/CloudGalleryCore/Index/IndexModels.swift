@@ -71,6 +71,23 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var attempts: Int
     public var verifiedAt: Date?
 
+    // Format 1 (TDLib, docs/CLOUD_FORMAT.md). Parts per caption role ("o", "pv", "t"), ordered by part index.
+    public var cloudParts: [String: [RemoteFile]]?
+    /// SHA-256 per role (the `h` caption field); `sha256` above is the original's.
+    public var roleHashes: [String: String]?
+    /// Expected part count per role (from the caption `p` field), to detect incomplete uploads.
+    public var expectedParts: [String: Int]?
+    public var codec: String?
+    public var hdr: Int?
+    public var tzOffsetMinutes: Int?
+    public var albums: [String]?
+    public var favorite: Bool?
+    public var mimeType: String?
+    /// Job queue: earliest time to retry (FLOOD_WAIT / backoff).
+    public var notBefore: Date?
+    /// Uploaded by the 1.0 Bot API app (not format 1).
+    public var legacy: Bool?
+
     public init(id: String = UUID().uuidString, localIdentifier: String?, sha256: String, filename: String,
                 kind: MediaKind, uti: String? = nil, creationDate: Date?, latitude: Double? = nil, longitude: Double? = nil,
                 pixelWidth: Int = 0, pixelHeight: Int = 0, duration: Double? = nil, fileSize: Int64,
@@ -114,7 +131,84 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
         }
     }
 
-    public var isFullyUploaded: Bool { requiredRoles.allSatisfy { remote(for: $0) != nil } }
+    public var isFullyUploaded: Bool {
+        if cloudParts != nil { return isCompleteInCloud }
+        return requiredRoles.allSatisfy { remote(for: $0) != nil }
+    }
+
+    // MARK: Format 1
+
+    public static func captionRole(_ role: UploadRole) -> String {
+        switch role {
+        case .original: return "o"
+        case .pairedVideo: return "pv"
+        case .thumbnail: return "t"
+        }
+    }
+
+    /// Roles that must exist in the cloud for a format-1 item (thumbnail only for E2E items).
+    public var requiredCaptionRoles: [String] {
+        var roles = kind == .livePhoto ? ["o", "pv"] : ["o"]
+        if encrypted { roles.append("t") }
+        return roles
+    }
+
+    public func parts(_ role: String) -> [RemoteFile] { cloudParts?[role] ?? [] }
+
+    /// Every required role present with all of its parts.
+    public var isCompleteInCloud: Bool {
+        requiredCaptionRoles.allSatisfy { role in
+            let have = parts(role).count
+            return have > 0 && have == (expectedParts?[role] ?? 1)
+        }
+    }
+
+    public mutating func setParts(_ files: [RemoteFile], role: String, expected: Int) {
+        var all = cloudParts ?? [:]
+        all[role] = files
+        cloudParts = all
+        var exp = expectedParts ?? [:]
+        exp[role] = expected
+        expectedParts = exp
+    }
+
+    /// Every message ID belonging to this item (for deletion).
+    public var allMessageIds: [Int64] {
+        var ids = (cloudParts ?? [:]).values.flatMap { $0.map(\.messageId) }
+        ids += [original, pairedVideo, thumbnail].compactMap { $0?.messageId }
+        return Array(Set(ids)).sorted()
+    }
+
+    /// Total bytes stored in Telegram for the original(s).
+    public var cloudBytes: Int64 {
+        if let cloudParts { return cloudParts.values.flatMap { $0 }.reduce(0) { $0 + $1.size } }
+        return (original?.size ?? 0) + (pairedVideo?.size ?? 0)
+    }
+
+    /// Job-queue view of `status`.
+    public var job: JobStatus {
+        get {
+            let state: JobState
+            switch status {
+            case .queued: state = .pending
+            case .uploading: state = .uploading
+            case .backedUp: state = .verified
+            case .failed, .tooLarge: state = .failed
+            }
+            return JobStatus(state: state, attempts: attempts, lastError: lastError, notBefore: notBefore)
+        }
+        set {
+            switch newValue.state {
+            case .pending: status = .queued
+            case .uploading: status = .uploading
+            case .verified: status = .backedUp
+            case .failed: status = .failed
+            }
+            attempts = newValue.attempts
+            lastError = newValue.lastError
+            notBefore = newValue.notBefore
+        }
+    }
 
     /// Largest uploaded part, used against the Bot API's 20 MB download limit.
     public var largestUploadedSize: Int64 {
@@ -123,10 +217,12 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
 
     public var sizeClass: SizeClass {
         if status == .tooLarge { return .tooLargeToUpload }
+        // Format-1 items are uploaded and downloaded through the user account: no Bot API size limits.
+        if cloudParts != nil { return .normal }
         return SizePolicy.classify(largestUploadedSize)
     }
 
-    /// Can the app download this original again through the Bot API?
+    /// Can the app download this original again?
     public var isViewableFromCloud: Bool { status == .backedUp && sizeClass == .normal }
 
     /// Caption written next to each upload so a future version can rebuild the index from chat history.

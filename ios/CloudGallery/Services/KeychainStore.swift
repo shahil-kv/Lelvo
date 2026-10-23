@@ -6,6 +6,7 @@ import Security
 enum KeychainStore {
     enum Key: String, CaseIterable {
         case botToken, chatId, passphrase, fileKeySalt, fileMasterKey
+        case tdApiId, tdApiHash, tdDatabaseKey, e2eMasterKey
     }
 
     private static let service = "com.shahil-kv.cloudgallery"

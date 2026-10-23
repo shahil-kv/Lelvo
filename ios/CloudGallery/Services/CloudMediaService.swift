@@ -1,9 +1,10 @@
 import Foundation
 import UIKit
+import ImageIO
 import CloudGalleryCore
 
-/// Downloads thumbnails and originals from Telegram on demand, decrypts E2E files, and caches them
-/// in Caches/ (thumbnails in their own cache, originals in a size-capped LRU cache).
+/// Thumbnails and full-size originals for cloud items, with an in-memory cache, a 300 MB thumbnail
+/// disk cache and a size-capped LRU cache for viewed originals. Videos stream instead (`StreamingAsset`).
 final class CloudMediaService: @unchecked Sendable {
     private unowned let env: AppEnvironment
     private let memory = NSCache<NSString, UIImage>()
@@ -12,8 +13,12 @@ final class CloudMediaService: @unchecked Sendable {
 
     init(environment: AppEnvironment) {
         self.env = environment
-        memory.countLimit = 600
+        memory.countLimit = 800
+        memory.totalCostLimit = 120 * 1024 * 1024
     }
+
+    static func thumbnailKey(_ item: MediaItem) -> String { "t_\(item.id)" }
+    static func originalKey(_ item: MediaItem, role: String) -> String { "o_\(item.id)_\(role)" }
 
     func cachedThumbnail(for item: MediaItem) -> UIImage? {
         memory.object(forKey: item.id as NSString)
@@ -21,43 +26,44 @@ final class CloudMediaService: @unchecked Sendable {
 
     func thumbnail(for item: MediaItem) async throws -> UIImage {
         if let img = memory.object(forKey: item.id as NSString) { return img }
-        guard let remote = item.thumbnail else { throw TelegramError.missingResult }
-        let key = "t_\(remote.fileUniqueId)"
+        let key = Self.thumbnailKey(item)
         let url = try await inflight.run(key) { [self] in
             if let cached = env.thumbnailCache.url(for: key) { return cached }
-            return try await gate.run { try await self.download(remote, encrypted: item.encrypted, key: key, ext: "jpg", into: self.env.thumbnailCache) }
+            let data = try await gate.run { try await self.env.reader.thumbnailData(item) }
+            return try env.thumbnailCache.store(data: data, for: key, ext: "jpg")
         }
-        guard let image = UIImage(contentsOfFile: url.path) else { throw TelegramError.decoding("Thumbnail is not an image") }
-        memory.setObject(image, forKey: item.id as NSString)
+        guard let image = Self.downsampled(url, maxPixel: 400) else { throw MediaReader.ReadError.missing }
+        memory.setObject(image, forKey: item.id as NSString, cost: Int(image.size.width * image.size.height * image.scale * image.scale * 4))
         return image
     }
 
-    /// Downloads (or returns the cached) original/paired video. Throws for files over 20 MB.
-    func original(for item: MediaItem, role: UploadRole = .original) async throws -> URL {
-        guard let remote = item.remote(for: role) else { throw TelegramError.missingResult }
-        guard remote.size <= TelegramClient.maxDownloadBytes else { throw TelegramError.fileTooLargeToDownload }
+    /// Downloads (or returns the cached) full original for photos, sharing and saving.
+    func original(for item: MediaItem, role: UploadRole = .original, progress: ((Double) -> Void)? = nil) async throws -> URL {
+        let r = MediaItem.captionRole(role)
         let name = role == .pairedVideo ? (item.pairedVideoFilename ?? "video.mov") : item.filename
         let ext = (name as NSString).pathExtension.lowercased()
-        let key = "o_\(remote.fileUniqueId)"
-        env.originalsCache.setCapacity(Prefs.cacheCapBytes)
+        let key = Self.originalKey(item, role: r)
+        env.originalsCache.setCapacity(Prefs.mediaCacheBytes)
         return try await inflight.run(key) { [self] in
             if let cached = env.originalsCache.url(for: key) { return cached }
-            return try await download(remote, encrypted: item.encrypted, key: key, ext: ext.isEmpty ? "bin" : ext, into: env.originalsCache)
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try await env.reader.download(item, role: r, to: tmp, progress: progress)
+            return try env.originalsCache.store(file: tmp, for: key, ext: ext.isEmpty ? "bin" : ext)
         }
     }
 
-    private func download(_ remote: RemoteFile, encrypted: Bool, key: String, ext: String, into cache: LRUDiskCache) async throws -> URL {
-        guard let client = env.client() else { throw IndexSyncError.notConfigured }
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        _ = try await client.download(fileId: remote.fileId, to: tmp)
-        var file = tmp
-        if encrypted {
-            let plain = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            defer { try? FileManager.default.removeItem(at: tmp) }
-            try FileCrypto.decrypt(input: tmp, output: plain, masterKey: try env.fileMasterKey())
-            file = plain
-        }
-        return try cache.store(file: file, for: key, ext: ext)
+    /// Medium-size decode used while the full image loads (progressive: thumbnail → screen-size → full).
+    static func downsampled(_ url: URL, maxPixel: CGFloat) -> UIImage? {
+        let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, options as CFDictionary) else { return nil }
+        let thumbOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, thumbOptions as CFDictionary) else { return nil }
+        return UIImage(cgImage: cg)
     }
 
     /// Copies a cached original to a temp file with its real name (for sharing / saving).
@@ -69,15 +75,25 @@ final class CloudMediaService: @unchecked Sendable {
         return dest
     }
 
-    var cacheSizes: (thumbnails: Int64, originals: Int64) {
-        (env.thumbnailCache.totalSize, env.originalsCache.totalSize)
+    struct CacheUsage {
+        let thumbnails: Int64
+        let originals: Int64
+        let telegram: Int64
+        var total: Int64 { thumbnails + originals + telegram }
     }
 
-    func clearCaches() {
+    var cacheUsage: CacheUsage {
+        CacheUsage(thumbnails: env.thumbnailCache.totalSize, originals: env.originalsCache.totalSize, telegram: env.td.storageUsage())
+    }
+
+    func clearCaches() async {
         memory.removeAllObjects()
         env.thumbnailCache.clear()
         env.originalsCache.clear()
+        if env.td.isReady { await env.td.optimizeStorage(maxBytes: 0) }
     }
+
+    func trimMemory() { memory.removeAllObjects() }
 }
 
 /// Limits concurrent downloads.
@@ -101,7 +117,7 @@ actor DownloadGate {
 
 /// Coalesces concurrent requests for the same key into one download.
 actor InflightRegistry {
-    private var tasks: [String: Task<URL, Error>] = [:]
+    private var tasks: [String: Task<URL, Swift.Error>] = [:]
 
     func run(_ key: String, _ body: @escaping @Sendable () async throws -> URL) async throws -> URL {
         if let existing = tasks[key] { return try await existing.value }

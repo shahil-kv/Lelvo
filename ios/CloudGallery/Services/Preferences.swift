@@ -11,6 +11,11 @@ enum Prefs {
         static let albumIds = "albumIds"
         static let encryptionEnabled = "encryptionEnabled"
         static let cacheCapMB = "cacheCapMB"
+        static let thumbnailCacheMB = "thumbnailCacheMB"
+        static let mediaFilter = "mediaFilter"
+        static let dateFromEnabled = "dateFromEnabled"
+        static let dateFrom = "dateFrom"
+        static let chargingOnly = "chargingOnly"
         static let allowFreeUpSpace = "allowFreeUpSpace"
         static let gridColumns = "gridColumns"
         static let chatType = "chatType"
@@ -31,6 +36,18 @@ enum Prefs {
         }
     }
 
+    enum MediaFilter: String, CaseIterable, Identifiable {
+        case all, photos, videos
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .all: return "Photos and videos"
+            case .photos: return "Photos only"
+            case .videos: return "Videos only"
+            }
+        }
+    }
+
     static let defaults = UserDefaults.standard
 
     static func registerDefaults() {
@@ -40,7 +57,11 @@ enum Prefs {
             Key.includeScreenshots: true,
             Key.albumMode: AlbumMode.all.rawValue,
             Key.encryptionEnabled: false,
-            Key.cacheCapMB: 500,
+            Key.cacheCapMB: 1000,
+            Key.thumbnailCacheMB: 300,
+            Key.mediaFilter: MediaFilter.all.rawValue,
+            Key.dateFromEnabled: false,
+            Key.chargingOnly: false,
             Key.allowFreeUpSpace: false,
             Key.gridColumns: 4,
             Key.onboardingComplete: false
@@ -53,13 +74,20 @@ enum Prefs {
     static var includeScreenshots: Bool { defaults.bool(forKey: Key.includeScreenshots) }
     static var encryptionEnabled: Bool { defaults.bool(forKey: Key.encryptionEnabled) }
     static var allowFreeUpSpace: Bool { defaults.bool(forKey: Key.allowFreeUpSpace) }
-    static var cacheCapBytes: Int64 { Int64(max(50, defaults.integer(forKey: Key.cacheCapMB))) * 1024 * 1024 }
+    /// Viewed full-size media and video segments (default 1 GB).
+    static var mediaCacheBytes: Int64 { Int64(max(100, defaults.integer(forKey: Key.cacheCapMB))) * 1024 * 1024 }
+    static var thumbnailCacheBytes: Int64 { Int64(max(50, defaults.integer(forKey: Key.thumbnailCacheMB))) * 1024 * 1024 }
+    static var mediaFilter: MediaFilter { MediaFilter(rawValue: defaults.string(forKey: Key.mediaFilter) ?? "") ?? .all }
+    static var chargingOnly: Bool { defaults.bool(forKey: Key.chargingOnly) }
+    /// Only back up items taken on/after this date, when enabled.
+    static var dateFrom: Date? {
+        guard defaults.bool(forKey: Key.dateFromEnabled) else { return nil }
+        let t = defaults.double(forKey: Key.dateFrom)
+        return t > 0 ? Date(timeIntervalSince1970: t) : nil
+    }
     static var albumMode: AlbumMode { AlbumMode(rawValue: defaults.string(forKey: Key.albumMode) ?? "") ?? .all }
     static var albumIds: Set<String> {
         get { Set(defaults.stringArray(forKey: Key.albumIds) ?? []) }
         set { defaults.set(Array(newValue), forKey: Key.albumIds) }
     }
-    static var chatType: String { defaults.string(forKey: Key.chatType) ?? "channel" }
-    /// Telegram allows ~1 msg/s per chat, and about 20 msgs/min in groups.
-    static var sendInterval: TimeInterval { chatType == "channel" ? 1.05 : 3.1 }
 }
