@@ -11,10 +11,20 @@ final class BackupActivity: ObservableObject {
     @Published var isRunning = false
     @Published var done = 0
     @Published var total = 0
-    @Published var currentNames: [String: String] = [:]
-    @Published var bytesSent: Int64 = 0
-    @Published var bytesTotal: Int64 = 0
+    /// Per upload lane: the file being uploaded and its byte progress (two uploads run in parallel).
+    @Published var lanes: [String: LaneProgress] = [:]
+    @Published var uploaded = 0
+    @Published var failed = 0
     @Published var message: String?
+
+    struct LaneProgress: Equatable {
+        var name: String
+        var sent: Int64
+        var total: Int64
+    }
+
+    /// Items not yet handled in the current run.
+    var remaining: Int { max(0, total - done) }
     @Published var lastSummary: BackupEngine.Summary?
 }
 
@@ -176,7 +186,9 @@ final class BackupEngine: @unchecked Sendable {
             a.done = 0
             a.total = total
             a.message = total == 0 ? "Everything is backed up." : "Backing up \(total) items…"
-            a.currentNames = [:]
+            a.lanes = [:]
+            a.uploaded = 0
+            a.failed = 0
         }
         appLog("Backup run: \(total) items queued")
 
@@ -194,8 +206,9 @@ final class BackupEngine: @unchecked Sendable {
                         await waitForFloodPause(isCancelled: isCancelled)
                         let outcome = await process(item, lane: lane, isCancelled: isCancelled)
                         let done = await counter.record(outcome)
+                        let snap = await counter.snapshot()
                         progress?(done, total)
-                        await publish { $0.done = done }
+                        await publish { a in a.done = done; a.uploaded = snap.uploaded + snap.duplicate; a.failed = snap.failed }
                     }
                 }
             }
@@ -209,7 +222,7 @@ final class BackupEngine: @unchecked Sendable {
         await env.enforceCacheLimits()
         if summary.uploaded > 0 { UserDefaults.standard.set(Date(), forKey: Prefs.Key.lastBackupAt) }
         let final = summary
-        await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.currentNames = [:] }
+        await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.lanes = [:] }
         appLog("Backup run finished: \(summary.text)")
         return summary
     }
@@ -244,12 +257,12 @@ final class BackupEngine: @unchecked Sendable {
         save(item)
         let laneKey = "\(lane)"
         let displayName = item.filename
-        await publish { $0.currentNames[laneKey] = displayName }
+        await publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: displayName, sent: 0, total: 0) }
 
         var exported: ExportedAsset?
         defer {
             exported?.cleanup()
-            Task { await self.publish { $0.currentNames[laneKey] = nil } }
+            Task { await self.publish { $0.lanes[laneKey] = nil } }
         }
         do {
             let exp = try await env.photos.exportOriginal(of: asset, into: rawDirectory)
@@ -322,7 +335,8 @@ final class BackupEngine: @unchecked Sendable {
                         try store.update(id: itemId) { $0.setParts(parts, role: resource.role, expected: expected) }
                     },
                     progress: { [weak self] sent, _ in
-                        Task { await self?.publish { $0.bytesSent = base + sent; $0.bytesTotal = streamTotal } }
+                        let name = item.filename
+                        Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: name, sent: min(base + sent, streamTotal), total: streamTotal) } }
                     })
                 item = (try store.item(id: itemId)) ?? item
                 item.setParts(parts, role: resource.role, expected: parts.count)

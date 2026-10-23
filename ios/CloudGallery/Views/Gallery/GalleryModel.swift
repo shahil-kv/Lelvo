@@ -85,7 +85,7 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     func scheduleReload() {
         reloadTask?.cancel()
         reloadTask = Task {
-            try? await Task.sleep(nanoseconds: 400_000_000)
+            try? await Task.sleep(nanoseconds: 1_500_000_000) // coalesce frequent store updates during backups
             guard !Task.isCancelled else { return }
             await reload()
         }

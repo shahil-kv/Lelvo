@@ -11,10 +11,21 @@ final class BackupStatsModel: ObservableObject {
     @Published var onDevice = 0
     @Published var notQueued = 0
     private var observer: NSObjectProtocol?
+    private var pendingRefresh: Task<Void, Never>?
 
     init() {
         observer = NotificationCenter.default.addObserver(forName: LibraryStore.didChange, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in self?.scheduleRefresh() }
+        }
+    }
+
+    /// The store changes constantly during a backup; recount at most every 2 s.
+    func scheduleRefresh() {
+        guard pendingRefresh == nil else { return }
+        pendingRefresh = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            pendingRefresh = nil
+            refresh()
         }
     }
 
@@ -73,17 +84,33 @@ struct BackupDashboardView: View {
                     .listRowSeparator(.hidden)
                     if activity.isRunning && activity.total > 0 {
                         ProgressView(value: Double(activity.done), total: Double(max(activity.total, 1))) {
-                            Text("\(activity.done) of \(activity.total)")
+                            Text("\(activity.done) of \(activity.total) done · \(activity.remaining) left")
+                                .font(.subheadline.monospacedDigit())
                         }
-                        ForEach(activity.currentNames.sorted(by: { $0.key < $1.key }), id: \.key) { _, name in
-                            Label(name, systemImage: "arrow.up.circle").font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                        if activity.failed > 0 {
+                            Text("\(activity.failed) failed in this run (see Failed below)").font(.caption).foregroundStyle(.red)
                         }
-                        if activity.bytesTotal > 0 {
-                            Text("\(Format.bytes(activity.bytesSent)) of \(Format.bytes(activity.bytesTotal))")
-                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        ForEach(activity.lanes.sorted(by: { $0.key < $1.key }), id: \.key) { _, lane in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Image(systemName: "arrow.up.circle").foregroundStyle(.blue)
+                                    Text(lane.name).lineLimit(1)
+                                    Spacer()
+                                    if lane.total > 0 {
+                                        Text("\(Format.bytes(lane.sent)) of \(Format.bytes(lane.total))")
+                                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    } else {
+                                        Text("Preparing…").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .font(.footnote)
+                                if lane.total > 0 {
+                                    ProgressView(value: Double(lane.sent), total: Double(lane.total))
+                                }
+                            }
                         }
                     }
-                    if let message = activity.message {
+                    if let message = activity.message, !(activity.isRunning && activity.total > 0) {
                         Text(message).font(.footnote).foregroundStyle(.secondary)
                     }
                     if wifiOnly || chargingOnly {
@@ -135,7 +162,8 @@ struct BackupDashboardView: View {
     }
 
     private var statusHeader: some View {
-        let upToDate = stats.pending == 0 && stats.failed == 0 && !activity.isRunning
+        let left = activity.isRunning && activity.total > 0 ? activity.remaining : stats.pending
+        let upToDate = left == 0 && stats.failed == 0 && !activity.isRunning
         return HStack(spacing: 14) {
             Image(systemName: upToDate ? "checkmark.icloud.fill" : "icloud.and.arrow.up")
                 .font(.system(size: 40))
@@ -143,7 +171,7 @@ struct BackupDashboardView: View {
                 .symbolEffect(.pulse, isActive: activity.isRunning)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text(upToDate ? "Backup is up to date" : "\(stats.pending) item(s) to back up").font(.headline)
+                Text(upToDate ? "Backup is up to date" : "\(left) item\(left == 1 ? "" : "s") left to back up").font(.headline)
                 Text("To \(LibraryService.titleDefault)").font(.subheadline).foregroundStyle(.secondary)
                 if let last = UserDefaults.standard.object(forKey: Prefs.Key.lastBackupAt) as? Date {
                     Text("Last upload \(Format.relative(last))").font(.caption).foregroundStyle(.secondary)
