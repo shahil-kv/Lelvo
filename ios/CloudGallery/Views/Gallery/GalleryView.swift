@@ -156,6 +156,7 @@ struct GalleryView: View {
                     .scaleEffect(pinchScale, anchor: .top)
                 }
                 .coordinateSpace(name: "grid")
+                .accessibilityIdentifier("galleryGrid")
                 .onPreferenceChange(CellFramesKey.self) { cellFrames = $0 }
                 .simultaneousGesture(
                     MagnifyGesture()

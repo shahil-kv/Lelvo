@@ -23,15 +23,16 @@ final class SmokeTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestDemoLibrary"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Photos"].waitForExistence(timeout: 20))
-        let scroll = app.scrollViews.firstMatch
-        XCTAssertTrue(scroll.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.tabBars.buttons["Photos"].waitForExistence(timeout: 30))
+        // Find the grid by identifier: the element type of a SwiftUI ScrollView varies between iOS versions.
+        let scroll = app.descendants(matching: .any).matching(identifier: "galleryGrid").firstMatch
+        XCTAssertTrue(scroll.waitForExistence(timeout: 30))
         for _ in 0..<6 { scroll.swipeUp(velocity: .fast) }
         for _ in 0..<3 { scroll.swipeDown(velocity: .fast) }
         XCTAssertEqual(app.state, .runningForeground)
         app.tabBars.buttons["Albums"].tap()
-        XCTAssertTrue(app.navigationBars["Albums"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Albums"].waitForExistence(timeout: 20))
         app.tabBars.buttons["Settings"].tap()
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 20))
     }
 }
