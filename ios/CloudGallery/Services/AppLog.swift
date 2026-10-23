@@ -36,6 +36,9 @@ final class AppLog: @unchecked Sendable {
         let clean = Redactor.redact(message, extraSecrets: secrets)
         osLog.log("\(level.rawValue, privacy: .public) \(clean, privacy: .private)")
         let line = "\(formatter.string(from: Date())) [\(level.rawValue)] \(clean)\n"
+        #if DEBUG
+        print(line, terminator: "") // visible in a live device console (devicectl --console)
+        #endif
         queue.async { [self] in
             let fm = FileManager.default
             if let size = (try? fm.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.intValue, size > maxBytes {

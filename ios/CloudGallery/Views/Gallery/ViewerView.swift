@@ -56,6 +56,7 @@ struct ViewerView: View {
         .overlay(alignment: .bottom) { if !chromeHidden { bottomBar.transition(.opacity) } }
         .overlay { if busy { ProgressView().tint(.white).scaleEffect(1.4) } }
         .statusBarHidden(chromeHidden)
+        .background(CloseObserver())
         .sheet(isPresented: $showInfo) {
             if let current { InfoSheet(entry: current).presentationDetents([.medium, .large]) }
         }
@@ -84,7 +85,10 @@ struct ViewerView: View {
                 .shadow(color: .black.opacity(0.4), radius: 4)
             }
             HStack {
-                Button { dismiss() } label: {
+                Button {
+                NotificationCenter.default.post(name: .viewerWillClose, object: nil)
+                dismiss()
+            } label: {
                     Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.white)
                         .frame(width: 36, height: 36).background(.ultraThinMaterial, in: Circle())
                 }
@@ -191,6 +195,7 @@ struct ViewerPage: View {
     /// Shown over a video until its first frame is on screen (instead of a black page).
     @State private var poster: UIImage?
     @State private var videoReady = false
+    @State private var trace: VideoTrace?
 
     var body: some View {
         ZStack {
@@ -203,7 +208,7 @@ struct ViewerPage: View {
             case .live(let live):
                 LivePhotoView(livePhoto: live)
             case .video(let player):
-                PlayerView(player: player, onPictureInPicture: { pip = $0 }, onReadyForDisplay: { videoReady = true })
+                PlayerView(player: player, onPictureInPicture: { pip = $0 }, onReadyForDisplay: { videoReady = true; trace?.firstFrame() })
                     .overlay {
                         if !videoReady {
                             ZStack {
@@ -220,6 +225,8 @@ struct ViewerPage: View {
                     .onAppear { if isCurrent { player.play() } }
                     .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }
                     .onDisappear { player.pause() }
+                    .onReceive(NotificationCenter.default.publisher(for: .viewerWillClose)) { _ in player.pause() }
+                    .onReceive(NotificationCenter.default.publisher(for: .viewerCloseCancelled)) { _ in if isCurrent { player.play() } }
             case .unavailable(let reason, let placeholder):
                 VStack(spacing: 16) {
                     if let placeholder { Image(uiImage: placeholder).resizable().scaledToFit().frame(maxHeight: 280) }
@@ -240,7 +247,10 @@ struct ViewerPage: View {
             poster = preview
             content = .loading(preview)
             if asset.mediaType == .video {
-                if let item = await Self.playerItem(for: asset) { content = .video(AVPlayer(playerItem: item)) }
+                if let item = await Self.playerItem(for: asset) {
+                    trace = VideoTrace(item: item, name: entry.item?.filename ?? "local video", source: "iPhone")
+                    content = .video(AVPlayer(playerItem: item))
+                }
                 else { content = .unavailable("Couldn't load this video.", nil) }
             } else if asset.mediaSubtypes.contains(.photoLive), let live = await Self.livePhoto(for: asset, size: target) {
                 content = .live(live)
@@ -267,6 +277,7 @@ struct ViewerPage: View {
                 let s = StreamingAsset(item: item, role: "o", reader: env.reader)
                 stream = s
                 let playerItem = AVPlayerItem(asset: s.asset)
+                trace = VideoTrace(item: playerItem, name: item.filename, source: "cloud \(Format.bytes(item.fileSize))")
                 content = .video(AVPlayer(playerItem: playerItem))
             case .livePhoto:
                 let url = try await env.media.original(for: item)
@@ -661,5 +672,82 @@ final class PlaybackState: ObservableObject {
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
         timeObserver = nil
         statusObservation = nil
+    }
+}
+
+extension Notification.Name {
+    /// The viewer started closing (swipe down or ✕): stop sound right away, not after the animation.
+    static let viewerWillClose = Notification.Name("ViewerWillClose")
+    /// An interactive close was cancelled; the viewer stays.
+    static let viewerCloseCancelled = Notification.Name("ViewerCloseCancelled")
+}
+
+/// UIKit tells the presented screen `viewWillDisappear` as soon as a dismissal starts (including the
+/// interactive swipe-down), and `viewDidAppear` again if the swipe is cancelled.
+private struct CloseObserver: UIViewControllerRepresentable {
+    final class Controller: UIViewController {
+        private var closing = false
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            closing = true
+            NotificationCenter.default.post(name: .viewerWillClose, object: nil)
+        }
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            if closing { NotificationCenter.default.post(name: .viewerCloseCancelled, object: nil) }
+            closing = false
+        }
+    }
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+    func updateUIViewController(_ vc: Controller, context: Context) {}
+}
+
+/// Logs what each opened video does: time to first frame, stalls, and AVPlayer's own errors, which are
+/// otherwise silent (a black screen with no log line).
+final class VideoTrace {
+    private let name: String
+    private let source: String
+    private let opened = Date()
+    private var logged = false
+    private var statusObservation: NSKeyValueObservation?
+    private var observers: [NSObjectProtocol] = []
+
+    init(item: AVPlayerItem, name: String, source: String) {
+        self.name = name
+        self.source = source
+        appLog("Video open: \(name) (\(source))")
+        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            guard let self, item.status == .failed else { return }
+            let e = item.error as NSError?
+            AppLog.shared.error("Video failed: \(self.name) after \(self.elapsed): \(e?.localizedDescription ?? "unknown") [\(e?.domain ?? "") \(e?.code ?? 0)] \(e?.userInfo[NSUnderlyingErrorKey] ?? "")")
+        }
+        let nc = NotificationCenter.default
+        observers.append(nc.addObserver(forName: AVPlayerItem.playbackStalledNotification, object: item, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            AppLog.shared.warn("Video stalled: \(self.name) at \(String(format: "%.1f", item.currentTime().seconds)) s, buffered \(String(format: "%.1f", Self.buffered(item))) s")
+        })
+        observers.append(nc.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main) { [weak self] note in
+            guard let self else { return }
+            let e = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError
+            AppLog.shared.error("Video stopped early: \(self.name): \(e?.localizedDescription ?? "unknown") [\(e?.domain ?? "") \(e?.code ?? 0)]")
+        })
+    }
+
+    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+
+    private var elapsed: String { String(format: "%.1f s", Date().timeIntervalSince(opened)) }
+
+    func firstFrame() {
+        guard !logged else { return }
+        logged = true
+        appLog("Video first frame: \(name) after \(elapsed)")
+    }
+
+    private static func buffered(_ item: AVPlayerItem) -> Double {
+        let now = item.currentTime()
+        for r in item.loadedTimeRanges.map(\.timeRangeValue) where r.containsTime(now) {
+            return (r.end - now).seconds
+        }
+        return 0
     }
 }
