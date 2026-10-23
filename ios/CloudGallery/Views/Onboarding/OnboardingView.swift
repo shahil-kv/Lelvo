@@ -147,11 +147,27 @@ final class OnboardingModel: ObservableObject {
         loadChannels()
     }
 
+    /// Set when the channel search failed or found nothing, so the screen offers a retry before "Create".
+    @Published var channelSearchDone = false
+
     func loadChannels() {
         loadingChannels = true
+        channelSearchDone = false
+        busy = false
         Task {
-            do { channels = try await env.library.candidateChannels() } catch { self.error = error.localizedDescription }
+            // Right after sign-in Telegram may still be syncing the chat list: retry before concluding there's no library.
+            for attempt in 0..<3 {
+                do {
+                    channels = try await env.library.candidateChannels()
+                    error = nil
+                    if channels.contains(where: \.isLibrary) || attempt == 2 { break }
+                } catch {
+                    self.error = error.localizedDescription
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
             loadingChannels = false
+            channelSearchDone = true
         }
     }
 
@@ -395,6 +411,12 @@ private struct LibraryScreen: View {
         Group {
             if m.loadingChannels && m.channels.isEmpty {
                 searching
+            } else if m.error != nil && m.channels.isEmpty {
+                OnboardingPage(icon: "wifi.exclamationmark", title: "Couldn't check your channels",
+                               subtitle: "We need to look for an existing library before creating a new one.",
+                               m: m, button: .init(title: "Try again", enabled: true) { m.loadChannels() }) {
+                    secondaryLinks(showCreate: false)
+                }
             } else if let found = libraries.first {
                 OnboardingPage(icon: "checkmark.icloud.fill", title: "Welcome back",
                                subtitle: "We found your library in Telegram. Restore it to see everything you've backed up.",

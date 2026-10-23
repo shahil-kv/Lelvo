@@ -171,7 +171,13 @@ final class TDService: @unchecked Sendable {
     // MARK: - Lifecycle
 
     /// Creates the TDLib client if credentials exist. Safe to call repeatedly.
+    /// Serialises `start()`: launch, scene activation and background backups can call it at the same moment,
+    /// and two clients on one database fail with "Can't lock file td.binlog … already in use".
+    private let startLock = NSLock()
+
     func start() {
+        startLock.lock()
+        defer { startLock.unlock() }
         lock.lock()
         if client != nil { lock.unlock(); return }
         guard TDCredentials.load() != nil else {
