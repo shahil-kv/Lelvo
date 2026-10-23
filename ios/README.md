@@ -1,155 +1,100 @@
 # CloudGallery for iOS
 
-A native SwiftUI app that backs up your iPhone's photos and videos, **as untouched originals**, to a private Telegram channel that only you control. No servers, no accounts, no analytics.
+A native SwiftUI app that backs up your iPhone's photos and videos, **bit for bit**, into a private channel in **your own Telegram account**. It works like Google Photos or iCloud Photos, with your Telegram as the storage. No servers, no accounts, no tracking.
 
-It is the iOS sibling of the Android app in this repository and builds on the ideas of [AKS-Labs/CloudGallery](https://github.com/AKS-Labs/CloudGallery) and **Whitehole**, the original Telegram photo-backup projects. Licensed under GPL-3.0.
+Based on [AKS-Labs/CloudGallery](https://github.com/AKS-Labs/CloudGallery) (Android) and **Whitehole**. Licensed GPL-3.0. Storage format: [docs/CLOUD_FORMAT.md](../docs/CLOUD_FORMAT.md) (shared with the Android app).
 
-**Version 1** uses the Telegram **Bot API**. Version 2 (see [ROADMAP-v2.md](ROADMAP-v2.md)) will log in as your own account to lift the file-size limits.
+## What it does
 
----
-
-## Features
-
-- **Original quality**: HEIC, HEVC, ProRAW and so on are uploaded as documents with `sendDocument`, never recompressed. Original filenames, creation dates and locations are kept, both inside the file and in the index.
-- **Live Photos**: the still and the paired video are both uploaded and linked in the index.
-- **No duplicates**: items are tracked by PhotoKit identifier *and* SHA-256 of the original bytes, so nothing uploads twice, even after reinstalling or on a new phone.
-- **Background uploads**: background `URLSession` uploads keep going when the app is suspended. An overnight `BGProcessingTask` runs while the phone is charging, and on iOS 26+ **Back up now** runs as a `BGContinuedProcessingTask` with system progress UI.
-- **Rate limiting**: about one message per second per channel (one per three seconds in groups). HTTP 429 `retry_after` is honoured, with exponential backoff and automatic resume.
-- **Encrypted cloud index**: after each batch, the list of everything backed up is encrypted (AES-GCM, PBKDF2-SHA256 with 250,000 iterations and a random salt) and **pinned** in your channel. A fresh install restores the whole gallery from it.
-- **Optional end-to-end encryption**: when turned on, originals and thumbnails are encrypted on the phone before upload.
-- **Gallery**: one timeline of phone and cloud items, pinch to zoom the grid, badges, a full-screen viewer with zoom, Live Photo and video playback, an info panel and multi-select actions.
-- **Free Up Space** (off by default): deletes only photos verified to be in the cloud.
-- **Shortcuts**: Back Up New Photos, Backup Status and Free Up Space.
-
-## Bot API limits (version 1)
-
-| Size of a file | Upload | View in app | Free Up Space |
-|---|---|---|---|
-| ≤ 20 MB | ✅ | ✅ | ✅ after verification |
-| 20 to 50 MB | ✅ | ❌ "Needs version 2" (open it in Telegram) | ❌ never offered |
-| > 50 MB | ❌ **not backed up**, listed under "Needs version 2" | ❌ | ❌ |
-
-The app never claims a file is backed up unless Telegram has confirmed the message and returned a `file_id`. Large items are listed under **Backup → Needs version 2**.
+- **Originals, untouched**: HEIC, HEVC, ProRAW, ProRes, 4K/60, HDR and Dolby Vision are uploaded as documents with content-type detection off. EXIF, GPS and HDR metadata survive.
+- **Any size**: TDLib signs in as your account, so files up to 2 GB (4 GB with Premium) upload directly, and larger ones are split into parts automatically.
+- **Streaming video**: videos play from Telegram in a second or two, with instant seeking, Picture in Picture, AirPlay and playback speed. Nothing is fully downloaded first.
+- **Live Photos**: the still and the paired video are both uploaded and play as a Live Photo.
+- **Restore = sign in**: the channel is the source of truth. On a new phone, sign in and the whole library reappears; nothing to export or import.
+- **No duplicates**: matched by Photos identifier and SHA-256, even across reinstalls and devices.
+- **Reliable queue**: pending → uploading → verified, or failed with a reason and a Retry button. An item counts only once Telegram confirms every part with the right size. `FLOOD_WAIT` is respected, with at most 2 uploads at once.
+- **Optional end-to-end encryption**, chosen when the library is created: AES-256-GCM in 1 MiB chunks (still streamable), captions encrypted too.
+- **Gallery**: one timeline of phone and cloud items by day, month or year; pinch to resize; date scrubber; Albums (Videos, Live Photos, Favorites, cloud-only and your albums); drag-to-select; share, save, delete from cloud or iPhone.
+- **Free up space** (off by default): deletes only items verified in the cloud.
+- **Shortcuts**: Back Up New Photos, Backup Status, Free Up Space.
 
 ---
 
-## 1. Set up Telegram
+## 1. Install with SideStore, AltStore or Sideloadly (free Apple ID)
 
-### Create the bot
-1. In Telegram, open **[@BotFather](https://t.me/BotFather)** and send `/newbot`.
-2. Pick a display name and a username ending in `bot`.
-3. Copy the **token** (`123456789:AAH…`). Anyone with it controls the bot, so keep it secret.
+1. Download **CloudGallery.ipa** from the [latest release](https://github.com/shahil-kv/CloudGallery/releases/latest), or from the newest [iOS workflow run](https://github.com/shahil-kv/CloudGallery/actions/workflows/ios.yml) (artifact `CloudGallery-ipa-xcode-27`). It is unsigned; your sideloading tool signs it.
+2. **SideStore** (no computer needed after setup): open SideStore → **My Apps** → **+** → pick `CloudGallery.ipa`. SideStore refreshes apps on-device every few days, as long as its pairing file and VPN/LocalDevVPN are set up.
+3. **AltStore**: AltStore → My Apps → **+**. AltServer on your computer refreshes apps automatically over Wi-Fi.
+4. **Sideloadly**: drag the IPA in, enter your Apple ID, Start.
+5. First launch: **Settings → General → VPN & Device Management** → trust your Apple ID, and turn on **Settings → Privacy & Security → Developer Mode** if asked.
 
-### Create a private channel (recommended) or supergroup
-1. **New Channel** → set it to **Private**.
-2. Channel → **Administrators** → **Add Admin** → search your bot. Turn on:
-   - **Post Messages**
-   - **Edit Messages of Others** (in channels this also allows pinning, and it is used to check that backups still exist)
-   - **Delete Messages**
-   - in a supergroup, also **Pin Messages**
-3. Post any message in the channel (e.g. "hi"). The app uses it to find the chat ID automatically.
+**7-day signing**: free Apple IDs sign apps for 7 days. SideStore and AltStore refresh automatically before that; with Sideloadly, install the same IPA again. Installing over the existing app keeps your sign-in and data. Even if it expires and you reinstall from scratch, sign in again and the library comes back from Telegram.
 
-### Chat ID
-The app reads it through `getUpdates` (**Detect chats**). To enter it by hand: it is the channel's numeric ID starting with `-100`, e.g. `-1001234567890`. If detection finds nothing, make sure no webhook is set on the bot and post another message.
+> Updating from 1.0 (Bot API)? Version 2 uses your own account and a new storage format. Install 2.x over 1.0, sign in, and create or pick a library. Your 1.0 uploads stay in the old channel in Telegram.
 
-> Use the chat **only** for CloudGallery. Don't delete or unpin the pinned `cloudgallery-index.cgx` message.
+## 2. Get your Telegram API key (one time, 2 minutes)
 
-## 2. Install the app (free Apple ID)
+Telegram requires every third-party client to have an `api_id`/`api_hash`. You create your own; it never leaves your phone.
 
-Download **CloudGallery.ipa** from the latest [Release](https://github.com/shahil-kv/CloudGallery/releases) (or from the `CloudGallery-ipa` artifact of the latest [iOS workflow run](https://github.com/shahil-kv/CloudGallery/actions/workflows/ios.yml)). The IPA is unsigned; your sideloading tool signs it with your Apple ID.
+1. Open **[my.telegram.org](https://my.telegram.org)** and log in with your phone number (Telegram sends the code to your Telegram app).
+2. Tap **API development tools**.
+3. Fill in App title `CloudGallery`, Short name `cloudgallery`, Platform `iOS`. The URL and description are optional. Tap **Create application**.
+4. Copy **App api_id** (a number) and **App api_hash** (32 characters).
 
-On the iPhone, first turn on **Settings → Privacy & Security → Developer Mode** (it appears after the first sideload attempt; the phone restarts).
+## 3. First launch
 
-### Option A: Sideloadly (Windows/macOS)
-1. Install [Sideloadly](https://sideloadly.io) and connect the iPhone by cable (trust the computer).
-2. Drag `CloudGallery.ipa` in, enter your Apple ID, click **Start**.
-3. On the iPhone: **Settings → General → VPN & Device Management** → trust your Apple ID.
+1. **Get started** → paste `api_id` and `api_hash`.
+2. Enter your **phone number** → enter the **login code** Telegram sends you (in the Telegram app) → your **two-step password** if you have one.
+3. **Your library**:
+   - **New user**: tap **Create "CloudGallery Library"**. Turn on **End-to-end encryption** first if you want it (you can't change it later). With E2E, choose a strong passphrase and store it in a password manager: **a lost passphrase means lost photos**.
+   - **New phone or reinstall**: pick your existing **CloudGallery Library** from the list. The app reads the channel and the gallery reappears; for E2E libraries, enter the passphrase.
+4. Allow **Full Access** to Photos.
+5. Open **Backup → Back up now**. For a big first backup, keep the app open on Wi-Fi and power. On iOS 26+ it keeps going in the background, with progress on the Lock Screen.
 
-### Option B: AltStore
-1. Install [AltServer](https://altstore.io) on your computer and AltStore on the iPhone.
-2. In AltStore → **My Apps** → **+** → choose `CloudGallery.ipa`.
-3. AltStore **refreshes apps automatically** in the background whenever the iPhone and computer running AltServer are on the same Wi-Fi.
-
-### The 7-day limit
-Apps signed with a **free** Apple ID expire after **7 days**. Re-sign before then: AltStore does it automatically, and in Sideloadly you install the same IPA again. Your data (Keychain token, database) is kept when you re-sign the same app over itself. If the app does expire and you have to delete it, just restore from the cloud (section 5). A paid Apple Developer account gives 1-year signatures.
-
-> Bundle ID: `com.shahil-kv.cloudgallery`. Some tools change it when signing with a free account; that is fine.
-
-## 3. First-time setup in the app
-
-1. **Welcome → Create a bot → Create a channel**: the instructions above.
-2. **Bot token**: paste it; the app verifies it with `getMe`.
-3. **Backup chat**: tap **Detect chats** and pick your channel, or type the ID.
-4. **Test connection**: checks the bot is an admin that can post, delete and pin.
-5. **Passphrase**: at least 10 characters. It encrypts the cloud index (and your files, if you turn on E2E encryption). **If you forget it, nobody can recover your index or encrypted files.** Keep it in a password manager. If the app finds an existing index in the chat, this step becomes **Restore**.
-6. **Photos access**: choose **Allow Full Access**. With limited access only the photos you select are backed up (you can change the selection from the banner in Photos).
-7. Open **Backup → Back up now**.
-
-The token, chat ID and passphrase are stored **only in the iOS Keychain** (this device only, never in iCloud).
+Your `api_id`/`api_hash`, the TDLib session key and the E2E key are stored only in this iPhone's Keychain. The TDLib session database is encrypted.
 
 ## 4. Shortcuts automations
 
-The **Back Up New Photos** action runs **without opening the app**: it prepares new items for about 20 seconds, hands them to background uploads and returns a summary like "Queued 23 items". Anything left over is picked up by the next run.
+**Back Up New Photos** runs without opening the app: it uploads for about 25 seconds (the time iOS allows Shortcuts in the background) and reports what it did. The queue is saved, so the next run continues where this one stopped.
 
-**When charger is connected**
-1. Shortcuts → **Automation** → **+** → **Charger** → **Is Connected**.
-2. Choose **Run Immediately**.
-3. Add the action **CloudGallery → Back Up New Photos** → **Done**.
+**When charger is connected**: Shortcuts → Automation → **+** → **Charger** → **Is Connected** → **Run Immediately** → add **CloudGallery → Back Up New Photos** → Done.
 
-**Daily at 2 AM**
-1. Shortcuts → **Automation** → **+** → **Time of Day** → 2:00 AM, **Daily**.
-2. Choose **Run Immediately**.
-3. Add **CloudGallery → Back Up New Photos** → **Done**.
+**Daily at 2 AM**: Shortcuts → Automation → **+** → **Time of Day** → 2:00 AM, Daily → **Run Immediately** → add **Back Up New Photos** → Done.
 
-Other actions: **Backup Status** returns counts, and **Free Up Space** opens the app on that screen (iOS requires you to confirm deletions, so it can't run silently). The same guide is in the app under **Settings → Shortcuts automations**.
+CloudGallery also schedules an overnight backup task that iOS runs while the phone is charging.
 
-## 5. How restore works
+## 5. Restoring on a new phone
 
-- After every batch, the app builds an index of everything confirmed in the cloud (message IDs, `file_id`s, hashes, dates, locations, Live Photo pairs, the E2E key salt), compresses it, encrypts it with your passphrase and **pins** it in the chat as `cloudgallery-index.cgx`, replacing the previous one.
-- On a fresh install, enter the same token, chat and passphrase. The app reads the pinned message with `getChat`, downloads and decrypts the index, and the whole gallery reappears. Thumbnails download on demand as you scroll.
-- If the encrypted index ever grows past 19 MB, it is split into chunks and a small encrypted **manifest** listing them is pinned instead.
-- On a new phone, items that are still on the phone are matched by content hash, so they are not uploaded again.
-- **Settings → Export encrypted index to Files** saves a copy you can keep elsewhere, and **Restore from exported file** reads it back.
+Install, sign in with the same Telegram account, and pick your **CloudGallery Library**. The app scans the channel's history and rebuilds everything: dates, locations, albums, favourites and Live Photo pairs. Photos still on the phone are matched by content hash, so they aren't uploaded again.
 
-## 6. Privacy and security
+## 6. Limits and honest notes
 
-- No analytics, tracking or third-party SDKs. The app only talks to `api.telegram.org`.
-- Index encryption: AES-256-GCM, key from PBKDF2-HMAC-SHA256 (250k iterations, random 16-byte salt in the file header, header authenticated).
-- E2E file encryption (optional): 1 MB chunks of AES-256-GCM with a per-file key derived by HKDF from your passphrase-derived master key. Chunk index and a final-chunk flag are authenticated, so truncation and reordering are detected.
-- Without E2E encryption, Telegram can see your photos, as with any cloud backup. Captions contain an item ID and hash (no filenames when E2E is on).
-- **Settings → Logs** shows a local log with the bot token, chat ID and passphrase redacted; you can share it for debugging.
+- **Background uploads on iOS**: Telegram's protocol (MTProto) can't use iOS background transfers. Uploads run while the app is open, during **Back up now** (continued in the background on iOS 26+), during the overnight charging task, and for ~25 s per Shortcut run.
+- **Telegram limits**: per-file 2 GB (4 GB Premium), with larger files split automatically. Telegram may ask us to slow down (`FLOOD_WAIT`); the app waits as instructed.
+- **Smooth streaming copies** (1080p previews for huge videos) are not implemented yet; originals stream directly.
+- **Your account, your responsibility**: one account, normal use, no tricks. Telegram's terms can change, so keep important memories in more than one place.
 
 ## FAQ
 
-**Is Telegram storage really unlimited?** Telegram does not currently cap total storage for channels. Their terms can change; keep important photos in more than one place.
+**Why does it need my phone number?** It signs in to *your* Telegram account (like any Telegram app) so files go to your own channel with large-file support. The session is stored encrypted on this iPhone only.
 
-**Why "Needs version 2" for big videos?** Bots can upload at most 50 MB and download at most 20 MB per file. Version 2 will use your own account (MTProto via TDLib) for files up to 2 GB (4 GB with Premium).
+**Can I open my photos in Telegram?** Yes, for plain libraries: they're normal files in your channel. Encrypted libraries show `.cge` files that only CloudGallery can open.
 
-**Can I use the same bot/channel on two phones?** Yes, with the same passphrase. Each upload of the index replaces the pinned one, so back up from one phone at a time and restore on the other to refresh.
+**Does it work with the Android app?** Yes. Both apps use the same format ([docs/CLOUD_FORMAT.md](../docs/CLOUD_FORMAT.md)), so one library works on both.
 
-**Can I change the passphrase?** Not in version 1. Choose it carefully.
-
-**Uploads seem stuck.** Check **Wi-Fi only** in Settings, Low Power Mode, and Background App Refresh. iOS decides when background uploads run; opening the app or **Back up now** speeds things up.
-
-**The app expired after 7 days.** Re-sign it (section 2). Your data is kept if you install over the existing app.
+**Where did my storage go?** Settings → Storage shows the thumbnail, photo and video caches; all are capped and can be cleared. Viewing cloud items never permanently uses phone storage.
 
 **I deleted photos with Free Up Space but storage didn't change.** Empty **Photos → Albums → Recently Deleted**.
 
+**Logs for a bug report?** Settings → Logs → Share. Phone numbers, keys and passphrases are redacted.
+
 ## Building from source
 
-Requirements: macOS with Xcode 26 or later, and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+Requires macOS with Xcode 26+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```sh
-cd ios
-brew install xcodegen
-xcodegen generate
-open CloudGallery.xcodeproj
+cd ios && brew install xcodegen && xcodegen generate && open CloudGallery.xcodeproj
+cd ios/CloudGalleryCore && swift test   # format, crypto, queue, cache tests
 ```
 
-The core logic (Bot API client, crypto, index, cache, de-duplication, rate limiting) lives in the `CloudGalleryCore` Swift package and has its own tests:
-
-```sh
-cd ios/CloudGalleryCore && swift test
-```
-
-CI (`.github/workflows/ios.yml`) generates the project, runs the tests on a simulator, archives with signing disabled, and packages `Payload/CloudGallery.app` into an unsigned `CloudGallery.ipa`. Tags `v*` publish a GitHub Release.
+CI (`.github/workflows/ios.yml`) builds with the newest Xcode on `macos-latest` and on GitHub's `xcode-27` preview runner (iOS 27 SDK), runs the tests on a simulator, and packages an unsigned `CloudGallery.ipa`. Tags `v*` publish a release.

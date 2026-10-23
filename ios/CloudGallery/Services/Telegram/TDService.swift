@@ -391,13 +391,42 @@ final class TDService: @unchecked Sendable {
     }
 
     /// Reads `count` bytes at `offset`, downloading just that range with high priority.
+    /// TDLib keeps one download offset per file, so reads of the same file are serialised;
+    /// ranges already on disk are served without touching the network.
     func read(fileId: Int, offset: Int64, count: Int64, priority: Int = 32) async throws -> Data {
         let client = try requireClient()
-        do {
-            _ = try await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: priority, synchronous: true)
-            let part = try await client.readFilePart(count: count, fileId: fileId, offset: offset)
-            return part.data
-        } catch { throw error.asTD }
+        let gate = fileGate(fileId)
+        await gate.acquire()
+        defer { Task { await gate.release() } }
+        var lastError: Swift.Error = TDServiceError.notReady
+        for attempt in 0..<3 {
+            do {
+                let have = (try? await client.getFileDownloadedPrefixSize(fileId: fileId, offset: offset))?.size ?? 0
+                if have < count {
+                    _ = try await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: priority, synchronous: true)
+                }
+                let part = try await client.readFilePart(count: count, fileId: fileId, offset: offset)
+                if Int64(part.data.count) >= count || attempt == 2 { return part.data }
+            } catch {
+                lastError = error.asTD
+                if case .floodWait(let s)? = (lastError as? TDServiceError)?.kind {
+                    try await Task.sleep(nanoseconds: UInt64(max(1, s)) * 1_000_000_000)
+                }
+            }
+            try Task.checkCancellation()
+        }
+        throw lastError
+    }
+
+    private var fileGates: [Int: AsyncGate] = [:]
+
+    private func fileGate(_ id: Int) -> AsyncGate {
+        lock.withLock {
+            if let g = fileGates[id] { return g }
+            let g = AsyncGate()
+            fileGates[id] = g
+            return g
+        }
     }
 
     /// Downloads the whole file and returns its local path.
@@ -474,5 +503,20 @@ struct TDCredentials {
         let key = KeyDerivation.randomSalt(count: 32)
         KeychainStore.set(key, for: .tdDatabaseKey)
         return key
+    }
+}
+
+/// A FIFO async mutex.
+actor AsyncGate {
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        if !busy { busy = true; return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func release() {
+        if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
     }
 }
