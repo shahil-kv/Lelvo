@@ -1,0 +1,283 @@
+import Foundation
+import Photos
+import CoreLocation
+import UIKit
+import UniformTypeIdentifiers
+import CloudGalleryCore
+
+struct AlbumInfo: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let count: Int
+}
+
+/// The original bytes of one asset, exported to disk.
+struct ExportedAsset {
+    let kind: MediaKind
+    let primaryURL: URL
+    let primaryFilename: String
+    let primaryUTI: String?
+    let pairedVideoURL: URL?
+    let pairedVideoFilename: String?
+
+    func cleanup() {
+        try? FileManager.default.removeItem(at: primaryURL)
+        if let pairedVideoURL { try? FileManager.default.removeItem(at: pairedVideoURL) }
+    }
+}
+
+enum PhotoLibraryError: LocalizedError {
+    case noOriginalResource
+    case assetMissing
+    case notAuthorized
+
+    var errorDescription: String? {
+        switch self {
+        case .noOriginalResource: return "This item has no original file to back up."
+        case .assetMissing: return "The photo is no longer in your library."
+        case .notAuthorized: return "CloudGallery doesn't have access to your photo library."
+        }
+    }
+}
+
+final class PhotoLibraryService: @unchecked Sendable {
+    static var authorizationStatus: PHAuthorizationStatus { PHPhotoLibrary.authorizationStatus(for: .readWrite) }
+
+    static var hasAccess: Bool {
+        let s = authorizationStatus
+        return s == .authorized || s == .limited
+    }
+
+    static func requestAuthorization() async -> PHAuthorizationStatus {
+        await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+    }
+
+    // MARK: - Fetching
+
+    /// Every photo and video, newest first (used by the gallery).
+    func fetchAllAssets() -> PHFetchResult<PHAsset> {
+        let options = PHFetchOptions()
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        options.predicate = NSPredicate(format: "mediaType == %d OR mediaType == %d",
+                                        PHAssetMediaType.image.rawValue, PHAssetMediaType.video.rawValue)
+        return PHAsset.fetchAssets(with: options)
+    }
+
+    func asset(localIdentifier: String) -> PHAsset? {
+        PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil).firstObject
+    }
+
+    func existingIdentifiers(_ ids: [String]) -> Set<String> {
+        guard !ids.isEmpty else { return [] }
+        var found = Set<String>()
+        PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil).enumerateObjects { a, _, _ in found.insert(a.localIdentifier) }
+        return found
+    }
+
+    func userAlbums() -> [AlbumInfo] {
+        var result: [AlbumInfo] = []
+        for type in [PHAssetCollectionType.album, .smartAlbum] {
+            let collections = PHAssetCollection.fetchAssetCollections(with: type, subtype: .any, options: nil)
+            collections.enumerateObjects { c, _, _ in
+                let count = PHAsset.fetchAssets(in: c, options: nil).count
+                guard count > 0, c.assetCollectionSubtype != .smartAlbumAllHidden,
+                      c.assetCollectionSubtype != .smartAlbumRecentlyAdded else { return }
+                result.append(AlbumInfo(id: c.localIdentifier, title: c.localizedTitle ?? "Album", count: count))
+            }
+        }
+        return result.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    /// Assets that match the backup filters (videos, screenshots, album include/exclude), newest first.
+    func backupCandidates() -> [PHAsset] {
+        let includeVideos = Prefs.backupVideos
+        let includeScreenshots = Prefs.includeScreenshots
+        let mode = Prefs.albumMode
+        let albumIds = Prefs.albumIds
+
+        func albumMembers(_ ids: Set<String>) -> Set<String> {
+            var members = Set<String>()
+            let collections = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: Array(ids), options: nil)
+            collections.enumerateObjects { c, _, _ in
+                PHAsset.fetchAssets(in: c, options: nil).enumerateObjects { a, _, _ in members.insert(a.localIdentifier) }
+            }
+            return members
+        }
+
+        let included: Set<String>? = (mode == .include) ? albumMembers(albumIds) : nil
+        let excluded: Set<String> = (mode == .exclude) ? albumMembers(albumIds) : []
+
+        var out: [PHAsset] = []
+        fetchAllAssets().enumerateObjects { a, _, _ in
+            if a.mediaType == .video && !includeVideos { return }
+            if !includeScreenshots && a.mediaSubtypes.contains(.photoScreenshot) { return }
+            if let included, !included.contains(a.localIdentifier) { return }
+            if excluded.contains(a.localIdentifier) { return }
+            out.append(a)
+        }
+        return out
+    }
+
+    // MARK: - Export
+
+    static func kind(of asset: PHAsset) -> MediaKind {
+        if asset.mediaType == .video { return .video }
+        if asset.mediaSubtypes.contains(.photoLive) { return .livePhoto }
+        return .photo
+    }
+
+    /// Picks the unedited original resource(s).
+    func originalResources(for asset: PHAsset) -> (primary: PHAssetResource, paired: PHAssetResource?)? {
+        let resources = PHAssetResource.assetResources(for: asset)
+        func first(_ types: [PHAssetResourceType]) -> PHAssetResource? {
+            for t in types { if let r = resources.first(where: { $0.type == t }) { return r } }
+            return nil
+        }
+        switch Self.kind(of: asset) {
+        case .video:
+            guard let v = first([.video, .fullSizeVideo]) else { return nil }
+            return (v, nil)
+        case .livePhoto:
+            guard let p = first([.photo, .fullSizePhoto]) else { return nil }
+            return (p, first([.pairedVideo, .fullSizePairedVideo]))
+        case .photo:
+            guard let p = first([.photo, .fullSizePhoto, .alternatePhoto]) else { return nil }
+            return (p, nil)
+        }
+    }
+
+    /// Exports original bytes (downloading from iCloud Photos if needed) into `directory`.
+    func exportOriginal(of asset: PHAsset, into directory: URL) async throws -> ExportedAsset {
+        guard let res = originalResources(for: asset) else { throw PhotoLibraryError.noOriginalResource }
+        let base = UUID().uuidString
+        let primaryURL = directory.appendingPathComponent("\(base)-\(res.primary.originalFilename.sanitizedFilename)")
+        try await write(res.primary, to: primaryURL)
+        var pairedURL: URL?
+        if let paired = res.paired {
+            let url = directory.appendingPathComponent("\(base)-\(paired.originalFilename.sanitizedFilename)")
+            do {
+                try await write(paired, to: url)
+                pairedURL = url
+            } catch {
+                try? FileManager.default.removeItem(at: primaryURL)
+                throw error
+            }
+        }
+        let kind: MediaKind = (Self.kind(of: asset) == .livePhoto && pairedURL == nil) ? .photo : Self.kind(of: asset)
+        return ExportedAsset(kind: kind, primaryURL: primaryURL, primaryFilename: res.primary.originalFilename,
+                             primaryUTI: res.primary.uniformTypeIdentifier, pairedVideoURL: pairedURL,
+                             pairedVideoFilename: res.paired?.originalFilename)
+    }
+
+    private func write(_ resource: PHAssetResource, to url: URL) async throws {
+        try? FileManager.default.removeItem(at: url)
+        let options = PHAssetResourceRequestOptions()
+        options.isNetworkAccessAllowed = true
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            PHAssetResourceManager.default().writeData(for: resource, toFile: url, options: options) { error in
+                if let error { cont.resume(throwing: error) } else { cont.resume() }
+            }
+        }
+    }
+
+    // MARK: - Images
+
+    func image(for asset: PHAsset, targetSize: CGSize, mode: PHImageRequestOptionsDeliveryMode = .highQualityFormat) async -> UIImage? {
+        let options = PHImageRequestOptions()
+        options.deliveryMode = mode
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = true
+        return await withCheckedContinuation { cont in
+            var resumed = false
+            PHImageManager.default().requestImage(for: asset, targetSize: targetSize, contentMode: .aspectFit, options: options) { image, info in
+                let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                if degraded && mode == .highQualityFormat { return }
+                guard !resumed else { return }
+                resumed = true
+                cont.resume(returning: image)
+            }
+        }
+    }
+
+    /// ~320 px JPEG under 60 KB for the cloud thumbnail.
+    func thumbnailJPEG(for asset: PHAsset) async -> Data? {
+        guard let image = await image(for: asset, targetSize: CGSize(width: 320, height: 320)) else { return nil }
+        return Self.compressedJPEG(image, maxPixel: 320, maxBytes: 60_000)
+    }
+
+    static func compressedJPEG(_ image: UIImage, maxPixel: CGFloat, maxBytes: Int) -> Data? {
+        var side = maxPixel
+        while side >= 80 {
+            let scaled = image.scaledToFit(maxPixel: side)
+            for quality in stride(from: 0.75, through: 0.3, by: -0.15) {
+                if let data = scaled.jpegData(compressionQuality: quality), data.count <= maxBytes { return data }
+            }
+            side *= 0.8
+        }
+        return image.scaledToFit(maxPixel: 80).jpegData(compressionQuality: 0.3)
+    }
+
+    // MARK: - Changes
+
+    func deleteAssets(_ identifiers: [String]) async throws {
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.deleteAssets(assets)
+        }
+    }
+
+    /// Saves a downloaded original back into Photos, restoring date and location. Returns the new local identifier.
+    func saveToPhotos(item: LibraryItem, primary: URL, pairedVideo: URL?) async throws -> String? {
+        var placeholderId: String?
+        try await PHPhotoLibrary.shared().performChanges {
+            let request = PHAssetCreationRequest.forAsset()
+            let options = PHAssetResourceCreationOptions()
+            options.originalFilename = item.filename
+            switch item.kind {
+            case .video:
+                request.addResource(with: .video, fileURL: primary, options: options)
+            case .photo:
+                request.addResource(with: .photo, fileURL: primary, options: options)
+            case .livePhoto:
+                request.addResource(with: .photo, fileURL: primary, options: options)
+                if let pairedVideo {
+                    let videoOptions = PHAssetResourceCreationOptions()
+                    videoOptions.originalFilename = item.pairedVideoFilename
+                    request.addResource(with: .pairedVideo, fileURL: pairedVideo, options: videoOptions)
+                }
+            }
+            request.creationDate = item.creationDate
+            if let lat = item.latitude, let lon = item.longitude {
+                request.location = CLLocation(latitude: lat, longitude: lon)
+            }
+            placeholderId = request.placeholderForCreatedAsset?.localIdentifier
+        }
+        return placeholderId
+    }
+}
+
+extension UIImage {
+    func scaledToFit(maxPixel: CGFloat) -> UIImage {
+        let pixelW = size.width * scale, pixelH = size.height * scale
+        let ratio = min(1, maxPixel / max(pixelW, pixelH))
+        let target = CGSize(width: max(1, (pixelW * ratio).rounded()), height: max(1, (pixelH * ratio).rounded()))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            draw(in: CGRect(origin: .zero, size: target))
+        }
+    }
+}
+
+extension String {
+    var sanitizedFilename: String {
+        let cleaned = components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>\n\r")).joined(separator: "_")
+        return cleaned.isEmpty ? "file" : cleaned
+    }
+
+    var mimeTypeForFilename: String {
+        let ext = (self as NSString).pathExtension
+        return UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
+    }
+}

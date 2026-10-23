@@ -1,0 +1,101 @@
+name: CloudGallery
+options:
+  bundleIdPrefix: com.shahil-kv
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+
+packages:
+  CloudGalleryCore:
+    path: CloudGalleryCore
+
+targets:
+  CloudGallery:
+    type: application
+    platform: iOS
+    sources:
+      - path: CloudGallery
+    dependencies:
+      - package: CloudGalleryCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.cloudgallery
+        PRODUCT_NAME: CloudGallery
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: CloudGallery/Resources/Info.plist
+        SUPPORTS_MACCATALYST: NO
+    info:
+      path: CloudGallery/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: CloudGallery
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSPhotoLibraryUsageDescription: CloudGallery backs up your photos and videos to your own private Telegram channel and shows them in one timeline.
+        NSPhotoLibraryAddUsageDescription: CloudGallery saves photos you download from your Telegram backup back into your library.
+        PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
+        UIBackgroundModes:
+          - fetch
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.shahil-kv.cloudgallery.backup.processing
+          - com.shahil-kv.cloudgallery.index.refresh
+          - com.shahil-kv.cloudgallery.backup.continued
+        UIFileSharingEnabled: false
+        LSSupportsOpeningDocumentsInPlace: false
+
+  CloudGalleryTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: CloudGalleryCore/Tests/CloudGalleryCoreTests
+    dependencies:
+      - package: CloudGalleryCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.cloudgallery.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  CloudGallery:
+    build:
+      targets:
+        CloudGallery: all
+        CloudGalleryTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - CloudGalleryTests
+    archive:
+      config: Release
