@@ -3,7 +3,7 @@ import CryptoKit
 
 /// Format-1 caption metadata (docs/CLOUD_FORMAT.md §3.1). Field names are the wire keys.
 public struct CaptionMeta: Codable, Equatable, Sendable {
-    public enum Role: String, Codable, Sendable { case original = "o", pairedVideo = "pv", thumbnail = "t", smoothPreview = "sp" }
+    public enum Role: String, Codable, Sendable { case original = "o", pairedVideo = "pv", thumbnail = "t", smoothPreview = "sp", edited = "e" }
     public enum Kind: String, Codable, Sendable { case photo = "p", video = "v", live = "l" }
 
     public var v: Int = 1
@@ -29,6 +29,8 @@ public struct CaptionMeta: Codable, Equatable, Sendable {
     /// Photos local identifier of the asset on the uploading device. iOS keeps it across app reinstalls on
     /// that device, so a restore links cloud items back to their photos exactly.
     public var l: String?
+    /// On the original: 1 when the item also has an edited version (role `e`), so a restore can tell it's missing.
+    public var ed: Int?
 
     public init(id: String, role: Role, kind: Kind, sha256: String, name: String, size: Int64) {
         self.id = id.lowercased()

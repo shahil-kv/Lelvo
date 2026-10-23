@@ -12,13 +12,16 @@ enum GalleryActions {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let exported = try await env.photos.exportOriginal(of: asset, into: dir)
             if let paired = exported.pairedVideoURL { try? FileManager.default.removeItem(at: paired) }
-            let named = dir.appendingPathComponent(exported.primaryFilename.sanitizedFilename)
-            try FileManager.default.moveItem(at: exported.primaryURL, to: named)
+            // Share what the user sees: the edit when there is one, like Photos.
+            let source = exported.editedURL ?? exported.primaryURL
+            let named = dir.appendingPathComponent((exported.editedURL != nil ? exported.editedFilename : nil)?.sanitizedFilename
+                                                   ?? exported.primaryFilename.sanitizedFilename)
+            try FileManager.default.moveItem(at: source, to: named)
             return named
         }
         guard let item = entry.item else { throw PhotoLibraryError.assetMissing }
-        let cached = try await env.media.original(for: item)
-        return try env.media.shareableCopy(of: cached, filename: item.filename)
+        let cached = try await env.media.displayed(for: item)
+        return try env.media.shareableCopy(of: cached, filename: CloudMediaService.displayedFilename(item))
     }
 
     /// Downloads a cloud item into Photos and links it so it is not uploaded again.
@@ -26,7 +29,8 @@ enum GalleryActions {
         let env = AppEnvironment.shared
         let status = PhotoLibraryService.authorizationStatus
         guard status == .authorized || status == .limited else { throw PhotoLibraryError.notAuthorized }
-        let primary = try env.media.shareableCopy(of: try await env.media.original(for: item), filename: item.filename)
+        // Saves what the user sees (the edit, if any); the untouched original stays in the cloud.
+        let primary = try env.media.shareableCopy(of: try await env.media.displayed(for: item), filename: CloudMediaService.displayedFilename(item))
         var paired: URL?
         if item.kind == .livePhoto, !item.parts("pv").isEmpty || item.pairedVideo != nil {
             paired = try env.media.shareableCopy(of: try await env.media.original(for: item, role: .pairedVideo),

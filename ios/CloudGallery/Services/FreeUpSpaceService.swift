@@ -15,7 +15,21 @@ final class FreeUpSpaceService: @unchecked Sendable {
     func candidates() -> [MediaItem] {
         let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.sizeClass == .normal && $0.localIdentifier != nil }
         let present = env.photos.existingIdentifiers(items.compactMap(\.localIdentifier))
-        return items.filter { $0.localIdentifier.map(present.contains) ?? false }
+        return items.filter { item in
+            guard let id = item.localIdentifier, present.contains(id), let asset = env.photos.asset(localIdentifier: id) else { return false }
+            return !hasUnbackedChanges(item, asset: asset)
+        }
+    }
+
+    /// Edited (or otherwise changed) on the phone after the backup, or edited with no edit in the cloud:
+    /// deleting the phone copy would lose those changes, so such items are never offered.
+    func hasUnbackedChanges(_ item: MediaItem, asset: PHAsset) -> Bool {
+        if item.hasEdit != true && env.photos.editedResource(for: asset) != nil { return true }
+        if let modified = asset.modificationDate, let uploaded = item.uploadedAt, modified > uploaded.addingTimeInterval(60) {
+            // Favouriting also bumps the date; only block when the pixels may have changed.
+            return env.photos.editedResource(for: asset) != nil
+        }
+        return false
     }
 
     func isFreshlyVerified(_ item: MediaItem) -> Bool {
@@ -60,7 +74,11 @@ final class FreeUpSpaceService: @unchecked Sendable {
 
     /// Deletes verified items from the photo library. Their records stay, so they remain in the gallery as cloud items.
     func delete(_ items: [MediaItem]) async throws -> Int {
-        let safe = items.filter { isFreshlyVerified($0) && $0.sizeClass == .normal && $0.status == .backedUp }
+        let safe = items.filter { item in
+            guard isFreshlyVerified(item), item.sizeClass == .normal, item.status == .backedUp else { return false }
+            guard let id = item.localIdentifier, let asset = env.photos.asset(localIdentifier: id) else { return false }
+            return !hasUnbackedChanges(item, asset: asset)
+        }
         let ids = safe.compactMap(\.localIdentifier)
         guard !ids.isEmpty else { return 0 }
         try await env.photos.deleteAssets(ids)

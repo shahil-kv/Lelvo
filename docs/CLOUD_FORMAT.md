@@ -32,6 +32,7 @@ An **item** is what the user sees as one photo or video. It has a random UUID `i
 Optional resources:
 - `t`: encrypted thumbnail (E2E libraries only, §4)
 - `sp`: smooth-streaming copy, a 1080p HEVC preview of a video over 500 MB (always optional; the original is never replaced)
+- `e`: edited version (Photos' rendered edit: crop, filter, trim…) when the item was edited; required when the original's caption has `ed: 1`. The original is always stored untouched as `o`.
 
 ## 3. Messages
 
@@ -56,7 +57,7 @@ Each resource (or each part of a split resource, §5) is **one message** in the 
 |---|---|---|---|
 | `v` | int | ✓ | Format version. Always `1`. |
 | `id` | string | ✓ | Item UUID, shared by every resource and part of the item. |
-| `r` | string | ✓ | Resource role: `o`, `pv`, `t`, `sp`. |
+| `r` | string | ✓ | Resource role: `o`, `pv`, `t`, `sp`, `e`. |
 | `k` | string | ✓ | Item kind: `p`, `v`, `l`. |
 | `h` | string | ✓ | SHA-256 (lowercase hex) of this resource's **original plaintext** bytes. The same on every part. |
 | `n` | string | ✓ | Original file name. |
@@ -75,6 +76,7 @@ Each resource (or each part of a split resource, §5) is **one message** in the 
 | `e` | int |  | `1` if the file content is CGFE ciphertext (§6.2). Always present in E2E libraries. |
 | `src` | string |  | Writer: `ios` or `android`. |
 | `l` | string |  | Photos/MediaStore local id of the source asset on the uploading device. Lets a reinstall on that device re-link items exactly (otherwise: name + `t` + `wh`). Dropped before `n` is truncated when the caption is too long. |
+| `ed` | int |  | On the original (`r: "o"`): `1` when the item also has an edited version stored as role `e`. Lets readers detect a missing edit. |
 
 Example (plain):
 

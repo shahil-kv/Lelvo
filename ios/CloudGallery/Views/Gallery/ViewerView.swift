@@ -288,13 +288,14 @@ struct ViewerPage: View {
             switch item.kind {
             case .video:
                 // Stream byte ranges straight from Telegram: no full download needed.
-                let s = StreamingAsset(item: item, role: "o", reader: env.reader)
+                // Edited in Photos (e.g. trimmed): play the edit, as Photos would.
+                let s = StreamingAsset(item: item, role: item.hasEdit == true && !item.parts("e").isEmpty ? "e" : "o", reader: env.reader)
                 stream = s
                 let playerItem = AVPlayerItem(asset: s.asset)
                 trace = VideoTrace(item: playerItem, name: item.filename, source: "cloud \(Format.bytes(item.fileSize))")
                 content = .video(AVPlayer(playerItem: playerItem))
             case .livePhoto:
-                let url = try await env.media.original(for: item)
+                let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) { content = .image(image) }
                 if let video = try? await env.media.original(for: item, role: .pairedVideo),
                    let live = await Self.livePhoto(urls: [url, video]) {
@@ -302,7 +303,7 @@ struct ViewerPage: View {
                 }
             case .photo:
                 // Progressive: thumbnail → screen-size decode → full detail when zooming.
-                let url = try await env.media.original(for: item)
+                let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) {
                     content = .image(image)
                 } else {

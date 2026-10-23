@@ -40,7 +40,7 @@ public enum ItemStatus: String, Codable, Sendable, CaseIterable {
 
 /// Which file of an item an upload carries.
 public enum UploadRole: String, Codable, Sendable {
-    case original, pairedVideo, thumbnail
+    case original, pairedVideo, thumbnail, edited
 }
 
 /// Everything known about one photo/video, persisted locally and (when backed up) in the cloud index.
@@ -92,6 +92,10 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     /// Queued because the user picked it (Back up on chosen photos, Retry). Runs that aren't "Back up now"
     /// upload only these, so picking a few photos never drains an older full queue.
     public var chosen: Bool?
+    /// Edited in Photos (crop, filter, trim…): the rendered edit is stored as role `e` next to the original.
+    public var hasEdit: Bool?
+    public var editedFilename: String?
+    public var editedSize: Int64?
 
     /// Ids are lowercase, like the caption `id` field, so a channel scan matches the local item.
     public init(id: String = UUID().uuidString.lowercased(), localIdentifier: String?, sha256: String, filename: String,
@@ -126,6 +130,7 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
         case .original: return original
         case .pairedVideo: return pairedVideo
         case .thumbnail: return thumbnail
+        case .edited: return nil // format 1 only (`cloudParts["e"]`)
         }
     }
 
@@ -134,6 +139,7 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
         case .original: original = file
         case .pairedVideo: pairedVideo = file
         case .thumbnail: thumbnail = file
+        case .edited: break
         }
     }
 
@@ -149,6 +155,7 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
         case .original: return "o"
         case .pairedVideo: return "pv"
         case .thumbnail: return "t"
+        case .edited: return "e"
         }
     }
 
@@ -156,6 +163,7 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var requiredCaptionRoles: [String] {
         var roles = kind == .livePhoto ? ["o", "pv"] : ["o"]
         if encrypted { roles.append("t") }
+        if hasEdit == true { roles.append("e") }
         return roles
     }
 

@@ -19,10 +19,14 @@ struct ExportedAsset {
     let primaryUTI: String?
     let pairedVideoURL: URL?
     let pairedVideoFilename: String?
+    /// The rendered edit (crop, filter, trim…) when the item was edited in Photos.
+    var editedURL: URL? = nil
+    var editedFilename: String? = nil
 
     func cleanup() {
         try? FileManager.default.removeItem(at: primaryURL)
         if let pairedVideoURL { try? FileManager.default.removeItem(at: pairedVideoURL) }
+        if let editedURL { try? FileManager.default.removeItem(at: editedURL) }
     }
 }
 
@@ -211,9 +215,30 @@ final class PhotoLibraryService: @unchecked Sendable {
             }
         }
         let kind: MediaKind = (Self.kind(of: asset) == .livePhoto && pairedURL == nil) ? .photo : Self.kind(of: asset)
-        return ExportedAsset(kind: kind, primaryURL: primaryURL, primaryFilename: primaryFilename,
-                             primaryUTI: primaryUTI, pairedVideoURL: pairedURL,
-                             pairedVideoFilename: res.paired?.originalFilename)
+        var exported = ExportedAsset(kind: kind, primaryURL: primaryURL, primaryFilename: primaryFilename,
+                                     primaryUTI: primaryUTI, pairedVideoURL: pairedURL,
+                                     pairedVideoFilename: res.paired?.originalFilename)
+        // Edited in Photos: keep the rendered edit too, so a restore doesn't lose crops, filters or trims.
+        if let edit = editedResource(for: asset), edit !== res.primary {
+            let url = directory.appendingPathComponent("\(base)-edit-\(edit.originalFilename.sanitizedFilename)")
+            do {
+                try await write(edit, to: url)
+                exported.editedURL = url
+                exported.editedFilename = edit.originalFilename
+            } catch {
+                AppLog.shared.warn("Couldn't export the edited version of \(primaryFilename): \(error.localizedDescription)")
+            }
+        }
+        return exported
+    }
+
+    /// The rendered edit of an edited asset (`fullSizePhoto` / `fullSizeVideo`), nil if never edited.
+    func editedResource(for asset: PHAsset) -> PHAssetResource? {
+        let resources = PHAssetResource.assetResources(for: asset)
+        let original = resources.contains { $0.type == .photo || $0.type == .video }
+        guard original else { return nil } // only a rendered version exists: that's already the primary
+        let type: PHAssetResourceType = asset.mediaType == .video ? .fullSizeVideo : .fullSizePhoto
+        return resources.first { $0.type == type }
     }
 
     private func renderedImageData(of asset: PHAsset) async throws -> (Data, String?) {

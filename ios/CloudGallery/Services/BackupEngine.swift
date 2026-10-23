@@ -397,6 +397,10 @@ final class BackupEngine: @unchecked Sendable {
             item.fileSize = try CloudUploader.size(of: exp.primaryURL)
             item.pairedVideoFilename = exp.pairedVideoFilename
             item.pairedVideoSize = try exp.pairedVideoURL.map { try CloudUploader.size(of: $0) }
+            let editedHash = try exp.editedURL.map { try Deduplicator.sha256(of: $0) }
+            item.hasEdit = exp.editedURL != nil ? true : nil
+            item.editedFilename = exp.editedFilename
+            item.editedSize = try exp.editedURL.map { try CloudUploader.size(of: $0) }
             item.encrypted = env.library.isEncrypted
             item.mimeType = exp.primaryFilename.mimeTypeForFilename
             if let video = await VideoInfo.inspect(asset: asset) {
@@ -424,6 +428,11 @@ final class BackupEngine: @unchecked Sendable {
                 resources.append(PreparedResource(role: "pv", fileURL: paired,
                                                   meta: captionMeta(item, role: .pairedVideo, hash: pairedHash,
                                                                     name: item.pairedVideoFilename ?? "\(item.id).MOV", size: item.pairedVideoSize ?? 0)))
+            }
+            if let edited = exp.editedURL, let editedHash {
+                resources.append(PreparedResource(role: "e", fileURL: edited,
+                                                  meta: captionMeta(item, role: .edited, hash: editedHash,
+                                                                    name: item.editedFilename ?? "edited", size: item.editedSize ?? 0)))
             }
             if item.encrypted, let thumbData {
                 resources.append(PreparedResource(role: "t", fileURL: thumbURL,
@@ -459,6 +468,7 @@ final class BackupEngine: @unchecked Sendable {
             item.uploadedAt = Date()
             var hashes = ["o": primaryHash]
             if let pairedHash { hashes["pv"] = pairedHash }
+            if let editedHash { hashes["e"] = editedHash }
             item.roleHashes = hashes
             save(item)
             return item.status == .backedUp ? .uploaded : .failed
@@ -513,6 +523,7 @@ final class BackupEngine: @unchecked Sendable {
         m.a = item.albums
         m.fav = item.favorite == true ? 1 : nil
         m.l = item.localIdentifier
+        m.ed = (role == .original && item.hasEdit == true) ? 1 : nil
         return m
     }
 }

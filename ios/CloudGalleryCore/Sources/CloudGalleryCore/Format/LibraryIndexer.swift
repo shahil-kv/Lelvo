@@ -58,6 +58,7 @@ public enum LibraryIndexer {
             item.albums = primary.a
             item.favorite = primary.fav == 1 ? true : nil
             item.sourceLocalIdentifier = primary.l
+            item.hasEdit = (primary.ed == 1 || roles["e"] != nil) ? true : nil
             var hashes: [String: String] = [:]
             for (role, parts) in roles {
                 let ordered = parts.sorted { $0.key < $1.key }.map(\.value)
@@ -67,6 +68,10 @@ public enum LibraryIndexer {
                 let contiguous = parts.keys.sorted() == Array(0..<parts.count)
                 item.setParts(files, role: role, expected: contiguous ? expected : expected + 1)
                 hashes[role] = ordered.first?.meta.h
+                if role == "e", let m = ordered.first?.meta {
+                    item.editedFilename = m.n
+                    item.editedSize = m.s
+                }
                 if role == "pv", let m = ordered.first?.meta {
                     item.pairedVideoFilename = m.n
                     item.pairedVideoSize = m.s

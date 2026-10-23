@@ -120,7 +120,14 @@ final class MediaReader: @unchecked Sendable {
     }
 
     /// Writes the whole plaintext resource to `destination` in 8 MiB steps (photos, share, save to library).
-    func download(_ item: MediaItem, role: String, to destination: URL, progress: ((Double) -> Void)? = nil) async throws {
+    /// `evict`: drop TDLib's cached copy afterwards (bulk export shouldn't fill the phone).
+    func download(_ item: MediaItem, role: String, to destination: URL, evict: Bool = false, progress: ((Double) -> Void)? = nil) async throws {
+        defer {
+            if evict {
+                let ps = parts(item, role: role)
+                Task { for p in ps { if let id = try? await tdFileId(for: p) { await td.deleteLocalCopy(fileId: id) } } }
+            }
+        }
         let fm = FileManager.default
         try? fm.removeItem(at: destination)
         try? fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)

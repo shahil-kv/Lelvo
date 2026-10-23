@@ -33,6 +33,13 @@ final class AppEnvironment: @unchecked Sendable {
         try? stagingURL.setResourceValues(excluded)
 
         store = LibraryStore.openOrFallback(url: support.appendingPathComponent("Library.sqlite"))
+        // The index is rebuilt from Telegram after a restore; keep its file names and locations out of device backups.
+        for name in ["Library.sqlite", "Library.sqlite-wal", "Library.sqlite-shm"] {
+            var url = support.appendingPathComponent(name)
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? url.setResourceValues(values)
+        }
         thumbnailCache = LRUDiskCache(directory: caches.appendingPathComponent("Thumbnails"), capacity: Prefs.thumbnailCacheBytes)
         originalsCache = LRUDiskCache(directory: caches.appendingPathComponent("Originals"), capacity: Prefs.mediaCacheBytes)
 

@@ -24,7 +24,7 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
         self.item = item
         self.role = role
         self.reader = reader
-        let name = role == "pv" ? (item.pairedVideoFilename ?? "video.mov") : item.filename
+        let name = role == "pv" ? (item.pairedVideoFilename ?? "video.mov") : role == "e" ? (item.editedFilename ?? item.filename) : item.filename
         let ext = (name as NSString).pathExtension.isEmpty ? "mov" : (name as NSString).pathExtension.lowercased()
         var parts = URLComponents()
         parts.scheme = Self.scheme

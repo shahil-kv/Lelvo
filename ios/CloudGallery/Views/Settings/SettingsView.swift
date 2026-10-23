@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import CloudGalleryCore
 
 struct SettingsView: View {
@@ -16,6 +17,7 @@ struct SettingsView: View {
 
     @State private var accountName = "…"
     @State private var libraryName = LibraryService.titleDefault
+    @State private var accountTtl: Int?
     @State private var usage: CloudMediaService.CacheUsage?
     @State private var alert: GalleryAlert?
     @State private var busy = false
@@ -33,6 +35,19 @@ struct SettingsView: View {
                     }
                     .onAppear { Task { libraryName = await env.library.title() } }
                     LabeledContent("Encryption", value: env.library.isEncrypted ? "End-to-end (on)" : "Off")
+                    if let days = accountTtl {
+                        LabeledContent("Delete account if away for", value: days >= 365 ? "\(days / 365) year\(days >= 730 ? "s" : "")" : "\(days / 30) months")
+                        if days < 730 {
+                            Button("Keep my account for 2 years of inactivity") {
+                                run("Set to 2 years") {
+                                    try await env.td.setAccountTtl(days: 730)
+                                    accountTtl = 730
+                                }
+                            }
+                            Text("Telegram deletes inactive accounts, and your library with them. 2 years is the maximum; using CloudGallery also counts as activity.")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                    }
                     Button("Re-scan library from Telegram") {
                         run("Library re-scanned") {
                             let s = try await env.library.scan(full: true)
@@ -98,6 +113,14 @@ struct SettingsView: View {
                     Text("Off by default. When on, you can delete photos from this iPhone that are verified to be in your Telegram library.")
                 }
 
+                Section {
+                    NavigationLink { ExportLibraryView() } label: {
+                        Label("Download a copy of your library", systemImage: "square.and.arrow.down.on.square")
+                    }
+                } header: { Text("Your data") } footer: {
+                    Text("Everything you've backed up, saved to Files or an external drive. Your library is never locked in.")
+                }
+
                 Section("Help") {
                     NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
                     NavigationLink { LogsView() } label: { Label("Logs", systemImage: "doc.text.magnifyingglass") }
@@ -117,6 +140,7 @@ struct SettingsView: View {
                 refreshUsage()
                 accountName = await env.td.displayName() ?? (env.td.isReady ? "—" : "Not connected")
                 libraryName = await env.library.title()
+                accountTtl = await env.td.accountTtlDays()
             }
             .onChange(of: cacheCapMB) { _, _ in Task { await env.enforceCacheLimits(); refreshUsage() } }
             .onChange(of: thumbnailCacheMB) { _, _ in Task { await env.enforceCacheLimits(); refreshUsage() } }
@@ -408,6 +432,146 @@ struct LibrarySettingsView: View {
                 Haptics.error()
                 alert = GalleryAlert(title: "Couldn't create the library", message: error.localizedDescription)
             }
+        }
+    }
+}
+
+/// "Download a copy of your library": every backed-up item into a folder the user picks in Files
+/// (iPhone, iCloud Drive, or an external drive), as Year/Month/filename. Encrypted items are decrypted.
+/// Resumable: files already there with the right size are skipped.
+struct ExportLibraryView: View {
+    @State private var picking = false
+    @State private var running: Task<Void, Never>?
+    @State private var done = 0
+    @State private var skipped = 0
+    @State private var failed: [String] = []
+    @State private var total = 0
+    @State private var current = ""
+    @State private var finished = false
+    private var env: AppEnvironment { AppEnvironment.shared }
+
+    var body: some View {
+        Form {
+            Section {
+                Label("Originals with their real names, plus edited versions and Live Photo videos.", systemImage: "doc.on.doc")
+                Label("Encrypted items are decrypted, so the copy opens anywhere.", systemImage: "lock.open")
+                Label("Pick a folder on this iPhone, iCloud Drive, or a USB drive or SSD.", systemImage: "externaldrive")
+                Label("Interrupted? Run it again: finished files are skipped.", systemImage: "arrow.clockwise")
+            } footer: {
+                Text("Make sure the destination has enough free space for your whole library.")
+            }
+            .font(.subheadline)
+
+            Section {
+                if running != nil {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ProgressView(value: Double(done + skipped + failed.count), total: Double(max(total, 1)))
+                        Text("\(done + skipped + failed.count) of \(total)").font(.subheadline.monospacedDigit())
+                        Text(current).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Button("Stop", role: .destructive) { running?.cancel() }
+                } else {
+                    Button { picking = true } label: { Label("Choose a folder and download", systemImage: "square.and.arrow.down.on.square") }
+                }
+                if finished {
+                    Label("\(done) downloaded, \(skipped) already there\(failed.isEmpty ? "" : ", \(failed.count) failed")",
+                          systemImage: failed.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(failed.isEmpty ? .green : .orange)
+                    ForEach(failed.prefix(20), id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+                }
+            }
+        }
+        .navigationTitle("Download a copy")
+        .sheet(isPresented: $picking) {
+            FolderPicker { url in start(url) }.ignoresSafeArea()
+        }
+        .onDisappear { running?.cancel() }
+    }
+
+    private func start(_ folder: URL) {
+        finished = false
+        done = 0; skipped = 0; failed = []
+        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter(\.isViewableFromCloud)
+        total = items.count
+        running = Task {
+            UIApplication.shared.isIdleTimerDisabled = true
+            defer { UIApplication.shared.isIdleTimerDisabled = false }
+            let access = folder.startAccessingSecurityScopedResource()
+            defer { if access { folder.stopAccessingSecurityScopedResource() } }
+            let fm = FileManager.default
+            let calendar = Calendar(identifier: .gregorian)
+            for item in items {
+                if Task.isCancelled { break }
+                let date = item.creationDate ?? Date(timeIntervalSince1970: 0)
+                let c = calendar.dateComponents([.year, .month], from: date)
+                let dir = folder.appendingPathComponent(String(format: "%04d/%02d", c.year ?? 1970, c.month ?? 1), isDirectory: true)
+                current = item.filename
+                do {
+                    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+                    var roles: [(String, String, Int64)] = [("o", item.filename, item.fileSize)]
+                    if item.kind == .livePhoto, !item.parts("pv").isEmpty {
+                        roles.append(("pv", item.pairedVideoFilename ?? "\((item.filename as NSString).deletingPathExtension).MOV", item.pairedVideoSize ?? 0))
+                    }
+                    if item.hasEdit == true, !item.parts("e").isEmpty {
+                        let base = (item.filename as NSString).deletingPathExtension
+                        let ext = ((item.editedFilename ?? item.filename) as NSString).pathExtension
+                        roles.append(("e", "\(base) (edited).\(ext)", item.editedSize ?? 0))
+                    }
+                    var wroteAny = false
+                    for (role, name, size) in roles {
+                        let dest = Self.uniqueURL(dir.appendingPathComponent(name.sanitizedFilename), itemId: item.id, expectedSize: size)
+                        if let existing = try? fm.attributesOfItem(atPath: dest.path)[.size] as? NSNumber, size > 0, existing.int64Value == size { continue }
+                        let tmp = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                        try await env.reader.download(item, role: role, to: tmp, evict: true)
+                        try? fm.removeItem(at: dest)
+                        try fm.moveItem(at: tmp, to: dest)
+                        try? fm.setAttributes([.creationDate: date, .modificationDate: date], ofItemAtPath: dest.path)
+                        wroteAny = true
+                    }
+                    if wroteAny { done += 1 } else { skipped += 1 }
+                } catch is CancellationError {
+                    break
+                } catch {
+                    failed.append("\(item.filename): \(error.localizedDescription)")
+                }
+            }
+            appLog("Export finished: \(done) downloaded, \(skipped) skipped, \(failed.count) failed")
+            finished = true
+            running = nil
+        }
+    }
+
+    /// Same name, different item (e.g. two IMG_0001.HEIC from different years in one month folder): add a suffix.
+    private static func uniqueURL(_ url: URL, itemId: String, expectedSize: Int64) -> URL {
+        let fm = FileManager.default
+        guard let existing = try? fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber,
+              existing.int64Value != expectedSize else { return url }
+        let base = url.deletingPathExtension().lastPathComponent
+        return url.deletingLastPathComponent()
+            .appendingPathComponent("\(base)-\(itemId.prefix(6))")
+            .appendingPathExtension(url.pathExtension)
+    }
+}
+
+/// Files folder picker (any location the user can write to, including external drives).
+private struct FolderPicker: UIViewControllerRepresentable {
+    let picked: (URL) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(picked: picked) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let vc = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+        vc.delegate = context.coordinator
+        return vc
+    }
+
+    func updateUIViewController(_ vc: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let picked: (URL) -> Void
+        init(picked: @escaping (URL) -> Void) { self.picked = picked }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            if let url = urls.first { picked(url) }
         }
     }
 }

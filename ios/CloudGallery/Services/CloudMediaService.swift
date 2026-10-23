@@ -39,10 +39,20 @@ final class CloudMediaService: @unchecked Sendable {
         return image
     }
 
+    /// What the user sees: the edited version when the item was edited in Photos, else the original.
+    func displayed(for item: MediaItem, progress: ((Double) -> Void)? = nil) async throws -> URL {
+        try await original(for: item, role: item.hasEdit == true && !item.parts("e").isEmpty ? .edited : .original, progress: progress)
+    }
+
+    static func displayedFilename(_ item: MediaItem) -> String {
+        item.hasEdit == true && !item.parts("e").isEmpty ? (item.editedFilename ?? item.filename) : item.filename
+    }
+
     /// Downloads (or returns the cached) full original for photos, sharing and saving.
     func original(for item: MediaItem, role: UploadRole = .original, progress: ((Double) -> Void)? = nil) async throws -> URL {
         let r = MediaItem.captionRole(role)
-        let name = role == .pairedVideo ? (item.pairedVideoFilename ?? "video.mov") : item.filename
+        let name = role == .pairedVideo ? (item.pairedVideoFilename ?? "video.mov")
+            : role == .edited ? (item.editedFilename ?? item.filename) : item.filename
         let ext = (name as NSString).pathExtension.lowercased()
         let key = Self.originalKey(item, role: r)
         env.originalsCache.setCapacity(Prefs.mediaCacheBytes)

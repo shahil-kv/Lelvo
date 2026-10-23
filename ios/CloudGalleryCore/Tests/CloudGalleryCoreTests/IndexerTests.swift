@@ -31,6 +31,31 @@ import CloudGalleryCore
         #expect(r.orphanMessageIds == [20, 30])
     }
 
+    @Test func editedVersionIsRequiredWhenDeclared() {
+        var om = msg(1).meta
+        om.ed = 1
+        let original = CloudMessage(messageId: 1, meta: om, fileId: "f1", uniqueId: "u1", size: 100)
+        let missing = LibraryIndexer.build([original])
+        #expect(missing.items[0].hasEdit == true)
+        #expect(missing.items[0].status == .failed)
+
+        var em = msg(2, role: .edited).meta
+        em.n = "FullSizeRender.heic"
+        em.s = 900
+        let edited = CloudMessage(messageId: 2, meta: em, fileId: "f2", uniqueId: "u2", size: 100)
+        let complete = LibraryIndexer.build([original, edited])
+        #expect(complete.items[0].status == .backedUp)
+        #expect(complete.items[0].editedFilename == "FullSizeRender.heic")
+        #expect(complete.items[0].editedSize == 900)
+        #expect(complete.items[0].parts("e").map(\.messageId) == [2])
+    }
+
+    @Test func uneditedItemNeedsNoEditedVersion() {
+        let r = LibraryIndexer.build([msg(1)])
+        #expect(r.items[0].hasEdit != true)
+        #expect(r.items[0].status == .backedUp)
+    }
+
     @Test func livePhotoNeedsPairedVideo() {
         let incomplete = LibraryIndexer.build([msg(1, kind: .live)])
         #expect(incomplete.items[0].status == .failed)

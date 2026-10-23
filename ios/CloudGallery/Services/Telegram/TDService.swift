@@ -292,6 +292,17 @@ final class TDService: @unchecked Sendable {
         start()
     }
 
+    /// Days of inactivity after which Telegram deletes the account (and the library channel with it).
+    func accountTtlDays() async -> Int? {
+        try? await requireClient().getAccountTtl().days
+    }
+
+    /// 730 days is Telegram's maximum.
+    func setAccountTtl(days: Int) async throws {
+        do { _ = try await requireClient().setAccountTtl(ttl: AccountTtl(days: days)) } catch { throw error.asTD }
+        appLog("Account self-destruct set to \(days) days")
+    }
+
     func me() async throws -> User {
         do { return try await requireClient().getMe() } catch { throw error.asTD }
     }
@@ -591,6 +602,11 @@ final class TDService: @unchecked Sendable {
             guard file.local.isDownloadingCompleted else { throw TDServiceError.sendFailed("download incomplete") }
             return URL(fileURLWithPath: file.local.path)
         } catch { throw error.asTD }
+    }
+
+    /// Removes TDLib's downloaded copy of a file from its cache (the file stays in Telegram).
+    func deleteLocalCopy(fileId: Int) async {
+        _ = try? await requireClient().deleteFile(fileId: fileId)
     }
 
     func cancelDownload(fileId: Int) {
