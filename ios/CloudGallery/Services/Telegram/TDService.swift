@@ -418,7 +418,6 @@ final class TDService: @unchecked Sendable {
         let gate = fileGate(fileId)
         await gate.acquire()
         defer { Task { await gate.release() } }
-        await dropStaleLocalCopy(client, fileId: fileId)
         var lastError: Swift.Error = TDServiceError.notReady
         for attempt in 0..<3 {
             do {
@@ -426,8 +425,8 @@ final class TDService: @unchecked Sendable {
                 if have < count {
                     _ = try await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: priority, synchronous: true)
                 }
-                let part = try await client.readFilePart(count: count, fileId: fileId, offset: offset)
-                if Int64(part.data.count) >= count || attempt == 2 { return part.data }
+                let data = try await readPart(client, fileId: fileId, offset: offset, count: count)
+                if Int64(data.count) >= count || attempt == 2 { return data }
             } catch {
                 lastError = error.asTD
                 if case .floodWait(let s)? = (lastError as? TDServiceError)?.kind {
@@ -450,10 +449,12 @@ final class TDService: @unchecked Sendable {
 
     /// Streaming read for the video player: keeps one continuous TDLib download running ahead of the
     /// playhead, like Telegram's own player, instead of one request per slice (which can't keep up with 4K).
-    /// The window only moves when the player asks for bytes outside it (a seek, or the `moov` at the end).
+    /// Small reads elsewhere in the file (the player's probes and the `moov` index at the end) are fetched
+    /// on their own under the file gate, so they don't fight the main download over TDLib's single slot.
     func streamRead(fileId: Int, offset: Int64, count: Int64) async throws -> Data {
         let client = try requireClient()
         let started = Foundation.Date()
+        var myWindow: Int64?
         var lastIssue: Foundation.Date?
         while true {
             try Task.checkCancellation()
@@ -462,17 +463,26 @@ final class TDService: @unchecked Sendable {
             let file = try await client.getFile(fileId: fileId)
             if file.local.isDownloadingCompleted || (file.size > 0 && offset + have >= Int64(file.size)) { break }
             let window = lock.withLock { streamWindows[fileId] }
-            let windowCovers: Bool = await {
-                guard let window, window <= offset, file.local.isDownloadingActive else { return false }
-                let reach = (try? await client.getFileDownloadedPrefixSize(fileId: fileId, offset: window))?.size ?? 0
-                return offset <= window + reach + (2 << 20)
+            let reach: Int64 = await {
+                guard let window, window <= offset, file.local.isDownloadingActive else { return -1 }
+                return (try? await client.getFileDownloadedPrefixSize(fileId: fileId, offset: window))?.size ?? 0
             }()
-            // A download just started may not report as active yet; give it a moment before moving the window.
-            if !windowCovers && lastIssue.map({ Foundation.Date().timeIntervalSince($0) > 2 }) ?? true {
-                // Same gate as full downloads (share/save), so a running full download isn't cancelled.
+            let covered = window.map { reach >= 0 && offset <= $0 + reach + (2 << 20) } ?? false
+            if !covered && count <= 512 << 10 {
+                // Small read outside the window: fetch just this range; the gate holds the window back meanwhile.
                 let gate = fileGate(fileId)
                 await gate.acquire()
-                await dropStaleLocalCopy(client, fileId: fileId)
+                defer { Task { await gate.release() } }
+                lock.withLock { streamWindows[fileId] = nil }
+                _ = try? await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: 32, synchronous: true)
+                break
+            }
+            // Move the window when it doesn't cover us: immediately if a small read stopped it,
+            // otherwise only after a fresh download has had a moment to report as active.
+            let movedByOthers = myWindow != nil && window == nil
+            if !covered && (lastIssue == nil || movedByOthers || Foundation.Date().timeIntervalSince(lastIssue ?? .distantPast) > 2) {
+                let gate = fileGate(fileId)
+                await gate.acquire()
                 do {
                     _ = try await client.downloadFile(fileId: fileId, limit: 0, offset: offset, priority: 32, synchronous: false)
                     lock.withLock { streamWindows[fileId] = offset }
@@ -481,26 +491,44 @@ final class TDService: @unchecked Sendable {
                     throw error.asTD
                 }
                 await gate.release()
+                myWindow = offset
                 lastIssue = Foundation.Date()
             }
             try await Task.sleep(nanoseconds: 40_000_000)
         }
         let waited = Foundation.Date().timeIntervalSince(started)
         if waited > 1 { AppLog.shared.warn(String(format: "Playback waited %.1f s for %lld bytes at %lld (file %d)", waited, count, offset, fileId)) }
-        do { return try await client.readFilePart(count: count, fileId: fileId, offset: offset).data }
-        catch { throw error.asTD }
+        return try await readPart(client, fileId: fileId, offset: offset, count: count)
     }
 
-    private var checkedFiles = Set<Int>()
-
-    /// TDLib remembers partial downloads by absolute path, but iOS moves the app container on reinstall,
-    /// so those copies can't be read ("Failed to read the file"). Forget them so TDLib downloads afresh.
-    private func dropStaleLocalCopy(_ client: TDLibClient, fileId: Int) async {
-        guard lock.withLock({ checkedFiles.insert(fileId).inserted }),
-              let f = try? await client.getFile(fileId: fileId), !f.local.path.isEmpty,
-              !FileManager.default.fileExists(atPath: f.local.path) else { return }
-        AppLog.shared.warn("Dropping stale local copy of file \(fileId) (\(f.local.downloadedSize) bytes at a path that no longer exists)")
-        _ = try? await client.deleteFile(fileId: fileId)
+    /// `readFilePart`, recovering from TDLib's stale local copies. Files this device uploaded keep the
+    /// upload's temporary copy as their "downloaded" location; TDLib refuses to read outside its cache
+    /// ("File is not inside the cache") and keeps that location after the copy is deleted or the app
+    /// container moves on reinstall ("Failed to read the file"), so the video never streams.
+    private func readPart(_ client: TDLibClient, fileId: Int, offset: Int64, count: Int64) async throws -> Data {
+        do {
+            return try await client.readFilePart(count: count, fileId: fileId, offset: offset).data
+        } catch {
+            let first = error.asTD
+            guard let f = try? await client.getFile(fileId: fileId) else { throw first }
+            let path = f.local.path
+            if f.local.isDownloadingCompleted, !path.isEmpty, FileManager.default.isReadableFile(atPath: path),
+               let handle = FileHandle(forReadingAtPath: path) {
+                // The exact bytes that were uploaded are still here: read them directly.
+                defer { try? handle.close() }
+                try handle.seek(toOffset: UInt64(offset))
+                return try handle.read(upToCount: Int(count)) ?? Data()
+            }
+            // The copy is gone: a download makes TDLib check the location, drop it and fetch from Telegram.
+            AppLog.shared.warn("Re-downloading file \(fileId): local copy unusable (\(first.localizedDescription))")
+            lock.withLock { streamWindows[fileId] = nil }
+            do {
+                _ = try await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: 32, synchronous: true)
+                return try await client.readFilePart(count: count, fileId: fileId, offset: offset).data
+            } catch {
+                throw error.asTD
+            }
+        }
     }
 
     private var fileGates: [Int: AsyncGate] = [:]
@@ -543,7 +571,6 @@ final class TDService: @unchecked Sendable {
         defer { Task { await gate.release() } }
         do {
             let client = try requireClient()
-            await dropStaleLocalCopy(client, fileId: fileId)
             let file = try await client.downloadFile(fileId: fileId, limit: 0, offset: 0, priority: priority, synchronous: true)
             guard file.local.isDownloadingCompleted else { throw TDServiceError.sendFailed("download incomplete") }
             return URL(fileURLWithPath: file.local.path)

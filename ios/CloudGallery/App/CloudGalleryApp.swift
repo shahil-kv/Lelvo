@@ -83,6 +83,7 @@ struct CloudGalleryApp: App {
                 guard model.onboardingComplete else { return }
                 env.td.start()
                 Task { await env.enforceCacheLimits() }
+                CloudReadCheck.runIfRequested()
             case .background:
                 env.originalsCache.flush()
                 env.thumbnailCache.flush()
@@ -116,5 +117,35 @@ enum UITestSupport {
             return item
         }
         try? store.upsert(items)
+    }
+}
+
+/// Diagnostic (launch argument `-verifyCloudReads`): reads the first and last 64 KB of every backed-up
+/// video through the player's code path and logs which ones can't be read.
+enum CloudReadCheck {
+    private static var started = false
+
+    @MainActor static func runIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("-verifyCloudReads"), !started else { return }
+        started = true
+        Task.detached(priority: .utility) {
+            let env = AppEnvironment.shared
+            try? await env.td.waitUntilReady(timeout: 60)
+            let videos = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.kind == .video && $0.isViewableFromCloud }
+            appLog("Cloud read check: \(videos.count) videos")
+            var failed = 0
+            for item in videos {
+                do {
+                    let size = try await env.reader.plaintextSize(item, role: "o")
+                    let head = try await env.reader.read(item, role: "o", range: 0..<min(size, 65536), streaming: true)
+                    let tail = try await env.reader.read(item, role: "o", range: max(0, size - 65536)..<size, streaming: true)
+                    if head.isEmpty || tail.isEmpty { throw MediaReader.ReadError.missing }
+                } catch {
+                    failed += 1
+                    AppLog.shared.error("Cloud read check: \(item.filename) failed: \(error.localizedDescription)")
+                }
+            }
+            appLog("Cloud read check finished: \(videos.count - failed) OK, \(failed) failed")
+        }
     }
 }

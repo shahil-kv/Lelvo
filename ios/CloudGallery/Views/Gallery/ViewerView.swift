@@ -188,6 +188,9 @@ struct ViewerPage: View {
     /// Keeps the resource loader alive while a cloud video plays.
     @State private var stream: StreamingAsset?
     @State private var pip: AVPictureInPictureController?
+    /// Shown over a video until its first frame is on screen (instead of a black page).
+    @State private var poster: UIImage?
+    @State private var videoReady = false
 
     var body: some View {
         ZStack {
@@ -200,7 +203,17 @@ struct ViewerPage: View {
             case .live(let live):
                 LivePhotoView(livePhoto: live)
             case .video(let player):
-                PlayerView(player: player) { pip = $0 }
+                PlayerView(player: player, onPictureInPicture: { pip = $0 }, onReadyForDisplay: { videoReady = true })
+                    .overlay {
+                        if !videoReady {
+                            ZStack {
+                                Color.black
+                                if let poster { Image(uiImage: poster).resizable().scaledToFit() }
+                                ProgressView().tint(.white).padding(14).background(.black.opacity(0.35), in: Circle())
+                            }
+                            .allowsHitTesting(false)
+                        }
+                    }
                     .overlay(alignment: .bottom) {
                         if !chromeHidden { VideoControls(player: player, pip: pip).padding(.bottom, 112).transition(.opacity) }
                     }
@@ -223,7 +236,9 @@ struct ViewerPage: View {
         let target = CGSize(width: screen.width * 3, height: screen.height * 3)
 
         if let asset = entry.asset {
-            content = .loading(await env.photos.image(for: asset, targetSize: CGSize(width: 400, height: 400), mode: .fastFormat))
+            let preview = await env.photos.image(for: asset, targetSize: CGSize(width: 400, height: 400), mode: .fastFormat)
+            poster = preview
+            content = .loading(preview)
             if asset.mediaType == .video {
                 if let item = await Self.playerItem(for: asset) { content = .video(AVPlayer(playerItem: item)) }
                 else { content = .unavailable("Couldn't load this video.", nil) }
@@ -239,6 +254,7 @@ struct ViewerPage: View {
 
         guard let item = entry.item else { return }
         let thumb = try? await env.media.thumbnail(for: item)
+        poster = thumb
         content = .loading(thumb)
         guard item.isViewableFromCloud else {
             content = .unavailable("This item isn't fully in your Telegram library yet.", thumb)
@@ -475,13 +491,17 @@ struct InfoSheet: View {
 struct PlayerView: UIViewRepresentable {
     let player: AVPlayer
     var onPictureInPicture: (AVPictureInPictureController?) -> Void = { _ in }
+    var onReadyForDisplay: () -> Void = {}
 
     final class LayerView: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
         var playerLayer: AVPlayerLayer? { layer as? AVPlayerLayer }
     }
 
-    final class Coordinator { var pip: AVPictureInPictureController? }
+    final class Coordinator {
+        var pip: AVPictureInPictureController?
+        var readyObservation: NSKeyValueObservation?
+    }
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> LayerView {
@@ -498,6 +518,10 @@ struct PlayerView: UIViewRepresentable {
         }
         let pip = context.coordinator.pip
         DispatchQueue.main.async { onPictureInPicture(pip) }
+        let ready = onReadyForDisplay
+        context.coordinator.readyObservation = view.playerLayer?.observe(\.isReadyForDisplay, options: [.initial, .new]) { layer, _ in
+            if layer.isReadyForDisplay { DispatchQueue.main.async { ready() } }
+        }
         return view
     }
 
