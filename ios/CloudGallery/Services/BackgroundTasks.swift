@@ -119,7 +119,7 @@ enum ContinuedBackup {
         foregroundTask = Task {
             let flag = CancelFlag()
             let bg = UIApplication.shared.beginBackgroundTask(withName: "Backup") { flag.cancel() }
-            _ = await AppEnvironment.shared.engine.run(isCancelled: { flag.isCancelled })
+            _ = await AppEnvironment.shared.engine.run(userStarted: true, isCancelled: { flag.isCancelled })
             UIApplication.shared.endBackgroundTask(bg)
             foregroundTask = nil
         }
@@ -132,7 +132,7 @@ enum ContinuedBackup {
         task.expirationHandler = { flag.cancel() }
         task.progress.totalUnitCount = 1
         Task {
-            let summary = await AppEnvironment.shared.engine.run(isCancelled: { flag.isCancelled }) { done, total in
+            let summary = await AppEnvironment.shared.engine.run(userStarted: true, isCancelled: { flag.isCancelled }) { done, total in
                 task.progress.totalUnitCount = Int64(max(total, 1))
                 task.progress.completedUnitCount = Int64(done)
                 task.updateTitle("Backing up to Telegram", subtitle: "\(done) of \(total) items")

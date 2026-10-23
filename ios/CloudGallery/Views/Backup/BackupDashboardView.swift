@@ -66,22 +66,37 @@ struct BackupDashboardView: View {
     @StateObject private var stats = BackupStatsModel()
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
+    @AppStorage(Prefs.Key.backupPaused) private var paused = false
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     statusHeader
-                    Button {
-                        Haptics.tap()
-                        ContinuedBackup.start()
-                    } label: {
-                        Label(activity.isRunning ? "Backing up…" : "Back up now", systemImage: "icloud.and.arrow.up.fill")
-                            .frame(maxWidth: .infinity)
+                    if activity.isRunning {
+                        Button(role: .destructive) {
+                            Haptics.tap()
+                            AppEnvironment.shared.engine.pause()
+                        } label: {
+                            Label("Pause backup", systemImage: "pause.circle.fill").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .listRowSeparator(.hidden)
+                    } else {
+                        Button {
+                            Haptics.tap()
+                            ContinuedBackup.start()
+                        } label: {
+                            Label(paused ? "Resume backup" : "Back up now", systemImage: "icloud.and.arrow.up.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .listRowSeparator(.hidden)
+                        if paused {
+                            Label("Paused. Shortcuts and overnight backups won't run until you resume.", systemImage: "pause.circle")
+                                .font(.footnote).foregroundStyle(.orange)
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(activity.isRunning)
-                    .listRowSeparator(.hidden)
                     if activity.isRunning && activity.total > 0 {
                         ProgressView(value: Double(activity.done), total: Double(max(activity.total, 1))) {
                             Text("\(activity.done) of \(activity.total) done · \(activity.remaining) left")

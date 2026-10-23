@@ -22,6 +22,7 @@ enum Prefs {
         static let chatTitle = "chatTitle"
         static let botUsername = "botUsername"
         static let lastBackupAt = "lastBackupAt"
+        static let backupPaused = "backupPaused"
     }
 
     enum AlbumMode: String, CaseIterable, Identifiable {
@@ -84,6 +85,11 @@ enum Prefs {
         guard defaults.bool(forKey: Key.dateFromEnabled) else { return nil }
         let t = defaults.double(forKey: Key.dateFrom)
         return t > 0 ? Date(timeIntervalSince1970: t) : nil
+    }
+    /// Set by the Pause button; automatic runs (Shortcuts, overnight) respect it until the user resumes.
+    static var backupPaused: Bool {
+        get { defaults.bool(forKey: Key.backupPaused) }
+        set { defaults.set(newValue, forKey: Key.backupPaused) }
     }
     static var albumMode: AlbumMode { AlbumMode(rawValue: defaults.string(forKey: Key.albumMode) ?? "") ?? .all }
     static var albumIds: Set<String> {

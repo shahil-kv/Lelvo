@@ -106,6 +106,21 @@ final class BackupEngine: @unchecked Sendable {
     private let gate = NSLock()
     private var running = false
     private var pausedUntil = Date.distantPast
+    private var pauseRequested = false
+    private var laneTask: Task<Void, Never>?
+    private var isPauseRequested: Bool { gate.withLock { pauseRequested } }
+
+    /// Stops the running backup immediately (in-flight uploads are cancelled and go back to the queue)
+    /// and keeps it paused for automatic runs until the user taps Back up now.
+    func pause() {
+        Prefs.backupPaused = true
+        let task: Task<Void, Never>? = gate.withLock {
+            pauseRequested = true
+            return laneTask
+        }
+        task?.cancel()
+        appLog("Backup paused by the user")
+    }
 
     init(environment: AppEnvironment) {
         self.env = environment
@@ -166,9 +181,15 @@ final class BackupEngine: @unchecked Sendable {
 
     /// Processes the queue with up to two concurrent uploads until it is empty, `deadline` passes,
     /// or `isCancelled` returns true. Safe to call from the UI, App Intents and BGTasks.
-    func run(deadline: Date? = nil, isCancelled: @escaping @Sendable () -> Bool = { false },
+    func run(deadline: Date? = nil, userStarted: Bool = false, isCancelled callerCancelled: @escaping @Sendable () -> Bool = { false },
              progress: (@Sendable (Int, Int) -> Void)? = nil) async -> Summary {
         var summary = Summary()
+        if userStarted {
+            Prefs.backupPaused = false
+        } else if Prefs.backupPaused {
+            summary.error = "Backup is paused. Open CloudGallery and tap Back up now to resume."
+            return summary
+        }
         if let reason = await blocker() { summary.error = reason.localizedDescription; return summary }
         let alreadyRunning: Bool = gate.withLock {
             if running { return true }
@@ -176,7 +197,9 @@ final class BackupEngine: @unchecked Sendable {
             return false
         }
         if alreadyRunning { summary.error = StopReason.alreadyRunning.localizedDescription; return summary }
-        defer { gate.withLock { running = false } }
+        defer { gate.withLock { running = false; laneTask = nil } }
+        let isCancelled: @Sendable () -> Bool = { [weak self] in callerCancelled() || (self?.isPauseRequested ?? false) }
+        gate.withLock { pauseRequested = false }
 
         await publish { $0.isRunning = true; $0.message = "Connecting to Telegram…" }
         do {
@@ -208,7 +231,7 @@ final class BackupEngine: @unchecked Sendable {
         appLog("Backup run: \(total) items queued")
 
         let counter = Counter()
-        await withTaskGroup(of: Void.self) { group in
+        let lanes = Task { await withTaskGroup(of: Void.self) { group in
             for lane in 0..<Self.maxConcurrentUploads {
                 group.addTask { [self] in
                     while let item = await queue.next() {
@@ -232,7 +255,10 @@ final class BackupEngine: @unchecked Sendable {
                     }
                 }
             }
-        }
+        } }
+        gate.withLock { laneTask = lanes }
+        if isPauseRequested { lanes.cancel() }
+        await lanes.value
 
         let counts = await counter.snapshot()
         summary.uploaded = counts.uploaded
@@ -241,6 +267,9 @@ final class BackupEngine: @unchecked Sendable {
         summary.remaining = runnableItems(now: .distantFuture).count
         await env.enforceCacheLimits()
         if summary.uploaded > 0 { UserDefaults.standard.set(Date(), forKey: Prefs.Key.lastBackupAt) }
+        if isPauseRequested {
+            summary.error = "Paused. \(summary.uploaded) backed up in this run; tap Back up now to continue where it stopped."
+        }
         let final = summary
         await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.lanes = [:]; a.notice = nil }
         appLog("Backup run finished: \(summary.text)")
