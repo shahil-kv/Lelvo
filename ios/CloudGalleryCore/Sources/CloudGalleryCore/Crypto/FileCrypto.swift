@@ -63,7 +63,8 @@ public enum FileCrypto {
             let isFinal = next.isEmpty
             let nonce = try nonces.map { try AES.GCM.Nonce(data: $0[Int(index)]) } ?? AES.GCM.Nonce()
             let box = try AES.GCM.seal(current, using: key, nonce: nonce, authenticating: aad(header: header, index: index, final: isFinal))
-            try writer.write(contentsOf: box.combined!)
+            guard let combined = box.combined else { throw CryptoError.badFormat }
+            try writer.write(contentsOf: combined)
             if isFinal { break }
             current = next
             index += 1

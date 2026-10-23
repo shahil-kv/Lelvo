@@ -220,7 +220,7 @@ struct GalleryView: View {
             EmptyStateView(systemImage: "photo.badge.exclamationmark", title: "No photo access",
                            message: "Allow access in Settings to back up and browse your photos. Cloud items appear here after a backup or restore.",
                            actionTitle: "Open Settings") {
-                UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
+                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
             }
         case .notDetermined:
             EmptyStateView(systemImage: "photo.on.rectangle", title: "Allow photo access",

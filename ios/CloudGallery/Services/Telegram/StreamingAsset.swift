@@ -26,7 +26,11 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
         self.reader = reader
         let name = role == "pv" ? (item.pairedVideoFilename ?? "video.mov") : item.filename
         let ext = (name as NSString).pathExtension.isEmpty ? "mov" : (name as NSString).pathExtension.lowercased()
-        let url = URL(string: "\(Self.scheme)://item/\(item.id)/\(role).\(ext)")!
+        var parts = URLComponents()
+        parts.scheme = Self.scheme
+        parts.host = "item"
+        parts.path = "/\(item.id)/\(role).\(ext)"
+        let url = parts.url ?? URL(fileURLWithPath: "/\(item.id).\(ext)")
         asset = AVURLAsset(url: url)
         super.init()
         asset.resourceLoader.setDelegate(self, queue: queue)

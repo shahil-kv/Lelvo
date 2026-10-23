@@ -89,12 +89,26 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.cloudgallery.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  CloudGalleryUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: CloudGalleryUITests
+    dependencies:
+      - target: CloudGallery
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.cloudgallery.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: CloudGallery
+
 schemes:
   CloudGallery:
     build:
       targets:
         CloudGallery: all
         CloudGalleryTests: [test]
+        CloudGalleryUITests: [test]
     run:
       config: Debug
     test:
@@ -102,5 +116,6 @@ schemes:
       gatherCoverageData: false
       targets:
         - CloudGalleryTests
+        - CloudGalleryUITests
     archive:
       config: Release

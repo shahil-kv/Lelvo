@@ -40,8 +40,9 @@ public enum KeyDerivation {
         guard !password.isEmpty, !salt.isEmpty else { throw CryptoError.derivationFailed }
         var derived = [UInt8](repeating: 0, count: keyLength)
         let status = salt.withUnsafeBytes { saltPtr -> Int32 in
-            password.withUnsafeBufferPointer { pwPtr in
-                pwPtr.baseAddress!.withMemoryRebound(to: Int8.self, capacity: password.count) { pw in
+            password.withUnsafeBufferPointer { pwPtr -> Int32 in
+                guard let base = pwPtr.baseAddress else { return Int32(kCCParamError) }
+                return base.withMemoryRebound(to: Int8.self, capacity: password.count) { pw in
                     CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), pw, password.count,
                                          saltPtr.bindMemory(to: UInt8.self).baseAddress, salt.count,
                                          CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256), iterations,

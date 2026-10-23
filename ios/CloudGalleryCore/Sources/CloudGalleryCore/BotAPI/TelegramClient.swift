@@ -3,7 +3,7 @@ import Foundation
 /// Foreground Bot API client. Long-running media uploads go through the app's background
 /// `URLSession`; this client handles control calls, small uploads and downloads.
 public final class TelegramClient: @unchecked Sendable {
-    public static let defaultBaseURL = URL(string: "https://api.telegram.org")!
+    public static let defaultBaseURL = URL(string: "https://api.telegram.org") ?? URL(fileURLWithPath: "/")
     /// Bot API hard limits.
     public static let maxUploadBytes: Int64 = 50 * 1024 * 1024
     public static let maxDownloadBytes: Int64 = 20 * 1024 * 1024

@@ -27,7 +27,8 @@ final class AppLog: @unchecked Sendable {
     }
 
     private var secrets: [String] {
-        [KeychainStore.string(for: .botToken), KeychainStore.string(for: .passphrase), KeychainStore.string(for: .chatId)]
+        [KeychainStore.string(for: .botToken), KeychainStore.string(for: .passphrase), KeychainStore.string(for: .chatId),
+         KeychainStore.string(for: .tdApiHash)]
             .compactMap { $0 }
     }
 
@@ -80,3 +81,11 @@ final class AppLog: @unchecked Sendable {
 }
 
 func appLog(_ message: String) { AppLog.shared.log(message) }
+
+extension URL {
+    /// A URL from a string literal known to be valid at compile time.
+    static func literal(_ string: StaticString) -> URL {
+        guard let url = URL(string: "\(string)") else { preconditionFailure("Invalid URL literal \(string)") }
+        return url
+    }
+}

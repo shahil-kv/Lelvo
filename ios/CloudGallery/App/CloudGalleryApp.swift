@@ -51,6 +51,10 @@ struct CloudGalleryApp: App {
     @StateObject private var model = AppModel.shared
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        UITestSupport.prepareIfNeeded()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -71,5 +75,31 @@ struct CloudGalleryApp: App {
             default: break
             }
         }
+    }
+}
+
+/// Launch arguments used only by the UI smoke tests.
+enum UITestSupport {
+    static var isDemo: Bool { ProcessInfo.processInfo.arguments.contains("-UITestDemoLibrary") }
+
+    static func prepareIfNeeded() {
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-UITestReset") {
+            if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
+            KeychainStore.wipe()
+        }
+        guard isDemo else { return }
+        UserDefaults.standard.set(true, forKey: Prefs.Key.onboardingComplete)
+        let store = AppEnvironment.shared.store
+        let now = Date()
+        let items = (0..<300).map { i -> MediaItem in
+            var item = MediaItem(localIdentifier: nil, sha256: String(format: "%064d", i), filename: "IMG_\(1000 + i).HEIC",
+                                 kind: i % 7 == 0 ? .video : .photo, creationDate: now.addingTimeInterval(Double(-i) * 9_000),
+                                 fileSize: 2_000_000, status: .backedUp)
+            item.setParts([RemoteFile(messageId: Int64(i + 1), fileId: "demo", fileUniqueId: "demo\(i)", size: 2_000_000)],
+                          role: "o", expected: 1)
+            return item
+        }
+        try? store.upsert(items)
     }
 }

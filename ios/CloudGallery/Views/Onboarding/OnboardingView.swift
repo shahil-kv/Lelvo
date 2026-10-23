@@ -218,7 +218,7 @@ struct OnboardingView: View {
                 step(1, "Open **my.telegram.org** and log in with your phone number.")
                 step(2, "Tap **API development tools** and create an app (any name, e.g. “CloudGallery”, platform iOS).")
                 step(3, "Copy **App api_id** (a number) and **App api_hash** (32 characters) here.")
-                Link(destination: URL(string: "https://my.telegram.org/apps")!) { Label("Open my.telegram.org", systemImage: "safari") }
+                Link(destination: .literal("https://my.telegram.org/apps")) { Label("Open my.telegram.org", systemImage: "safari") }
                     .buttonStyle(.bordered)
                 field("api_id", text: $m.apiId, keyboard: .numberPad)
                 field("api_hash", text: $m.apiHash, secure: true)

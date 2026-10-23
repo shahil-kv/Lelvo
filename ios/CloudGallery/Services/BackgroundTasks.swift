@@ -13,10 +13,12 @@ enum BackgroundTasks {
     static func register() {
         let scheduler = BGTaskScheduler.shared
         scheduler.register(forTaskWithIdentifier: processingId, using: nil) { task in
-            handleProcessing(task as! BGProcessingTask)
+            guard let task = task as? BGProcessingTask else { return }
+            handleProcessing(task)
         }
         scheduler.register(forTaskWithIdentifier: refreshId, using: nil) { task in
-            handleRefresh(task as! BGAppRefreshTask)
+            guard let task = task as? BGAppRefreshTask else { return }
+            handleRefresh(task)
         }
     }
 

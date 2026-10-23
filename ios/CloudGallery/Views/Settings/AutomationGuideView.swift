@@ -7,7 +7,7 @@ struct AutomationGuideView: View {
             Section {
                 Text("Shortcuts can start a backup automatically, without opening CloudGallery.")
                 Button {
-                    UIApplication.shared.open(URL(string: "shortcuts://")!)
+                    UIApplication.shared.open(.literal("shortcuts://"))
                 } label: { Label("Open Shortcuts", systemImage: "square.2.layers.3d") }
             }
 

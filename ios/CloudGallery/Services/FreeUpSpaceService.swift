@@ -15,7 +15,7 @@ final class FreeUpSpaceService: @unchecked Sendable {
     func candidates() -> [MediaItem] {
         let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.sizeClass == .normal && $0.localIdentifier != nil }
         let present = env.photos.existingIdentifiers(items.compactMap(\.localIdentifier))
-        return items.filter { present.contains($0.localIdentifier!) }
+        return items.filter { $0.localIdentifier.map(present.contains) ?? false }
     }
 
     func isFreshlyVerified(_ item: MediaItem) -> Bool {

@@ -208,11 +208,11 @@ struct AboutView: View {
             }
             Section("Credits") {
                 Text("Based on the ideas of **AKS-Labs/CloudGallery** (Android) and **Whitehole**, the original Telegram photo-backup projects.")
-                Link("AKS-Labs/CloudGallery", destination: URL(string: "https://github.com/AKS-Labs/CloudGallery")!)
+                Link("AKS-Labs/CloudGallery", destination: .literal("https://github.com/AKS-Labs/CloudGallery"))
             }
             Section("License") {
                 Text("GNU General Public License v3.0. You can redistribute and modify this app under the terms of the GPL-3.0.")
-                Link("Read the license", destination: URL(string: "https://www.gnu.org/licenses/gpl-3.0.html")!)
+                Link("Read the license", destination: .literal("https://www.gnu.org/licenses/gpl-3.0.html"))
             }
         }
         .navigationTitle("About")
