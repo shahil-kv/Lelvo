@@ -42,7 +42,7 @@ final class BackupStatsModel: ObservableObject {
                 let assets = env.photos.fetchAllAssets()
                 onDevice = assets.count
                 let known = (try? env.store.knownLocalIdentifiers()) ?? []
-                notQueued = Prefs.autoBackup ? env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }.count : 0
+                notQueued = env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }.count
                 let present = env.photos.existingIdentifiers(all.compactMap(\.localIdentifier))
                 cloudOnly = all.filter { $0.localIdentifier.map { !present.contains($0) } ?? true }.count
             } else {
@@ -50,7 +50,7 @@ final class BackupStatsModel: ObservableObject {
             }
             await MainActor.run {
                 self.backedUp = counts[.backedUp] ?? 0
-                self.pending = (counts[.queued] ?? 0) + (counts[.uploading] ?? 0) + notQueued
+                self.pending = (counts[.queued] ?? 0) + (counts[.uploading] ?? 0) + (Prefs.autoBackup ? notQueued : 0)
                 self.failed = counts[.failed] ?? 0
                 self.cloudOnly = cloudOnly
                 self.onDevice = onDevice
@@ -82,10 +82,10 @@ struct BackupDashboardView: View {
                         }
                         .buttonStyle(.bordered)
                         .listRowSeparator(.hidden)
-                    } else if stats.pending > 0 {
+                    } else if stats.pending > 0 || stats.notQueued > 0 {
                         Button {
                             Haptics.tap()
-                            ContinuedBackup.start()
+                            ContinuedBackup.start(everything: true)
                         } label: {
                             Label(paused ? "Resume backup" : "Back up now", systemImage: "icloud.and.arrow.up.fill")
                                 .frame(maxWidth: .infinity)
@@ -194,11 +194,12 @@ struct BackupDashboardView: View {
         }
     }
 
-    private enum HeaderState { case running, complete, completeWithFailures, pending }
+    private enum HeaderState { case running, complete, completeWithFailures, pending, notBackedUp }
 
     private var headerState: HeaderState {
         if activity.isRunning { return .running }
         if stats.pending > 0 { return .pending }
+        if stats.notQueued > 0 { return .notBackedUp }
         return stats.failed > 0 ? .completeWithFailures : .complete
     }
 
@@ -215,6 +216,9 @@ struct BackupDashboardView: View {
                                    "Backup complete, \(stats.failed) item\(stats.failed == 1 ? "" : "s") couldn't be backed up")
         case .running, .pending:
             (icon, tint, title) = ("icloud.and.arrow.up", .blue, "\(left) item\(left == 1 ? "" : "s") left to back up")
+        case .notBackedUp:
+            (icon, tint, title) = ("icloud.slash", .secondary,
+                                   "\(stats.notQueued) item\(stats.notQueued == 1 ? "" : "s") not in the cloud")
         }
         return HStack(spacing: 14) {
             Image(systemName: icon)
@@ -224,7 +228,9 @@ struct BackupDashboardView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.headline)
-                Text(state == .complete ? "Everything on this iPhone is in \(LibraryService.titleDefault)" : "To \(LibraryService.titleDefault)")
+                Text(state == .complete ? "Everything on this iPhone is backed up"
+                     : state == .notBackedUp ? "Back up now uploads them all, or choose photos in Photos and tap Back up."
+                     : "To your Telegram library")
                     .font(.subheadline).foregroundStyle(.secondary)
                 if let last = UserDefaults.standard.object(forKey: Prefs.Key.lastBackupAt) as? Date {
                     Text("Last upload \(Format.relative(last))").font(.caption).foregroundStyle(.secondary)

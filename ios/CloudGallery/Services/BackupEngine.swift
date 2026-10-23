@@ -154,8 +154,8 @@ final class BackupEngine: @unchecked Sendable {
 
     /// Adds phone assets that match the backup selection and aren't known yet as pending jobs.
     @discardableResult
-    func enqueueNewAssets() -> Int {
-        guard Prefs.autoBackup else { return 0 }
+    func enqueueNewAssets(force: Bool = false) -> Int {
+        guard force || Prefs.autoBackup else { return 0 }
         let known = (try? env.store.knownLocalIdentifiers()) ?? []
         let fresh = env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }
         let items = fresh.map(makeItem)
@@ -231,7 +231,10 @@ final class BackupEngine: @unchecked Sendable {
 
     /// Processes the queue with up to two concurrent uploads until it is empty, `deadline` passes,
     /// or `isCancelled` returns true. Safe to call from the UI, App Intents and BGTasks.
-    func run(deadline: Date? = nil, userStarted: Bool = false, isCancelled callerCancelled: @escaping @Sendable () -> Bool = { false },
+    /// `includeNew`: also queue every photo not yet in the cloud ("Back up now"). Otherwise only items already
+    /// queued (photos the user chose, retries) are uploaded, unless automatic backup is on.
+    func run(deadline: Date? = nil, userStarted: Bool = false, includeNew: Bool = false,
+             isCancelled callerCancelled: @escaping @Sendable () -> Bool = { false },
              progress: (@Sendable (Int, Int) -> Void)? = nil) async -> Summary {
         var summary = Summary()
         if userStarted {
@@ -262,7 +265,7 @@ final class BackupEngine: @unchecked Sendable {
         // Reconcile anything sent before an interruption so it isn't uploaded twice.
         _ = try? await env.library.scan(full: false)
         relinkRestoredItems()
-        enqueueNewAssets()
+        enqueueNewAssets(force: includeNew)
 
         // Items left "uploading" by a killed process go back to pending.
         if let stale = try? env.store.items(status: .uploading) {

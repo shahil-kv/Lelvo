@@ -66,7 +66,7 @@ enum Prefs {
             Key.chargingOnly: false,
             Key.allowFreeUpSpace: false,
             Key.gridColumns: 4,
-            Key.autoBackup: true,
+            Key.autoBackup: false,
             Key.onboardingComplete: false
         ])
     }
@@ -82,7 +82,8 @@ enum Prefs {
     static var thumbnailCacheBytes: Int64 { Int64(max(50, defaults.integer(forKey: Key.thumbnailCacheMB))) * 1024 * 1024 }
     static var mediaFilter: MediaFilter { MediaFilter(rawValue: defaults.string(forKey: Key.mediaFilter) ?? "") ?? .all }
     static var chargingOnly: Bool { defaults.bool(forKey: Key.chargingOnly) }
-    /// Off: new photos aren't queued automatically; only ones the user picks with "Back up" are uploaded.
+    /// Off (default): nothing is queued on its own. "Back up now" queues everything not yet in the cloud;
+    /// "Back up" on chosen photos queues just those.
     static var autoBackup: Bool { defaults.bool(forKey: Key.autoBackup) }
     /// Only back up items taken on/after this date, when enabled.
     static var dateFrom: Date? {

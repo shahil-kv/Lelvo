@@ -46,8 +46,8 @@ struct SettingsView: View {
                     Toggle("Back up new photos automatically", isOn: $autoBackup)
                 } footer: {
                     Text(autoBackup
-                         ? "New photos matching the choices below are backed up on every run. You can also back up any photo with its Back up button."
-                         : "Only photos you choose are backed up: tap Back up on a photo, or select several in Photos and tap Back up.")
+                         ? "New photos matching the choices below are backed up automatically (also overnight and from Shortcuts)."
+                         : "Nothing uploads on its own. Tap Back up now on the Backup tab for everything, or Back up on the photos you choose.")
                 }
 
                 Section {
@@ -384,7 +384,6 @@ struct LibrarySettingsView: View {
             do {
                 try await env.switchLibrary(to: c.id, passphrase: passphrase)
                 Haptics.success()
-                ContinuedBackup.start()
                 await load()
             } catch {
                 Haptics.error()
@@ -404,7 +403,6 @@ struct LibrarySettingsView: View {
             do {
                 try await env.createLibraryAndSwitch(title: title, passphrase: passphrase)
                 Haptics.success()
-                ContinuedBackup.start()
                 await load()
             } catch {
                 Haptics.error()

@@ -91,9 +91,14 @@ final class CancelFlag: @unchecked Sendable {
 /// system UI; earlier versions run while the app is open (uploads still finish in the background).
 enum ContinuedBackup {
     @MainActor static var foregroundTask: Task<Void, Never>?
+    /// Whether the run started by `start` also queues every photo not yet in the cloud.
+    private nonisolated(unsafe) static var includeNew = false
 
+    /// `everything`: "Back up now" (all photos not in the cloud). Otherwise only already-queued items
+    /// (photos chosen with Back up, retries) are uploaded.
     @MainActor
-    static func start() {
+    static func start(everything: Bool = false) {
+        includeNew = everything
         #if !targetEnvironment(macCatalyst)
         if #available(iOS 26.0, *) {
             BackgroundTasks.registerContinuedIfNeeded()
@@ -119,7 +124,7 @@ enum ContinuedBackup {
         foregroundTask = Task {
             let flag = CancelFlag()
             let bg = UIApplication.shared.beginBackgroundTask(withName: "Backup") { flag.cancel() }
-            _ = await AppEnvironment.shared.engine.run(userStarted: true, isCancelled: { flag.isCancelled })
+            _ = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
             UIApplication.shared.endBackgroundTask(bg)
             foregroundTask = nil
         }
@@ -132,7 +137,7 @@ enum ContinuedBackup {
         task.expirationHandler = { flag.cancel() }
         task.progress.totalUnitCount = 1
         Task {
-            let summary = await AppEnvironment.shared.engine.run(userStarted: true, isCancelled: { flag.isCancelled }) { done, total in
+            let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled }) { done, total in
                 task.progress.totalUnitCount = Int64(max(total, 1))
                 task.progress.completedUnitCount = Int64(done)
                 task.updateTitle("Backing up to Telegram", subtitle: "\(done) of \(total) items")

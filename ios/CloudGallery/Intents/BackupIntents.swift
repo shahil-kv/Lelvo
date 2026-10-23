@@ -13,7 +13,8 @@ struct BackUpNewPhotosIntent: AppIntent {
         env.td.start()
         // Shortcuts gives intents limited time: upload for ~25 s, then the overnight task and the
         // next run continue where this one stopped (nothing is lost; the queue is persistent).
-        let summary = await env.engine.run(deadline: Date().addingTimeInterval(25))
+        // A Shortcut the user set up is a deliberate "Back up now".
+        let summary = await env.engine.run(deadline: Date().addingTimeInterval(25), includeNew: true)
         BackgroundTasks.scheduleAll()
         return .result(value: summary.text, dialog: IntentDialog(stringLiteral: summary.text))
     }
