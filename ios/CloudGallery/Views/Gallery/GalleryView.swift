@@ -3,33 +3,6 @@ import Photos
 import PhotosUI
 import CloudGalleryCore
 
-/// What a grid shows: the whole timeline, or a smart/device album.
-enum GalleryFilter: Hashable {
-    case videos, livePhotos, favorites, cloudOnly
-    case album(title: String, localIds: Set<String>)
-
-    var title: String {
-        switch self {
-        case .videos: return "Videos"
-        case .livePhotos: return "Live Photos"
-        case .favorites: return "Favorites"
-        case .cloudOnly: return "Only in the cloud"
-        case .album(let t, _): return t
-        }
-    }
-
-    func matches(_ e: GalleryEntry) -> Bool {
-        switch self {
-        case .videos: return e.isVideo
-        case .livePhotos: return e.isLive
-        case .favorites: return e.asset?.isFavorite == true || e.item?.favorite == true
-        case .cloudOnly: return e.isCloudOnly
-        case .album(let title, let ids):
-            return e.asset.map { ids.contains($0.localIdentifier) } == true || e.item?.albums?.contains(title) == true
-        }
-    }
-}
-
 struct GalleryView: View {
     var filter: GalleryFilter?
     var embedInNavigation = true
@@ -400,12 +373,6 @@ struct GalleryView: View {
             alert = GalleryAlert(title: "Couldn't delete", message: error.localizedDescription)
         }
     }
-}
-
-struct GalleryAlert: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
 }
 
 struct ThumbnailCell: View {

@@ -15,12 +15,12 @@ struct FreeUpSpaceView: View {
     var body: some View {
         List {
             Section {
-                Text("Remove photos and videos from this iPhone that are already safely backed up, to get storage back. They stay in CloudGallery, and you can save any of them back anytime.")
+                Text("Remove photos and videos from this \(Device.name) that are already safely backed up, to get storage back. They stay in CloudGallery, and you can save any of them back anytime.")
                     .font(.subheadline)
             }
             Group {
                 Section {
-                    LabeledContent("Backed up and on this iPhone", value: "\(candidates.count)")
+                    LabeledContent("Backed up and on this \(Device.name)", value: "\(candidates.count)")
                     LabeledContent("Checked, safe to remove", value: "\(verified.count)")
                     LabeledContent("Space you can free", value: Format.bytes(FreeUpSpaceService.bytes(of: verified)))
                 } footer: {
@@ -40,11 +40,11 @@ struct FreeUpSpaceView: View {
                         .disabled(candidates.isEmpty)
                     }
                     Button(role: .destructive) { Task { await delete() } } label: {
-                        Label(deleting ? "Removing…" : "Remove \(verified.count) from iPhone (\(Format.bytes(FreeUpSpaceService.bytes(of: verified))))", systemImage: "trash")
+                        Label(deleting ? "Removing…" : "Remove \(verified.count) from \(Device.name) (\(Format.bytes(FreeUpSpaceService.bytes(of: verified))))", systemImage: "trash")
                     }
                     .disabled(verified.isEmpty || verifying || deleting)
                 } footer: {
-                    Text("iOS asks you to confirm. Removed items move to “Recently Deleted” in Photos for 30 days; empty that album to get the space back right away. They stay in CloudGallery as cloud items.")
+                    Text("\(Device.name == "Mac" ? "macOS" : "iOS") asks you to confirm. Removed items move to “Recently Deleted” in Photos for 30 days; empty that album to get the space back right away. They stay in CloudGallery as cloud items.")
                 }
 
                 if !verified.isEmpty {
@@ -104,8 +104,8 @@ struct FreeUpSpaceView: View {
         do {
             let count = try await service.delete(verified)
             Haptics.success()
-            result = GalleryAlert(title: "Removed \(count) item(s) from iPhone",
-                                  message: "They are still in your Telegram backup and in CloudGallery. Open Photos → Albums → Recently Deleted and choose Delete All to free the space now.")
+            result = GalleryAlert(title: "Removed \(count) item(s) from \(Device.name)",
+                                  message: "They are still in your Telegram backup and in CloudGallery. Open Photos → Recently Deleted and choose Delete All to free the space now.")
             load()
         } catch {
             result = GalleryAlert(title: "Nothing was deleted", message: error.localizedDescription)

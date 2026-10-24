@@ -1,7 +1,9 @@
 import Foundation
 import Photos
 import CoreLocation
+#if os(iOS)
 import UIKit
+#endif
 import UniformTypeIdentifiers
 import CloudGalleryCore
 
@@ -49,7 +51,7 @@ final class PhotoLibraryService: @unchecked Sendable {
 
     /// Grid thumbnails like Photos: a quick low-res image first, then the sharp one. The request is
     /// cancelled as soon as the cell scrolls away, so fast scrolling doesn't queue up hundreds of loads.
-    func thumbnails(for asset: PHAsset, pixels: CGFloat) -> AsyncStream<UIImage> {
+    func thumbnails(for asset: PHAsset, pixels: CGFloat) -> AsyncStream<PlatformImage> {
         let manager = gridImages
         return AsyncStream { cont in
             let options = PHImageRequestOptions()
@@ -274,7 +276,7 @@ final class PhotoLibraryService: @unchecked Sendable {
 
     // MARK: - Images
 
-    func image(for asset: PHAsset, targetSize: CGSize, mode: PHImageRequestOptionsDeliveryMode = .highQualityFormat) async -> UIImage? {
+    func image(for asset: PHAsset, targetSize: CGSize, mode: PHImageRequestOptionsDeliveryMode = .highQualityFormat) async -> PlatformImage? {
         let options = PHImageRequestOptions()
         options.deliveryMode = mode
         options.resizeMode = .fast
@@ -297,7 +299,7 @@ final class PhotoLibraryService: @unchecked Sendable {
         return Self.compressedJPEG(image, maxPixel: 320, maxBytes: 60_000)
     }
 
-    static func compressedJPEG(_ image: UIImage, maxPixel: CGFloat, maxBytes: Int) -> Data? {
+    static func compressedJPEG(_ image: PlatformImage, maxPixel: CGFloat, maxBytes: Int) -> Data? {
         var side = maxPixel
         while side >= 80 {
             let scaled = image.scaledToFit(maxPixel: side)
@@ -348,6 +350,7 @@ final class PhotoLibraryService: @unchecked Sendable {
     }
 }
 
+#if os(iOS)
 extension UIImage {
     func scaledToFit(maxPixel: CGFloat) -> UIImage {
         let pixelW = size.width * scale, pixelH = size.height * scale
@@ -361,6 +364,7 @@ extension UIImage {
         }
     }
 }
+#endif
 
 extension String {
     var sanitizedFilename: String {

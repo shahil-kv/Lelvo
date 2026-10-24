@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.shahil-kv
   deploymentTarget:
     iOS: "17.0"
+    macOS: "15.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
@@ -77,6 +78,55 @@ targets:
         UIFileSharingEnabled: false
         LSSupportsOpeningDocumentsInPlace: false
 
+  CloudGalleryMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: CloudGalleryMac
+      - path: CloudGallery/Shared
+      - path: CloudGallery/App/AppEnvironment.swift
+      - path: CloudGallery/App/AppModel.swift
+      - path: CloudGallery/Services
+      - path: CloudGallery/Views/Components/Components.swift
+      - path: CloudGallery/Views/Onboarding/OnboardingView.swift
+      - path: CloudGallery/Views/Settings/SettingsView.swift
+      - path: CloudGallery/Views/Backup/BackupDashboardView.swift
+      - path: CloudGallery/Views/Backup/FreeUpSpaceView.swift
+      - path: CloudGallery/Views/Gallery/GalleryModel.swift
+      - path: CloudGallery/Views/Gallery/GalleryActions.swift
+    dependencies:
+      - package: CloudGalleryCore
+      - package: TDLibKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.cloudgallery.mac
+        PRODUCT_NAME: CloudGallery
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: CloudGalleryMac/Info.plist
+        CODE_SIGN_ENTITLEMENTS: CloudGalleryMac/CloudGalleryMac.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_IDENTITY: "-"
+        COMBINE_HIDPI_IMAGES: YES
+    info:
+      path: CloudGalleryMac/Info.plist
+      properties:
+        CFBundleDisplayName: CloudGallery
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.photography
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHumanReadableCopyright: "GPL-3.0. Your photos, your Telegram."
+        NSPhotoLibraryUsageDescription: CloudGallery backs up the photos and videos in your Photos library to your own private Telegram channel and shows them in one timeline.
+        NSPhotoLibraryAddUsageDescription: CloudGallery saves photos you download from your Telegram backup back into your Photos library.
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: CloudGalleryMac/CloudGalleryMac.entitlements
+      properties:
+        com.apple.security.personal-information.photos-library: true
+        com.apple.security.network.client: true
+
   CloudGalleryTests:
     type: bundle.unit-test
     platform: iOS
@@ -103,6 +153,14 @@ targets:
         TEST_TARGET_NAME: CloudGallery
 
 schemes:
+  CloudGalleryMac:
+    build:
+      targets:
+        CloudGalleryMac: all
+    run:
+      config: Debug
+    archive:
+      config: Release
   CloudGallery:
     build:
       targets:

@@ -1,5 +1,4 @@
 import Foundation
-import UIKit
 import ImageIO
 import CloudGalleryCore
 
@@ -7,7 +6,7 @@ import CloudGalleryCore
 /// disk cache and a size-capped LRU cache for viewed originals. Videos stream instead (`StreamingAsset`).
 final class CloudMediaService: @unchecked Sendable {
     private unowned let env: AppEnvironment
-    private let memory = NSCache<NSString, UIImage>()
+    private let memory = NSCache<NSString, PlatformImage>()
     private let gate = DownloadGate(limit: 4)
     private let inflight = InflightRegistry()
 
@@ -20,11 +19,11 @@ final class CloudMediaService: @unchecked Sendable {
     static func thumbnailKey(_ item: MediaItem) -> String { "t_\(item.id)" }
     static func originalKey(_ item: MediaItem, role: String) -> String { "o_\(item.id)_\(role)" }
 
-    func cachedThumbnail(for item: MediaItem) -> UIImage? {
+    func cachedThumbnail(for item: MediaItem) -> PlatformImage? {
         memory.object(forKey: item.id as NSString)
     }
 
-    func thumbnail(for item: MediaItem) async throws -> UIImage {
+    func thumbnail(for item: MediaItem) async throws -> PlatformImage {
         if let img = memory.object(forKey: item.id as NSString) { return img }
         let key = Self.thumbnailKey(item)
         let url = try await inflight.run(key) { [self] in
@@ -66,7 +65,7 @@ final class CloudMediaService: @unchecked Sendable {
     }
 
     /// Medium-size decode used while the full image loads (progressive: thumbnail → screen-size → full).
-    static func downsampled(_ url: URL, maxPixel: CGFloat) -> UIImage? {
+    static func downsampled(_ url: URL, maxPixel: CGFloat) -> PlatformImage? {
         let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
         guard let src = CGImageSourceCreateWithURL(url as CFURL, options as CFDictionary) else { return nil }
         let thumbOptions: [CFString: Any] = [
@@ -76,7 +75,7 @@ final class CloudMediaService: @unchecked Sendable {
             kCGImageSourceThumbnailMaxPixelSize: maxPixel
         ]
         guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, thumbOptions as CFDictionary) else { return nil }
-        return UIImage(cgImage: cg)
+        return PlatformImage(cgImage: cg)
     }
 
     /// Copies a cached original to a temp file with its real name (for sharing / saving).

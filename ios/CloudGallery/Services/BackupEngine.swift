@@ -1,6 +1,5 @@
 import Foundation
 import Photos
-import UIKit
 import Network
 import CloudGalleryCore
 
@@ -142,11 +141,7 @@ final class BackupEngine: @unchecked Sendable {
         if !PhotoLibraryService.hasAccess { return .noPhotoAccess }
         if !NetworkStatus.shared.isOnline { return .offline }
         if Prefs.wifiOnly && NetworkStatus.shared.isExpensive { return .waitingForWiFi }
-        if Prefs.chargingOnly {
-            UIDevice.current.isBatteryMonitoringEnabled = true
-            let state = UIDevice.current.batteryState
-            if state != .charging && state != .full { return .waitingForPower }
-        }
+        if Prefs.chargingOnly && !Device.isCharging { return .waitingForPower }
         return nil
     }
 
@@ -423,7 +418,7 @@ final class BackupEngine: @unchecked Sendable {
             var thumbSize = (320, 320)
             if let thumbData {
                 try thumbData.write(to: thumbURL)
-                if let img = UIImage(data: thumbData) { thumbSize = (Int(img.size.width * img.scale), Int(img.size.height * img.scale)) }
+                if let px = ImageDimensions.pixelSize(of: thumbData) { thumbSize = (px.width, px.height) }
                 _ = try? env.thumbnailCache.store(data: thumbData, for: CloudMediaService.thumbnailKey(item), ext: "jpg")
             }
             defer { try? FileManager.default.removeItem(at: thumbURL) }

@@ -116,6 +116,7 @@ struct AlbumsView: View {
         case .livePhotos: return "livephoto"
         case .favorites: return "heart"
         case .cloudOnly: return "icloud"
+        case .notBackedUp: return "icloud.slash"
         case .album: return "photo.on.rectangle"
         }
     }

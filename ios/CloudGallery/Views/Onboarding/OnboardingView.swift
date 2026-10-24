@@ -273,6 +273,10 @@ struct OnboardingView: View {
                                     removal: .move(edge: .leading).combined(with: .opacity)))
         }
         .animation(.spring(duration: 0.45, bounce: 0.1), value: m.step)
+        // Our fields draw their own rounded background and focus ring; no system bezel inside them.
+        .textFieldStyle(.plain)
+        .focusEffectDisabled()
+        .macBorderlessButtons()
         .preferredColorScheme(.dark)
     }
 
@@ -280,7 +284,7 @@ struct OnboardingView: View {
 
     private var credentials: some View {
         OnboardingPage(icon: "key.fill", title: "Connect to Telegram",
-                       subtitle: "Telegram needs a free API key for apps like this one. It takes a minute and stays on this iPhone.",
+                       subtitle: "Telegram needs a free API key for apps like this one. It takes a minute and stays on this \(Device.name).",
                        m: m, button: .init(title: "Continue", enabled: !m.apiId.isEmpty && !m.apiHash.isEmpty) { m.saveCredentials() }) {
             VStack(alignment: .leading, spacing: 14) {
                 numbered(1, "Open **my.telegram.org** and log in.")
@@ -321,7 +325,7 @@ struct OnboardingView: View {
         OnboardingPage(icon: "person.crop.circle.badge.questionmark", title: "No Telegram account",
                        subtitle: "\(m.phone) isn't registered on Telegram yet. Create an account in the Telegram app (it's free), then come back and sign in.",
                        m: m, button: .init(title: "Get Telegram", enabled: true) {
-                           if let url = URL(string: "https://apps.apple.com/app/telegram-messenger/id686449807") { UIApplication.shared.open(url) }
+                           if let url = URL(string: "https://apps.apple.com/app/telegram-messenger/id686449807") { PlatformActions.open(url) }
                        }) {
             Button { m.back() } label: {
                 Label("Use a different number", systemImage: "arrow.uturn.backward").font(.subheadline.weight(.semibold))
@@ -364,8 +368,8 @@ struct OnboardingView: View {
         let status = m.photoStatus
         let decided = status != .notDetermined
         return OnboardingPage(icon: "photo.on.rectangle.angled", title: "Back up your photos",
-                              subtitle: m.info.map { "\($0) Allow Full Access so everything on this iPhone is backed up too." }
-                                ?? "Allow Full Access so everything on this iPhone is backed up.",
+                              subtitle: m.info.map { "\($0) Allow Full Access so everything on this \(Device.name) is backed up too." }
+                                ?? "Allow Full Access so everything on this \(Device.name) is backed up.",
                               m: m, showsInfo: false,
                               button: decided ? .init(title: "Start using CloudGallery", enabled: true) { app.finishOnboarding() }
                                               : .init(title: "Allow Access", enabled: true) { m.requestPhotos() }) {
@@ -375,7 +379,7 @@ struct OnboardingView: View {
                 case .limited: Label("Limited access: only the photos you picked are backed up.", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange)
                 case .denied, .restricted:
                     Label("No access. You can still browse your cloud library.", systemImage: "xmark.circle.fill").foregroundStyle(.red)
-                    Button("Open Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
+                    Button("Open Settings") { PlatformActions.openPhotoSettings() }
                 default:
                     feature("checkmark.icloud.fill", "Originals, bit for bit", "Full-quality photos and videos, any size.")
                     feature("play.circle.fill", "Stream from the cloud", "Watch backed-up videos without downloading them.")
@@ -437,7 +441,7 @@ private struct LibraryScreen: View {
                 OnboardingPage(icon: "checkmark.icloud.fill", title: "Welcome back",
                                subtitle: libraries.count == 1
                                  ? "We found your library in Telegram. Restore it to see everything you've backed up."
-                                 : "We found \(libraries.count) libraries in your Telegram. Choose the one to use on this iPhone.",
+                                 : "We found \(libraries.count) libraries in your Telegram. Choose the one to use on this \(Device.name).",
                                m: m, button: .init(title: "Restore “\(chosen.title)”", enabled: true) { m.choose(chosen) }) {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(libraries) { c in
@@ -485,7 +489,7 @@ private struct LibraryScreen: View {
                     .padding(20)
                 }
                 .navigationTitle("New library")
-                .navigationBarTitleDisplayMode(.inline)
+                .inlineNavigationTitle()
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { creating = false } } }
             }
             .presentationDetents([.large])
@@ -509,7 +513,7 @@ private struct LibraryScreen: View {
                     if m.channels.isEmpty { Text("No channels found.").foregroundStyle(.secondary) }
                 }
                 .navigationTitle("Choose a channel")
-                .navigationBarTitleDisplayMode(.inline)
+                .inlineNavigationTitle()
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { pickingChannel = false } }
                     ToolbarItem(placement: .primaryAction) { Button { m.loadChannels() } label: { Image(systemName: "arrow.clockwise") } }
@@ -774,7 +778,7 @@ struct PressScaleStyle: ButtonStyle {
 struct OnboardingField: View {
     let placeholder: String
     @Binding var text: String
-    var keyboard: UIKeyboardType = .default
+    var keyboard: PlatformKeyboard = .default
     var secure = false
     var content: UITextContentType? = nil
     var autofocus = false
@@ -786,16 +790,19 @@ struct OnboardingField: View {
         HStack {
             Group {
                 if secure && !revealed { SecureField(placeholder, text: $text) }
-                else { TextField(placeholder, text: $text).keyboardType(keyboard) }
+                else { TextField(placeholder, text: $text).platformKeyboard(keyboard) }
             }
             .textContentType(content)
+            .textFieldStyle(.plain)
+            .focusEffectDisabled()
             .autocorrectionDisabled()
-            .textInputAutocapitalization(.never)
+            .noAutocapitalization()
             .focused($focused)
             .onSubmit(onSubmit)
             .accessibilityLabel(placeholder)
             if secure {
                 Button { revealed.toggle() } label: { Image(systemName: revealed ? "eye.slash" : "eye").foregroundStyle(.secondary) }
+                    .buttonStyle(.plain)
                     .accessibilityLabel(revealed ? "Hide" : "Show")
             }
         }
@@ -826,7 +833,7 @@ private struct WelcomeScreen: View {
                 Text("All your photos.\nIn your own Telegram.")
                     .font(.system(size: 38, weight: .bold))
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Back up originals, stream videos, and get everything back on any iPhone. Free, private, no servers.")
+                Text("Back up originals, stream videos, and get everything back on any iPhone or Mac. Free, private, no servers.")
                     .font(.title3).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 PrimaryCapsuleButton(title: "Continue with Telegram", action: start)
@@ -929,7 +936,7 @@ private struct PhoneScreen: View {
                     HStack(spacing: 2) {
                         Text("+").foregroundStyle(.secondary)
                         TextField("", text: $m.dialCode)
-                            .keyboardType(.numberPad)
+                            .platformKeyboard(.numberPad)
                             .frame(width: 48)
                             .onChange(of: m.dialCode) { _, v in
                                 let digits = String(v.filter(\.isNumber).prefix(4))
@@ -939,7 +946,7 @@ private struct PhoneScreen: View {
                     .padding(.horizontal, 16)
                     Divider().frame(height: 30).overlay(Color.white.opacity(0.15))
                     TextField("Phone number", text: $m.nationalNumber)
-                        .keyboardType(.numberPad)
+                        .platformKeyboard(.numberPad)
                         .textContentType(.telephoneNumber)
                         .focused($numberFocused)
                         .padding(.horizontal, 16)
@@ -986,9 +993,9 @@ private struct CountryPicker: View {
                     }
                 }
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Country or code")
+            .platformSearchable(text: $query, prompt: "Country or code")
             .navigationTitle("Country")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
     }
@@ -1009,7 +1016,7 @@ private struct CodeScreen: View {
             VStack(alignment: .leading, spacing: 18) {
                 ZStack {
                     TextField("", text: $m.code)
-                        .keyboardType(.numberPad)
+                        .platformKeyboard(.numberPad)
                         .textContentType(.oneTimeCode)
                         .focused($focused)
                         .opacity(0.02)

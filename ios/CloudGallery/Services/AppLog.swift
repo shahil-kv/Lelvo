@@ -20,8 +20,7 @@ final class AppLog: @unchecked Sendable {
     }()
 
     private init() {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Logs", isDirectory: true)
+        let dir = AppPaths.support.appendingPathComponent("Logs", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("cloudgallery.log")
     }
@@ -90,5 +89,23 @@ extension URL {
     static func literal(_ string: StaticString) -> URL {
         guard let url = URL(string: "\(string)") else { preconditionFailure("Invalid URL literal \(string)") }
         return url
+    }
+}
+
+/// Where CloudGallery keeps its files. iOS apps are already in their own container; the Mac app isn't sandboxed,
+/// so it uses its own folders (~/Library/Application Support/<bundle id>, ~/Library/Caches/<bundle id>).
+enum AppPaths {
+    static let support = scoped(.applicationSupportDirectory)
+    static let caches = scoped(.cachesDirectory)
+
+    private static func scoped(_ directory: FileManager.SearchPathDirectory) -> URL {
+        let base = FileManager.default.urls(for: directory, in: .userDomainMask)[0]
+        #if os(macOS)
+        let dir = base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.shahil-kv.cloudgallery.mac", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+        #else
+        return base
+        #endif
     }
 }

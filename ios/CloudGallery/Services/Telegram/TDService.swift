@@ -98,8 +98,8 @@ final class TDService: @unchecked Sendable {
 
     private init() {
         let fm = FileManager.default
-        let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let support = AppPaths.support
+        let caches = AppPaths.caches
         databaseDirectory = support.appendingPathComponent("tdlib", isDirectory: true)
         filesDirectory = caches.appendingPathComponent("tdlib-files", isDirectory: true)
         try? fm.createDirectory(at: databaseDirectory, withIntermediateDirectories: true)
@@ -229,7 +229,7 @@ final class TDService: @unchecked Sendable {
                         apiHash: creds.apiHash, apiId: creds.apiId,
                         applicationVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0",
                         databaseDirectory: databaseDirectory.path, databaseEncryptionKey: TDCredentials.databaseKey(),
-                        deviceModel: "iPhone", filesDirectory: filesDirectory.path,
+                        deviceModel: Self.deviceModel, filesDirectory: filesDirectory.path,
                         systemLanguageCode: Locale.preferredLanguages.first ?? "en", systemVersion: "",
                         useChatInfoDatabase: true, useFileDatabase: true,
                         // No message database: interrupted sends are reconciled from history instead of auto-resent.
@@ -253,6 +253,15 @@ final class TDService: @unchecked Sendable {
             lock.lock(); self.client = nil; lock.unlock()
             setAuth(.closed)
         }
+    }
+
+    /// Shown in Telegram → Settings → Devices.
+    private static var deviceModel: String {
+        #if os(macOS)
+        "Mac"
+        #else
+        "iPhone"
+        #endif
     }
 
     private static func describe(_ info: AuthenticationCodeInfo) -> String {

@@ -1,4 +1,5 @@
 import Foundation
+#if os(iOS)
 import BackgroundTasks
 import UIKit
 
@@ -80,6 +81,44 @@ enum BackgroundTasks {
     }
 }
 
+#else
+
+/// macOS has no BGTaskScheduler: while CloudGallery is open, a system-scheduled activity checks for new
+/// photos and refreshes the index every hour (it respects Wi-Fi only / charging only through the engine).
+enum BackgroundTasks {
+    private static let scheduler: NSBackgroundActivityScheduler = {
+        let s = NSBackgroundActivityScheduler(identifier: "com.shahil-kv.cloudgallery.mac.hourly")
+        s.repeats = true
+        s.interval = 60 * 60
+        s.tolerance = 10 * 60
+        s.qualityOfService = .utility
+        return s
+    }()
+    private nonisolated(unsafe) static var scheduled = false
+
+    static func register() {}
+
+    static func scheduleAll() {
+        guard !scheduled else { return }
+        scheduled = true
+        scheduler.schedule { completion in
+            Task {
+                let env = AppEnvironment.shared
+                if env.isConfigured, (try? await env.td.waitUntilReady(timeout: 20)) != nil {
+                    _ = try? await env.library.scan(full: false)
+                    if Prefs.autoBackup && !Prefs.backupPaused {
+                        let summary = await env.engine.run(isCancelled: { scheduler.shouldDefer })
+                        appLog("Hourly backup: \(summary.text)")
+                    }
+                }
+                await env.enforceCacheLimits()
+                completion(.finished)
+            }
+        }
+    }
+}
+#endif
+
 final class CancelFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
@@ -99,7 +138,7 @@ enum ContinuedBackup {
     @MainActor
     static func start(everything: Bool = false) {
         includeNew = everything
-        #if !targetEnvironment(macCatalyst)
+        #if os(iOS) && !targetEnvironment(macCatalyst)
         if #available(iOS 26.0, *) {
             BackgroundTasks.registerContinuedIfNeeded()
             let request = BGContinuedProcessingTaskRequest(identifier: BackgroundTasks.continuedId,
@@ -123,14 +162,22 @@ enum ContinuedBackup {
         guard foregroundTask == nil else { return }
         foregroundTask = Task {
             let flag = CancelFlag()
+            #if os(iOS)
             let bg = UIApplication.shared.beginBackgroundTask(withName: "Backup") { flag.cancel() }
             _ = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
             UIApplication.shared.endBackgroundTask(bg)
+            #else
+            // Keeps App Nap and idle sleep from throttling a long upload while the window is in the background.
+            let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
+                                                                 reason: "Backing up to Telegram")
+            _ = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            ProcessInfo.processInfo.endActivity(activity)
+            #endif
             foregroundTask = nil
         }
     }
 
-    #if !targetEnvironment(macCatalyst)
+    #if os(iOS) && !targetEnvironment(macCatalyst)
     @available(iOS 26.0, *)
     static func handle(_ task: BGContinuedProcessingTask) {
         let flag = CancelFlag()

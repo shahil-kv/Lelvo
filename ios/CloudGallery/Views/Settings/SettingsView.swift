@@ -67,7 +67,7 @@ struct SettingsView: View {
                         LabeledContent("Storage", value: usage.map { Format.bytes($0.thumbnails + $0.originals + $0.telegram) } ?? "…")
                     }
                 } footer: {
-                    Text("Space used on this iPhone by cloud previews you've viewed. Your photos aren't affected.")
+                    Text("Space used on this \(Device.name) by cloud previews you've viewed. Your photos aren't affected.")
                 }
 
                 Section {
@@ -79,15 +79,17 @@ struct SettingsView: View {
                 }
 
                 Section("Help") {
+                    #if os(iOS)
                     NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
+                    #endif
                     NavigationLink { LogsView() } label: { Label("Logs", systemImage: "doc.text.magnifyingglass") }
                     NavigationLink { AboutView() } label: { Label("About & licenses", systemImage: "info.circle") }
                 }
 
                 Section {
-                    Button("Sign out and reset this iPhone", role: .destructive) { confirmReset = true }
+                    Button("Sign out and reset this \(Device.name)", role: .destructive) { confirmReset = true }
                 } footer: {
-                    Text("Signs out of Telegram on this iPhone and removes local data. Your Telegram library is not touched; sign in again to restore it.")
+                    Text("Signs out of Telegram on this \(Device.name) and removes local data. Your Telegram library is not touched; sign in again to restore it.")
                 }
             }
             .navigationTitle("Settings")
@@ -103,7 +105,7 @@ struct SettingsView: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Sign Out", role: .destructive) { run(nil) { await app.reset() } }
             } message: {
-                Text("This iPhone is signed out of Telegram and CloudGallery's local data is removed. Your backup in Telegram isn't touched; sign in again to get it back.")
+                Text("This \(Device.name) is signed out of Telegram and CloudGallery's local data is removed. Your backup in Telegram isn't touched; sign in again to get it back.")
             }
             .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
         }
@@ -184,11 +186,18 @@ struct LogsView: View {
         }
         .navigationTitle("Logs")
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { if let url = AppLog.shared.exportFile() { share = ShareItems(urls: [url]) } } label: {
-                    Image(systemName: "square.and.arrow.up")
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    guard let url = AppLog.shared.exportFile() else { return }
+                    #if os(macOS)
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                    #else
+                    share = ShareItems(urls: [url])
+                    #endif
+                } label: {
+                    Image(systemName: Device.name == "Mac" ? "folder" : "square.and.arrow.up")
                 }
-                .accessibilityLabel("Share logs")
+                .accessibilityLabel(Device.name == "Mac" ? "Show log file in Finder" : "Share logs")
                 Button(role: .destructive) { AppLog.shared.clear(); text = "" } label: { Image(systemName: "trash") }
                     .accessibilityLabel("Clear logs")
             }
@@ -198,7 +207,9 @@ struct LogsView: View {
                 .font(.caption2).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 4)
         }
         .task { text = AppLog.shared.contents() }
+        #if os(iOS)
         .sheet(item: $share) { ActivityView(items: $0.urls) }
+        #endif
     }
 }
 
@@ -207,7 +218,7 @@ struct AboutView: View {
         List {
             Section {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
-                Text("CloudGallery for iOS backs up your photos to your own Telegram channel. No analytics, no tracking, no servers.")
+                Text("CloudGallery backs up your photos to your own Telegram channel. No analytics, no tracking, no servers.")
             }
             Section("Credits") {
                 Text("Based on the ideas of **AKS-Labs/CloudGallery** (Android) and **Whitehole**, the original Telegram photo-backup projects.")
@@ -311,7 +322,7 @@ struct LibrarySettingsView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
                 LibraryCard(title: c.title, encrypted: c.encrypted, selected: true)
-                Text("CloudGallery loads this library from Telegram and links your iPhone photos to it. Backups then go here.")
+                Text("CloudGallery loads this library from Telegram and links your \(Device.name) photos to it. Backups then go here.")
                     .font(.subheadline).foregroundStyle(.secondary)
                 if c.encrypted {
                     OnboardingField(placeholder: "Passphrase", text: $switchPassphrase, secure: true, content: .password, autofocus: true)
@@ -323,7 +334,7 @@ struct LibrarySettingsView: View {
             }
             .padding(20)
             .navigationTitle("Switch library")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { switching = nil } } }
         }
         .presentationDetents([.medium, .large])
@@ -347,7 +358,7 @@ struct LibrarySettingsView: View {
                     .padding(20)
             }
             .navigationTitle("New library")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { creating = false } } }
         }
     }
@@ -438,7 +449,7 @@ struct ExportLibraryView: View {
             Section {
                 Label("Originals with their real names, plus edited versions and Live Photo videos.", systemImage: "doc.on.doc")
                 Label("Encrypted items are decrypted, so the copy opens anywhere.", systemImage: "lock.open")
-                Label("Pick a folder on this iPhone, iCloud Drive, or a USB drive or SSD.", systemImage: "externaldrive")
+                Label("Pick a folder on this \(Device.name), iCloud Drive, or a USB drive or SSD.", systemImage: "externaldrive")
                 Label("Interrupted? Run it again: finished files are skipped.", systemImage: "arrow.clockwise")
             } footer: {
                 Text("Make sure the destination has enough free space for your whole library.")
@@ -465,9 +476,15 @@ struct ExportLibraryView: View {
             }
         }
         .navigationTitle("Download a copy")
+        #if os(iOS)
         .sheet(isPresented: $picking) {
             FolderPicker { url in start(url) }.ignoresSafeArea()
         }
+        #else
+        .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result { start(url) }
+        }
+        #endif
         .onDisappear { running?.cancel() }
     }
 
@@ -477,8 +494,13 @@ struct ExportLibraryView: View {
         let items = ((try? env.store.items(status: .backedUp)) ?? []).filter(\.isViewableFromCloud)
         total = items.count
         running = Task {
+            #if os(iOS)
             UIApplication.shared.isIdleTimerDisabled = true
             defer { UIApplication.shared.isIdleTimerDisabled = false }
+            #else
+            let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled], reason: "Downloading a copy of the library")
+            defer { ProcessInfo.processInfo.endActivity(activity) }
+            #endif
             let access = folder.startAccessingSecurityScopedResource()
             defer { if access { folder.stopAccessingSecurityScopedResource() } }
             let fm = FileManager.default
@@ -536,6 +558,7 @@ struct ExportLibraryView: View {
     }
 }
 
+#if os(iOS)
 /// Files folder picker (any location the user can write to, including external drives).
 private struct FolderPicker: UIViewControllerRepresentable {
     let picked: (URL) -> Void
@@ -558,6 +581,7 @@ private struct FolderPicker: UIViewControllerRepresentable {
         }
     }
 }
+#endif
 
 /// What gets backed up, and when (moved off the main Settings page).
 struct BackupOptionsView: View {
@@ -615,7 +639,7 @@ struct StorageSettingsView: View {
                         Haptics.success()
                     }
                 }
-            } header: { Text("Used on this iPhone") } footer: {
+            } header: { Text("Used on this \(Device.name)") } footer: {
                 Text("Previews of cloud items you've viewed, kept so they open instantly next time. Clearing never touches your photos or your backup.")
             }
             Section {

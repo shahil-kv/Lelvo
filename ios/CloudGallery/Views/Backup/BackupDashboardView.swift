@@ -164,13 +164,13 @@ struct BackupDashboardView: View {
                         Label("Limited photo access: only photos you selected are backed up.", systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
                         Button("Allow full access in Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                            PlatformActions.openPhotoSettings()
                         }
                     }
                 }
 
                 Section("Library") {
-                    statRow("On this iPhone", stats.onDevice, "iphone", .secondary)
+                    statRow("On this \(Device.name)", stats.onDevice, Device.symbol, .secondary)
                     statRow("Backed up (verified)", stats.backedUp, BackupBadge.backedUp.symbol, BackupBadge.backedUp.tint)
                     statRow("Only in the cloud", stats.cloudOnly, BackupBadge.cloudOnly.symbol, BackupBadge.cloudOnly.tint)
                     statRow("Waiting to upload", stats.pending, BackupBadge.waiting.symbol, .secondary)
@@ -182,7 +182,9 @@ struct BackupDashboardView: View {
                 Section("Tools") {
                     NavigationLink { FreeUpSpaceView() } label: { Label("Free up space", systemImage: "internaldrive") }
                     NavigationLink { DuplicatesView() } label: { Label("Duplicates", systemImage: "square.on.square") }
+                    #if os(iOS)
                     NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
+                    #endif
                     Button {
                         Task {
                             _ = try? await AppEnvironment.shared.library.scan(full: true)
@@ -233,7 +235,7 @@ struct BackupDashboardView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.headline)
-                Text(state == .complete ? "Everything on this iPhone is backed up"
+                Text(state == .complete ? "Everything on this \(Device.name) is backed up"
                      : state == .notBackedUp ? "Back up now uploads them all, or choose photos in Photos and tap Back up."
                      : "To your Telegram library")
                     .font(.subheadline).foregroundStyle(.secondary)
@@ -294,7 +296,7 @@ struct FailedItemsView: View {
                                         await Task.detached { try? AppEnvironment.shared.store.delete(id: item.id) }.value
                                         await load()
                                     }
-                                } label: { Label("Delete from iPhone", systemImage: "trash") }
+                                } label: { Label("Delete from \(Device.name)", systemImage: "trash") }
                             }
                         }
                     }
@@ -313,12 +315,12 @@ struct FailedItemsView: View {
 
 private struct FailedThumbnail: View {
     let localIdentifier: String?
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
 
     var body: some View {
-        Color(.secondarySystemBackground)
+        Color.tileBackground
             .frame(width: 52, height: 52)
-            .overlay { if let image { Image(uiImage: image).resizable().scaledToFill() } }
+            .overlay { if let image { Image(platformImage: image).resizable().scaledToFill() } }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .task(id: localIdentifier) {
                 let env = AppEnvironment.shared
@@ -347,7 +349,7 @@ struct DuplicatesView: View {
                 HStack { ProgressView(); Text("Looking for duplicates…").foregroundStyle(.secondary) }
             } else if messageDuplicates.isEmpty && cloudGroups.isEmpty && phoneGroups.isEmpty {
                 EmptyStateView(systemImage: "checkmark.circle", title: "No duplicates",
-                               message: "Nothing is stored twice in your library or on this iPhone.")
+                               message: "Nothing is stored twice in your library or on this \(Device.name).")
             }
 
             if !messageDuplicates.isEmpty || !cloudGroups.isEmpty {
@@ -370,7 +372,7 @@ struct DuplicatesView: View {
                         Label("Remove extra copies from Telegram", systemImage: "trash")
                     }
                 } header: { Text("In your Telegram library") } footer: {
-                    Text("One copy of each always stays, and photos on this iPhone stay linked to it.")
+                    Text("One copy of each always stays, and photos on this \(Device.name) stay linked to it.")
                 }
             }
 
@@ -406,11 +408,11 @@ struct DuplicatesView: View {
                     HStack {
                         Button("Select all copies") { selectedCopies = Set(phoneGroups.flatMap(\.copies)) }
                         Spacer()
-                        Button(role: .destructive) { deletePhoneCopies() } label: { Text("Delete \(selectedCopies.count) from iPhone") }
+                        Button(role: .destructive) { deletePhoneCopies() } label: { Text("Delete \(selectedCopies.count) from \(Device.name)") }
                             .disabled(selectedCopies.isEmpty)
                     }
                     .buttonStyle(.borderless)
-                } header: { Text("On this iPhone") } footer: {
+                } header: { Text("On this \(Device.name)") } footer: {
                     Text("Identical copies of photos that are already backed up. Deleting a copy moves it to Recently Deleted; the backup isn't affected.")
                 }
             }
@@ -479,12 +481,12 @@ private struct DuplicateThumb: View {
     let item: MediaItem
     let localIdentifier: String?
     var size: CGFloat = 52
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
 
     var body: some View {
-        Color(.secondarySystemBackground)
+        Color.tileBackground
             .frame(width: size, height: size)
-            .overlay { if let image { Image(uiImage: image).resizable().scaledToFill() } }
+            .overlay { if let image { Image(platformImage: image).resizable().scaledToFill() } }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .task(id: localIdentifier ?? item.id) {
                 let env = AppEnvironment.shared

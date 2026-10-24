@@ -11,6 +11,8 @@ Read this first when resuming. **Priority: iOS.** Android is paused at the owner
 | 1 | iOS on TDLib (user account), format 1 | ✅ Built, CI green; **needs on-device testing** |
 | 3 (iOS part) | Core unit tests, UI smoke tests, no force-unwraps | ✅ Done |
 | 4 (iOS part) | CI on macos-latest + xcode-27, IPA, tag release | ✅ (v2.0.0-beta.1) |
+| Mac 1 | macOS app (SwiftUI, shares iOS services) | ✅ Built locally, in /Applications; **owner testing** |
+| Mac 2 | WhatsApp backup via Mac (iPhone backup → WhatsApp only → encrypted → Telegram), archive viewer, restore | ⏳ Next: research first |
 | 2 | Android on TDLib | ⏸ Paused. Only `android/tdlib.version` and a manual `tdlib-android.yml` workflow exist |
 
 ## iOS: done
@@ -37,6 +39,15 @@ Read this first when resuming. **Priority: iOS.** Android is paused at the owner
 - UI: Photos-style grid (single scrubber, zoom transition, cancellable thumbnails), Albums media types, viewer with custom video controls (⋯ speed/PiP/AirPlay, zoom), clear backup badges + legend, Backup complete state, redesigned onboarding, Libraries screen (switch / rename / create) in Settings.
 - Back up chosen photos; "Back up new photos automatically" toggle.
 - beta.5/6: nothing uploads on its own (Back up now = everything, Back up = chosen); edited versions backed up (role `e`) and re-uploaded when edited after backup; Duplicates review (Telegram copies, same content twice, identical iPhone copies); Download a copy of the library to Files; Telegram inactivity deletion set to 2 years from Settings; local index excluded from device backups; plain-language Free up space.
+
+## macOS app (2026-10-24)
+
+- Target `CloudGalleryMac` in `ios/project.yml` (macOS 15+). Shares `CloudGallery/Services`, `App/AppEnvironment.swift`, `App/AppModel.swift`, `Shared/Platform.swift` and the sign-in / settings / backup screens; Mac-only UI lives in `ios/CloudGalleryMac/`.
+- Not sandboxed (hardened runtime + Photos entitlement); data in `~/Library/Application Support/com.shahil-kv.cloudgallery.mac` and `~/Library/Caches/com.shahil-kv.cloudgallery.mac` (`AppPaths`).
+- Sign with the Apple Development identity (team 47PTVGK8BJ): ad-hoc builds change identity every build and lose keychain access to the TDLib key (forces a new Telegram login).
+- UI: Apple Photos-style sidebar (Library, Favorites, Videos, Live Photos, Not Backed Up, Only in Cloud, Backup, Media Types, Albums) with a backup status card; grid with zoom slider, click to open, Select mode (or ⌘/⇧-click), arrow keys, context menus, drag to Finder, ⌘I inspector; viewer with hero zoom from the tile, ← → / two-finger swipe, pinch / double-click zoom, AVPlayerView (PiP, AirPlay), Live Photo on LIVE hover; Backup page; Settings (⌘,); menu bar status.
+- Debug builds: `DebugHooks` snapshot / drive the window via distributed notifications (no Screen Recording permission needed).
+- Build: `xcodebuild -project ios/CloudGallery.xcodeproj -scheme CloudGalleryMac -configuration Release -derivedDataPath ios/build/DerivedData -clonedSourcePackagesDirPath ios/build/SourcePackages DEVELOPMENT_TEAM=47PTVGK8BJ CODE_SIGN_IDENTITY="Apple Development" build`, then copy `Release/CloudGallery.app` to /Applications.
 
 ## iOS: not done / known gaps
 

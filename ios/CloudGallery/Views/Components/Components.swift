@@ -1,5 +1,7 @@
 import SwiftUI
+#if os(iOS)
 import UIKit
+#endif
 import CloudGalleryCore
 
 enum Format {
@@ -38,8 +40,8 @@ enum BackupBadge: Equatable, CaseIterable {
 
     var label: String {
         switch self {
-        case .backedUp: return "On iPhone and in the cloud"
-        case .phoneOnly: return "Only on this iPhone"
+        case .backedUp: return "On \(Device.name) and in the cloud"
+        case .phoneOnly: return "Only on this \(Device.name)"
         case .cloudOnly: return "Only in the cloud"
         case .waiting: return "Waiting to upload"
         case .uploading: return "Uploading now"
@@ -52,16 +54,19 @@ enum BackupBadge: Equatable, CaseIterable {
     /// One-line explanation for the legend.
     var explanation: String {
         switch self {
-        case .backedUp: return "Safe: on this iPhone and verified in your Telegram library."
+        case .backedUp: return "Safe: on this \(Device.name) and verified in your Telegram library."
         case .phoneOnly: return "Not backed up. It isn't in your backup selection (Settings) or isn't queued yet."
-        case .cloudOnly: return "Not on this iPhone (deleted here or from another device). Opens from Telegram."
+        case .cloudOnly: return "Not on this \(Device.name) (deleted here or from another device). Opens from Telegram."
         case .waiting: return "Queued. It uploads on the next backup run."
         case .uploading: return "Being uploaded right now."
         case .failed: return "The upload didn't go through. Backup → Failed shows why; tap Retry."
-        case .tooLarge: return "Larger than Telegram allows, so it stays on this iPhone only."
+        case .tooLarge: return "Larger than Telegram allows, so it stays on this \(Device.name) only."
         case .viewNeedsV2: return "Uploaded by CloudGallery 1.0 (bot); it stays in the old channel."
         }
     }
+
+    /// `tint` for use on the window background (white would vanish in light mode).
+    var listTint: Color { self == .phoneOnly || self == .waiting ? .secondary : tint }
 
     var tint: Color {
         switch self {
@@ -89,7 +94,7 @@ struct BadgeView: View {
     }
 
     @ViewBuilder private var icon: some View {
-        if badge == .uploading, #available(iOS 18.0, *) {
+        if badge == .uploading, #available(iOS 18.0, macOS 15.0, *) {
             Image(systemName: badge.symbol).symbolEffect(.rotate, options: .repeat(.continuous))
         } else {
             Image(systemName: badge.symbol)
@@ -115,7 +120,7 @@ struct BadgeLegendView: View {
                 .accessibilityElement(children: .combine)
             }
             .navigationTitle("What the icons mean")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
         .presentationDetents([.medium, .large])
@@ -142,6 +147,7 @@ struct EmptyStateView: View {
     }
 }
 
+#if os(iOS)
 /// UIActivityViewController for sharing files.
 struct ActivityView: UIViewControllerRepresentable {
     let items: [Any]
@@ -150,16 +156,17 @@ struct ActivityView: UIViewControllerRepresentable {
     }
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
+#endif
+
+struct GalleryAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
 
 struct ShareItems: Identifiable {
     let id = UUID()
     let urls: [URL]
-}
-
-enum Haptics {
-    static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-    static func error() { UINotificationFeedbackGenerator().notificationOccurred(.error) }
-    static func tap() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
 }
 
 struct ErrorBanner: View {

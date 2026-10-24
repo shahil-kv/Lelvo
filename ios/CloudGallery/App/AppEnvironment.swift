@@ -23,8 +23,8 @@ final class AppEnvironment: @unchecked Sendable {
     private init() {
         Prefs.registerDefaults()
         let fm = FileManager.default
-        let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let support = AppPaths.support
+        let caches = AppPaths.caches
         stagingDirectory = support.appendingPathComponent("Staging", isDirectory: true)
         try? fm.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
         var excluded = URLResourceValues()
