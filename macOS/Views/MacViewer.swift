@@ -395,7 +395,7 @@ struct MacViewerPage: View {
 
         guard let item = entry.item else { return }
         #if DEBUG
-        appLog("Viewer: \(item.filename) kind \(item.kind) \(item.pixelWidth ?? 0)x\(item.pixelHeight ?? 0)")
+        appLog("Viewer: \(item.filename) kind \(item.kind) \(item.pixelWidth)x\(item.pixelHeight)")
         #endif
         let thumb = (try? await env.media.thumbnail(for: item)) ?? poster
         poster = thumb

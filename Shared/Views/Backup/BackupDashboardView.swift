@@ -52,13 +52,14 @@ final class BackupStatsModel: ObservableObject {
             } else {
                 cloudOnly = all.count
             }
+            let (onDeviceCount, notQueuedCount, cloudOnlyCount) = (onDevice, notQueued, cloudOnly)
             await MainActor.run {
                 self.backedUp = counts[.backedUp] ?? 0
-                self.pending = activeQueue + (Prefs.autoBackup ? notQueued : 0)
+                self.pending = activeQueue + (Prefs.autoBackup ? notQueuedCount : 0)
                 self.failed = counts[.failed] ?? 0
-                self.cloudOnly = cloudOnly
-                self.onDevice = onDevice
-                self.notQueued = notQueued
+                self.cloudOnly = cloudOnlyCount
+                self.onDevice = onDeviceCount
+                self.notQueued = notQueuedCount
             }
         }
     }

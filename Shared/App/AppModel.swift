@@ -45,11 +45,17 @@ final class AppModel: ObservableObject {
     }
 }
 
-/// Launch arguments used only by the UI smoke tests.
+/// Launch arguments used only by the UI tests and benchmarks. Release builds ignore them, so nothing outside a
+/// debug build can wipe the settings or replace the library with demo items.
 enum UITestSupport {
+    #if DEBUG
     static var isDemo: Bool { ProcessInfo.processInfo.arguments.contains("-UITestDemoLibrary") }
+    #else
+    static let isDemo = false
+    #endif
 
     static func prepareIfNeeded() {
+        #if DEBUG
         let args = ProcessInfo.processInfo.arguments
         if args.contains("-UITestReset") {
             if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
@@ -72,7 +78,6 @@ enum UITestSupport {
         }
         try? store.deleteAll()
         try? store.upsert(items)
-        #if DEBUG
         ThumbnailPipeline.shared.seedDemoThumbnails(ids: items.map { "cloud-\($0.id)" })
         #endif
     }

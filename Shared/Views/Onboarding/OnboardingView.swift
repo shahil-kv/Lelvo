@@ -16,6 +16,8 @@ final class OnboardingModel: ObservableObject {
     @Published var code = ""
     @Published var password = ""
     @Published var codeInfo = ""
+    /// Digits Telegram sent (5 or 6), or 0 when the code is a word or phrase.
+    @Published var codeLength = 5
     @Published var passwordHint = ""
     @Published var otherDeviceLink = ""
     @Published var channels: [LibraryService.ChannelChoice] = []
@@ -56,7 +58,7 @@ final class OnboardingModel: ObservableObject {
         case .needsCredentials: if step != .credentials { step = .credentials }
         case .starting, .loggingOut, .closed: break
         case .waitPhone: step = .phone
-        case .waitCode(let info): codeInfo = info; step = .code
+        case .waitCode(let info, let length): codeInfo = info; codeLength = length; step = .code
         case .waitPassword(let hint): passwordHint = hint; step = .password
         case .waitOtherDevice(let link): otherDeviceLink = link; step = .otherDevice
         case .waitEmail: error = "Telegram asks for an email login on this account. Sign in once in the official Telegram app, then try again."
@@ -149,7 +151,10 @@ final class OnboardingModel: ObservableObject {
         }
     }
 
-    func submitCode() { run { try await self.env.td.submitCode(self.code.filter(\.isNumber)) } }
+    func submitCode() {
+        let code = codeLength > 0 ? self.code.filter(\.isNumber) : self.code.trimmingCharacters(in: .whitespacesAndNewlines)
+        run { try await self.env.td.submitCode(code) }
+    }
     func submitPassword() { run { try await self.env.td.submitPassword(self.password) } }
 
     func goToLibrary() {
@@ -230,7 +235,7 @@ final class OnboardingModel: ObservableObject {
             // Link the restored items to the photos already on this device before the grid shows, so those
             // photos never appear as "not backed up" (it otherwise waited for the next app activation).
             let env = self.env
-            await Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }.value
+            _ = await Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }.value
             self.info = summary.items == 0 ? "Your library is empty: a fresh start." : "Found \(summary.items) items in your library."
             self.step = .photos
         }
@@ -1023,42 +1028,19 @@ private struct CodeScreen: View {
     @ObservedObject var m: OnboardingModel
     @FocusState private var focused: Bool
     @State private var shake = 0
-    private let length = 5
+    /// Digits Telegram sent; 0 when the code is a word or phrase (typed into a plain field instead of boxes).
+    private var length: Int { m.codeLength }
 
     var body: some View {
         OnboardingPage(icon: "message.fill", title: "Enter the code",
                        subtitle: m.codeInfo.isEmpty ? "We sent a code to your Telegram app." : m.codeInfo,
-                       m: m, button: .init(title: "Continue", enabled: m.code.count >= length) { m.submitCode() }) {
+                       m: m, button: .init(title: "Continue", enabled: length > 0 ? m.code.count >= length : !m.code.trimmingCharacters(in: .whitespaces).isEmpty) { m.submitCode() }) {
             VStack(alignment: .leading, spacing: 18) {
-                ZStack {
-                    TextField("", text: $m.code)
-                        .platformKeyboard(.numberPad)
-                        .textContentType(.oneTimeCode)
-                        .focused($focused)
-                        .opacity(0.02)
-                        .onChange(of: m.code) { _, v in
-                            let digits = String(v.filter(\.isNumber).prefix(length))
-                            if digits != v { m.code = digits }
-                            if digits.count == length && !m.busy { m.submitCode() }
-                        }
-                    HStack(spacing: 10) {
-                        ForEach(0..<length, id: \.self) { i in
-                            let chars = Array(m.code)
-                            let current = i == chars.count && focused
-                            Text(i < chars.count ? String(chars[i]) : "")
-                                .font(.system(size: 28, weight: .semibold).monospacedDigit())
-                                .frame(maxWidth: .infinity).frame(height: 62)
-                                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(current ? Color.accentColor : (m.error != nil ? .red.opacity(0.7) : .clear), lineWidth: 1.5))
-                                .animation(.spring(duration: 0.2), value: m.code)
-                        }
+                if length > 0 { digitBoxes } else {
+                    OnboardingField(placeholder: "Code", text: $m.code, autofocus: true) {
+                        if !m.code.isEmpty { m.submitCode() }
                     }
-                    .allowsHitTesting(false)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { focused = true }
-                .modifier(Shake(trigger: shake))
                 Button {
                     m.back()
                 } label: {
@@ -1071,6 +1053,40 @@ private struct CodeScreen: View {
         .onChange(of: m.error) { _, e in
             if e != nil { withAnimation(.default) { shake += 1 }; m.code = "" }
         }
+    }
+
+    private var digitBoxes: some View {
+        ZStack {
+            TextField("", text: $m.code)
+                .platformKeyboard(.numberPad)
+                .textContentType(.oneTimeCode)
+                .focused($focused)
+                .opacity(0.02)
+                .accessibilityLabel("Login code")
+                .onChange(of: m.code) { _, v in
+                    let digits = String(v.filter(\.isNumber).prefix(length))
+                    if digits != v { m.code = digits }
+                    if digits.count == length && !m.busy { m.submitCode() }
+                }
+            HStack(spacing: length > 5 ? 8 : 10) {
+                ForEach(0..<length, id: \.self) { i in
+                    let chars = Array(m.code)
+                    let current = i == chars.count && focused
+                    Text(i < chars.count ? String(chars[i]) : "")
+                        .font(.system(size: 28, weight: .semibold).monospacedDigit())
+                        .frame(maxWidth: .infinity).frame(height: 62)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(current ? Color.accentColor : (m.error != nil ? .red.opacity(0.7) : .clear), lineWidth: 1.5))
+                        .animation(.spring(duration: 0.2), value: m.code)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
+        .modifier(Shake(trigger: shake))
     }
 }
 

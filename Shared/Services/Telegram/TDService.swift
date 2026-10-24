@@ -38,6 +38,8 @@ enum TDServiceError: LocalizedError {
             return "This account is in too many channels and groups. Leave some in Telegram, or pick an existing channel below."
         case let m where m.contains("PHONE_NUMBER_BANNED"):
             return "Telegram has banned this phone number. Use a different Telegram account."
+        case let m where m.contains("FROZEN"):
+            return "Telegram has frozen this account: it can still read, but it can't upload. Your library stays where it is. Open the Telegram app to see the notice and appeal."
         case let m where m.contains("FLOOD_WAIT") || code == 429:
             let s = TelegramErrorClassifier.floodWaitSeconds(m) ?? 0
             return "Telegram asked us to slow down. Waiting \(s) s."
@@ -80,7 +82,8 @@ final class TDService: @unchecked Sendable {
         case needsCredentials
         case starting
         case waitPhone
-        case waitCode(info: String)
+        /// `length` is the number of digits Telegram sent, or 0 when the code is a word or phrase.
+        case waitCode(info: String, length: Int)
         case waitPassword(hint: String)
         case waitEmail
         case waitOtherDevice(link: String)
@@ -269,7 +272,7 @@ final class TDService: @unchecked Sendable {
             }
         case .authorizationStateWaitPhoneNumber: setAuth(.waitPhone)
         case .authorizationStateWaitCode(let s):
-            setAuth(.waitCode(info: Self.describe(s.codeInfo)))
+            setAuth(.waitCode(info: Self.describe(s.codeInfo), length: Self.codeLength(s.codeInfo.type)))
         case .authorizationStateWaitPassword(let s): setAuth(.waitPassword(hint: s.passwordHint))
         case .authorizationStateWaitEmailAddress, .authorizationStateWaitEmailCode: setAuth(.waitEmail)
         case .authorizationStateWaitOtherDeviceConfirmation(let s): setAuth(.waitOtherDevice(link: s.link))
@@ -297,8 +300,27 @@ final class TDService: @unchecked Sendable {
         switch info.type {
         case .authenticationCodeTypeTelegramMessage: return "Enter the code Telegram sent to your other device or app."
         case .authenticationCodeTypeSms: return "Enter the code sent by SMS to \(info.phoneNumber)."
+        case .authenticationCodeTypeSmsWord: return "Enter the word sent by SMS to \(info.phoneNumber)."
+        case .authenticationCodeTypeSmsPhrase: return "Enter the phrase sent by SMS to \(info.phoneNumber)."
         case .authenticationCodeTypeCall: return "You'll receive a call with the code."
+        case .authenticationCodeTypeMissedCall(let c):
+            return "You'll get a missed call from a number starting with \(c.phoneNumberPrefix). Enter its last \(c.length) digits."
+        case .authenticationCodeTypeFragment: return "Enter the code shown on fragment.com for your anonymous number."
         default: return "Enter the login code sent to \(info.phoneNumber)."
+        }
+    }
+
+    /// Digits in the login code (Telegram sends 5 or 6, depending on the account and delivery), 0 for words and phrases.
+    private static func codeLength(_ type: AuthenticationCodeType) -> Int {
+        switch type {
+        case .authenticationCodeTypeTelegramMessage(let c): return c.length
+        case .authenticationCodeTypeSms(let c): return c.length
+        case .authenticationCodeTypeCall(let c): return c.length
+        case .authenticationCodeTypeMissedCall(let c): return c.length
+        case .authenticationCodeTypeFragment(let c): return c.length
+        case .authenticationCodeTypeFirebaseAndroid(let c): return c.length
+        case .authenticationCodeTypeFirebaseIos(let c): return c.length
+        case .authenticationCodeTypeSmsWord, .authenticationCodeTypeSmsPhrase, .authenticationCodeTypeFlashCall: return 0
         }
     }
 

@@ -460,13 +460,15 @@ struct LivePhotoView: UIViewRepresentable {
         view.isAccessibilityElement = true
         view.accessibilityLabel = "Live Photo. Touch and hold to play."
         container.addSubview(view)
-        let badge = UIButton(type: .system)
-        badge.setImage(UIImage(systemName: "livephoto.play"), for: .normal)
-        badge.setTitle(" LIVE", for: .normal)
-        badge.tintColor = .white
-        badge.backgroundColor = UIColor.black.withAlphaComponent(0.4)
-        badge.layer.cornerRadius = 12
-        badge.contentEdgeInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+        var style = UIButton.Configuration.plain()
+        style.image = UIImage(systemName: "livephoto.play")
+        style.title = "LIVE"
+        style.imagePadding = 4
+        style.baseForegroundColor = .white
+        style.background.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        style.background.cornerRadius = 12
+        style.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
+        let badge = UIButton(configuration: style)
         badge.translatesAutoresizingMaskIntoConstraints = false
         badge.addAction(UIAction { [weak view] _ in view?.startPlayback(with: .full) }, for: .touchUpInside)
         container.addSubview(badge)

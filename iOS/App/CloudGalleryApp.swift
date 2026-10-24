@@ -43,6 +43,7 @@ struct CloudGalleryApp: App {
                 guard model.onboardingComplete else { return }
                 env.td.start()
                 Task { await env.enforceCacheLimits() }
+                #if DEBUG
                 CloudReadCheck.runIfRequested()
                 if ProcessInfo.processInfo.arguments.contains("-clearCacheTest") {
                     Task.detached {
@@ -52,6 +53,7 @@ struct CloudGalleryApp: App {
                         await env.media.clearCaches()
                     }
                 }
+                #endif
                 // Cheap no-op unless restored items are still unlinked (e.g. right after a reinstall).
                 Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
             case .background:
@@ -64,6 +66,7 @@ struct CloudGalleryApp: App {
     }
 }
 
+#if DEBUG
 /// Diagnostic (launch argument `-verifyCloudReads`): reads the first and last 64 KB of every backed-up
 /// video through the player's code path and logs which ones can't be read.
 enum CloudReadCheck {
@@ -113,3 +116,4 @@ enum CloudReadCheck {
         }
     }
 }
+#endif

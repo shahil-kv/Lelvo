@@ -69,7 +69,7 @@ final class MacLibraryIndex: ObservableObject {
         var id: String { title }
     }
 
-    static let smartAlbums: [(subtype: PHAssetCollectionSubtype, title: String, symbol: String)] = [
+    nonisolated static let smartAlbums: [(subtype: PHAssetCollectionSubtype, title: String, symbol: String)] = [
         (.smartAlbumSelfPortraits, "Selfies", "person.crop.square"),
         (.smartAlbumDepthEffect, "Portrait", "cube"),
         (.smartAlbumPanoramas, "Panoramas", "pano"),

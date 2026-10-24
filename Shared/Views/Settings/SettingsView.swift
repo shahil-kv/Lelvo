@@ -7,7 +7,7 @@ struct SettingsView: View {
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.mediaFilter) private var mediaFilter = Prefs.MediaFilter.all.rawValue
-    @AppStorage(Prefs.Key.autoBackup) private var autoBackup = true
+    @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
 
     @State private var accountName = "…"
     @State private var libraryName = LibraryService.titleDefault
@@ -203,7 +203,7 @@ struct LogsView: View {
             }
         }
         .safeAreaInset(edge: .top) {
-            Text("Bot token, chat ID and passphrase are removed from logs before they are shown or shared.")
+            Text("Phone numbers, API keys, channel IDs and file IDs are removed from logs before they are shown or shared.")
                 .font(.caption2).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 4)
         }
         .task { text = AppLog.shared.contents() }
@@ -214,22 +214,75 @@ struct LogsView: View {
 }
 
 struct AboutView: View {
+    private var version: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
+    }
+
     var body: some View {
         List {
             Section {
-                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
-                Text("CloudGallery backs up your photos to your own Telegram channel. No analytics, no tracking, no servers.")
+                LabeledContent("Version", value: version)
+                Text("CloudGallery backs up your photos to a private channel in your own Telegram account. No servers, no analytics, no ads.")
             }
-            Section("Credits") {
-                Text("Based on the ideas of **AKS-Labs/CloudGallery** (Android) and **Whitehole**, the original Telegram photo-backup projects.")
-                Link("AKS-Labs/CloudGallery", destination: .literal("https://github.com/AKS-Labs/CloudGallery"))
-            }
-            Section("License") {
-                Text("GNU General Public License v3.0. You can redistribute and modify this app under the terms of the GPL-3.0.")
-                Link("Read the license", destination: .literal("https://www.gnu.org/licenses/gpl-3.0.html"))
-            }
+            Section {
+                Link(destination: AppLinks.faq) { Label("Questions and answers", systemImage: "questionmark.circle") }
+                Link(destination: AppLinks.reportProblem) { Label("Report a problem or suggest a feature", systemImage: "exclamationmark.bubble") }
+                Link(destination: AppLinks.privacyPolicy) { Label("Privacy policy", systemImage: "hand.raised") }
+            } header: { Text("Help") }
+            Section {
+                Text("CloudGallery is free software: you can redistribute it and modify it under the terms of the GNU General Public License, version 3. It comes with no warranty.")
+                Link(destination: AppLinks.repository) { Label("Source code", systemImage: "chevron.left.forwardslash.chevron.right") }
+                Link(destination: AppLinks.license) { Label("GNU General Public License v3.0", systemImage: "doc.text") }
+                NavigationLink { AcknowledgementsView() } label: { Label("Acknowledgements", systemImage: "heart.text.square") }
+            } header: { Text("Free and open source") }
+            Section {
+                Text("Inspired by **AKS-Labs/CloudGallery** and **Whitehole**, earlier projects that back up photos to Telegram.")
+                Text("CloudGallery uses the Telegram API. It isn't made, endorsed or supported by Telegram.")
+                    .foregroundStyle(.secondary)
+            } header: { Text("Credits") }
         }
         .navigationTitle("About")
+    }
+}
+
+/// Licenses of the third-party code inside the app.
+struct AcknowledgementsView: View {
+    private static let mitNotice = """
+    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated \
+    documentation files (the "Software"), to deal in the Software without restriction, including without limitation \
+    the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and \
+    to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all copies or substantial portions of \
+    the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO \
+    THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE \
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF \
+    CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER \
+    DEALINGS IN THE SOFTWARE.
+    """
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(Acknowledgement.allCases) { a in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(a.name).font(.headline)
+                        Text(a.detail).font(.subheadline).foregroundStyle(.secondary)
+                        Link("License text", destination: a.url).font(.subheadline)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            Section("MIT License (TDLibKit, TDLibFramework)") {
+                Text(Self.mitNotice).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+        }
+        .navigationTitle("Acknowledgements")
     }
 }
 

@@ -17,7 +17,7 @@ struct MacSettingsView: View {
             Tab("Storage", systemImage: "internaldrive") { StorageSettingsView().formStyle(.grouped) }
             Tab("Export", systemImage: "square.and.arrow.down.on.square") { ExportLibraryView().formStyle(.grouped) }
             Tab("Logs", systemImage: "doc.text.magnifyingglass") { NavigationStack { LogsView() } }
-            Tab("About", systemImage: "info.circle") { AboutView() }
+            Tab("About", systemImage: "info.circle") { NavigationStack { AboutView() } }
         }
         .frame(width: 620, height: 520)
         .disabled(!app.onboardingComplete)

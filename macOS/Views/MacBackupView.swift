@@ -224,7 +224,7 @@ struct MacBackupView: View {
         Task {
             do {
                 let s = try await AppEnvironment.shared.library.scan(full: true)
-                await Task.detached { AppEnvironment.shared.engine.relinkRestoredItems() }.value
+                _ = await Task.detached { AppEnvironment.shared.engine.relinkRestoredItems() }.value
                 rescanResult = "\(s.items.formatted()) items"
             } catch {
                 rescanResult = "Couldn't re-scan"

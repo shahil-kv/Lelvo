@@ -11,7 +11,7 @@ final class FreeUpSpaceService: @unchecked Sendable {
 
     init(environment: AppEnvironment) { self.env = environment }
 
-    /// Backed-up items still on the phone whose originals the Bot API can re-download.
+    /// Backed-up items still on the phone (and unchanged since their backup), so they can be downloaded again.
     func candidates() -> [MediaItem] {
         let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.sizeClass == .normal && $0.localIdentifier != nil }
         let present = env.photos.existingIdentifiers(items.compactMap(\.localIdentifier))
