@@ -17,7 +17,7 @@ Legend: ✅ already done in the code · 🔧 code change needed · 📝 paperwor
       name is shown as the seller.
 - [ ] 📝 **Separate Telegram account for the app's API key.** Use a spare SIM or number, not your personal account.
       Log in at https://my.telegram.org → *API development tools* → create an app (title = the App Store name,
-      platform iOS). Put the new `api_id` / `api_hash` into `ios/Config/Secrets.xcconfig`:
+      platform iOS). Put the new `api_id` / `api_hash` into `Config/Secrets.xcconfig`:
       ```
       TD_API_ID = <new id>
       TD_API_HASH = <new hash>
@@ -34,36 +34,28 @@ Legend: ✅ already done in the code · 🔧 code change needed · 📝 paperwor
 
 ## Phase 1 — Legal blockers (rejection or takedown risk)
 
-### 1.1 License — GPL-3.0 conflicts with App Store distribution 🔧📝
+### 1.1 License: GPL-3.0 plus a CLA ✅
 
-The repo `LICENSE` is GPL-3.0 (inherited from upstream AKS-Labs/CloudGallery), and Settings → About says
-"GNU General Public License v3.0". The FSF considers the App Store's usage rules an extra restriction that the GPL
-forbids (VLC was removed from the App Store for this in 2011). Anyone who holds copyright in GPL code in the app
-could file a takedown.
+The project is GPL-3.0 ([LICENSE](../LICENSE)). The FSF considers the App Store's usage rules an extra restriction
+the GPL forbids when someone else's GPL code is distributed (VLC was removed for this in 2011). The maintainer can
+publish their own code anyway, so the project keeps every contribution publishable:
 
-The iOS app in `ios/` is new Swift code written in this fork, not a port of the GPL Kotlin code. As its author you
-can license it differently.
-
-- [ ] 🔧 Add `ios/LICENSE` with a permissive license (MIT recommended) covering everything under `ios/`.
-- [ ] 🔧 Make sure no GPL file is compiled into the iOS app. Check `ios/` for any code copied from `app/` (Kotlin) or
-      Whitehole. Rewrite anything copied, don't just relicense it.
-- [ ] 🔧 Update README: "Android app: GPL-3.0 (see LICENSE). iOS/macOS apps: MIT (see ios/LICENSE)."
-- [ ] 🔧 Settings → About (`ios/CloudGallery/Views/Settings/SettingsView.swift`, `AboutView`): replace the GPL text
-      with the MIT notice. Keep the credits line ("Based on the ideas of…"), because credit isn't a license.
-- [ ] 🔧 Add an *Acknowledgements* section in About listing third-party licenses:
-      - TDLib — Boost Software License 1.0
-      - TDLibKit — MIT
-      - OpenSSL (bundled in TDLib) — Apache 2.0
-      - zlib — zlib license
-
-      Copy each license text into the app (a scrollable screen is fine).
+- ✅ All code in the repository was written by the maintainer; no upstream (AKS-Labs) or Whitehole code is included
+  (history rebuilt with only the maintainer's commits).
+- ✅ Every contribution is accepted under [CLA.md](../CLA.md), which allows App Store distribution, enforced by the
+  CLA workflow.
+- ✅ Settings → About states the GPL-3.0, links the source code, and has an Acknowledgements screen with the
+  third-party licenses (TDLib BSL-1.0, TDLibKit and TDLibFramework MIT with the full notice, OpenSSL Apache-2.0).
+  Same list in [NOTICE.md](../NOTICE.md).
+- [ ] 📝 Before the first submission, confirm every merged contributor has signed the CLA (the `cla-signatures`
+      branch).
 
 ### 1.2 Name and branding 🔧📝
 
 - [ ] 📝 Pick an **App Store name that isn't "CloudGallery" or "Chitralaya"**. Those names belong to upstream, and
       a name collision gets apps rejected (4.1) or disputed. Check the name is free by searching the App Store, and
       reserve it in App Store Connect (Phase 5).
-- [ ] 🔧 Rename `CFBundleDisplayName` in `ios/project.yml` (both targets) to the new name. The bundle ID
+- [ ] 🔧 Rename `CFBundleDisplayName` in `project.yml` (both targets) to the new name. The bundle ID
       `com.shahil-kv.cloudgallery` can stay.
 - [ ] 🔧 **Must not contain "Telegram"** in the app name, subtitle, icon or keywords (Telegram API terms 2.3;
       Apple 5.2.1 — trademark). Saying "works with your Telegram account" in the description is fine.
@@ -97,7 +89,7 @@ account.
 
 - [ ] 🔧 On the phone step, if the number equals a reserved reviewer number (e.g. `+1 555 010 0199`, which can't be a
       real Telegram number), don't contact Telegram. Go to the code step, and accept a fixed code (e.g. `24680`).
-- [ ] 🔧 Then load a **demo library**: reuse `UITestSupport.prepareIfNeeded()` (`ios/CloudGallery/App/AppModel.swift`),
+- [ ] 🔧 Then load a **demo library**: reuse `UITestSupport.prepareIfNeeded()` (`Shared/App/AppModel.swift`, Debug-only today),
       but make it work in Release:
   - [ ] Real sample photos and videos bundled in the app (about 40 royalty-free images and 2–3 short clips you own),
         not grey tiles. `seedDemoThumbnails` is currently `#if DEBUG` only.
@@ -148,9 +140,11 @@ Background modes: "audio" is used for Picture in Picture video playback; "proces
 
 ### 3.1 Privacy manifest (required; upload is rejected or flagged without it) 🔧
 
-There is no `PrivacyInfo.xcprivacy` in the iOS target yet. Apple requires declaring "required reason APIs".
+✅ Added: `iOS/Resources/PrivacyInfo.xcprivacy` and `macOS/Resources/PrivacyInfo.xcprivacy` (no tracking, no
+collected data; UserDefaults `CA92.1`, file timestamps `C617.1` + `3B52.1`, disk space `E174.1`). TDLibFramework ships
+no manifest of its own and calls `stat`/`statfs`, which the app manifest covers. What it declares:
 
-- [ ] 🔧 Add `ios/CloudGallery/Resources/PrivacyInfo.xcprivacy` (and one for the Mac target) with:
+- ✅ Privacy manifest with:
   - `NSPrivacyTracking` = false, `NSPrivacyTrackingDomains` = []
   - `NSPrivacyCollectedDataTypes` = [] (nothing is collected by you)
   - `NSPrivacyAccessedAPITypes`:
@@ -161,8 +155,7 @@ There is no `PrivacyInfo.xcprivacy` in the iOS target yet. Apple requires declar
       the app reads free disk space
     - `NSPrivacyAccessedAPICategorySystemBootTime` — reason `35F9.1`, only if `systemUptime` /
       `mach_absolute_time` is used
-- [ ] 🔧 Check TDLibKit / CloudGalleryCore: if any of them ships its own privacy manifest, keep it; if not, the app's
-      manifest covers it.
+- ✅ TDLibKit / TDLibFramework ship no privacy manifest; the app's manifest covers their API use.
 - [ ] 🧪 After archiving: Xcode Organizer → right-click archive → *Generate Privacy Report*, and check nothing is
       missing.
 
@@ -182,7 +175,7 @@ There is no `PrivacyInfo.xcprivacy` in the iOS target yet. Apple requires declar
 `TARGETED_DEVICE_FAMILY = "1,2"` means you claim iPad support, so the reviewer may test on an iPad, and iPad
 screenshots become mandatory.
 
-- [ ] 🔧 **Recommended for v1:** set `TARGETED_DEVICE_FAMILY: "1"` (iPhone only) in `ios/project.yml`. Reviewers
+- [ ] 🔧 **Recommended for v1:** set `TARGETED_DEVICE_FAMILY: "1"` (iPhone only) in `project.yml`. Reviewers
       still run iPhone apps on iPad in compatibility mode, so the app must not crash or look broken there.
 - [ ] 🧪 Or keep iPad: then test every screen on an iPad simulator in both orientations, plus Split View and Stage
       Manager, and make 13" iPad screenshots.
@@ -192,11 +185,11 @@ screenshots become mandatory.
 - [ ] 🔧 Build with the current Xcode / iOS SDK (Apple requires the latest SDK for new uploads).
 - [ ] 🔧 Version: `MARKETING_VERSION` (e.g. 2.0.0) and a unique, increasing `CURRENT_PROJECT_VERSION` for every
       upload.
-- [ ] 🔧 Release builds must not expose debug features: check `-UITestReset`, `-UITestDemoLibrary`,
-      `-autoScrollTest`, `-verifyCloudReads` are compiled out (`#if DEBUG`) or harmless in Release.
+- ✅ Release builds don't expose debug features: `-UITestReset`, `-UITestDemoLibrary`, `-autoScrollTest`,
+      `-verifyCloudReads*` and `-clearCacheTest` are compiled only in Debug (`#if DEBUG`).
 - [ ] 🔧 No placeholder text, "TODO", "beta", "test" or lorem ipsum anywhere visible (2.1, 2.3).
 - [ ] 🔧 Every button does something; no "coming soon" items (2.1).
-- [ ] 🔧 Settings must contain a **Privacy Policy** link (5.1.1 requires it in-app as well as in the store).
+- ✅ Settings → About links the **Privacy Policy** ([PRIVACY.md](../PRIVACY.md)), the FAQ and issue reporting.
 - [ ] 🔧 Settings must offer **Sign out** and **remove all app data from this device**. Account deletion (5.1.1(v))
       isn't required because the app never creates Telegram accounts. If the reviewer asks, explain that accounts
       are created in Telegram, and link Telegram's own deletion page (https://my.telegram.org/delete).
@@ -398,12 +391,12 @@ If a reply doesn't help, you can appeal to the App Review Board (App Store Conne
 | Photo permission strings | ✅ done |
 | Background task identifiers | ✅ done |
 | Separate Telegram account for api_id | ⬜ Phase 0 |
-| iOS code relicensed (MIT) + acknowledgements | ⬜ Phase 1.1 |
+| GPL-3.0 + CLA, acknowledgements in About | ✅ Phase 1.1 |
 | New app name + original icon | ⬜ Phase 1.2 |
 | Reviewer demo mode (Release build, real sample media) | ⬜ Phase 2.1 |
-| PrivacyInfo.xcprivacy | ⬜ Phase 3.1 |
+| PrivacyInfo.xcprivacy (iOS and Mac) | ✅ Phase 3.1 |
 | iPhone-only or full iPad support decision | ⬜ Phase 3.3 |
-| Privacy policy link + sign-out & remove data in Settings | ⬜ Phase 3.4 |
-| Privacy policy + support pages hosted | ⬜ Phase 4 |
+| Privacy policy link + sign-out & remove data in Settings | ✅ Phase 3.4 |
+| Privacy policy + support pages (PRIVACY.md, SUPPORT.md, docs/FAQ.md) | ✅ written · ⬜ host on GitHub Pages |
 | App Store Connect listing, privacy label, screenshots | ⬜ Phase 5 |
 | TestFlight external beta passed | ⬜ Phase 6 |

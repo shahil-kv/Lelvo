@@ -1,5 +1,20 @@
 # Changelog
 
+User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac versions `macos-v*`
+([RELEASING.md](RELEASING.md)).
+
+## Unreleased
+
+- **Own repository.** CloudGallery is now a standalone, community-driven project under the GPL-3.0, with a
+  contributor agreement, issue forms, an `approved`-issue rule for pull requests, CI on every pull request and
+  automated reviews. The iOS and Mac apps live side by side (`iOS/`, `macOS/`, `Shared/`).
+- **Sign-in:** login codes of any length (Telegram sends 5 or 6 digits) and codes sent as a word or phrase.
+- **Telegram account problems** are explained plainly: frozen accounts, and limits on creating channels.
+- **About** shows the source code, license, privacy policy, help and the licenses of included libraries.
+- **Privacy manifests** for both apps (no tracking, no data collected).
+- Release builds no longer contain the test switches used by UI tests.
+- The Mac app now has its own version line, starting at 1.0.0. Compiler warnings fixed on both platforms.
+
 ## 2.0.0-beta.1 (iOS), 2026-10-23
 - **Telegram user account via TDLib** replaces the Bot API: no 50 MB / 20 MB limits; files over 2 GB (4 GB Premium) are split automatically.
 - **Cloud format 1** (docs/CLOUD_FORMAT.md): one document per resource with versioned caption JSON; restore by scanning channel history (no index file).

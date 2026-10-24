@@ -1,0 +1,146 @@
+name: Triage
+
+# Code changes need an issue labelled `approved` first, so nobody spends time on a pull request that can't be merged.
+# pull_request_target so pull requests from forks are checked too. It's safe: API calls only, no checkout.
+on:
+  issues:
+    types: [opened, labeled]
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Welcome a new issue
+        if: github.event_name == 'issues' && github.event.action == 'opened'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const issue = context.payload.issue;
+            if (["OWNER", "MEMBER", "COLLABORATOR"].includes(issue.author_association)) return;
+            const body = [
+              "Thanks for opening this. A maintainer will read it soon.",
+              "",
+              "> [!IMPORTANT]",
+              "> **Please don't start coding yet.** Code changes need this issue to be labelled `approved` first.",
+              "> That label is the only green light: a reply, a reaction or silence isn't one. Once it's there,",
+              "> open your pull request with `Closes #" + issue.number + "` in the description.",
+              "> Pull requests without an approved issue are closed automatically. Docs-only changes don't need approval.",
+              "",
+              "While you wait: if this is about your Telegram account itself (frozen, banned, deleted, login codes),",
+              "the [FAQ](https://github.com/" + context.repo.owner + "/" + context.repo.repo + "/blob/main/docs/FAQ.md#when-something-goes-wrong-in-telegram)",
+              "probably has the answer, because those are Telegram's to fix.",
+            ].join("\n");
+            await github.rest.issues.createComment({ ...context.repo, issue_number: issue.number, body });
+
+      - name: Require an approved issue
+        id: gate
+        if: github.event_name == 'pull_request_target'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (["OWNER", "MEMBER", "COLLABORATOR"].includes(pr.author_association) || pr.user.type === "Bot") return;
+
+            const files = await github.paginate(github.rest.pulls.listFiles, { ...context.repo, pull_number: pr.number, per_page: 100 });
+            const isDocs = (f) => f.endsWith(".md") || f.startsWith("docs/");
+            if (files.length > 0 && files.every((f) => isDocs(f.filename))) return;
+
+            const { repository } = await github.graphql(`
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    closingIssuesReferences(first: 10) { nodes { number labels(first: 50) { nodes { name } } } }
+                  }
+                }
+              }`, { owner: context.repo.owner, repo: context.repo.repo, number: pr.number });
+            const linked = repository.pullRequest.closingIssuesReferences.nodes;
+            const approved = linked.some((i) => i.labels.nodes.some((l) => l.name === "approved"));
+            if (pr.state === "closed") {
+              // The author edited a closed pull request to link an approved issue: let it back in.
+              if (approved && context.payload.action === "edited") {
+                await github.rest.pulls.update({ ...context.repo, pull_number: pr.number, state: "open" });
+                await github.rest.issues.createComment({ ...context.repo, issue_number: pr.number,
+                  body: "Reopened: this now links an approved issue. A maintainer will review it soon." });
+              }
+              return;
+            }
+            if (approved) return;
+
+            const contributing = "https://github.com/" + context.repo.owner + "/" + context.repo.repo + "/blob/main/CONTRIBUTING.md";
+            const body = [
+              "Closing this automatically: it doesn't link an issue labelled `approved`.",
+              "",
+              "CloudGallery agrees on a change before code is written, so nobody's work is wasted on something that",
+              "can't be merged. See [CONTRIBUTING.md](" + contributing + ").",
+              "",
+              "1. Open an issue describing the change, or find the existing one.",
+              "2. Wait until a maintainer labels it `approved`.",
+              "3. Put `Closes #<issue number>` in this pull request's description. It reopens on its own once the",
+              "   issue is approved; if the issue already is, edit the description and it reopens.",
+              "",
+              "Docs-only changes (`*.md`, `docs/`) skip this check. Nothing personal: this message is automated.",
+            ].join("\n");
+            await github.rest.issues.createComment({ ...context.repo, issue_number: pr.number, body });
+            await github.rest.pulls.update({ ...context.repo, pull_number: pr.number, state: "closed" });
+            core.setOutput("blocked", "true");
+
+      - name: Thank a new pull request
+        if: github.event_name == 'pull_request_target' && github.event.action == 'opened' && steps.gate.outputs.blocked != 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (["OWNER", "MEMBER", "COLLABORATOR"].includes(pr.author_association) || pr.user.type === "Bot") return;
+            await github.rest.issues.createComment({ ...context.repo, issue_number: pr.number,
+              body: "Thanks for the pull request! CI and an automated review will run first, then a maintainer will review it." });
+
+      - name: Reopen pull requests closed by the gate
+        if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'approved'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const issue = context.payload.issue.number;
+            const repoName = context.repo.owner + "/" + context.repo.repo;
+            const { repository } = await github.graphql(`
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  issue(number: $number) {
+                    timelineItems(itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT], first: 100) {
+                      nodes {
+                        ... on CrossReferencedEvent { source { ...pr } }
+                        ... on ConnectedEvent { subject { ...pr } }
+                      }
+                    }
+                  }
+                }
+              }
+              fragment pr on PullRequest {
+                number state repository { nameWithOwner }
+                closingIssuesReferences(first: 10) { nodes { number } }
+                timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent { actor { login } } } }
+              }`, { owner: context.repo.owner, repo: context.repo.repo, number: issue });
+            const prs = new Map();
+            for (const node of repository.issue.timelineItems.nodes) {
+              const pr = node.source ?? node.subject;
+              if (pr?.number) prs.set(pr.number, pr);
+            }
+            // Only pull requests the gate closed: a maintainer's own close is final.
+            const gated = [...prs.values()].filter((pr) => pr.state === "CLOSED" && pr.repository.nameWithOwner === repoName
+              && pr.closingIssuesReferences.nodes.some((i) => i.number === issue)
+              && pr.timelineItems.nodes[0]?.actor?.login === "github-actions");
+            for (const pr of gated) {
+              try {
+                await github.rest.pulls.update({ ...context.repo, pull_number: pr.number, state: "open" });
+              } catch (error) {
+                core.warning(`Couldn't reopen #${pr.number}: ${error.message}`);
+                continue;
+              }
+              await github.rest.issues.createComment({ ...context.repo, issue_number: pr.number,
+                body: "Reopened: #" + issue + " is now `approved`. Thanks for waiting; a maintainer will review it soon." });
+            }

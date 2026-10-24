@@ -1,0 +1,87 @@
+name: Bug report
+description: Something in CloudGallery doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Two things first:
+        - Problems with your **Telegram account** itself (frozen, banned, deleted, codes not arriving) aren't app bugs:
+          see the [FAQ](https://github.com/shahil-kv/CloudGallery/blob/main/docs/FAQ.md#when-something-goes-wrong-in-telegram).
+        - **Security problems** go to [a private report](https://github.com/shahil-kv/CloudGallery/security/advisories/new).
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you report
+      options:
+        - label: I searched open and closed issues and didn't find this.
+          required: true
+        - label: I'm on the latest release (Settings → About shows the version).
+          required: true
+  - type: dropdown
+    id: app
+    attributes:
+      label: App
+      options: [iPhone, iPad, Mac]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: CloudGallery version
+      description: Settings → About → Version
+      placeholder: 2.0.0 (2)
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Device and OS version
+      placeholder: iPhone 16 Pro, iOS 26.1 / MacBook Air M3, macOS 26.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options: [SideStore, AltStore, Sideloadly, TestFlight, App Store, Release zip (Mac), Built from source]
+    validations:
+      required: true
+  - type: dropdown
+    id: library
+    attributes:
+      label: Library type
+      options: [Standard, End-to-end encrypted, "Not signed in yet"]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead. A screen recording helps a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Settings → Logs → Share, then drag the file here. Phone numbers, keys and IDs are removed automatically,
+        but please read it before posting. Never paste your api_hash, login code, password or passphrase.
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing a fix
+      description: Ticking this isn't permission to start. Wait for the `approved` label; see CONTRIBUTING.md.
+      options:
+        - label: I'd like to fix this myself once the issue is approved.

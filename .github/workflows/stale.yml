@@ -1,0 +1,29 @@
+name: Close unanswered issues
+
+# Issues labelled `needs-info` are closed after 14 days without a reply from the reporter. Nothing else is touched.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          only-labels: needs-info
+          days-before-stale: 7
+          days-before-close: 7
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          stale-issue-label: stale
+          stale-issue-message: >-
+            This issue is waiting for more information. It will be closed in 7 days unless there's a reply.
+          close-issue-message: >-
+            Closing because the information we asked for didn't arrive. Comment with it and a maintainer will reopen.
+          close-issue-reason: not_planned
+          labels-to-remove-when-unstale: needs-info,stale

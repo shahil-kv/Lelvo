@@ -1,0 +1,100 @@
+name: CI
+
+# Every pull request and push to main: core unit tests, iOS and Mac builds with no warnings in our code, iOS tests.
+# Docs-only changes skip it. Set the repository variable MACOS_RUNNER to use another macOS runner image.
+on:
+  pull_request:
+    paths-ignore: ["**/*.md", "docs/**", "LICENSE", ".github/ISSUE_TEMPLATE/**"]
+  push:
+    branches: [main]
+    paths-ignore: ["**/*.md", "docs/**", "LICENSE", ".github/ISSUE_TEMPLATE/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Core unit tests
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: swift test
+        working-directory: Packages/CloudGalleryCore
+        run: swift test 2>&1 | tail -40
+
+  apps:
+    name: iOS and Mac
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+
+      - name: Build Mac app
+        run: |
+          xcodebuild build -project CloudGallery.xcodeproj -scheme CloudGalleryMac -configuration Debug \
+            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
+            CODE_SIGNING_ALLOWED=NO > build/mac.log 2>&1 || { grep -E "error:" build/mac.log | head -50; tail -40 build/mac.log; exit 1; }
+          tail -1 build/mac.log
+
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          SDKVER=$(xcrun --sdk iphonesimulator --show-sdk-version)
+          UDID=$(xcrun simctl list devices available -j | SDKVER="$SDKVER" python3 -c '
+          import json, os, sys
+          data = json.load(sys.stdin)["devices"]
+          limit = tuple(int(p) for p in os.environ["SDKVER"].split("."))
+          best = None
+          for runtime, devices in data.items():
+              if "iOS" not in runtime:
+                  continue
+              version = tuple(int(p) for p in runtime.rsplit("iOS-", 1)[-1].split("-") if p.isdigit())
+              if version[:2] > limit[:2]:
+                  continue  # newer than this Xcode supports
+              for d in devices:
+                  if d["name"].startswith("iPhone") and d.get("isAvailable", True):
+                      if best is None or version > best[0]:
+                          best = (version, d["udid"], d["name"])
+          print(best[1] if best else "")
+          ')
+          [ -n "$UDID" ] || { echo "No iPhone simulator found"; xcrun simctl list; exit 1; }
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices | grep "$UDID"
+
+      - name: Build and test iOS app (unit and UI tests)
+        run: |
+          xcodebuild test -project CloudGallery.xcodeproj -scheme CloudGallery \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
+            -resultBundlePath build/TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO > build/ios.log 2>&1 || { grep -E "error:|✘|failed" build/ios.log | head -100; tail -60 build/ios.log; exit 1; }
+          grep -E "✔ Test run|Executed|\*\* TEST" build/ios.log || tail -20 build/ios.log
+
+      - name: Build iOS app (Release)
+        run: |
+          xcodebuild build -project CloudGallery.xcodeproj -scheme CloudGallery -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
+            CODE_SIGNING_ALLOWED=NO > build/ios-release.log 2>&1 || { grep -E "error:" build/ios-release.log | head -50; tail -40 build/ios-release.log; exit 1; }
+          tail -1 build/ios-release.log
+
+      - name: No compiler warnings in our code
+        run: Scripts/check-warnings.sh build/mac.log build/ios.log build/ios-release.log
+
+      - name: Upload logs and test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ci-logs
+          path: |
+            build/*.log
+            build/TestResults.xcresult
+          if-no-files-found: ignore

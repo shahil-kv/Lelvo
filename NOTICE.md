@@ -1,0 +1,20 @@
+# Third-party notices
+
+CloudGallery is licensed under the GNU General Public License v3.0; see [LICENSE](LICENSE). The apps include the
+third-party software below, each under its own license. The apps show the same list under
+Settings → About → Acknowledgements.
+
+| Software | What it does | License |
+|---|---|---|
+| [TDLib](https://github.com/tdlib/td) | Telegram's client library: sign-in, uploads, downloads | [Boost Software License 1.0](https://github.com/tdlib/td/blob/master/LICENSE_1_0.txt) |
+| [TDLibFramework](https://github.com/Swiftgram/TDLibFramework) | TDLib built for Apple platforms | [MIT](https://github.com/Swiftgram/TDLibFramework/blob/main/LICENSE) |
+| [TDLibKit](https://github.com/Swiftgram/TDLibKit) | Swift API for TDLib | [MIT](https://github.com/Swiftgram/TDLibKit/blob/main/LICENSE) |
+| [OpenSSL](https://www.openssl.org) 3.x | Cryptography inside TDLib | [Apache License 2.0](https://www.openssl.org/source/license.html) |
+
+Apple frameworks (SwiftUI, UIKit, AppKit, PhotoKit, AVFoundation, CryptoKit, SQLite and others) are part of the
+operating system and aren't redistributed.
+
+## Not included
+
+CloudGallery doesn't contain code from [AKS-Labs/CloudGallery](https://github.com/AKS-Labs/CloudGallery) or
+Whitehole. They inspired the idea; this is a separate implementation written for Apple platforms.

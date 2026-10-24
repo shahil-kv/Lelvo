@@ -1,0 +1,69 @@
+name: Set up Xcode project
+description: Newest stable Xcode, XcodeGen, optional Telegram app keys, generated project and cached packages.
+inputs:
+  td-api-id:
+    description: Telegram api_id to build into the app (optional; forks build without it).
+    required: false
+  td-api-hash:
+    description: Telegram api_hash to build into the app (optional).
+    required: false
+outputs:
+  xcode-build:
+    description: Xcode build number, for cache keys.
+    value: ${{ steps.xcode.outputs.build }}
+runs:
+  using: composite
+  steps:
+    - name: Select newest Xcode
+      id: xcode
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Resolve symlinks (Xcode_27.app may point at a beta), prefer non-beta builds, take the newest version.
+        CANDIDATES=$(for x in /Applications/Xcode*.app; do
+            real=$(cd "$x" && pwd -P)
+            ver=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$real/Contents/Info.plist" 2>/dev/null || echo 0)
+            echo "$ver $real"
+          done | sort -u)
+        echo "$CANDIDATES"
+        XCODE=$(echo "$CANDIDATES" | grep -viE 'beta' | sort -V | tail -1 | cut -d' ' -f2-)
+        [ -n "$XCODE" ] || XCODE=$(echo "$CANDIDATES" | sort -V | tail -1 | cut -d' ' -f2-)
+        sudo xcode-select -s "$XCODE/Contents/Developer"
+        xcodebuild -version
+        echo "build=$(xcodebuild -version | tail -1 | awk '{print $3}')" >> "$GITHUB_OUTPUT"
+
+    - name: Install XcodeGen
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+        HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      run: brew install xcodegen
+
+    - name: Telegram app keys (optional)
+      shell: bash
+      env:
+        TD_API_ID: ${{ inputs.td-api-id }}
+        TD_API_HASH: ${{ inputs.td-api-hash }}
+      run: |
+        if [ -n "$TD_API_ID" ] && [ -n "$TD_API_HASH" ]; then
+          printf 'TD_API_ID = %s\nTD_API_HASH = %s\n' "$TD_API_ID" "$TD_API_HASH" > Config/Secrets.xcconfig
+          echo "Telegram app keys built in"
+        else
+          echo "No app keys: the app will ask for them at sign-in"
+        fi
+
+    - name: Generate Xcode project
+      shell: bash
+      run: xcodegen generate
+
+    # TDLib (~350 MB) and TDLibKit (~66k lines) dominate build time: keep resolved packages and build products.
+    - name: Cache Swift packages and build products
+      uses: actions/cache@v4
+      with:
+        path: |
+          build/SourcePackages
+          build/DerivedData
+        key: xcode-${{ runner.os }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('project.yml', 'Packages/CloudGalleryCore/Package.swift') }}-${{ github.sha }}
+        restore-keys: |
+          xcode-${{ runner.os }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('project.yml', 'Packages/CloudGalleryCore/Package.swift') }}-
+          xcode-${{ runner.os }}-${{ steps.xcode.outputs.build }}-

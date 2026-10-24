@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Automated first-pass review on pull requests. AGENTS.md holds the house rules and wins over this file.
+language: en-US
+
+tone_instructions: >-
+  Senior Swift engineer for iOS and macOS. Direct and brief. Report only problems that should block a merge, each
+  with the fix and why it matters. No praise, no summaries, no style nits.
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: false
+  changed_files_summary: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  poem: false
+  in_progress_fortune: false
+  suggested_labels: false
+  suggested_reviewers: false
+  auto_review:
+    enabled: true
+    drafts: false
+    ignore_title_keywords: ["WIP", "DO NOT REVIEW"]
+  path_filters:
+    - "**/*.swift"
+    - "project.yml"
+    - "Config/**"
+    - ".github/workflows/**"
+    - "AGENTS.md"
+    - "docs/CLOUD_FORMAT.md"
+  path_instructions:
+    - path: "**/*.swift"
+      instructions: |
+        CloudGallery backs up users' only copies of their photos to their own Telegram account through TDLib.
+        iOS 17+ and macOS 15+, Swift 5 language mode; Shared/ builds for both platforms.
+        Report only:
+        - data loss: deleting photos or cloud items without explicit user action, or marking an item backed up
+          before Telegram confirmed every part with the expected size;
+        - a crash, trap, force unwrap on external data, or an unhandled error that leaves state inconsistent;
+        - blocking work on the main thread (PhotoKit fetches, SQLite, file IO, network, hashing);
+        - data races, unbalanced locks or continuations resumed twice or never;
+        - secrets or personal data (phone numbers, api_hash, passphrases, keys, file ids) in logs or UI;
+        - changes to the caption or encryption format that break docs/CLOUD_FORMAT.md or its test vectors;
+        - anything that breaks the Telegram API terms: ignoring FLOOD_WAIT, more parallel uploads, acting for the
+          user without consent;
+        - code that compiles for one platform only inside Shared/.
+        Skip naming, formatting and refactoring suggestions unless they cause one of the problems above.
+    - path: ".github/workflows/**"
+      instructions: |
+        Workflows on pull_request_target must never check out or run pull request code. Flag secrets exposed to
+        untrusted code and unpinned third-party actions with write permissions.

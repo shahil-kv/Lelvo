@@ -1,6 +1,6 @@
 # CloudGallery cloud format, version 1
 
-This is the contract between the iOS and Android apps. A library written by one **must** be readable by the other. If an implementation disagrees with this document, the implementation is wrong. Test vectors live in [`docs/test-vectors/`](test-vectors/), and both apps' unit tests must pass them.
+This is the contract for every app that reads or writes a CloudGallery library: the iOS and Mac apps in this repository, and any compatible app someone else writes. A library written by one **must** be readable by all. If an implementation disagrees with this document, the implementation is wrong. Test vectors live in [`docs/test-vectors/`](test-vectors/), and every implementation's unit tests must pass them.
 
 All integers are unsigned and big-endian unless noted otherwise. "UTF-8" always means NFC-normalised UTF-8.
 
@@ -74,7 +74,7 @@ Each resource (or each part of a split resource, §5) is **one message** in the 
 | `fav` | int |  | `1` if marked favourite. |
 | `p` | [int, int, int] |  | Split info: part index (0-based), part count, part size in bytes of the **uploaded** stream (§5). |
 | `e` | int |  | `1` if the file content is CGFE ciphertext (§6.2). Always present in E2E libraries. |
-| `src` | string |  | Writer: `ios` or `android`. |
+| `src` | string |  | Writer, informational only: `ios` (the iOS and Mac apps), or another implementation's name. |
 | `l` | string |  | Photos/MediaStore local id of the source asset on the uploading device. Lets a reinstall on that device re-link items exactly (otherwise: name + `t` + `wh`). Dropped before `n` is truncated when the caption is too long. |
 | `ed` | int |  | On the original (`r: "o"`): `1` when the item also has an edited version stored as role `e`. Lets readers detect a missing edit. |
 
@@ -104,7 +104,7 @@ CG1:{"v":1,"id":"0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10","r":"o","k":"v","h":"9f86
 - `master = PBKDF2-HMAC-SHA256(password = NFC-UTF-8(passphrase), salt = s, iterations = it, dkLen = 32)`.
 - New libraries use `it = 600000` and a random 16-byte salt. Readers accept any `it ≥ 100000`.
 - Key check: `kc = HMAC-SHA256(master, UTF-8("CloudGallery key check v1"))[0..<16]`. A wrong passphrase is detected by comparing `kc` before any decryption.
-- The master key is stored only in the platform's secure storage (iOS Keychain, Android Keystore-wrapped). A lost passphrase means lost data; apps must say so plainly at library creation.
+- The master key is stored only in the platform's secure storage (the Keychain on Apple platforms). A lost passphrase means lost data; apps must say so plainly at library creation.
 
 ### 6.2 File content: CGFE (chunked AES-256-GCM)
 
