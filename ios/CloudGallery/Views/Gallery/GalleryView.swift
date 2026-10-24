@@ -406,7 +406,7 @@ struct ThumbnailCell: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if side > 30 { BadgeView(badge: entry.badge).padding(4) }
+            BadgeView(badge: entry.badge, tileSide: side).padding(side > 60 ? 4 : 2)
         }
         .overlay(alignment: .bottomTrailing) {
             if selecting {

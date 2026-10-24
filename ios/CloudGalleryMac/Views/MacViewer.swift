@@ -209,8 +209,8 @@ struct MacViewer: View {
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 46, height: 46)
-                .background(.ultraThinMaterial, in: Circle())
-                .environment(\.colorScheme, .dark)
+                .background(Color(white: 0.18), in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.12)))
                 .shadow(color: .black.opacity(0.3), radius: 8)
         }
         .buttonStyle(.plain)

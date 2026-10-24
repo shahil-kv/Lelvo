@@ -314,7 +314,7 @@ struct MacGalleryView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
+        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
         .overlay(Capsule().strokeBorder(.separator.opacity(0.5)))
         .shadow(color: .black.opacity(0.2), radius: 18, y: 8)
     }
@@ -641,7 +641,7 @@ private struct MacSectionHeader: View {
         .padding(.top, 14)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.opacity(0.94))
+        .background(.background)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .accessibilityElement(children: .combine)
@@ -693,9 +693,7 @@ struct MacThumbnailCell: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if side >= 44 && (![.backedUp, .cloudOnly].contains(entry.badge) || hovering) {
-                BadgeView(badge: entry.badge).padding(4).transition(.opacity)
-            }
+            BadgeView(badge: entry.badge, tileSide: side).padding(side > 60 ? 4 : 2)
         }
         .overlay {
             if selected || cursor {

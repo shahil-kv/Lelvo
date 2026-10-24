@@ -58,7 +58,7 @@ struct ToastView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.regularMaterial, in: Capsule())
+        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
         .overlay(Capsule().strokeBorder(.separator.opacity(0.5)))
         .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
         .frame(maxWidth: 520)

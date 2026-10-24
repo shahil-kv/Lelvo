@@ -13,59 +13,79 @@ struct FreeUpSpaceView: View {
     private var service: FreeUpSpaceService { AppEnvironment.shared.freeUpSpace }
 
     var body: some View {
-        List {
+        Form {
             Section {
-                Text("Remove photos and videos from this \(Device.name) that are already safely backed up, to get storage back. They stay in CloudGallery, and you can save any of them back anytime.")
-                    .font(.subheadline)
+                Label {
+                    Text("Remove photos and videos from this \(Device.name) that are already safely backed up, to get storage back. They stay in CloudGallery, and you can save any of them back anytime.")
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "internaldrive.fill").foregroundStyle(.blue)
+                }
             }
-            Group {
-                Section {
-                    LabeledContent("Backed up and on this \(Device.name)", value: "\(candidates.count)")
-                    LabeledContent("Checked, safe to remove", value: "\(verified.count)")
-                    LabeledContent("Space you can free", value: Format.bytes(FreeUpSpaceService.bytes(of: verified)))
-                } footer: {
-                    Text("Before anything is offered, CloudGallery checks in Telegram that every part of it is really there. Items not fully backed up, or edited after their backup, are never offered.")
-                }
 
-                Section {
-                    if verifying {
-                        ProgressView(value: Double(checked), total: Double(max(candidates.count, 1))) {
-                            Text("Checking \(checked) of \(candidates.count)…")
-                        }
-                        Button("Stop", role: .cancel) { cancelFlag.cancel() }
-                    } else {
-                        Button { Task { await verify() } } label: {
-                            Label("Check what's safe to remove", systemImage: "checkmark.shield")
-                        }
-                        .disabled(candidates.isEmpty)
-                    }
-                    Button(role: .destructive) { Task { await delete() } } label: {
-                        Label(deleting ? "Removing…" : "Remove \(verified.count) from \(Device.name) (\(Format.bytes(FreeUpSpaceService.bytes(of: verified))))", systemImage: "trash")
-                    }
-                    .disabled(verified.isEmpty || verifying || deleting)
-                } footer: {
-                    Text("\(Device.name == "Mac" ? "macOS" : "iOS") asks you to confirm. Removed items move to “Recently Deleted” in Photos for 30 days; empty that album to get the space back right away. They stay in CloudGallery as cloud items.")
-                }
+            Section {
+                LabeledContent("Backed up and on this \(Device.name)", value: candidates.count.formatted())
+                LabeledContent("Checked, safe to remove", value: verified.count.formatted())
+                LabeledContent("Space you can free", value: Format.bytes(FreeUpSpaceService.bytes(of: verified)))
+            } footer: {
+                Text("Before anything is offered, CloudGallery checks in Telegram that every part of it is really there. Items not fully backed up, or edited after their backup, are never offered.")
+            }
 
-                if !verified.isEmpty {
-                    Section("Safe to remove") {
-                        ForEach(verified.prefix(200)) { item in
-                            HStack {
-                                Text(item.filename).lineLimit(1)
-                                Spacer()
-                                Text(Format.bytes(item.fileSize + (item.pairedVideoSize ?? 0))).foregroundStyle(.secondary)
-                            }
-                            .font(.footnote)
-                        }
-                        if verified.count > 200 { Text("…and \(verified.count - 200) more").font(.footnote).foregroundStyle(.secondary) }
+            Section {
+                if verifying {
+                    ProgressView(value: Double(checked), total: Double(max(candidates.count, 1))) {
+                        Text("Checking \(checked) of \(candidates.count)…")
                     }
+                }
+                actions
+            } footer: {
+                Text("\(Device.name == "Mac" ? "macOS" : "iOS") asks you to confirm. Removed items move to “Recently Deleted” in Photos for 30 days; empty it to get the space back right away. They stay in CloudGallery as cloud items.")
+            }
+
+            if !verified.isEmpty {
+                Section("Safe to remove") {
+                    ForEach(verified.prefix(200)) { item in
+                        LabeledContent(item.filename, value: Format.bytes(item.fileSize + (item.pairedVideoSize ?? 0)))
+                    }
+                    if verified.count > 200 { Text("…and \(verified.count - 200) more").foregroundStyle(.secondary) }
                 }
             }
         }
+        .platformGroupedForm()
         .navigationTitle("Free Up Space")
         .onAppear(perform: load)
         .onDisappear { cancelFlag.cancel() }
         .alert(item: $result) { a in Alert(title: Text(a.title), message: Text(a.message)) }
+    }
+
+    @ViewBuilder private var actions: some View {
+        let removeTitle = deleting ? "Removing…" : "Remove \(verified.count) from \(Device.name) (\(Format.bytes(FreeUpSpaceService.bytes(of: verified))))"
+        #if os(macOS)
+        HStack {
+            Spacer()
+            if verifying {
+                Button("Stop") { cancelFlag.cancel() }
+            } else {
+                Button("Check What's Safe to Remove") { Task { await verify() } }
+                    .disabled(candidates.isEmpty)
+            }
+            if !verified.isEmpty {
+                Button(removeTitle, role: .destructive) { Task { await delete() } }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(verifying || deleting)
+            }
+        }
+        #else
+        if verifying {
+            Button("Stop", role: .cancel) { cancelFlag.cancel() }
+        } else {
+            Button { Task { await verify() } } label: { Label("Check what's safe to remove", systemImage: "checkmark.shield") }
+                .disabled(candidates.isEmpty)
+        }
+        Button(role: .destructive) { Task { await delete() } } label: { Label(removeTitle, systemImage: "trash") }
+            .disabled(verified.isEmpty || verifying || deleting)
+        #endif
     }
 
     private func load() {

@@ -183,6 +183,15 @@ extension View {
         #endif
     }
 
+    /// System Settings-style grouped sections on the Mac (iOS lists are already grouped).
+    @ViewBuilder func platformGroupedForm() -> some View {
+        #if os(macOS)
+        formStyle(.grouped)
+        #else
+        self
+        #endif
+    }
+
     @ViewBuilder func noAutocapitalization() -> some View {
         #if os(macOS)
         self

@@ -263,10 +263,8 @@ struct FailedItemsView: View {
     @State private var items: [MediaItem] = []
 
     var body: some View {
-        List {
-            if items.isEmpty {
-                EmptyStateView(systemImage: "checkmark.circle", title: "Nothing failed", message: "Every attempted upload went through.")
-            } else {
+        Form {
+            if !items.isEmpty {
                 Section {
                     Button {
                         Task {
@@ -303,7 +301,13 @@ struct FailedItemsView: View {
                 }
             }
         }
-        .navigationTitle("Failed uploads")
+        .platformGroupedForm()
+        .overlay {
+            if items.isEmpty {
+                EmptyStateView(systemImage: "checkmark.icloud", title: "Nothing Failed", message: "Every attempted upload went through.")
+            }
+        }
+        .navigationTitle("Failed Uploads")
         .task { await load() }
     }
 
@@ -344,13 +348,7 @@ struct DuplicatesView: View {
     private var env: AppEnvironment { AppEnvironment.shared }
 
     var body: some View {
-        List {
-            if loading {
-                HStack { ProgressView(); Text("Looking for duplicates…").foregroundStyle(.secondary) }
-            } else if messageDuplicates.isEmpty && cloudGroups.isEmpty && phoneGroups.isEmpty {
-                EmptyStateView(systemImage: "checkmark.circle", title: "No duplicates",
-                               message: "Nothing is stored twice in your library or on this \(Device.name).")
-            }
+        Form {
 
             if !messageDuplicates.isEmpty || !cloudGroups.isEmpty {
                 Section {
@@ -415,6 +413,15 @@ struct DuplicatesView: View {
                 } header: { Text("On this \(Device.name)") } footer: {
                     Text("Identical copies of photos that are already backed up. Deleting a copy moves it to Recently Deleted; the backup isn't affected.")
                 }
+            }
+        }
+        .platformGroupedForm()
+        .overlay {
+            if loading {
+                ProgressView("Looking for duplicates…")
+            } else if messageDuplicates.isEmpty && cloudGroups.isEmpty && phoneGroups.isEmpty {
+                EmptyStateView(systemImage: "checkmark.circle", title: "No Duplicates",
+                               message: "Nothing is stored twice in your library or on this \(Device.name).")
             }
         }
         .navigationTitle("Duplicates")

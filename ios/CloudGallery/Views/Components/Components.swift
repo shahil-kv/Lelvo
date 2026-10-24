@@ -84,12 +84,20 @@ enum BackupBadge: Equatable, CaseIterable {
 
 struct BadgeView: View {
     let badge: BackupBadge
+    /// Tile side in points; the badge stays small (7–10 pt) and scales gently with the grid, like Google Photos.
+    var tileSide: CGFloat? = nil
+
+    private var pointSize: CGFloat {
+        guard let side = tileSide else { return 11 }
+        return min(10, max(7, side * 0.065))
+    }
+
     var body: some View {
         icon
-            .font(.caption2.weight(.bold))
+            .font(.system(size: pointSize, weight: .bold))
             .foregroundStyle(badge.tint)
-            .padding(3)
-            .background(.black.opacity(0.55), in: Circle())
+            .padding(pointSize * 0.28)
+            .background(.black.opacity(0.5), in: Circle())
             .accessibilityLabel(badge.label)
     }
 

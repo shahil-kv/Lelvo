@@ -45,6 +45,8 @@ enum DebugHooks {
                                               context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)
             else { return }
             window.sendEvent(down)
+        case "push":
+            NotificationCenter.default.post(name: .debugPush, object: arg)
         case "activate":
             NSApp.activate()
         default: break
@@ -54,5 +56,6 @@ enum DebugHooks {
 
 extension Notification.Name {
     static let debugOpenIndex = Notification.Name("CloudGallery.debugOpenIndex")
+    static let debugPush = Notification.Name("CloudGallery.debugPush")
 }
 #endif
