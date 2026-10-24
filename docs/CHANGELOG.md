@@ -13,9 +13,14 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - **About** shows the source code, license, privacy policy, help and the licenses of included libraries.
 - **Privacy manifests** for both apps (no tracking, no data collected).
 - Release builds no longer contain the test switches used by UI tests.
-- The Mac app now has its own version line, starting at 1.0.0. Compiler warnings fixed on both platforms.
+- Versions restart at **0.1.0** for both apps in this repository, released with a one-button Release workflow. Compiler warnings fixed on both platforms.
 
-## 2.0.0-beta.1 (iOS), 2026-10-23
+## Before this repository
+
+Released from the earlier fork as iOS 1.0.0 and 2.0.0 betas. If you installed one of those, delete it and install
+0.1.0; your library comes back when you sign in.
+
+### 2.0.0-beta.1 (iOS), 2026-10-23
 - **Telegram user account via TDLib** replaces the Bot API: no 50 MB / 20 MB limits; files over 2 GB (4 GB Premium) are split automatically.
 - **Cloud format 1** (docs/CLOUD_FORMAT.md): one document per resource with versioned caption JSON; restore by scanning channel history (no index file).
 - Persistent upload queue with verification, FLOOD_WAIT handling, 2 concurrent uploads, failed-items screen with Retry.
@@ -26,6 +31,6 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - UI smoke tests; cross-platform test vectors.
 - Docs: issues analysis, architecture, cloud format.
 
-## 1.0.0 (iOS), 2026-10-23
+### 1.0.0 (iOS), 2026-10-23
 - First native iOS app (SwiftUI) using the Telegram Bot API: original-quality backup, Live Photos, SHA-256 de-duplication, background `URLSession` uploads, an encrypted pinned index for restore, optional E2E encryption, gallery and viewer, Free Up Space (off by default), and Shortcuts actions.
 - CI builds an unsigned IPA with Xcode 26.6 and Xcode 27.1.

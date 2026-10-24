@@ -53,3 +53,6 @@
 - name: dependencies
   color: 0366d6
   description: Dependency updates
+- name: skip-changelog
+  color: ededed
+  description: Leave out of the release notes

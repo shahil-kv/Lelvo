@@ -183,7 +183,7 @@ screenshots become mandatory.
 ### 3.4 Build hygiene 🔧🧪
 
 - [ ] 🔧 Build with the current Xcode / iOS SDK (Apple requires the latest SDK for new uploads).
-- [ ] 🔧 Version: `MARKETING_VERSION` (e.g. 2.0.0) and a unique, increasing `CURRENT_PROJECT_VERSION` for every
+- ✅ Version and build number: set by the Release workflow (version you enter, build = run number, always increasing) for every
       upload.
 - ✅ Release builds don't expose debug features: `-UITestReset`, `-UITestDemoLibrary`, `-autoScrollTest`,
       `-verifyCloudReads*` and `-clearCacheTest` are compiled only in Debug (`#if DEBUG`).

@@ -1,20 +1,13 @@
 # Releasing
 
-The iOS and Mac apps release independently, each with its own version and tag. Pushing a tag builds the app on
-GitHub Actions and publishes a GitHub Release with the file attached.
-
-| App | Version setting in `project.yml` | Tag | Release file |
-|---|---|---|---|
-| iPhone / iPad | `settings.base.MARKETING_VERSION` | `ios-v2.1.0` | `CloudGallery.ipa` (unsigned, for sideloading) |
-| Mac | `targets.CloudGalleryMac.settings.base.MARKETING_VERSION` | `macos-v1.1.0` | `CloudGallery-mac.zip` (Apple silicon + Intel) |
-
-A tag with a suffix (`ios-v2.1.0-beta.1`) is published as a pre-release. The workflow refuses a tag that doesn't match
-the app's `MARKETING_VERSION`.
+Releases are one button. Versions follow [Semantic Versioning](https://semver.org): `0.MINOR.PATCH` until the App
+Store launch makes it 1.0.0. MINOR for new features, PATCH for fixes only.
 
 ## Steps
 
-1. **Check `main` is green** in CI.
-2. **Test on real devices** with a real Telegram account (a spare one), on the oldest and newest supported OS:
+1. **Check `main` is green** in CI, and that **[CHANGELOG.md](CHANGELOG.md)** "Unreleased" describes the changes for
+   users. Move them under the new version and date in the same pull request.
+2. **Test on real devices** with a real (spare) Telegram account, on the oldest and newest supported OS:
    - fresh install → sign in → create a library → back up photos, a Live Photo and a video;
    - view and stream from the cloud, share, save to Photos;
    - kill the app mid-backup and relaunch: it resumes without duplicates;
@@ -22,15 +15,25 @@ the app's `MARKETING_VERSION`.
    - an end-to-end encrypted library: create, back up, unlock on a second device;
    - Free Up Space on a couple of items;
    - Mac: the same flow, plus hourly automatic backup with the window closed.
-3. **Bump the version** in `project.yml`: `MARKETING_VERSION` for the app you release, and increase
-   `CURRENT_PROJECT_VERSION` (build number) every time.
-4. **Update [CHANGELOG.md](CHANGELOG.md)**: move "Unreleased" items under the new version and date, written for users.
-5. Commit (`Release iOS 2.1.0`), push, then tag and push the tag:
-   ```sh
-   git tag ios-v2.1.0 && git push origin ios-v2.1.0
-   ```
-6. **Check the release page**: the file and its `.sha256` are attached, the notes read well. Edit the notes to
-   summarise the changelog entry.
+3. **GitHub → Actions → Release → Run workflow** on `main`, and choose:
+   - **app**: `ios`, `macos` or `both`;
+   - **channel**: `beta` (testers) or `stable`;
+   - **version**: e.g. `0.2.0` (no suffix).
+4. The workflow does the rest:
+
+| | Beta | Stable |
+|---|---|---|
+| Version in the app | `0.2.0` | `0.2.0` |
+| Build number | the workflow run number (always increases) | same |
+| Tag | `ios-v0.2.0-beta.<run>`, `macos-v0.2.0-beta.<run>` | `ios-v0.2.0`, `macos-v0.2.0` |
+| Release page | pre-release | latest release |
+| Files | `CloudGallery.ipa` / `CloudGallery-mac.zip` and `.sha256` | same |
+| Notes | merged pull requests since the last release of that app, grouped by label (`.github/release.yml`) | same |
+
+It refuses to run off `main`, refuses a malformed version, and refuses a tag that already exists. Ship as many betas
+of `0.2.0` as you like, then run it once as `stable`.
+
+5. **Check the release page** and edit the notes into a short summary for users if needed.
 
 ## App keys in releases
 
@@ -46,9 +49,8 @@ gh secret set TD_API_HASH --body "<hash>"
 
 ## Later: signed builds
 
-- **App Store and TestFlight (iOS):** follow [APP_STORE_RELEASE.md](APP_STORE_RELEASE.md). Archive with a
-  distribution certificate in Xcode, or add signing secrets and an `xcodebuild -exportArchive` step to
-  `release-ios.yml`.
+- **TestFlight and the App Store (iOS):** follow [APP_STORE_RELEASE.md](APP_STORE_RELEASE.md). The Release workflow
+  gets a signed `-exportArchive` step and an upload with an App Store Connect API key once the Apple account exists.
 - **Mac outside the App Store:** with a paid Apple Developer account, sign with a Developer ID certificate, notarize
   with `xcrun notarytool submit --wait`, staple with `xcrun stapler staple`, and ship a DMG. Users then open the app
   without the right-click step. A Homebrew cask can follow once releases are notarized.

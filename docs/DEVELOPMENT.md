@@ -104,4 +104,4 @@ Settings → Logs shows the app's own log; Debug builds also print it to the con
 
 `.github/workflows/ci.yml` runs on every pull request and push to `main`: core unit tests, iOS and Mac builds (Debug
 and Release) with warnings treated as errors in our code, and the UI tests. Releases are built by
-`release-ios.yml` and `release-mac.yml`; see [RELEASING.md](RELEASING.md).
+`release.yml`; see [RELEASING.md](RELEASING.md).

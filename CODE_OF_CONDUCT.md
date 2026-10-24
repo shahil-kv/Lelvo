@@ -36,7 +36,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement privately, by email to the maintainer, [@shahil-kv](https://github.com/shahil-kv) (the address is on that GitHub profile). Please don't report conduct issues in public issues. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement privately, by email to the maintainer at [mshahilkv@gmail.com](mailto:mshahilkv@gmail.com). Please don't report conduct issues in public issues. All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the reporter of any incident.
 

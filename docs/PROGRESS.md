@@ -62,4 +62,4 @@ Read this first when resuming. Scope: the iOS and Mac apps. Android isn't part o
 ## How to verify locally
 
 - Everything: [DEVELOPMENT.md](DEVELOPMENT.md) (`Scripts/build.sh test|ios|mac|uitest`).
-- CI: `.github/workflows/ci.yml` on every pull request; releases: `release-ios.yml`, `release-mac.yml`.
+- CI: `.github/workflows/ci.yml` on every pull request; releases: `release.yml` (Actions → Release button; versions restart at 0.1.0).

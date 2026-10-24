@@ -8,8 +8,8 @@ the people who make it never receive any of your data.
 ## Who we are
 
 CloudGallery is a free, open-source app maintained by [@shahil-kv](https://github.com/shahil-kv) and contributors.
-Contact: open an issue at [github.com/shahil-kv/CloudGallery](https://github.com/shahil-kv/CloudGallery/issues), or
-use the private channel in [SECURITY.md](SECURITY.md) for anything sensitive.
+Contact: [mshahilkv@gmail.com](mailto:mshahilkv@gmail.com), or an issue at
+[github.com/shahil-kv/CloudGallery](https://github.com/shahil-kv/CloudGallery/issues). Security problems: [SECURITY.md](SECURITY.md).
 
 ## What we collect
 

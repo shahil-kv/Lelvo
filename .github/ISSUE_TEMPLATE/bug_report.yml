@@ -30,7 +30,7 @@ body:
     attributes:
       label: CloudGallery version
       description: Settings → About → Version
-      placeholder: 2.0.0 (2)
+      placeholder: 0.1.0 (12)
     validations:
       required: true
   - type: input
