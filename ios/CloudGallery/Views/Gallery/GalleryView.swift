@@ -11,25 +11,20 @@ struct GalleryView: View {
     @AppStorage(Prefs.Key.gridColumns) private var columns = 4
     @State private var selecting = false
     @State private var selection = Set<String>()
-    @State private var viewerStart: GalleryEntry?
     @State private var share: ShareItems?
     @State private var busyMessage: String?
     @State private var alert: GalleryAlert?
     @State private var confirmCloudDelete = false
     @State private var confirmDeviceDelete = false
-    @State private var cellFrames: [String: CGRect] = [:]
-    @State private var dragAnchor: Int?
-    @State private var dragBase = Set<String>()
     @State private var showLegend = false
     /// The item showing in the viewer (changes as the user swipes).
     @State private var viewerCurrentId: String?
-    /// Per-frame scroll and pinch values live here, read only by the scrubber and the scale wrapper,
-    /// so the grid itself isn't rebuilt on every frame.
+    /// Per-frame scroll values live here, read only by the date scrubber, so nothing else redraws while scrolling.
     @State private var motion = GridMotion()
-    @Namespace private var zoomNamespace
-    @Environment(\.displayScale) private var displayScale
-
-    private let spacing: CGFloat = 2
+    @State private var scrubTarget: String?
+    @State private var scrubToken = 0
+    /// Bumped when the filtered timeline is recomputed, so the grid knows its data changed.
+    @State private var filteredVersion = 0
 
     private var grouping: GalleryModel.Grouping { GalleryModel.Grouping(columns: columns) }
     /// The timeline is already grouped by the model; filtered views (albums, Videos…) are computed once per
@@ -37,7 +32,6 @@ struct GalleryView: View {
     private var entries: [GalleryEntry] { filter == nil ? model.entries : filtered.entries }
     private var sections: [GallerySection] { filter == nil ? model.sections : filtered.sections }
     @State private var filtered: (entries: [GalleryEntry], sections: [GallerySection]) = ([], [])
-    @State private var prefetcher = GridPrefetcher()
 
     private struct FilterKey: Equatable { let revision: Int; let grouping: GalleryModel.Grouping; let size: Int }
 
@@ -83,15 +77,13 @@ struct GalleryView: View {
                 for (i, e) in list.enumerated() { positions[e.id] = i }
                 return (list, filter == nil ? [] : GalleryModel.group(list, grouping: grouping), positions)
             }.value
-            if filter != nil { filtered = (result.0, result.1) }
-            prefetcher.update(entries: result.0, positions: result.2)
+            if filter != nil {
+                filtered = (result.0, result.1)
+                filteredVersion += 1
+            }
         }
         .onChange(of: columns) { _, c in model.setGrouping(GalleryModel.Grouping(columns: c)) }
         .onAppear { model.setGrouping(grouping) }
-        .fullScreenCover(item: $viewerStart) { start in
-            ViewerView(entries: entries, startId: start.id) { viewerCurrentId = $0 }
-                .zoomTransition(sourceID: viewerCurrentId ?? start.id, in: zoomNamespace)
-        }
         .sheet(item: $share) { ActivityView(items: $0.urls).presentationDetents([.medium, .large]) }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
         .alert("Delete \(selection.count) from your backup?", isPresented: $confirmCloudDelete) {
@@ -123,111 +115,32 @@ struct GalleryView: View {
 
     // MARK: - Grid
 
-    @ViewBuilder private var grid: some View {
-        #if DEBUG
-        if ScrollBenchmark.engine == "uikit" {
-            UIKitPhotoGrid(sections: sections, dataVersion: model.revision &* 31 &+ columns, columns: columns) { tap($0) }
-                .ignoresSafeArea(edges: .bottom)
-        } else {
-            swiftUIGrid
-        }
-        #else
-        swiftUIGrid
-        #endif
+    /// Changes whenever the sections the grid shows change (library reload, regrouping on pinch, filter results).
+    private var gridVersion: Int {
+        filter == nil ? model.sectionsRevision : filteredVersion
     }
 
-    private var swiftUIGrid: some View {
-        GeometryReader { geo in
-            let side = max(20, (geo.size.width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
-            ScrollViewReader { proxy in
-                ScrollView {
-                    if model.authorization == .limited && filter == nil { limitedBanner.padding(.horizontal) }
-                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: spacing), count: columns),
-                              spacing: spacing) {
-                        ForEach(sections) { section in
-                            Section {
-                                ForEach(section.entries) { entry in
-                                    ThumbnailCell(entry: entry, side: side, selecting: selecting,
-                                                  selected: selection.contains(entry.id))
-                                        .background {
-                                            if selecting {
-                                                GeometryReader { g in
-                                                    Color.clear.preference(key: CellFramesKey.self,
-                                                                           value: [entry.id: g.frame(in: .named("grid"))])
-                                                }
-                                            }
-                                        }
-                                        .zoomSource(id: entry.id, in: zoomNamespace)
-                                        .onAppear { prefetcher.appeared(entry.id, columns: columns, pixels: ThumbnailPipeline.bucket(side * displayScale)) }
-                                        .onTapGesture { tap(entry) }
-                                        .onLongPressGesture {
-                                            Haptics.tap()
-                                            selecting = true
-                                            selection.insert(entry.id)
-                                        }
-                                }
-                            } header: {
-                                SectionHeader(section: section, grouping: grouping)
-                                    .id(section.id)
-                            }
-                        }
-                    }
-                    .pinchScaled(by: motion)
-                }
-                .scrollIndicators(.hidden)
-                .trackScroll(motion)
-                .onChange(of: viewerCurrentId) { _, id in
-                    // Keep the grid under the viewer on the current item, like Photos.
-                    if let id { proxy.scrollTo(id, anchor: .center) }
-                }
-                .coordinateSpace(name: "grid")
-                .accessibilityIdentifier("galleryGrid")
-                .onPreferenceChange(CellFramesKey.self) { cellFrames = $0 }
-                .simultaneousGesture(
-                    MagnifyGesture()
-                        .onChanged { v in motion.pinch = min(1.2, max(0.8, v.magnification)) }
-                        .onEnded { v in
-                            withAnimation(.spring(duration: 0.3)) {
-                                motion.pinch = 1
-                                if v.magnification > 1.15 { columns = max(1, columns - 1) }
-                                else if v.magnification < 0.85 { columns = min(10, columns + 1) }
-                            }
+    private var grid: some View {
+        NativePhotoGrid(entries: entries, sections: sections, dataVersion: gridVersion, columns: $columns, grouping: grouping,
+                        selecting: selecting, selection: $selection, scrubTarget: scrubTarget, scrubToken: scrubToken, motion: motion,
+                        onLongPress: { entry in
                             Haptics.tap()
-                        }
-                )
-                .simultaneousGesture(selecting ? dragSelect : nil)
-                .overlay(alignment: .trailing) {
-                    if sections.count > 3 {
-                        DateScrubber(sections: sections, motion: motion) { id in
-                            proxy.scrollTo(id, anchor: .top)
-                        }
+                            selecting = true
+                            selection.insert(entry.id)
+                        },
+                        onViewerPage: { viewerCurrentId = $0 })
+            .ignoresSafeArea(edges: .bottom)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if model.authorization == .limited && filter == nil { limitedBanner.padding(.horizontal).padding(.vertical, 6).background(.bar) }
+            }
+            .overlay(alignment: .trailing) {
+                if sections.count > 3 {
+                    DateScrubber(sections: sections, motion: motion) { id in
+                        scrubTarget = id
+                        scrubToken += 1
                     }
                 }
             }
-        }
-    }
-
-    /// Drag across thumbnails to select a range, like Photos. Starts only on a mostly horizontal drag
-    /// so vertical swipes still scroll.
-    private var dragSelect: some Gesture {
-        DragGesture(minimumDistance: 12, coordinateSpace: .named("grid"))
-            .onChanged { v in
-                let flat = entries.map(\.id)
-                guard let hit = cellFrames.first(where: { $0.value.contains(v.location) })?.key,
-                      let index = flat.firstIndex(of: hit) else { return }
-                if dragAnchor == nil {
-                    guard abs(v.translation.width) > abs(v.translation.height) else { return }
-                    guard let start = cellFrames.first(where: { $0.value.contains(v.startLocation) })?.key,
-                          let s = flat.firstIndex(of: start) else { return }
-                    dragAnchor = s
-                    dragBase = selection
-                    Haptics.tap()
-                }
-                guard let anchor = dragAnchor else { return }
-                let range = min(anchor, index)...max(anchor, index)
-                selection = dragBase.union(flat[range])
-            }
-            .onEnded { _ in dragAnchor = nil }
     }
 
     private var limitedBanner: some View {
@@ -319,16 +232,6 @@ struct GalleryView: View {
 
     // MARK: - Actions
 
-    private func tap(_ entry: GalleryEntry) {
-        if selecting {
-            if selection.contains(entry.id) { selection.remove(entry.id) } else { selection.insert(entry.id) }
-            Haptics.tap()
-        } else {
-            viewerCurrentId = entry.id
-            viewerStart = entry
-        }
-    }
-
     private func presentLimitedPicker() {
         guard let root = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController }).first else { return }
         var top = root
@@ -416,107 +319,6 @@ struct GalleryView: View {
     }
 }
 
-struct ThumbnailCell: View {
-    let entry: GalleryEntry
-    let side: CGFloat
-    let selecting: Bool
-    let selected: Bool
-    @State private var image: UIImage?
-    @State private var failed = false
-    @Environment(\.displayScale) private var scale
-
-    init(entry: GalleryEntry, side: CGFloat, selecting: Bool, selected: Bool) {
-        self.entry = entry
-        self.side = side
-        self.selecting = selecting
-        self.selected = selected
-        // A tile scrolling back in shows its image on the first frame instead of an empty square.
-        _image = State(initialValue: ThumbnailPipeline.shared.cached(entry)?.image)
-    }
-
-    var body: some View {
-        ZStack {
-            Rectangle().fill(Color(.secondarySystemBackground))
-            if let image {
-                Image(uiImage: image).resizable().scaledToFill()
-                    .frame(width: side, height: side).clipped()
-            } else if failed {
-                Image(systemName: entry.badge == .tooLarge ? "doc.badge.ellipsis" : "photo")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(width: side, height: side)
-        .overlay(alignment: .bottomLeading) {
-            if entry.isVideo, let d = entry.duration {
-                Text(Duration.seconds(d).formatted(.time(pattern: .minuteSecond)))
-                    .font(.caption2.monospacedDigit().bold()).foregroundStyle(.white)
-                    .shadow(radius: 2).padding(4)
-            } else if entry.isLive {
-                Image(systemName: "livephoto").font(.caption2).foregroundStyle(.white).shadow(radius: 2).padding(4)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            BadgeView(badge: entry.badge, tileSide: side).padding(side > 60 ? 4 : 2)
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if selecting {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3).foregroundStyle(selected ? Color.accentColor : .white)
-                    .background(Circle().fill(selected ? .white : .black.opacity(0.2)))
-                    .padding(5)
-            }
-        }
-        .overlay { if selected { Rectangle().stroke(Color.accentColor, lineWidth: 3) } }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(entry.accessibilityLabel)
-        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .task(id: ThumbRequest(id: entry.id, pixels: ThumbnailPipeline.bucket(side * scale))) { await load() }
-    }
-
-    private struct ThumbRequest: Equatable { let id: String; let pixels: Int }
-
-    private func load() async {
-        let pixels = ThumbnailPipeline.bucket(side * scale)
-        if let cached = ThumbnailPipeline.shared.cached(entry), cached.pixels >= pixels {
-            if image !== cached.image { image = cached.image }
-            return
-        }
-        // Low-res first, then sharp; the current image stays while a sharper one for a new grid size arrives.
-        for await img in ThumbnailPipeline.shared.images(for: entry, pixels: pixels) { image = img }
-        if image == nil { failed = true }
-    }
-}
-
-struct CellFramesKey: PreferenceKey {
-    static var defaultValue: [String: CGRect] = [:]
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
-        value.merge(nextValue()) { $1 }
-    }
-}
-
-/// Date header like Photos: bold day/month/year with the item count.
-private struct SectionHeader: View {
-    let section: GallerySection
-    let grouping: GalleryModel.Grouping
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(section.title)
-                .font(grouping == .day ? .headline : .title3.weight(.bold))
-            Spacer()
-            Text("\(section.entries.count)")
-                .font(.footnote.monospacedDigit())
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 18)
-        .padding(.bottom, 8)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-    }
-}
-
 /// The only scroll bar: a thumb that follows the scroll position, appears while scrolling, and can be
 /// dragged to jump through dates with the month shown beside it (like Photos and Google Photos).
 struct DateScrubber: View {
@@ -596,44 +398,8 @@ struct DateScrubber: View {
     }
 }
 
-private extension View {
-    /// Scroll position (0…1) and whether the user is scrolling, for the date scrubber.
-    @ViewBuilder func trackScroll(_ motion: GridMotion) -> some View {
-        if #available(iOS 18.0, *) {
-            self
-                .onScrollGeometryChange(for: CGFloat.self) { g in
-                    let range = g.contentSize.height - g.containerSize.height
-                    return range > 0 ? (g.contentOffset.y + g.contentInsets.top) / range : 0
-                } action: { _, new in motion.fraction = new }
-                .onScrollPhaseChange { _, phase in motion.isScrolling = phase != .idle }
-        } else {
-            self
-        }
-    }
-
-    func pinchScaled(by motion: GridMotion) -> some View { PinchScaled(motion: motion, content: self) }
-}
-
 /// Values that change every frame while scrolling or pinching (Observation: only readers redraw).
 @Observable final class GridMotion {
     var fraction: CGFloat = 0
     var isScrolling = false
-    var pinch: CGFloat = 1
-}
-
-private struct PinchScaled<Content: View>: View {
-    let motion: GridMotion
-    let content: Content
-    var body: some View { content.scaleEffect(motion.pinch, anchor: .top) }
-}
-
-extension View {
-    /// Native zoom from a grid tile into the viewer and back (iOS 18+).
-    @ViewBuilder func zoomSource(id: String, in namespace: Namespace.ID) -> some View {
-        if #available(iOS 18.0, *) { self.matchedTransitionSource(id: id, in: namespace) } else { self }
-    }
-
-    @ViewBuilder func zoomTransition(sourceID: String, in namespace: Namespace.ID) -> some View {
-        if #available(iOS 18.0, *) { self.navigationTransition(.zoom(sourceID: sourceID, in: namespace)) } else { self }
-    }
 }

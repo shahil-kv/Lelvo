@@ -19,9 +19,13 @@ struct ViewerView: View {
     @State private var confirmDelete = false
     @Environment(\.dismiss) private var dismiss
 
-    init(entries: [GalleryEntry], startId: String, onPageChange: @escaping (String) -> Void = { _ in }) {
+    /// Set when presented from UIKit (the grid); SwiftUI presentations use `dismiss`.
+    var onClose: (() -> Void)?
+
+    init(entries: [GalleryEntry], startId: String, onPageChange: @escaping (String) -> Void = { _ in }, onClose: (() -> Void)? = nil) {
         self.entries = entries
         self.onPageChange = onPageChange
+        self.onClose = onClose
         _currentId = State(initialValue: startId)
     }
 
@@ -88,7 +92,7 @@ struct ViewerView: View {
             HStack {
                 Button {
                 NotificationCenter.default.post(name: .viewerWillClose, object: nil)
-                dismiss()
+                close()
             } label: {
                     Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.white)
                         .frame(width: 36, height: 36).background(.ultraThinMaterial, in: Circle())
@@ -134,6 +138,10 @@ struct ViewerView: View {
     }
 
     /// Fetches the first few MB of adjacent cloud videos so swiping to them starts playback instantly.
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
+    }
+
     private func prefetchNeighbours(of id: String?) {
         guard let id, let i = entries.firstIndex(where: { $0.id == id }) else { return }
         for j in [i - 1, i + 1] where entries.indices.contains(j) {
@@ -181,7 +189,7 @@ struct ViewerView: View {
         do {
             try await GalleryActions.deleteFromCloud([item])
             Haptics.success()
-            if current?.isCloudOnly == true { dismiss() }
+            if current?.isCloudOnly == true { close() }
         } catch {
             message = GalleryAlert(title: "Couldn't delete", message: error.localizedDescription)
         }

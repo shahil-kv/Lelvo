@@ -43,9 +43,10 @@ final class ThumbnailPipeline: @unchecked Sendable {
         memory.object(forKey: entry.id as NSString).map { ($0.image, $0.pixels) }
     }
 
-    private func store(_ image: PlatformImage, pixels: Int, for id: String) {
+    private func store(_ image: PlatformImage, pixels: Int, for id: String, shared: Bool = false) {
         if let existing = memory.object(forKey: id as NSString), existing.pixels > pixels { return }
-        let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+        // Shared images (demo data) are counted once, not per tile.
+        let cost = shared ? 1 : Int(image.size.width * image.size.height * image.scale * image.scale * 4)
         memory.setObject(Box(image: image, pixels: pixels), forKey: id as NSString, cost: cost)
     }
 
@@ -120,7 +121,7 @@ final class ThumbnailPipeline: @unchecked Sendable {
     /// Benchmarks: in-memory thumbnails for the demo library (no Photos or Telegram involved).
     func seedDemoThumbnails(ids: [String]) {
         let palette: [PlatformImage] = (0..<48).map { i in Self.demoImage(i) }
-        for (i, id) in ids.enumerated() { store(palette[i % palette.count], pixels: Int.max, for: id) }
+        for (i, id) in ids.enumerated() { store(palette[i % palette.count], pixels: Int.max, for: id, shared: true) }
     }
 
     private static func demoImage(_ i: Int) -> PlatformImage {
@@ -157,40 +158,4 @@ final class ThumbnailPipeline: @unchecked Sendable {
         o.isNetworkAccessAllowed = true
         return o
     }()
-}
-
-/// For SwiftUI grids (iPhone): when a tile appears, loads the thumbnails a few screens ahead in the scroll
-/// direction and stops loading the ones left far behind. Cheap: it only acts every couple of rows.
-@MainActor
-final class GridPrefetcher {
-    private var entries: [GalleryEntry] = []
-    private var positions: [String: Int] = [:]
-    private var window: Range<Int> = 0..<0
-    private var lastIndex = -1
-
-    func update(entries: [GalleryEntry], positions: [String: Int]) {
-        self.entries = entries
-        self.positions = positions
-        window = 0..<0
-        lastIndex = -1
-    }
-
-    func appeared(_ id: String, columns: Int, pixels: Int) {
-        guard let i = positions[id], !entries.isEmpty else { return }
-        let step = max(columns * 2, 8)
-        guard lastIndex < 0 || abs(i - lastIndex) >= step else { return }
-        let down = i >= lastIndex
-        lastIndex = i
-        let ahead = columns * 10, behind = columns * 4
-        let lo = max(0, down ? i - behind : i - ahead)
-        let hi = min(entries.count, down ? i + ahead : i + behind)
-        guard lo < hi else { return }
-        let next = lo..<hi
-        let old = window.clamped(to: 0..<entries.count)
-        let added = next.filter { !old.contains($0) }.map { entries[$0] }
-        let removed = old.filter { !next.contains($0) }.map { entries[$0] }
-        window = next
-        if !added.isEmpty { ThumbnailPipeline.shared.prefetch(added, pixels: pixels) }
-        if !removed.isEmpty { ThumbnailPipeline.shared.cancelPrefetch(removed, pixels: pixels) }
-    }
 }

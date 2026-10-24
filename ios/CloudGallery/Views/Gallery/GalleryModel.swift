@@ -79,6 +79,8 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     @Published private(set) var loaded = false
     /// Bumped on every reload, so views can recompute derived data without comparing entries.
     @Published private(set) var revision = 0
+    /// Bumped whenever `sections` changes (reload or regrouping), for views that mirror them.
+    @Published private(set) var sectionsRevision = 0
     @Published var authorization = PhotoLibraryService.authorizationStatus
 
     private let env = AppEnvironment.shared
@@ -124,6 +126,7 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         guard g != grouping else { return }
         grouping = g
         sections = Self.group(entries, grouping: g)
+        sectionsRevision += 1
     }
 
     /// Throttled, not debounced: during a backup the store changes every second, and a debounce would keep
@@ -155,6 +158,7 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         self.entries = entries
         self.sections = sections
         revision += 1
+        sectionsRevision += 1
         loaded = true
     }
 
