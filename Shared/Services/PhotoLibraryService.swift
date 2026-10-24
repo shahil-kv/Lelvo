@@ -5,7 +5,7 @@ import CoreLocation
 import UIKit
 #endif
 import UniformTypeIdentifiers
-import CloudGalleryCore
+import MemvoCore
 
 struct AlbumInfo: Identifiable, Hashable {
     let id: String
@@ -38,7 +38,7 @@ struct ExportedAsset {
 /// On iPhone the library is always there, so it counts as available straight away.
 enum PhotoAvailability {
     enum State { case unknown, probing, available, unavailable }
-    static let didChange = Notification.Name("CloudGallery.photoAvailabilityChanged")
+    static let didChange = Notification.Name("Memvo.photoAvailabilityChanged")
     private static let lock = NSLock()
     #if os(macOS)
     private nonisolated(unsafe) static var state: State = .unknown
@@ -91,7 +91,7 @@ enum PhotoLibraryError: LocalizedError {
         switch self {
         case .noOriginalResource: return "This item has no original file to back up."
         case .assetMissing: return "The photo is no longer in your library."
-        case .notAuthorized: return "CloudGallery doesn't have access to your photo library."
+        case .notAuthorized: return "Memvo doesn't have access to your photo library."
         }
     }
 }

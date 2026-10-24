@@ -5,7 +5,9 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 
 ## Unreleased
 
-- **Own repository.** CloudGallery is now a standalone, community-driven project under the GPL-3.0, with a
+- **New name: Memvo** (was CloudGallery), with new bundle IDs, so it installs as a new app: sign in once and your
+  library comes back. Existing libraries in Telegram keep working unchanged.
+- **Own repository.** Memvo is now a standalone, community-driven project under the GPL-3.0, with a
   contributor agreement, issue forms, an `approved`-issue rule for pull requests, CI on every pull request and
   automated reviews. The iOS and Mac apps live side by side (`iOS/`, `macOS/`, `Shared/`).
 - **Sign-in:** login codes of any length (Telegram sends 5 or 6 digits) and codes sent as a word or phrase.
@@ -17,7 +19,7 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 
 ## Before this repository
 
-Released from the earlier fork as iOS 1.0.0 and 2.0.0 betas. If you installed one of those, delete it and install
+Released from the earlier fork, under the name CloudGallery, as iOS 1.0.0 and 2.0.0 betas. If you installed one of those, delete it and install
 0.1.0; your library comes back when you sign in.
 
 ### 2.0.0-beta.1 (iOS), 2026-10-23

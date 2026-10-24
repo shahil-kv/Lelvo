@@ -1,7 +1,7 @@
 import SwiftUI
 import Photos
 import PhotosUI
-import CloudGalleryCore
+import MemvoCore
 
 struct GalleryView: View {
     var filter: GalleryFilter?
@@ -99,7 +99,7 @@ struct GalleryView: View {
             let notBacked = selectedEntries.filter { $0.asset != nil && $0.badge != .backedUp }.count
             Text(notBacked > 0
                  ? "\(notBacked) of these are NOT backed up yet and would be lost after Recently Deleted is emptied."
-                 : "They stay in your Telegram library and in CloudGallery as cloud items.")
+                 : "They stay in your Telegram library and in Memvo as cloud items.")
         }
     }
 
@@ -145,7 +145,7 @@ struct GalleryView: View {
 
     private var limitedBanner: some View {
         HStack {
-            Label("CloudGallery can only see the photos you selected.", systemImage: "photo.badge.exclamationmark")
+            Label("Memvo can only see the photos you selected.", systemImage: "photo.badge.exclamationmark")
                 .font(.footnote)
             Spacer()
             Button("Manage") { presentLimitedPicker() }.font(.footnote.bold())
@@ -164,7 +164,7 @@ struct GalleryView: View {
             }
         case .notDetermined:
             EmptyStateView(systemImage: "photo.on.rectangle", title: "Allow photo access",
-                           message: "CloudGallery needs access to back up your library.", actionTitle: "Allow") {
+                           message: "Memvo needs access to back up your library.", actionTitle: "Allow") {
                 Task {
                     _ = await PhotoLibraryService.requestAuthorization()
                     model.registerForChangesIfNeeded()

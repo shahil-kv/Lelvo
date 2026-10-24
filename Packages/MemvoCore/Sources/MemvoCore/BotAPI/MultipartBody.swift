@@ -6,7 +6,7 @@ public struct MultipartBody {
     public let boundary: String
     public var contentType: String { "multipart/form-data; boundary=\(boundary)" }
 
-    public init(boundary: String = "CloudGallery-\(UUID().uuidString)") {
+    public init(boundary: String = "Memvo-\(UUID().uuidString)") {
         self.boundary = boundary
     }
 

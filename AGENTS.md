@@ -1,4 +1,4 @@
-# Working on CloudGallery
+# Working on Memvo
 
 House rules for everyone who changes the code: contributors, maintainers and coding assistants. The automated
 review (CodeRabbit) checks pull requests against this file.
@@ -47,7 +47,7 @@ Scripts/build.sh ios           # no new warnings
 Scripts/build.sh mac
 ```
 
-Logic changes come with unit tests in `Packages/CloudGalleryCore`. UI changes are checked on a device or simulator,
+Logic changes come with unit tests in `Packages/MemvoCore`. UI changes are checked on a device or simulator,
 with before and after screenshots in the pull request.
 
 ## Commits and pull requests

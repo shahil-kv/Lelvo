@@ -2,7 +2,7 @@ import SwiftUI
 #if os(iOS)
 import UIKit
 #endif
-import CloudGalleryCore
+import MemvoCore
 
 enum Format {
     static func bytes(_ value: Int64) -> String {
@@ -61,7 +61,7 @@ enum BackupBadge: Equatable, CaseIterable {
         case .uploading: return "Being uploaded right now."
         case .failed: return "The upload didn't go through. Backup → Failed shows why; tap Retry."
         case .tooLarge: return "Larger than Telegram allows, so it stays on this \(Device.name) only."
-        case .viewNeedsV2: return "Uploaded by CloudGallery 1.0 (bot); it stays in the old channel."
+        case .viewNeedsV2: return "Uploaded by the first 1.0 version (bot); it stays in the old channel."
         }
     }
 

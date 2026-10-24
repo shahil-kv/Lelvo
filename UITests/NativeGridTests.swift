@@ -84,11 +84,14 @@ final class NativeGridTests: XCTestCase {
         waitForGrid()
         let before = grid.cells.firstMatch.frame.width
         // Pinch in the middle of the screen (the grid runs under the tab bar, which takes touches there).
-        // One pinch steps through sizes as the fingers move, like Photos: 4 → 5, then most of the way to 6 and a flick lands it.
+        // Each pinch moves one step, like Photos: 4 → 5 columns, then a second pinch 5 → 6 (grouped by month).
+        grid.cells.element(boundBy: 9).pinch(withScale: 0.6, velocity: -2)
+        let afterFirst = grid.cells.firstMatch.frame.width
+        XCTAssertLessThan(afterFirst, before, "Pinching in shows more, smaller tiles")
+        shot("08a-after-pinch")
         grid.cells.element(boundBy: 9).pinch(withScale: 0.6, velocity: -2)
         let afterOut = grid.cells.firstMatch.frame.width
-        XCTAssertLessThan(afterOut, before, "Pinching in shows more, smaller tiles")
-        shot("08a-after-pinch")
+        XCTAssertLessThan(afterOut, afterFirst, "A second pinch steps to the next size")
         let monthFormatter = DateFormatter()
         monthFormatter.setLocalizedDateFormatFromTemplate("MMMM yyyy")
         XCTAssertTrue(header(monthFormatter.string(from: Date())).waitForExistence(timeout: 5),

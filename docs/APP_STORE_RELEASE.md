@@ -52,15 +52,15 @@ publish their own code anyway, so the project keeps every contribution publishab
 
 ### 1.2 Name and branding 🔧📝
 
-- [ ] 📝 Pick an **App Store name that isn't "CloudGallery" or "Chitralaya"**. Those names belong to upstream, and
-      a name collision gets apps rejected (4.1) or disputed. Check the name is free by searching the App Store, and
-      reserve it in App Store Connect (Phase 5).
-- [ ] 🔧 Rename `CFBundleDisplayName` in `project.yml` (both targets) to the new name. The bundle ID
-      `com.shahil-kv.cloudgallery` can stay.
+- ✅ Name: **Memvo** (24 October 2026). No app of that name on the US, Indian or UK App Store; replaces the
+      upstream name CloudGallery everywhere: app, bundle IDs (`com.shahil-kv.memvo`, `.mac`), repository.
+- [ ] 📝 Search the name in the trademark databases before submitting (class 9): [USPTO](https://tmsearch.uspto.gov),
+      [WIPO Global Brand Database](https://branddb.wipo.int), [IP India](https://ipindiaonline.gov.in/eregister/).
+- [ ] 📝 Reserve **Memvo** in App Store Connect as soon as the developer account exists (Phase 5).
 - [ ] 🔧 **Must not contain "Telegram"** in the app name, subtitle, icon or keywords (Telegram API terms 2.3;
       Apple 5.2.1 — trademark). Saying "works with your Telegram account" in the description is fine.
-- [ ] 🔧 App icon: no paper plane, no Telegram blue circle, and nothing resembling Apple Photos' flower (4.1
-      copycat). Original artwork only.
+- [ ] 🔧 App icon: a distinctive Memvo icon (the current cloud-and-photo icon is generic). No paper plane, no
+      Telegram blue circle, nothing resembling Apple Photos' flower (4.1 copycat). Original artwork only.
 - [ ] ✅ In-app disclosure "Uses the Telegram API. Not affiliated with Telegram." on the welcome screen
       (Telegram API terms 2.2).
 
@@ -249,11 +249,11 @@ Host both on GitHub Pages (free), e.g. `https://shahil-kv.github.io/<app>/privac
 
 ### 5.1 Create the app
 
-- [ ] Register the bundle ID `com.shahil-kv.cloudgallery` in developer.apple.com → Identifiers. Enable only the
+- [ ] Register the bundle ID `com.shahil-kv.memvo` in developer.apple.com → Identifiers. Enable only the
       capabilities the app uses (Background Modes are Info.plist-only; no Push, no iCloud unless used).
 - [ ] App Store Connect → My Apps → **+** → New App: platform iOS, the new name, primary language, bundle ID, SKU
       (e.g. `photobackup-ios-1`).
-- [ ] Separate Mac app (`com.shahil-kv.cloudgallery.mac`): a separate submission later with its own checklist run
+- [ ] Separate Mac app (`com.shahil-kv.memvo.mac`): a separate submission later with its own checklist run
       (sandbox entitlements, notarization not needed for the Mac App Store). Ship iOS first.
 
 ### 5.2 App information

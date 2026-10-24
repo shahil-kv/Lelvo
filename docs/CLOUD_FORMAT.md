@@ -1,6 +1,9 @@
-# CloudGallery cloud format, version 1
+# Memvo cloud format, version 1
 
-This is the contract for every app that reads or writes a CloudGallery library: the iOS and Mac apps in this repository, and any compatible app someone else writes. A library written by one **must** be readable by all. If an implementation disagrees with this document, the implementation is wrong. Test vectors live in [`docs/test-vectors/`](test-vectors/), and every implementation's unit tests must pass them.
+This is the contract for every app that reads or writes a Memvo library: the iOS and Mac apps in this repository, and any compatible app someone else writes. A library written by one **must** be readable by all. If an implementation disagrees with this document, the implementation is wrong. Test vectors live in [`docs/test-vectors/`](test-vectors/), and every implementation's unit tests must pass them.
+
+The app was called CloudGallery when this format was defined. Its identifiers (`#cloudgallery-library`, `CG1:`,
+`cg:1`, the `CloudGallery … v1` key-derivation labels) are part of the format and never change with the app's name.
 
 All integers are unsigned and big-endian unless noted otherwise. "UTF-8" always means NFC-normalised UTF-8.
 
@@ -8,7 +11,7 @@ All integers are unsigned and big-endian unless noted otherwise. "UTF-8" always 
 
 ## 1. The library
 
-- A library is one **private Telegram channel** owned by the user. The default title is `CloudGallery Library`; the user can pick any existing channel instead.
+- A library is one **private Telegram channel** owned by the user. The default title is `Memvo Library`; the user can pick any existing channel instead.
 - The library is identified by a **header** string:
   - plain library: `cg:1`
   - end-to-end encrypted library: `cg:1;e2e:1;it:<iterations>;s:<salt-b64>;kc:<keycheck-b64>`

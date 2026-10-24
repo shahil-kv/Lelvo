@@ -2,8 +2,8 @@
 #   iOS/       iPhone and iPad app only
 #   macOS/     Mac app only
 #   Shared/    code both apps compile
-#   Packages/  CloudGalleryCore (format, crypto, index, queue) with its unit tests
-name: CloudGallery
+#   Packages/  MemvoCore (format, crypto, index, queue) with its unit tests
+name: Memvo
 options:
   bundleIdPrefix: com.shahil-kv
   deploymentTarget:
@@ -24,14 +24,14 @@ settings:
     DEAD_CODE_STRIPPING: YES
 
 packages:
-  CloudGalleryCore:
-    path: Packages/CloudGalleryCore
+  MemvoCore:
+    path: Packages/MemvoCore
   TDLibKit:
     url: https://github.com/Swiftgram/TDLibKit
     exactVersion: 1.5.2-tdlib-1.8.68-18c8f7a0
 
 targets:
-  CloudGallery:
+  Memvo:
     type: application
     platform: iOS
     configFiles:
@@ -41,12 +41,12 @@ targets:
       - path: iOS
       - path: Shared
     dependencies:
-      - package: CloudGalleryCore
+      - package: MemvoCore
       - package: TDLibKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.cloudgallery
-        PRODUCT_NAME: CloudGallery
+        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.memvo
+        PRODUCT_NAME: Memvo
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -56,7 +56,7 @@ targets:
     info:
       path: iOS/Resources/Info.plist
       properties:
-        CFBundleDisplayName: CloudGallery
+        CFBundleDisplayName: Memvo
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
@@ -76,21 +76,21 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSPhotoLibraryUsageDescription: CloudGallery backs up your photos and videos to your own private Telegram channel and shows them in one timeline.
-        NSPhotoLibraryAddUsageDescription: CloudGallery saves photos you download from your Telegram backup back into your library.
+        NSPhotoLibraryUsageDescription: Memvo backs up your photos and videos to your own private Telegram channel and shows them in one timeline.
+        NSPhotoLibraryAddUsageDescription: Memvo saves photos you download from your Telegram backup back into your library.
         PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
         UIBackgroundModes:
           - audio
           - fetch
           - processing
         BGTaskSchedulerPermittedIdentifiers:
-          - com.shahil-kv.cloudgallery.backup.processing
-          - com.shahil-kv.cloudgallery.index.refresh
-          - com.shahil-kv.cloudgallery.backup.continued
+          - com.shahil-kv.memvo.backup.processing
+          - com.shahil-kv.memvo.index.refresh
+          - com.shahil-kv.memvo.backup.continued
         UIFileSharingEnabled: false
         LSSupportsOpeningDocumentsInPlace: false
 
-  CloudGalleryMac:
+  MemvoMac:
     type: application
     platform: macOS
     configFiles:
@@ -100,87 +100,87 @@ targets:
       - path: macOS
       - path: Shared
     dependencies:
-      - package: CloudGalleryCore
+      - package: MemvoCore
       - package: TDLibKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.cloudgallery.mac
-        PRODUCT_NAME: CloudGallery
+        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.memvo.mac
+        PRODUCT_NAME: Memvo
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: macOS/Info.plist
-        CODE_SIGN_ENTITLEMENTS: macOS/CloudGalleryMac.entitlements
+        CODE_SIGN_ENTITLEMENTS: macOS/MemvoMac.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_IDENTITY: "-"
         COMBINE_HIDPI_IMAGES: YES
     info:
       path: macOS/Info.plist
       properties:
-        CFBundleDisplayName: CloudGallery
+        CFBundleDisplayName: Memvo
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.photography
         TDAPIId: $(TD_API_ID)
         TDAPIHash: $(TD_API_HASH)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
-        NSHumanReadableCopyright: "© 2026 CloudGallery contributors. Free software under the GPL-3.0."
-        NSPhotoLibraryUsageDescription: CloudGallery backs up the photos and videos in your Photos library to your own private Telegram channel and shows them in one timeline.
-        NSPhotoLibraryAddUsageDescription: CloudGallery saves photos you download from your Telegram backup back into your Photos library.
+        NSHumanReadableCopyright: "© 2026 Memvo contributors. Free software under the GPL-3.0."
+        NSPhotoLibraryUsageDescription: Memvo backs up the photos and videos in your Photos library to your own private Telegram channel and shows them in one timeline.
+        NSPhotoLibraryAddUsageDescription: Memvo saves photos you download from your Telegram backup back into your Photos library.
         ITSAppUsesNonExemptEncryption: false
     entitlements:
-      path: macOS/CloudGalleryMac.entitlements
+      path: macOS/MemvoMac.entitlements
       properties:
         com.apple.security.personal-information.photos-library: true
         com.apple.security.network.client: true
 
-  CloudGalleryTests:
+  MemvoTests:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - path: Packages/CloudGalleryCore/Tests/CloudGalleryCoreTests
+      - path: Packages/MemvoCore/Tests/MemvoCoreTests
     dependencies:
-      - package: CloudGalleryCore
+      - package: MemvoCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.cloudgallery.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.memvo.tests
         GENERATE_INFOPLIST_FILE: YES
 
-  CloudGalleryUITests:
+  MemvoUITests:
     type: bundle.ui-testing
     platform: iOS
     sources:
       - path: UITests
     dependencies:
-      - target: CloudGallery
+      - target: Memvo
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.cloudgallery.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.memvo.uitests
         GENERATE_INFOPLIST_FILE: YES
-        TEST_TARGET_NAME: CloudGallery
+        TEST_TARGET_NAME: Memvo
 
 schemes:
-  CloudGalleryMac:
+  MemvoMac:
     build:
       targets:
-        CloudGalleryMac: all
+        MemvoMac: all
     run:
       config: Debug
     archive:
       config: Release
-  CloudGallery:
+  Memvo:
     build:
       targets:
-        CloudGallery: all
-        CloudGalleryTests: [test]
-        CloudGalleryUITests: [test]
+        Memvo: all
+        MemvoTests: [test]
+        MemvoUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
       gatherCoverageData: false
       targets:
-        - CloudGalleryTests
-        - CloudGalleryUITests
+        - MemvoTests
+        - MemvoUITests
     archive:
       config: Release

@@ -5,7 +5,7 @@ struct AutomationGuideView: View {
     var body: some View {
         List {
             Section {
-                Text("Shortcuts can start a backup automatically, without opening CloudGallery.")
+                Text("Shortcuts can start a backup automatically, without opening Memvo.")
                 Button {
                     UIApplication.shared.open(.literal("shortcuts://"))
                 } label: { Label("Open Shortcuts", systemImage: "square.2.layers.3d") }
@@ -15,7 +15,7 @@ struct AutomationGuideView: View {
                 step(1, "Open **Shortcuts** → **Automation** tab → **+** (New Automation).")
                 step(2, "Choose **Charger** → **Is Connected**.")
                 step(3, "Select **Run Immediately** (and turn off **Notify When Run** if you like).")
-                step(4, "Tap **Next**, search for **CloudGallery** and pick **Back Up New Photos**.")
+                step(4, "Tap **Next**, search for **Memvo** and pick **Back Up New Photos**.")
                 step(5, "Tap **Done**. Each time you plug in, new photos are queued for upload.")
             }
 
@@ -23,15 +23,15 @@ struct AutomationGuideView: View {
                 step(1, "**Automation** tab → **+** → **Time of Day**.")
                 step(2, "Set **2:00 AM**, repeat **Daily**.")
                 step(3, "Select **Run Immediately**.")
-                step(4, "Add **CloudGallery → Back Up New Photos**, then **Done**.")
-                Text("Tip: leave the phone charging on Wi-Fi overnight. iOS also runs CloudGallery's own overnight catch-up task when the phone is charging.")
+                step(4, "Add **Memvo → Back Up New Photos**, then **Done**.")
+                Text("Tip: leave the phone charging on Wi-Fi overnight. iOS also runs Memvo's own overnight catch-up task when the phone is charging.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
 
             Section("Other actions") {
                 Label("**Backup Status** returns counts you can show in a notification.", systemImage: "chart.bar")
                 Label("**Free Up Space** opens the app; iOS always asks you to confirm deletions.", systemImage: "internaldrive")
-                Label("You can also say “Back up new photos with CloudGallery” to Siri.", systemImage: "mic")
+                Label("You can also say “Back up new photos with Memvo” to Siri.", systemImage: "mic")
             }
 
             Section {

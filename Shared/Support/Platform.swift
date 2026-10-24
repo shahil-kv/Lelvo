@@ -10,7 +10,7 @@ import IOKit.ps
 typealias PlatformImage = NSImage
 #endif
 
-/// The device this copy of CloudGallery runs on, for user-facing text ("on this iPhone" / "on this Mac").
+/// The device this copy of Memvo runs on, for user-facing text ("on this iPhone" / "on this Mac").
 enum Device {
     #if os(macOS)
     static let name = "Mac"

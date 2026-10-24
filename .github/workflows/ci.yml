@@ -1,13 +1,12 @@
 name: CI
 
 # Every pull request and push to main: core unit tests, iOS and Mac builds with no warnings in our code, iOS tests.
-# Docs-only changes skip it. Set the repository variable MACOS_RUNNER to use another macOS runner image.
+# Docs-only changes skip the macOS jobs; skipped jobs still count as passed for the required checks on main.
+# Set the repository variable MACOS_RUNNER to use another macOS runner image (for example xcode-27).
 on:
   pull_request:
-    paths-ignore: ["**/*.md", "docs/**", "LICENSE", ".github/ISSUE_TEMPLATE/**"]
   push:
     branches: [main]
-    paths-ignore: ["**/*.md", "docs/**", "LICENSE", ".github/ISSUE_TEMPLATE/**"]
   workflow_dispatch:
 
 permissions:
@@ -18,18 +17,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '!**/*.md'
+              - '!docs/**'
+              - '!LICENSE'
+              - '!.github/ISSUE_TEMPLATE/**'
+          predicate-quantifier: every
+
   core:
     name: Core unit tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - name: swift test
-        working-directory: Packages/CloudGalleryCore
+        working-directory: Packages/MemvoCore
         run: swift test 2>&1 | tail -40
 
   apps:
     name: iOS and Mac
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
     timeout-minutes: 75
     steps:
@@ -38,7 +59,7 @@ jobs:
 
       - name: Build Mac app
         run: |
-          xcodebuild build -project CloudGallery.xcodeproj -scheme CloudGalleryMac -configuration Debug \
+          xcodebuild build -project Memvo.xcodeproj -scheme MemvoMac -configuration Debug \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
             CODE_SIGNING_ALLOWED=NO > build/mac.log 2>&1 || { grep -E "error:" build/mac.log | head -50; tail -40 build/mac.log; exit 1; }
           tail -1 build/mac.log
@@ -71,7 +92,7 @@ jobs:
 
       - name: Build and test iOS app (unit and UI tests)
         run: |
-          xcodebuild test -project CloudGallery.xcodeproj -scheme CloudGallery \
+          xcodebuild test -project Memvo.xcodeproj -scheme Memvo \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
             -resultBundlePath build/TestResults.xcresult \
@@ -80,7 +101,7 @@ jobs:
 
       - name: Build iOS app (Release)
         run: |
-          xcodebuild build -project CloudGallery.xcodeproj -scheme CloudGallery -configuration Release \
+          xcodebuild build -project Memvo.xcodeproj -scheme Memvo -configuration Release \
             -destination "generic/platform=iOS" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
             CODE_SIGNING_ALLOWED=NO > build/ios-release.log 2>&1 || { grep -E "error:" build/ios-release.log | head -50; tail -40 build/ios-release.log; exit 1; }

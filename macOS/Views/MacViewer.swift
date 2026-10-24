@@ -2,7 +2,7 @@ import SwiftUI
 import AVKit
 import Photos
 import PhotosUI
-import CloudGalleryCore
+import MemvoCore
 
 /// Where a tile is on screen and what it shows, so the viewer can zoom out of it and back into it.
 @MainActor
@@ -266,8 +266,8 @@ struct MacViewer: View {
 }
 
 extension Notification.Name {
-    static let macViewerTogglePlay = Notification.Name("CloudGallery.macViewerTogglePlay")
-    static let macViewerClose = Notification.Name("CloudGallery.macViewerClose")
+    static let macViewerTogglePlay = Notification.Name("Memvo.macViewerTogglePlay")
+    static let macViewerClose = Notification.Name("Memvo.macViewerClose")
 }
 
 /// One item: zoomable photo, Live Photo or video, from Photos or from Telegram.

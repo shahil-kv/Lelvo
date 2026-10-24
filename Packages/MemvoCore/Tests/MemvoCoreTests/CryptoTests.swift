@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 import Testing
-import CloudGalleryCore
+import MemvoCore
 
 @Suite struct KeyDerivationTests {
     private func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }

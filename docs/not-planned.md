@@ -1,12 +1,12 @@
-# What CloudGallery won't do
+# What Memvo won't do
 
 Some requests get a "no" on purpose. This page lists those decisions, so you know before you ask. Requests for
 these are closed as *not planned*; if you think a decision is wrong, open a
-[discussion](https://github.com/shahil-kv/CloudGallery/discussions) with your reasons rather than an issue.
+[discussion](https://github.com/shahil-kv/Memvo/discussions) with your reasons rather than an issue.
 
 ## The principles behind the no's
 
-- **Your data, your account.** CloudGallery talks to your Telegram account and nothing else. No servers of ours, no
+- **Your data, your account.** Memvo talks to your Telegram account and nothing else. No servers of ours, no
   accounts of ours, no analytics, no ads.
 - **Be a good Telegram citizen.** Everything stays within the [Telegram API terms](https://core.telegram.org/api/terms)
   and normal personal use. Anything that could get an account limited is out.
@@ -17,9 +17,9 @@ these are closed as *not planned*; if you think a decision is wrong, open a
 
 - **Android, Windows, Linux or a web version.** The project focuses on making the Apple apps excellent. The storage
   format is documented ([CLOUD_FORMAT.md](CLOUD_FORMAT.md)), so others are free to build compatible apps.
-- **A CloudGallery server, sync service or account.** It would mean holding people's data.
+- **A Memvo server, sync service or account.** It would mean holding people's data.
 - **Analytics, crash reporting services or ads**, including "anonymous" ones.
-- **Backing up to Google Drive, iCloud Drive, Dropbox, S3 and the like.** CloudGallery is about Telegram storage;
+- **Backing up to Google Drive, iCloud Drive, Dropbox, S3 and the like.** Memvo is about Telegram storage;
   Settings → Download a copy already exports everything to any folder or drive.
 - **Spreading one library across several Telegram accounts**, rotating accounts, or anything else that works around
   Telegram's per-account limits.
@@ -37,4 +37,4 @@ these are closed as *not planned*; if you think a decision is wrong, open a
 ## Maybe later
 
 These aren't refused, just not soon: smaller streaming copies for very large videos, an iPad-specific layout, and
-importing uploads from CloudGallery 1.0 (the old Bot API version).
+importing uploads from the first 1.0 version (Bot API, released as CloudGallery).

@@ -1,6 +1,6 @@
 # Third-party notices
 
-CloudGallery is licensed under the GNU General Public License v3.0; see [LICENSE](LICENSE). The apps include the
+Memvo is licensed under the GNU General Public License v3.0; see [LICENSE](LICENSE). The apps include the
 third-party software below, each under its own license. The apps show the same list under
 Settings → About → Acknowledgements.
 
@@ -16,5 +16,5 @@ operating system and aren't redistributed.
 
 ## Not included
 
-CloudGallery doesn't contain code from [AKS-Labs/CloudGallery](https://github.com/AKS-Labs/CloudGallery) or
+Memvo doesn't contain code from [AKS-Labs/CloudGallery](https://github.com/AKS-Labs/CloudGallery) or
 Whitehole. They inspired the idea; this is a separate implementation written for Apple platforms.

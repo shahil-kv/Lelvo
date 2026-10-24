@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 import Testing
-import CloudGalleryCore
+import MemvoCore
 
 /// Cross-platform vectors in docs/test-vectors/format1.json. Android must produce identical results.
 struct Format1Vectors: Codable {
@@ -116,7 +116,7 @@ func sampleMeta() -> CaptionMeta {
     }
 
     @Test func captionRejectsForeignAndNeedsKey() throws {
-        #expect(throws: CaptionError.notCloudGallery) { try CaptionCodec.decode("#cloudgallery id:x role:original") }
+        #expect(throws: CaptionError.notMemvo) { try CaptionCodec.decode("#cloudgallery id:x role:original") }
         #expect(throws: CaptionError.malformed) { try CaptionCodec.decode("CG1:{not json") }
         let keys = E2EKeys(master: SymmetricKey(size: .bits256))
         let enc = try CaptionCodec.encode(sampleMeta(), captionKey: keys.captionKey)

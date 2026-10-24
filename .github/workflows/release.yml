@@ -67,22 +67,22 @@ jobs:
           td-api-hash: ${{ secrets.TD_API_HASH }}
       - name: Archive (unsigned)
         run: |
-          xcodebuild archive -project CloudGallery.xcodeproj -scheme CloudGallery -configuration Release \
-            -destination "generic/platform=iOS" -archivePath build/CloudGallery.xcarchive \
+          xcodebuild archive -project Memvo.xcodeproj -scheme Memvo -configuration Release \
+            -destination "generic/platform=iOS" -archivePath build/Memvo.xcarchive \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
             MARKETING_VERSION="${{ inputs.version }}" CURRENT_PROJECT_VERSION="${{ needs.plan.outputs.build }}" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             > build/archive.log 2>&1 || { grep -E "error:" build/archive.log | head -50; tail -60 build/archive.log; exit 1; }
           grep -E "\*\* ARCHIVE" build/archive.log
-      - name: Package CloudGallery.ipa
+      - name: Package Memvo.ipa
         run: |
           set -euo pipefail
-          APP=build/CloudGallery.xcarchive/Products/Applications/CloudGallery.app
+          APP=build/Memvo.xcarchive/Products/Applications/Memvo.app
           test -f "$APP/PrivacyInfo.xcprivacy"
           /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" -c "Print CFBundleVersion" "$APP/Info.plist"
           rm -rf build/Payload && mkdir -p build/Payload && cp -R "$APP" build/Payload/
-          (cd build && zip -qry CloudGallery.ipa Payload)
-          shasum -a 256 build/CloudGallery.ipa | tee build/CloudGallery.ipa.sha256
+          (cd build && zip -qry Memvo.ipa Payload)
+          shasum -a 256 build/Memvo.ipa | tee build/Memvo.ipa.sha256
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -91,8 +91,8 @@ jobs:
           PRE=""; [ "${{ needs.plan.outputs.prerelease }}" = true ] && PRE="--prerelease"
           LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[].tagName | select(startswith("ios-v"))][0] // empty')
           START=""; [ -n "$LAST" ] && START="--notes-start-tag $LAST"
-          gh release create "$TAG" build/CloudGallery.ipa build/CloudGallery.ipa.sha256 --target "$GITHUB_SHA" $PRE $START \
-            --title "CloudGallery for iPhone $VERSION" --generate-notes \
+          gh release create "$TAG" build/Memvo.ipa build/Memvo.ipa.sha256 --target "$GITHUB_SHA" $PRE $START \
+            --title "Memvo for iPhone $VERSION" --generate-notes \
             --notes "Unsigned iOS build for sideloading (README → Install). iOS 17 or later. Build ${{ needs.plan.outputs.build }}."
 
   macos:
@@ -114,20 +114,20 @@ jobs:
           td-api-hash: ${{ secrets.TD_API_HASH }}
       - name: Build (Release, Apple silicon and Intel)
         run: |
-          xcodebuild build -project CloudGallery.xcodeproj -scheme CloudGalleryMac -configuration Release \
+          xcodebuild build -project Memvo.xcodeproj -scheme MemvoMac -configuration Release \
             -destination "generic/platform=macOS" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
             MARKETING_VERSION="${{ inputs.version }}" CURRENT_PROJECT_VERSION="${{ needs.plan.outputs.build }}" \
             > build/mac.log 2>&1 || { grep -E "error:" build/mac.log | head -50; tail -60 build/mac.log; exit 1; }
           tail -1 build/mac.log
-      - name: Package CloudGallery-mac.zip
+      - name: Package Memvo-mac.zip
         run: |
           set -euo pipefail
-          APP=build/DerivedData/Build/Products/Release/CloudGallery.app
+          APP=build/DerivedData/Build/Products/Release/Memvo.app
           test -f "$APP/Contents/Resources/PrivacyInfo.xcprivacy"
-          lipo -archs "$APP/Contents/MacOS/CloudGallery"
-          ditto -c -k --keepParent "$APP" build/CloudGallery-mac.zip
-          shasum -a 256 build/CloudGallery-mac.zip | tee build/CloudGallery-mac.zip.sha256
+          lipo -archs "$APP/Contents/MacOS/Memvo"
+          ditto -c -k --keepParent "$APP" build/Memvo-mac.zip
+          shasum -a 256 build/Memvo-mac.zip | tee build/Memvo-mac.zip.sha256
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -136,6 +136,6 @@ jobs:
           PRE=""; [ "${{ needs.plan.outputs.prerelease }}" = true ] && PRE="--prerelease"
           LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[].tagName | select(startswith("macos-v"))][0] // empty')
           START=""; [ -n "$LAST" ] && START="--notes-start-tag $LAST"
-          gh release create "$TAG" build/CloudGallery-mac.zip build/CloudGallery-mac.zip.sha256 --target "$GITHUB_SHA" $PRE $START \
-            --title "CloudGallery for Mac $VERSION" --generate-notes \
+          gh release create "$TAG" build/Memvo-mac.zip build/Memvo-mac.zip.sha256 --target "$GITHUB_SHA" $PRE $START \
+            --title "Memvo for Mac $VERSION" --generate-notes \
             --notes "macOS 15 or later, Apple silicon and Intel. Unzip, move to Applications, then right-click → Open the first time. Build ${{ needs.plan.outputs.build }}."

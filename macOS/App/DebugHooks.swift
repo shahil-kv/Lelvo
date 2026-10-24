@@ -4,16 +4,16 @@ import SwiftUI
 
 /// Debug builds only: lets a script on this Mac snapshot the main window and drive a few UI actions,
 /// without Screen Recording or Accessibility permissions.
-///   snapshot: post "com.shahil-kv.cloudgallery.debug.snapshot" with object = output PNG path
-///   action:   post "com.shahil-kv.cloudgallery.debug.action" with object = "go:library|go:backup|open:<n>|key:left|key:right|key:escape"
+///   snapshot: post "com.shahil-kv.memvo.debug.snapshot" with object = output PNG path
+///   action:   post "com.shahil-kv.memvo.debug.action" with object = "go:library|go:backup|open:<n>|key:left|key:right|key:escape"
 enum DebugHooks {
     @MainActor static func install() {
         let center = DistributedNotificationCenter.default()
-        center.addObserver(forName: .init("com.shahil-kv.cloudgallery.debug.snapshot"), object: nil, queue: .main) { note in
+        center.addObserver(forName: .init("com.shahil-kv.memvo.debug.snapshot"), object: nil, queue: .main) { note in
             guard let path = note.object as? String else { return }
             MainActor.assumeIsolated { snapshot(to: URL(fileURLWithPath: path)) }
         }
-        center.addObserver(forName: .init("com.shahil-kv.cloudgallery.debug.action"), object: nil, queue: .main) { note in
+        center.addObserver(forName: .init("com.shahil-kv.memvo.debug.action"), object: nil, queue: .main) { note in
             guard let action = note.object as? String else { return }
             MainActor.assumeIsolated { perform(action) }
         }
@@ -135,8 +135,8 @@ enum DebugHooks {
 }
 
 extension Notification.Name {
-    static let debugOpenIndex = Notification.Name("CloudGallery.debugOpenIndex")
-    static let debugPush = Notification.Name("CloudGallery.debugPush")
-    static let debugExportIndex = Notification.Name("CloudGallery.debugExportIndex")
+    static let debugOpenIndex = Notification.Name("Memvo.debugOpenIndex")
+    static let debugPush = Notification.Name("Memvo.debugPush")
+    static let debugExportIndex = Notification.Name("Memvo.debugExportIndex")
 }
 #endif

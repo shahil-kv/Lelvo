@@ -1,6 +1,6 @@
 import SwiftUI
 import Photos
-import CloudGalleryCore
+import MemvoCore
 
 @MainActor
 final class BackupStatsModel: ObservableObject {
@@ -155,7 +155,7 @@ struct BackupDashboardView: View {
                                   systemImage: "slider.horizontal.3")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
-                        Text("Keep CloudGallery open for big first backups. On iOS 26+, “Back up now” keeps running in the background with progress on the Lock Screen.")
+                        Text("Keep Memvo open for big first backups. On iOS 26+, “Back up now” keeps running in the background with progress on the Lock Screen.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

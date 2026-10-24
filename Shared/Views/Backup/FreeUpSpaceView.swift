@@ -1,5 +1,5 @@
 import SwiftUI
-import CloudGalleryCore
+import MemvoCore
 
 struct FreeUpSpaceView: View {
     @State private var candidates: [MediaItem] = []
@@ -16,7 +16,7 @@ struct FreeUpSpaceView: View {
         Form {
             Section {
                 Label {
-                    Text("Remove photos and videos from this \(Device.name) that are already safely backed up, to get storage back. They stay in CloudGallery, and you can save any of them back anytime.")
+                    Text("Remove photos and videos from this \(Device.name) that are already safely backed up, to get storage back. They stay in Memvo, and you can save any of them back anytime.")
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
                     Image(systemName: "internaldrive.fill").foregroundStyle(.blue)
@@ -28,7 +28,7 @@ struct FreeUpSpaceView: View {
                 LabeledContent("Checked, safe to remove", value: verified.count.formatted())
                 LabeledContent("Space you can free", value: Format.bytes(FreeUpSpaceService.bytes(of: verified)))
             } footer: {
-                Text("Before anything is offered, CloudGallery checks in Telegram that every part of it is really there. Items not fully backed up, or edited after their backup, are never offered.")
+                Text("Before anything is offered, Memvo checks in Telegram that every part of it is really there. Items not fully backed up, or edited after their backup, are never offered.")
             }
 
             Section {
@@ -39,7 +39,7 @@ struct FreeUpSpaceView: View {
                 }
                 actions
             } footer: {
-                Text("\(Device.name == "Mac" ? "macOS" : "iOS") asks you to confirm. Removed items move to “Recently Deleted” in Photos for 30 days; empty it to get the space back right away. They stay in CloudGallery as cloud items.")
+                Text("\(Device.name == "Mac" ? "macOS" : "iOS") asks you to confirm. Removed items move to “Recently Deleted” in Photos for 30 days; empty it to get the space back right away. They stay in Memvo as cloud items.")
             }
 
             if !verified.isEmpty {
@@ -125,7 +125,7 @@ struct FreeUpSpaceView: View {
             let count = try await service.delete(verified)
             Haptics.success()
             result = GalleryAlert(title: "Removed \(count) item(s) from \(Device.name)",
-                                  message: "They are still in your Telegram backup and in CloudGallery. Open Photos → Recently Deleted and choose Delete All to free the space now.")
+                                  message: "They are still in your Telegram backup and in Memvo. Open Photos → Recently Deleted and choose Delete All to free the space now.")
             load()
         } catch {
             result = GalleryAlert(title: "Nothing was deleted", message: error.localizedDescription)

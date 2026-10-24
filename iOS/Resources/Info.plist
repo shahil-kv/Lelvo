@@ -4,14 +4,14 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.shahil-kv.cloudgallery.backup.processing</string>
-		<string>com.shahil-kv.cloudgallery.index.refresh</string>
-		<string>com.shahil-kv.cloudgallery.backup.continued</string>
+		<string>com.shahil-kv.memvo.backup.processing</string>
+		<string>com.shahil-kv.memvo.index.refresh</string>
+		<string>com.shahil-kv.memvo.backup.continued</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>CloudGallery</string>
+	<string>Memvo</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -33,9 +33,9 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>CloudGallery saves photos you download from your Telegram backup back into your library.</string>
+	<string>Memvo saves photos you download from your Telegram backup back into your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>CloudGallery backs up your photos and videos to your own private Telegram channel and shows them in one timeline.</string>
+	<string>Memvo backs up your photos and videos to your own private Telegram channel and shows them in one timeline.</string>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>TDAPIHash</key>

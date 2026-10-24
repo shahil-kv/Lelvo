@@ -1,5 +1,5 @@
 import SwiftUI
-import CloudGalleryCore
+import MemvoCore
 
 final class MacAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -23,7 +23,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct CloudGalleryMacApp: App {
+struct MemvoMacApp: App {
     @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var delegate
     @StateObject private var model = AppModel.shared
     @StateObject private var navigation = MacNavigation.shared
@@ -31,7 +31,7 @@ struct CloudGalleryMacApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
-        Window("CloudGallery", id: MacNavigation.mainWindowId) {
+        Window("Memvo", id: MacNavigation.mainWindowId) {
             MacRootView()
                 .environmentObject(model)
                 .environmentObject(navigation)

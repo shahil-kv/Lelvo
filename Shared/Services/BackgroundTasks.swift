@@ -6,9 +6,9 @@ import UIKit
 /// BGProcessingTask for overnight catch-up, BGAppRefreshTask for index sync, and (iOS 26+)
 /// BGContinuedProcessingTask so a user-started backup keeps running with system progress UI.
 enum BackgroundTasks {
-    static let processingId = "com.shahil-kv.cloudgallery.backup.processing"
-    static let refreshId = "com.shahil-kv.cloudgallery.index.refresh"
-    static let continuedId = "com.shahil-kv.cloudgallery.backup.continued"
+    static let processingId = "com.shahil-kv.memvo.backup.processing"
+    static let refreshId = "com.shahil-kv.memvo.index.refresh"
+    static let continuedId = "com.shahil-kv.memvo.backup.continued"
 
     /// Must run before the app finishes launching.
     static func register() {
@@ -83,11 +83,11 @@ enum BackgroundTasks {
 
 #else
 
-/// macOS has no BGTaskScheduler: while CloudGallery is open, a system-scheduled activity checks for new
+/// macOS has no BGTaskScheduler: while Memvo is open, a system-scheduled activity checks for new
 /// photos and refreshes the index every hour (it respects Wi-Fi only / charging only through the engine).
 enum BackgroundTasks {
     private static let scheduler: NSBackgroundActivityScheduler = {
-        let s = NSBackgroundActivityScheduler(identifier: "com.shahil-kv.cloudgallery.mac.hourly")
+        let s = NSBackgroundActivityScheduler(identifier: "com.shahil-kv.memvo.mac.hourly")
         s.repeats = true
         s.interval = 60 * 60
         s.tolerance = 10 * 60

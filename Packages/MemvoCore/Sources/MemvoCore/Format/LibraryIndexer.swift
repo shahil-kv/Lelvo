@@ -1,6 +1,6 @@
 import Foundation
 
-/// One CloudGallery document message read from the channel.
+/// One Memvo document message read from the channel.
 public struct CloudMessage: Equatable, Sendable {
     public let messageId: Int64
     public let meta: CaptionMeta

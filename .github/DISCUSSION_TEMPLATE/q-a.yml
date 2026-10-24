@@ -1,0 +1,21 @@
+title: ""
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most answers are already in the [FAQ](https://github.com/shahil-kv/Memvo/blob/main/docs/FAQ.md). Bugs go to
+        [a bug report](https://github.com/shahil-kv/Memvo/issues/new?template=bug_report.yml), security problems to
+        [a private report](https://github.com/shahil-kv/Memvo/security/advisories/new).
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What you're trying to do, and what happened.
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: App, version and device
+      placeholder: iPhone, 0.1.0 (12), iOS 26.1

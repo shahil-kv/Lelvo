@@ -1,7 +1,7 @@
 import Foundation
 import Photos
 import Network
-import CloudGalleryCore
+import MemvoCore
 
 /// Live state for the UI (Backup tab, progress bars).
 @MainActor
@@ -41,7 +41,7 @@ final class NetworkStatus: @unchecked Sendable {
             guard let self else { return }
             self.lock.withLock { self.path = p }
         }
-        monitor.start(queue: DispatchQueue(label: "cloudgallery.network"))
+        monitor.start(queue: DispatchQueue(label: "memvo.network"))
     }
 
     /// Unknown counts as online so the first run isn't blocked before the monitor reports.
@@ -74,8 +74,8 @@ final class BackupEngine: @unchecked Sendable {
         case notConfigured, noPhotoAccess, waitingForWiFi, waitingForPower, offline, alreadyRunning
         var errorDescription: String? {
             switch self {
-            case .notConfigured: return "CloudGallery isn't set up yet. Open the app to sign in to Telegram."
-            case .noPhotoAccess: return "CloudGallery has no access to your photos."
+            case .notConfigured: return "Memvo isn't set up yet. Open the app to sign in to Telegram."
+            case .noPhotoAccess: return "Memvo has no access to your photos."
             case .waitingForWiFi: return "Waiting for Wi-Fi (Wi-Fi only is on)."
             case .waitingForPower: return "Waiting for the charger (Charging only is on)."
             case .offline: return "No internet connection."
@@ -242,7 +242,7 @@ final class BackupEngine: @unchecked Sendable {
         if userStarted {
             Prefs.backupPaused = false
         } else if Prefs.backupPaused {
-            summary.error = "Backup is paused. Open CloudGallery and tap Back up now to resume."
+            summary.error = "Backup is paused. Open Memvo and tap Back up now to resume."
             return summary
         }
         if let reason = await blocker() { summary.error = reason.localizedDescription; return summary }

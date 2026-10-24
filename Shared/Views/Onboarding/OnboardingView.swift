@@ -1,6 +1,6 @@
 import SwiftUI
 import Photos
-import CloudGalleryCore
+import MemvoCore
 
 @MainActor
 final class OnboardingModel: ObservableObject {
@@ -85,7 +85,7 @@ final class OnboardingModel: ObservableObject {
                 apiId = ""
                 apiHash = ""
                 step = .credentials
-                self.error = "This version of CloudGallery can't connect to Telegram with its built-in key. Add your own free key below to continue. Your photos are safe in your channel."
+                self.error = "This version of Memvo can't connect to Telegram with its built-in key. Add your own free key below to continue. Your photos are safe in your channel."
             } catch {
                 AppLog.shared.error(String(format: "Onboarding: %@ failed after %.1f s: %@", label, Date().timeIntervalSince(started), error.localizedDescription))
                 self.error = error.localizedDescription
@@ -388,7 +388,7 @@ struct OnboardingView: View {
                               subtitle: m.info.map { "\($0) Allow Full Access so everything on this \(Device.name) is backed up too." }
                                 ?? "Allow Full Access so everything on this \(Device.name) is backed up.",
                               m: m, showsInfo: false,
-                              button: decided ? .init(title: "Start using CloudGallery", enabled: true) { app.finishOnboarding() }
+                              button: decided ? .init(title: "Start using Memvo", enabled: true) { app.finishOnboarding() }
                                               : .init(title: "Allow Access", enabled: true) { m.requestPhotos() }) {
             VStack(alignment: .leading, spacing: 12) {
                 switch status {
@@ -471,7 +471,7 @@ private struct LibraryScreen: View {
                 }
             } else {
                 OnboardingPage(icon: "photo.stack.fill", title: "Create your library",
-                               subtitle: "CloudGallery keeps your backup in a private Telegram channel that only you can see.",
+                               subtitle: "Memvo keeps your backup in a private Telegram channel that only you can see.",
                                m: m, button: .init(title: "Create my library", enabled: m.newPassphraseProblem == nil) { m.createLibrary() }) {
                     VStack(alignment: .leading, spacing: 18) {
                         OnboardingField(placeholder: "Library name", text: $m.newLibraryName)
@@ -516,7 +516,7 @@ private struct LibraryScreen: View {
             NavigationStack {
                 List {
                     if !libraries.isEmpty {
-                        Section("CloudGallery libraries") {
+                        Section("Memvo libraries") {
                             ForEach(libraries) { c in channelButton(c, icon: "photo.stack.fill") }
                         }
                     }
@@ -646,7 +646,7 @@ struct EncryptionChoice: View {
             option(isEncrypted: false, icon: "photo.on.rectangle", title: "Standard",
                    detail: "Fastest. Files can also be opened in the Telegram app.")
             option(isEncrypted: true, icon: "lock.shield.fill", title: "End-to-end encrypted",
-                   detail: "Only CloudGallery on your devices can open your files.")
+                   detail: "Only Memvo on your devices can open your files.")
             if encrypted {
                 VStack(alignment: .leading, spacing: 10) {
                     OnboardingField(placeholder: "Passphrase (10+ characters)", text: $passphrase, secure: true, content: .newPassword)

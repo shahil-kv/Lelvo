@@ -1,5 +1,5 @@
 import Foundation
-import CloudGalleryCore
+import MemvoCore
 
 /// Process-wide services, shared by the UI, BGTasks and App Intents.
 final class AppEnvironment: @unchecked Sendable {

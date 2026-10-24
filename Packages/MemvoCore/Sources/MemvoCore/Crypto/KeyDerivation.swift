@@ -11,7 +11,7 @@ public enum CryptoError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .badFormat: return "This file is not a CloudGallery encrypted file."
+        case .badFormat: return "This file is not a Memvo encrypted file."
         case .unsupportedVersion(let v): return "Unsupported encrypted file version \(v). Update the app."
         case .wrongPassphraseOrCorrupt: return "Wrong passphrase, or the file is damaged."
         case .derivationFailed: return "Could not derive the encryption key."

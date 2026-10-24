@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- CloudGallery collects nothing and tracks nobody: photos go from this device to the user's own Telegram account.
+<!-- Memvo collects nothing and tracks nobody: photos go from this device to the user's own Telegram account.
      Required-reason APIs: our own code (UserDefaults, file attributes) and TDLib (stat, statfs). -->
 <plist version="1.0">
 <dict>

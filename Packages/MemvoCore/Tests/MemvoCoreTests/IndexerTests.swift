@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CloudGalleryCore
+import MemvoCore
 
 @Suite struct LibraryIndexerTests {
     let id = "0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10"

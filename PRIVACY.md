@@ -1,19 +1,19 @@
 # Privacy policy
 
-Effective 24 October 2026. Applies to the CloudGallery apps for iPhone, iPad and Mac.
+Effective 24 October 2026. Applies to the Memvo apps for iPhone, iPad and Mac.
 
-**In one sentence:** CloudGallery sends your photos from your device to your own Telegram account and nowhere else;
+**In one sentence:** Memvo sends your photos from your device to your own Telegram account and nowhere else;
 the people who make it never receive any of your data.
 
 ## Who we are
 
-CloudGallery is a free, open-source app maintained by [@shahil-kv](https://github.com/shahil-kv) and contributors.
+Memvo is a free, open-source app maintained by [@shahil-kv](https://github.com/shahil-kv) and contributors.
 Contact: [mshahilkv@gmail.com](mailto:mshahilkv@gmail.com), or an issue at
-[github.com/shahil-kv/CloudGallery](https://github.com/shahil-kv/CloudGallery/issues). Security problems: [SECURITY.md](SECURITY.md).
+[github.com/shahil-kv/Memvo](https://github.com/shahil-kv/Memvo/issues). Security problems: [SECURITY.md](SECURITY.md).
 
 ## What we collect
 
-**Nothing.** CloudGallery has no servers. It contains no analytics, advertising, tracking or crash-reporting code, and
+**Nothing.** Memvo has no servers. It contains no analytics, advertising, tracking or crash-reporting code, and
 it doesn't share data with anyone. We can't see who uses the app, your photos, your Telegram account or your library.
 
 ## Where your data goes
@@ -29,7 +29,7 @@ it doesn't share data with anyone. We can't see who uses the app, your photos, y
 ## What stays on your device
 
 - Your Telegram session (in an encrypted database), the Telegram app keys and your encryption key, in the Keychain,
-  readable only by CloudGallery on this device and never synced.
+  readable only by Memvo on this device and never synced.
 - A local index of your library (names, dates, sizes, places and Telegram message IDs) so the timeline opens quickly.
   It is excluded from device backups because it can be rebuilt from Telegram.
 - Caches of thumbnails and items you viewed, with size limits you control.
@@ -47,7 +47,7 @@ your library in Telegram.
 
 ## Children
 
-CloudGallery isn't directed at children under 13, and it doesn't knowingly handle any child's data, because it handles
+Memvo isn't directed at children under 13, and it doesn't knowingly handle any child's data, because it handles
 no one's data.
 
 ## Changes

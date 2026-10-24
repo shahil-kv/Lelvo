@@ -1,7 +1,7 @@
 import SwiftUI
 import MapKit
 import Photos
-import CloudGalleryCore
+import MemvoCore
 
 /// The ⌘I inspector: details, backup state and location of the item in the viewer or the selection.
 struct MacInfoPanel: View {

@@ -1,11 +1,11 @@
-# CloudGallery
+# Memvo
 
 **Back up every photo and video, in original quality, to a private channel in your own Telegram account.
 Browse it all in one fast timeline on iPhone and Mac.**
 
 <p align="center">
-  <a href="https://github.com/shahil-kv/CloudGallery/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/shahil-kv/CloudGallery?include_prereleases&sort=semver&label=release&color=1F6FEB"></a>
-  <a href="https://github.com/shahil-kv/CloudGallery/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shahil-kv/CloudGallery/ci.yml?branch=main&label=CI"></a>
+  <a href="https://github.com/shahil-kv/Memvo/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/shahil-kv/Memvo?include_prereleases&sort=semver&label=release&color=1F6FEB"></a>
+  <a href="https://github.com/shahil-kv/Memvo/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shahil-kv/Memvo/ci.yml?branch=main&label=CI"></a>
   <img alt="iOS 17+" src="https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=white">
   <img alt="macOS 15+" src="https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white">
   <img alt="Swift" src="https://img.shields.io/badge/Swift-SwiftUI%20%2B%20UIKit%2FAppKit-F05138?logo=swift&logoColor=white">
@@ -16,7 +16,7 @@ Free, open source, and staying that way. No servers, no accounts of our own, no 
 Your photos go straight from your device to your Telegram account, and nowhere else.
 
 > [!NOTE]
-> CloudGallery uses the Telegram API. It is an independent app, not made, endorsed or supported by Telegram.
+> Memvo uses the Telegram API. It is an independent app, not made, endorsed or supported by Telegram.
 > Your storage lives in your Telegram account and is subject to [Telegram's Terms of Service](https://telegram.org/tos).
 
 ## Contents
@@ -59,13 +59,13 @@ Your photos go straight from your device to your Telegram account, and nowhere e
 
 | | How | Notes |
 |---|---|---|
-| **iPhone / iPad** | Download `CloudGallery.ipa` from [Releases](https://github.com/shahil-kv/CloudGallery/releases/latest) and install it with [SideStore](https://sidestore.io), [AltStore](https://altstore.io) or [Sideloadly](https://sideloadly.io) | iOS 17 or later. The App Store version is in preparation. |
-| **Mac** | Download `CloudGallery-mac.zip` from [Releases](https://github.com/shahil-kv/CloudGallery/releases/latest), unzip, move to Applications | macOS 15 or later, Apple silicon or Intel. |
+| **iPhone / iPad** | Download `Memvo.ipa` from [Releases](https://github.com/shahil-kv/Memvo/releases/latest) and install it with [SideStore](https://sidestore.io), [AltStore](https://altstore.io) or [Sideloadly](https://sideloadly.io) | iOS 17 or later. The App Store version is in preparation. |
+| **Mac** | Download `Memvo-mac.zip` from [Releases](https://github.com/shahil-kv/Memvo/releases/latest), unzip, move to Applications | macOS 15 or later, Apple silicon or Intel. |
 
 <details>
 <summary><b>Sideloading on iPhone, step by step</b></summary>
 
-1. Download `CloudGallery.ipa` from the latest release. It's unsigned; your sideloading tool signs it with your
+1. Download `Memvo.ipa` from the latest release. It's unsigned; your sideloading tool signs it with your
    Apple ID.
 2. **SideStore**: My Apps → **+** → pick the IPA. SideStore refreshes it on the device every few days.
    **AltStore**: My Apps → **+**; AltServer on your computer refreshes it over Wi-Fi.
@@ -82,7 +82,7 @@ full reinstall, signing in brings the library back from Telegram.
 <summary><b>Opening the Mac app the first time</b></summary>
 
 Until releases are notarized by Apple, macOS may say it "can't check the app for malicious software". Right-click
-CloudGallery in Applications → **Open** → **Open**. You only do this once.
+Memvo in Applications → **Open** → **Open**. You only do this once.
 </details>
 
 ## First launch
@@ -90,7 +90,7 @@ CloudGallery in Applications → **Open** → **Open**. You only do this once.
 1. **Continue with Telegram** and enter the phone number of your Telegram account.
 2. Enter the login code Telegram sends to your other Telegram apps (or by SMS), and your two-step password if you
    use one.
-3. **Your library.** New here? Create one (Standard, or End-to-end encrypted). Coming back? CloudGallery finds your
+3. **Your library.** New here? Create one (Standard, or End-to-end encrypted). Coming back? Memvo finds your
    existing library and restores it.
 4. Allow **Full Access** to Photos, then tap **Backup → Back up now**. For a big first backup, keep the app open on
    Wi-Fi and power. On iOS 26 and later it keeps going in the background with progress on the Lock Screen.
@@ -100,10 +100,10 @@ Builds made from source without app keys ask for a free `api_id` / `api_hash` fi
 
 ## Before you trust it with your only copy
 
-CloudGallery is careful, but your backup lives in a Telegram account that Telegram controls. Read these once:
+Memvo is careful, but your backup lives in a Telegram account that Telegram controls. Read these once:
 
 1. **Telegram deletes inactive accounts**, and your channel goes with them. The default is 18 months without
-   opening any Telegram app. CloudGallery shows the current setting and can change it to the maximum, 2 years
+   opening any Telegram app. Memvo shows the current setting and can change it to the maximum, 2 years
    (Settings → Telegram). Open the Telegram app now and then.
 2. **Deleting the channel deletes the backup.** Your library is an ordinary channel in your Telegram. Deleting it
    removes every file in it, and a deleted channel can't be restored. Don't rename it to something you might clean
@@ -122,14 +122,14 @@ The details, with links to Telegram's own pages, are in **[docs/FAQ.md](docs/FAQ
 <details><summary><b>Is this allowed by Telegram?</b></summary>
 
 Yes. Telegram's API is open to third-party apps under the [Telegram API Terms of Service](https://core.telegram.org/api/terms).
-CloudGallery uses its own `api_id`, says on its welcome screen that it uses the Telegram API, doesn't use
+Memvo uses its own `api_id`, says on its welcome screen that it uses the Telegram API, doesn't use
 "Telegram" in its name or Telegram's logo, and doesn't change how Telegram works for anyone else.
 </details>
 
 <details><summary><b>Is Telegram storage really unlimited?</b></summary>
 
 Telegram describes its cloud storage as unlimited, with files up to 2 GB each (4 GB with Premium); see
-[Telegram's Terms of Service](https://telegram.org/tos) and the [Telegram FAQ](https://telegram.org/faq). That's Telegram's promise, not ours, and it can change. CloudGallery splits
+[Telegram's Terms of Service](https://telegram.org/tos) and the [Telegram FAQ](https://telegram.org/faq). That's Telegram's promise, not ours, and it can change. Memvo splits
 bigger files automatically.
 </details>
 
@@ -164,7 +164,7 @@ More in **[docs/FAQ.md](docs/FAQ.md)**. Still stuck? See **[SUPPORT.md](SUPPORT.
 
 ## Privacy
 
-CloudGallery has no servers and collects nothing: no analytics, no crash reporting, no tracking. Your phone number
+Memvo has no servers and collects nothing: no analytics, no crash reporting, no tracking. Your phone number
 and login code go only to Telegram. Your Telegram session, app keys and encryption key stay in this device's
 Keychain. Logs stay on the device unless you choose to share them, and phone numbers, keys and IDs are removed from
 them first. Full policy: **[PRIVACY.md](PRIVACY.md)**.
@@ -173,7 +173,7 @@ them first. Full policy: **[PRIVACY.md](PRIVACY.md)**.
 
 Bug reports, ideas, translations and code are all welcome. Please read **[CONTRIBUTING.md](CONTRIBUTING.md)** first:
 
-- **Bugs and ideas** start as [issues](https://github.com/shahil-kv/CloudGallery/issues/new/choose), using the forms.
+- **Bugs and ideas** start as [issues](https://github.com/shahil-kv/Memvo/issues/new/choose), using the forms.
 - **Code**: wait for the issue to be labelled `approved`, then open a pull request that says `Closes #<number>`.
   Pull requests without an approved issue are closed automatically. Docs-only changes don't need approval.
 - Every pull request needs the one-time [Contributor License Agreement](CLA.md) (a bot asks you on your first PR).
@@ -185,15 +185,15 @@ Xcode 26 or later and [XcodeGen](https://github.com/yonaskolb/XcodeGen):
 
 ```sh
 brew install xcodegen
-git clone https://github.com/shahil-kv/CloudGallery.git && cd CloudGallery
-xcodegen generate && open CloudGallery.xcodeproj
+git clone https://github.com/shahil-kv/Memvo.git && cd Memvo
+xcodegen generate && open Memvo.xcodeproj
 ```
 
 ```text
 iOS/                     iPhone and iPad app
 macOS/                   Mac app
 Shared/                  services and screens both apps use (Telegram, backup engine, onboarding, settings)
-Packages/CloudGalleryCore  storage format, encryption, index, upload queue, with unit tests
+Packages/MemvoCore  storage format, encryption, index, upload queue, with unit tests
 UITests/                 iOS UI tests
 Config/                  build settings; your Telegram app keys go in Config/Secrets.xcconfig (never committed)
 docs/                    FAQ, architecture, storage format, development and release guides
@@ -204,9 +204,9 @@ Everything else (app keys, tests, the device workflow, releasing) is in
 
 ## License and credits
 
-CloudGallery is free software under the **[GNU General Public License v3.0](LICENSE)**: you may use, study, share
+Memvo is free software under the **[GNU General Public License v3.0](LICENSE)**: you may use, study, share
 and change it, and copies you distribute must stay under the same license with their source code. Contributions are
-accepted under the [Contributor License Agreement](CLA.md). The CloudGallery name and icon are covered by
+accepted under the [Contributor License Agreement](CLA.md). The Memvo name and icon are covered by
 [TRADEMARKS.md](TRADEMARKS.md). Third-party licenses: [NOTICE.md](NOTICE.md).
 
 Inspired by [AKS-Labs/CloudGallery](https://github.com/AKS-Labs/CloudGallery) and Whitehole, earlier projects that

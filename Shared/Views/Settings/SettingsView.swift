@@ -1,6 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import CloudGalleryCore
+import MemvoCore
 
 struct SettingsView: View {
     @EnvironmentObject private var app: AppModel
@@ -101,11 +101,11 @@ struct SettingsView: View {
                 libraryName = await env.library.title()
                 accountTtl = await env.td.accountTtlDays()
             }
-            .alert("Sign out of CloudGallery?", isPresented: $confirmReset) {
+            .alert("Sign out of Memvo?", isPresented: $confirmReset) {
                 Button("Cancel", role: .cancel) {}
                 Button("Sign Out", role: .destructive) { run(nil) { await app.reset() } }
             } message: {
-                Text("This \(Device.name) is signed out of Telegram and CloudGallery's local data is removed. Your backup in Telegram isn't touched; sign in again to get it back.")
+                Text("This \(Device.name) is signed out of Telegram and Memvo's local data is removed. Your backup in Telegram isn't touched; sign in again to get it back.")
             }
             .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
         }
@@ -225,7 +225,7 @@ struct AboutView: View {
         List {
             Section {
                 LabeledContent("Version", value: version)
-                Text("CloudGallery backs up your photos to a private channel in your own Telegram account. No servers, no analytics, no ads.")
+                Text("Memvo backs up your photos to a private channel in your own Telegram account. No servers, no analytics, no ads.")
             }
             Section {
                 Link(destination: AppLinks.faq) { Label("Questions and answers", systemImage: "questionmark.circle") }
@@ -233,14 +233,14 @@ struct AboutView: View {
                 Link(destination: AppLinks.privacyPolicy) { Label("Privacy policy", systemImage: "hand.raised") }
             } header: { Text("Help") }
             Section {
-                Text("CloudGallery is free software: you can redistribute it and modify it under the terms of the GNU General Public License, version 3. It comes with no warranty.")
+                Text("Memvo is free software: you can redistribute it and modify it under the terms of the GNU General Public License, version 3. It comes with no warranty.")
                 Link(destination: AppLinks.repository) { Label("Source code", systemImage: "chevron.left.forwardslash.chevron.right") }
                 Link(destination: AppLinks.license) { Label("GNU General Public License v3.0", systemImage: "doc.text") }
                 NavigationLink { AcknowledgementsView() } label: { Label("Acknowledgements", systemImage: "heart.text.square") }
             } header: { Text("Free and open source") }
             Section {
                 Text("Inspired by **AKS-Labs/CloudGallery** and **Whitehole**, earlier projects that back up photos to Telegram.")
-                Text("CloudGallery uses the Telegram API. It isn't made, endorsed or supported by Telegram.")
+                Text("Memvo uses the Telegram API. It isn't made, endorsed or supported by Telegram.")
                     .foregroundStyle(.secondary)
             } header: { Text("Credits") }
         }
@@ -375,7 +375,7 @@ struct LibrarySettingsView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
                 LibraryCard(title: c.title, encrypted: c.encrypted, selected: true)
-                Text("CloudGallery loads this library from Telegram and links your \(Device.name) photos to it. Backups then go here.")
+                Text("Memvo loads this library from Telegram and links your \(Device.name) photos to it. Backups then go here.")
                     .font(.subheadline).foregroundStyle(.secondary)
                 if c.encrypted {
                     OnboardingField(placeholder: "Passphrase", text: $switchPassphrase, secure: true, content: .password, autofocus: true)

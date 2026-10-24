@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 import TDLibKit
-import CloudGalleryCore
+import MemvoCore
 
 enum LibraryError: LocalizedError {
     case noLibrary
@@ -11,8 +11,8 @@ enum LibraryError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noLibrary: return "Choose or create your CloudGallery library first."
-        case .notALibrary: return "That channel isn't a CloudGallery library. Pick another channel or create a new library."
+        case .noLibrary: return "Choose or create your Memvo library first."
+        case .notALibrary: return "That channel isn't a Memvo library. Pick another channel or create a new library."
         case .locked: return "This library is end-to-end encrypted. Enter your passphrase to unlock it."
         case .wrongPassphrase: return "Wrong passphrase for this library."
         }
@@ -25,7 +25,7 @@ final class LibraryService: @unchecked Sendable {
     /// Message id → the document thumbnail's remote file id, learned while scanning (saves a message lookup per tile).
     let thumbnails = ThumbnailIdStore()
 
-    static let titleDefault = "CloudGallery Library"
+    static let titleDefault = "Memvo Library"
     private static let chatIdKey = "libraryChatId"
     private static let headerKey = "libraryHeader"
     private static let lastScanKey = "libraryLastScannedMessageId"
@@ -114,7 +114,7 @@ final class LibraryService: @unchecked Sendable {
         appLog("Renamed library channel")
     }
 
-    /// Channels the user owns or administers, marking ones that already hold a CloudGallery header.
+    /// Channels the user owns or administers, marking ones that already hold a Memvo header.
     func candidateChannels() async throws -> [ChannelChoice] {
         let api = try td.api()
         _ = try? await api.loadChats(chatList: .chatListMain, limit: 500)
@@ -147,7 +147,7 @@ final class LibraryService: @unchecked Sendable {
         }
         let chat: Chat
         do {
-            chat = try await api.createNewSupergroupChat(description: "CloudGallery Library · do not edit\n" + header.line,
+            chat = try await api.createNewSupergroupChat(description: "Memvo Library · do not edit\n" + header.line,
                                                          forImport: false, isChannel: true, isForum: false, location: nil,
                                                          messageAutoDeleteTime: 0, title: title)
         } catch { throw error.asTD }
@@ -212,7 +212,7 @@ final class LibraryService: @unchecked Sendable {
         var unreadable = 0
     }
 
-    /// Reads every CloudGallery document in the channel and rebuilds the local index.
+    /// Reads every Memvo document in the channel and rebuilds the local index.
     /// `full == false` only reads messages newer than the last scan (cheap; used before resuming uploads).
     @discardableResult
     func scan(full: Bool, progress: ((Int) -> Void)? = nil) async throws -> ScanSummary {
@@ -245,7 +245,7 @@ final class LibraryService: @unchecked Sendable {
                 summary.messages += 1
                 guard case .messageDocument(let doc) = message.content else { continue }
                 let caption = doc.caption.text
-                guard CaptionCodec.isCloudGallery(caption) else { continue }
+                guard CaptionCodec.isMemvo(caption) else { continue }
                 do {
                     let meta = try CaptionCodec.decode(caption, captionKey: captionKey)
                     let file = doc.document.document

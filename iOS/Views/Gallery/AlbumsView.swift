@@ -1,6 +1,6 @@
 import SwiftUI
 import Photos
-import CloudGalleryCore
+import MemvoCore
 
 /// Like Photos: "My Albums" as square covers, then "Media Types" as a list. Empty albums are hidden.
 struct AlbumsView: View {

@@ -3,7 +3,7 @@ import AVKit
 import Photos
 import PhotosUI
 import MapKit
-import CloudGalleryCore
+import MemvoCore
 
 struct ViewerView: View {
     let entries: [GalleryEntry]

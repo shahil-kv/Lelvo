@@ -61,7 +61,7 @@ public struct CaptionMeta: Codable, Equatable, Sendable {
 }
 
 public enum CaptionError: Error, Equatable {
-    case notCloudGallery
+    case notMemvo
     case malformed
     case unsupportedVersion(Int)
     case encryptedNeedsKey
@@ -112,7 +112,7 @@ public enum CaptionCodec {
         return ext.isEmpty ? cut : "\(cut).\(ext)"
     }
 
-    public static func isCloudGallery(_ caption: String) -> Bool {
+    public static func isMemvo(_ caption: String) -> Bool {
         caption.hasPrefix(plainPrefix) || caption.hasPrefix(encryptedPrefix)
     }
 
@@ -125,7 +125,7 @@ public enum CaptionCodec {
             guard let blob = Data(base64Encoded: String(caption.dropFirst(encryptedPrefix.count))) else { throw CaptionError.malformed }
             do { data = try E2EKeys.openCaption(blob, key: key) } catch { throw CaptionError.malformed }
         } else {
-            throw CaptionError.notCloudGallery
+            throw CaptionError.notMemvo
         }
         let meta: CaptionMeta
         do { meta = try JSONDecoder().decode(CaptionMeta.self, from: data) } catch { throw CaptionError.malformed }

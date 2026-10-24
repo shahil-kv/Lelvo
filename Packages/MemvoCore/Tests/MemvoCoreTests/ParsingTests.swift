@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CloudGalleryCore
+import MemvoCore
 
 @Suite struct BotAPIParsingTests {
     @Test func parsesSendDocumentResult() throws {

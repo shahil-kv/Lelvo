@@ -8,7 +8,7 @@ import CryptoKit
 /// download (20 MB), it is split into raw chunks and a small sealed manifest listing them is pinned.
 public enum IndexCodec {
     public static let pinnedFileName = "cloudgallery-index.cgx"
-    public static let caption = "#cloudgallery-index Encrypted CloudGallery index. Do not delete or unpin."
+    public static let caption = "#cloudgallery-index Encrypted Memvo index. Do not delete or unpin."
     /// Stay comfortably below the 20 MB Bot API download limit.
     public static let maxChunkSize = 19 * 1024 * 1024
 

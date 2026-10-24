@@ -1,5 +1,5 @@
 import UIKit
-import CloudGalleryCore
+import MemvoCore
 
 #if DEBUG
 /// `-autoScrollTest`: scrolls the main grid top to bottom twice (cold, then warm) in 4 s each, at display rate,

@@ -1,6 +1,6 @@
 import Foundation
 import TDLibKit
-import CloudGalleryCore
+import MemvoCore
 
 /// Errors surfaced to the UI from the Telegram layer.
 enum TDServiceError: LocalizedError {
@@ -18,7 +18,7 @@ enum TDServiceError: LocalizedError {
         case .missingCredentials: return "Enter your api_id and api_hash from my.telegram.org first."
         case .telegram(let code, let message): return TDServiceError.friendly(code: code, message: message)
         case .sendFailed(let m): return "Upload failed: \(m)"
-        case .unexpectedContent: return "That message isn't a CloudGallery file."
+        case .unexpectedContent: return "That message isn't a Memvo file."
         case .sizeMismatch(let e, let a): return "Telegram stored \(a) bytes but \(e) were uploaded."
         case .cancelled: return "Cancelled."
         }

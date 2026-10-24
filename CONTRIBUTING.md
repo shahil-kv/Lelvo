@@ -1,6 +1,6 @@
-# Contributing to CloudGallery
+# Contributing to Memvo
 
-Thanks for helping. CloudGallery holds people's only copies of their photos, so the bar for changes is high, and the
+Thanks for helping. Memvo holds people's only copies of their photos, so the bar for changes is high, and the
 process below keeps everyone's time well spent. Please read all of it before you write code; pull requests are held
 to it.
 
@@ -18,7 +18,7 @@ the issue is approved. Docs-only changes (`*.md`, `docs/`) skip this and need no
 
 ## Before you open an issue
 
-- Search [open and closed issues](https://github.com/shahil-kv/CloudGallery/issues?q=is%3Aissue).
+- Search [open and closed issues](https://github.com/shahil-kv/Memvo/issues?q=is%3Aissue).
 - Read [docs/FAQ.md](docs/FAQ.md) and [docs/not-planned.md](docs/not-planned.md). Requests on the not-planned list are
   closed.
 - Problems with your Telegram account itself (frozen, banned, deleted, codes not arriving) are Telegram's, not a bug.
@@ -49,7 +49,7 @@ the issue is approved. Docs-only changes (`*.md`, `docs/`) skip this and need no
   - User-facing text: short, plain sentences, the way Apple's own apps talk.
 - **Shared code** (`Shared/`) builds for both apps. Build both before pushing:
   `Scripts/build.sh ios && Scripts/build.sh mac`.
-- **Tests**: add or update unit tests in `Packages/CloudGalleryCore` for logic changes, and run
+- **Tests**: add or update unit tests in `Packages/MemvoCore` for logic changes, and run
   `Scripts/build.sh test`. UI changes need a check on a real device or simulator.
 - **No warnings.** CI fails on new compiler warnings in our code.
 

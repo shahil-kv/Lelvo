@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 import TDLibKit
-import CloudGalleryCore
+import MemvoCore
 
 /// Random-access reads of cloud resources: maps plaintext ranges → CGFE chunks → split parts → TDLib
 /// ranged downloads (docs/ARCHITECTURE.md "Streaming").
@@ -32,7 +32,7 @@ final class MediaReader: @unchecked Sendable {
 
     // MARK: - Parts
 
-    private func parts(_ item: MediaItem, role: String) -> [CloudGalleryCore.RemoteFile] {
+    private func parts(_ item: MediaItem, role: String) -> [MemvoCore.RemoteFile] {
         if item.cloudParts != nil { return item.parts(role) }
         // Legacy 1.0 bot uploads: one message per role.
         switch role {
@@ -43,7 +43,7 @@ final class MediaReader: @unchecked Sendable {
         }
     }
 
-    private func tdFileId(for part: CloudGalleryCore.RemoteFile) async throws -> Int {
+    private func tdFileId(for part: MemvoCore.RemoteFile) async throws -> Int {
         if let cached = lock.withLock({ fileIds[part.messageId] }) { return cached }
         guard let chatId = library.chatId, let (file, _) = try await td.documentFile(chatId: chatId, messageId: part.messageId) else {
             throw ReadError.missing

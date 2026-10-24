@@ -1,6 +1,6 @@
 import SwiftUI
 import UIKit
-import CloudGalleryCore
+import MemvoCore
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 @main
-struct CloudGalleryApp: App {
+struct MemvoApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = AppModel.shared
     @Environment(\.scenePhase) private var scenePhase

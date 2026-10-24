@@ -2,10 +2,10 @@ import Foundation
 
 /// Web pages the app links to (About, Settings, error screens). One place to change if the repository moves.
 enum AppLinks {
-    static let repository = URL.literal("https://github.com/shahil-kv/CloudGallery")
-    static let faq = URL.literal("https://github.com/shahil-kv/CloudGallery/blob/main/docs/FAQ.md")
-    static let privacyPolicy = URL.literal("https://github.com/shahil-kv/CloudGallery/blob/main/PRIVACY.md")
-    static let reportProblem = URL.literal("https://github.com/shahil-kv/CloudGallery/issues/new/choose")
+    static let repository = URL.literal("https://github.com/shahil-kv/Memvo")
+    static let faq = URL.literal("https://github.com/shahil-kv/Memvo/blob/main/docs/FAQ.md")
+    static let privacyPolicy = URL.literal("https://github.com/shahil-kv/Memvo/blob/main/PRIVACY.md")
+    static let reportProblem = URL.literal("https://github.com/shahil-kv/Memvo/issues/new/choose")
     static let license = URL.literal("https://www.gnu.org/licenses/gpl-3.0.html")
 }
 

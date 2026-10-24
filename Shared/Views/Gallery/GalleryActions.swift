@@ -1,6 +1,6 @@
 import Foundation
 import Photos
-import CloudGalleryCore
+import MemvoCore
 
 /// Batch and single-item actions shared by the grid and the viewer.
 enum GalleryActions {

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CloudGalleryCore
+import MemvoCore
 
 @Suite struct DedupeTests {
     func item(_ local: String?, sha: String, status: ItemStatus = .backedUp) -> MediaItem {
