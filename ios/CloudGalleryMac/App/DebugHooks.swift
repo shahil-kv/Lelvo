@@ -60,6 +60,14 @@ enum DebugHooks {
                 guard let id = env.library.chatId else { return }
                 do { try await env.switchLibrary(to: id, passphrase: nil) } catch { AppLog.shared.error("reswitch: \(error.localizedDescription)") }
             }
+        case "exportkeys":
+            // Writes this Mac's Telegram app keys as Config/Secrets.xcconfig, so builds carry them.
+            guard let id = KeychainStore.string(for: .tdApiId), let hash = KeychainStore.string(for: .tdApiHash) else {
+                appLog("exportkeys: no keys in the Keychain")
+                return
+            }
+            try? "TD_API_ID = \(id)\nTD_API_HASH = \(hash)\n".write(toFile: arg, atomically: true, encoding: .utf8)
+            appLog("exportkeys: written")
         case "push":
             NotificationCenter.default.post(name: .debugPush, object: arg)
         case "move":

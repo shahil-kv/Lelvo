@@ -85,6 +85,18 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Built-in Telegram app keys (optional repository secrets)
+        env:
+          TD_API_ID: ${{ secrets.TD_API_ID }}
+          TD_API_HASH: ${{ secrets.TD_API_HASH }}
+        run: |
+          if [ -n "$TD_API_ID" ] && [ -n "$TD_API_HASH" ]; then
+            printf 'TD_API_ID = %s\nTD_API_HASH = %s\n' "$TD_API_ID" "$TD_API_HASH" > Config/Secrets.xcconfig
+            echo "Telegram app keys built in"
+          else
+            echo "No TD_API_ID / TD_API_HASH secrets: sign-in will ask for the keys"
+          fi
+
       - name: Generate Xcode project
         run: xcodegen generate
 

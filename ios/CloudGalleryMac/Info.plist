@@ -32,5 +32,9 @@
 	<string>CloudGallery saves photos you download from your Telegram backup back into your Photos library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>CloudGallery backs up the photos and videos in your Photos library to your own private Telegram channel and shows them in one timeline.</string>
+	<key>TDAPIHash</key>
+	<string>$(TD_API_HASH)</string>
+	<key>TDAPIId</key>
+	<string>$(TD_API_ID)</string>
 </dict>
 </plist>

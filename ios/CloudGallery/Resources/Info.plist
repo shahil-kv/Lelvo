@@ -38,6 +38,10 @@
 	<string>CloudGallery backs up your photos and videos to your own private Telegram channel and shows them in one timeline.</string>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
+	<key>TDAPIHash</key>
+	<string>$(TD_API_HASH)</string>
+	<key>TDAPIId</key>
+	<string>$(TD_API_ID)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

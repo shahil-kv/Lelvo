@@ -1,0 +1,8 @@
+// Telegram app keys (api_id / api_hash from my.telegram.org), built into the app so sign-in starts at the
+// phone number, like Telegram's own apps. Put them in Config/Secrets.xcconfig, which is never committed:
+//   TD_API_ID = 1234567
+//   TD_API_HASH = 0123456789abcdef0123456789abcdef
+// Without that file, sign-in asks for the keys instead (builds from a fork or CI without secrets).
+TD_API_ID =
+TD_API_HASH =
+#include? "Secrets.xcconfig"

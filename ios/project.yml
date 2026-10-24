@@ -28,6 +28,9 @@ targets:
   CloudGallery:
     type: application
     platform: iOS
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
     sources:
       - path: CloudGallery
     dependencies:
@@ -50,6 +53,8 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
+        TDAPIId: $(TD_API_ID)
+        TDAPIHash: $(TD_API_HASH)
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
           UIColorName: LaunchBackground
@@ -81,6 +86,9 @@ targets:
   CloudGalleryMac:
     type: application
     platform: macOS
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
     sources:
       - path: CloudGalleryMac
       - path: CloudGallery/Shared
@@ -116,6 +124,8 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.photography
+        TDAPIId: $(TD_API_ID)
+        TDAPIHash: $(TD_API_HASH)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         NSHumanReadableCopyright: "GPL-3.0. Your photos, your Telegram."
         NSPhotoLibraryUsageDescription: CloudGallery backs up the photos and videos in your Photos library to your own private Telegram channel and shows them in one timeline.

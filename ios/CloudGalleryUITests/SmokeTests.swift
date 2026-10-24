@@ -14,9 +14,16 @@ final class SmokeTests: XCTestCase {
         let start = app.buttons["Continue with Telegram"]
         XCTAssertTrue(start.waitForExistence(timeout: 20), "Welcome screen should appear on a fresh install")
         start.tap()
-        XCTAssertTrue(app.textFields["api_id"].waitForExistence(timeout: 10), "API credentials step should follow")
+        // With Telegram app keys built in (Config/Secrets.xcconfig) sign-in starts at the phone number, like
+        // Telegram's own apps; without them it asks for the keys first.
+        let phone = app.textFields["Phone number"]
+        let apiId = app.textFields["api_id"]
+        XCTAssertTrue(phone.waitForExistence(timeout: 15) || apiId.exists, "Phone number (or, without built-in keys, api_id) should follow")
+        if let dir = ProcessInfo.processInfo.environment["CG_SCREENSHOT_DIR"] {
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("signin-first-step.png"))
+        }
         XCTAssertTrue(app.buttons["Continue"].exists)
-        XCTAssertFalse(app.buttons["Continue"].isEnabled, "Continue stays disabled until credentials are entered")
+        XCTAssertFalse(app.buttons["Continue"].isEnabled, "Continue stays disabled until the field is filled in")
     }
 
     func testGalleryScrollsLargeLibrary() {

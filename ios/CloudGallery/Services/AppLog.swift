@@ -27,7 +27,7 @@ final class AppLog: @unchecked Sendable {
 
     private var secrets: [String] {
         [KeychainStore.string(for: .botToken), KeychainStore.string(for: .passphrase), KeychainStore.string(for: .chatId),
-         KeychainStore.string(for: .tdApiHash)]
+         KeychainStore.string(for: .tdApiHash), TDCredentials.bundled?.apiHash]
             .compactMap { $0 }
     }
 

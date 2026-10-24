@@ -692,14 +692,26 @@ final class TDService: @unchecked Sendable {
     }
 }
 
-/// api_id / api_hash from my.telegram.org plus the TDLib database key, all in the Keychain.
+/// The app's api_id / api_hash (my.telegram.org) and the TDLib database key. The keys are built into the app
+/// (Config/Secrets.xcconfig → Info.plist), like Telegram's own apps, so sign-in starts at the phone number;
+/// keys entered by hand (builds without them) are kept in the Keychain and take precedence.
 struct TDCredentials {
     let apiId: Int
     let apiHash: String
 
     static func load() -> TDCredentials? {
-        guard let idString = KeychainStore.string(for: .tdApiId), let id = Int(idString),
-              let hash = KeychainStore.string(for: .tdApiHash), !hash.isEmpty else { return nil }
+        if let idString = KeychainStore.string(for: .tdApiId), let id = Int(idString),
+           let hash = KeychainStore.string(for: .tdApiHash), !hash.isEmpty {
+            return TDCredentials(apiId: id, apiHash: hash)
+        }
+        return bundled
+    }
+
+    /// Keys built into this copy of the app, if any.
+    static var bundled: TDCredentials? {
+        let info = Bundle.main.infoDictionary
+        guard let idString = (info?["TDAPIId"] as? String)?.trimmingCharacters(in: .whitespaces), let id = Int(idString), id > 0,
+              let hash = (info?["TDAPIHash"] as? String)?.trimmingCharacters(in: .whitespaces), hash.count == 32 else { return nil }
         return TDCredentials(apiId: id, apiHash: hash)
     }
 
