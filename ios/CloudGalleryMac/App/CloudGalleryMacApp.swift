@@ -42,6 +42,12 @@ struct CloudGalleryMacApp: App {
         .commands { MacCommands(navigation: navigation, model: model) }
         .onChange(of: scenePhase) { _, phase in handle(phase) }
 
+        Window("What the Icons Mean", id: MacNavigation.legendWindowId) {
+            MacIconGuide()
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
         Settings {
             MacSettingsView()
                 .environmentObject(model)
@@ -86,6 +92,7 @@ enum MacPrefs {
 final class MacNavigation: ObservableObject {
     static let shared = MacNavigation()
     static let mainWindowId = "main"
+    static let legendWindowId = "icon-guide"
 
     @Published var selection: SidebarItem? = .library
     /// Commands from the menu bar, handled by whichever view is on screen.
@@ -155,6 +162,9 @@ struct MacCommands: Commands {
             Button("Show Info") { navigation.commands.send(.toggleInfo) }.keyboardShortcut("i", modifiers: .command)
             Divider()
         }
+        CommandGroup(replacing: .help) {
+            Button("What the Icons Mean") { openWindow(id: MacNavigation.legendWindowId) }
+        }
         CommandMenu("Go") {
             ForEach(SidebarItem.goMenu, id: \.self) { item in
                 Button(item.title) {
@@ -164,5 +174,31 @@ struct MacCommands: Commands {
                 .keyboardShortcut(item.shortcut, modifiers: .command)
             }
         }
+    }
+}
+
+/// Help → What the Icons Mean: every backup status badge with what it means (as on iPhone).
+struct MacIconGuide: View {
+    var body: some View {
+        Form {
+            Section {
+                ForEach(BackupBadge.allCases, id: \.self) { badge in
+                    HStack(alignment: .top, spacing: 14) {
+                        BadgeView(badge: badge).scaleEffect(1.4).frame(width: 26, height: 26)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(badge.label).font(.headline)
+                            Text(badge.explanation).font(.callout).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                }
+            } footer: {
+                Text("The small badge in the top corner of each photo shows where it is.")
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 460)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }

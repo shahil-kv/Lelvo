@@ -84,6 +84,8 @@ final class NativeGridTests: XCTestCase {
         waitForGrid()
         let before = grid.cells.firstMatch.frame.width
         // Pinch in the middle of the screen (the grid runs under the tab bar, which takes touches there).
+        // Two pinches: 4 → 5 → 6 columns (a quick synthetic pinch settles one step, like a short real one).
+        grid.cells.element(boundBy: 9).pinch(withScale: 0.3, velocity: -2)
         grid.cells.element(boundBy: 9).pinch(withScale: 0.3, velocity: -2)
         let afterOut = grid.cells.firstMatch.frame.width
         XCTAssertLessThan(afterOut, before, "Pinching in shows more, smaller tiles")
@@ -93,6 +95,7 @@ final class NativeGridTests: XCTestCase {
         XCTAssertTrue(header(monthFormatter.string(from: Date())).waitForExistence(timeout: 5),
                       "At 6+ columns the timeline is grouped by month")
         shot("08-pinched-in")
+        grid.cells.element(boundBy: 12).pinch(withScale: 3, velocity: 2)
         grid.cells.element(boundBy: 12).pinch(withScale: 3, velocity: 2)
         let afterIn = grid.cells.firstMatch.frame.width
         XCTAssertGreaterThan(afterIn, afterOut, "Pinching out shows fewer, bigger tiles")

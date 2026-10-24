@@ -77,8 +77,8 @@ struct NativePhotoGrid: UIViewRepresentable {
 
         // MARK: Setup
 
-        func makeLayout() -> UICollectionViewCompositionalLayout {
-            let columns = max(1, appliedColumns)
+        func makeLayout(columns requested: Int? = nil) -> UICollectionViewCompositionalLayout {
+            let columns = max(1, requested ?? appliedColumns)
             let spacing = self.spacing
             return UICollectionViewCompositionalLayout { _, env in
                 let width = env.container.effectiveContentSize.width
@@ -124,7 +124,8 @@ struct NativePhotoGrid: UIViewRepresentable {
 
         func update(_ p: NativePhotoGrid) {
             parent = p
-            guard let cv = collectionView else { return }
+            // Mid-pinch the collection view is in an interactive transition; changes wait until it settles.
+            guard let cv = collectionView, pinchTransition == nil else { return }
             if p.columns != appliedColumns {
                 // Keep the item at the top in place while the columns change (pinch), like Photos.
                 let anchor = topVisibleItem(cv)
@@ -274,38 +275,96 @@ struct NativePhotoGrid: UIViewRepresentable {
             parent.onLongPress(e)
         }
 
-        // MARK: Pinch to change columns (with live feedback, like Photos)
+        // MARK: Pinch to change columns, like Photos
+
+        /// The tiles follow the fingers (an interactive layout transition between two column counts), the tile under
+        /// the fingers stays where it is, a long pinch keeps stepping through sizes, and letting go settles.
+        private var pinchTransition: UICollectionViewTransitionLayout?
+        private var pinchFinishing = false
+        private var pinchTarget = 0
+        private var pinchZoomIn = false
+        /// Finger scale at which the current step started (each completed step re-bases it).
+        private var pinchBase: CGFloat = 1
+        private var pinchScale: CGFloat = 1
+        private var pinchAnchor: (indexPath: IndexPath, screenY: CGFloat)?
 
         @objc func pinched(_ g: UIPinchGestureRecognizer) {
             guard let cv = collectionView else { return }
-            if g.state == .began || g.state == .changed { pinchActive = true }
-            if g.state == .ended || g.state == .cancelled || g.state == .failed { pinchActive = false; pinchEnded = Date() }
+            pinchScale = g.scale
             switch g.state {
+            case .began:
+                pinchActive = true
+                pinchBase = 1
+                let point = g.location(in: cv)
+                if let ip = cv.indexPathForItem(at: point) ?? topVisibleItem(cv), let frame = cv.layoutAttributesForItem(at: ip)?.frame {
+                    pinchAnchor = (ip, frame.midY - cv.contentOffset.y)
+                }
             case .changed:
-                // Live feedback: scale around the top edge of what's on screen.
-                let s = min(1.2, max(0.8, g.scale))
-                cv.transform = CGAffineTransform(scaleX: s, y: s)
-                    .concatenating(CGAffineTransform(translationX: 0, y: -(1 - s) * cv.bounds.height / 2))
-            case .ended, .cancelled, .failed:
-                let scale = g.scale
-                var c = parent.columns
-                if scale > 1.15 { c = max(1, c - (scale > 1.6 ? 2 : 1)) } else if scale < 0.85 { c = min(10, c + (scale < 0.6 ? 2 : 1)) }
-                let anchor = topVisibleItem(cv)
-                if c != parent.columns {
-                    Haptics.tap()
-                    appliedColumns = c
-                    parent.columns = c
-                    cv.transform = .identity
-                    // Animated relayout: tiles glide to their new size and place, like Photos.
-                    cv.setCollectionViewLayout(makeLayout(), animated: true) { _ in
-                        if let anchor { self.scroll(toAnchor: anchor, in: cv) }
-                        self.refreshVisible()
+                guard !pinchFinishing else { return }
+                let relative = g.scale / pinchBase
+                if pinchTransition == nil {
+                    guard abs(relative - 1) > 0.03 else { return }
+                    pinchZoomIn = relative > 1
+                    let target = pinchZoomIn ? max(1, appliedColumns - 1) : min(10, appliedColumns + 1)
+                    guard target != appliedColumns else { return }
+                    pinchTarget = target
+                    pinchTransition = cv.startInteractiveTransition(to: makeLayout(columns: target)) { [weak self] completed, _ in
+                        self?.pinchStepEnded(completed: completed)
                     }
+                }
+                // Zooming in needs a wider spread of the fingers than zooming out, as in Photos.
+                let progress = min(1, max(0, pinchZoomIn ? (relative - 1) / 0.6 : (1 - relative) / 0.3))
+                pinchTransition?.transitionProgress = progress
+                if progress >= 1 {
+                    // Fully there with the fingers still moving: lock this step in and continue with the next one.
+                    pinchFinishing = true
+                    Haptics.tap()
+                    cv.finishInteractiveTransition()
+                }
+            case .ended, .cancelled, .failed:
+                pinchActive = false
+                guard let transition = pinchTransition, !pinchFinishing else {
+                    if pinchTransition == nil { pinchGestureDone() }
+                    return
+                }
+                // Settle by distance and by the speed of the fingers at release.
+                let flick = pinchZoomIn ? g.velocity > 1.5 : g.velocity < -1.5
+                pinchFinishing = true
+                if g.state == .ended && (transition.transitionProgress > 0.35 || flick) {
+                    Haptics.tap()
+                    cv.finishInteractiveTransition()
                 } else {
-                    UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) { cv.transform = .identity }
+                    cv.cancelInteractiveTransition()
                 }
             default: break
             }
+        }
+
+        private func pinchStepEnded(completed: Bool) {
+            pinchTransition = nil
+            pinchFinishing = false
+            if completed {
+                appliedColumns = pinchTarget
+                parent.columns = pinchTarget
+                pinchBase = pinchScale
+            }
+            if !pinchActive { pinchGestureDone() }
+        }
+
+        private func pinchGestureDone() {
+            pinchEnded = Date()
+            pinchAnchor = nil
+            refreshVisible()
+            update(parent)
+        }
+
+        /// Keeps the tile under the fingers in place when the layout changes (pinch), like Photos.
+        func collectionView(_ collectionView: UICollectionView, targetContentOffsetForProposedContentOffset proposed: CGPoint) -> CGPoint {
+            guard let anchor = pinchAnchor,
+                  let frame = collectionView.collectionViewLayout.layoutAttributesForItem(at: anchor.indexPath)?.frame else { return proposed }
+            let inset = collectionView.adjustedContentInset
+            let maxY = max(-inset.top, collectionView.collectionViewLayout.collectionViewContentSize.height - collectionView.bounds.height + inset.bottom)
+            return CGPoint(x: proposed.x, y: min(maxY, max(-inset.top, frame.midY - anchor.screenY)))
         }
 
         // MARK: Scrolling (date scrubber)

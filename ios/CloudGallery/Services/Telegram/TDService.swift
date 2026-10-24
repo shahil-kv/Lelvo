@@ -200,10 +200,32 @@ final class TDService: @unchecked Sendable {
         return client
     }
 
+    /// Clients whose TDLib instance has fully closed (its database lock is released).
+    private var closedClients = Set<ObjectIdentifier>()
+
+    private func isCurrent(_ c: TDLibClient) -> Bool { lock.withLock { client === c } }
+
+    /// Waits until `old` has fully closed, so a new client never opens the database while the old one still holds it
+    /// ("Can't lock file td.binlog … already in use").
+    private func waitUntilClosed(_ old: TDLibClient?, timeout: TimeInterval = 15) async {
+        guard let old else { return }
+        let id = ObjectIdentifier(old)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline, !lock.withLock({ closedClients.contains(id) }) {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        lock.withLock { _ = closedClients.remove(id) }
+    }
+
     private func handle(_ data: Data, client: TDLibClient) {
         guard let update = try? client.decoder.decode(Update.self, from: data) else { return }
         switch update {
         case .updateAuthorizationState(let u):
+            if case .authorizationStateClosed = u.authorizationState {
+                lock.withLock { _ = closedClients.insert(ObjectIdentifier(client)) }
+            }
+            // A client being replaced (sign out, other account) must not drive the sign-in screens or clear the new one.
+            guard isCurrent(client) else { return }
             handleAuth(u.authorizationState, client: client)
         case .updateMessageSendSucceeded(let u):
             finishSend(oldId: u.oldMessageId, result: .success(u.message))
@@ -250,7 +272,7 @@ final class TDService: @unchecked Sendable {
             appLog("Telegram session ready")
         case .authorizationStateLoggingOut, .authorizationStateClosing: setAuth(.loggingOut)
         case .authorizationStateClosed:
-            lock.lock(); self.client = nil; lock.unlock()
+            lock.withLock { if self.client === client { self.client = nil } }
             setAuth(.closed)
         }
     }
@@ -293,11 +315,10 @@ final class TDService: @unchecked Sendable {
 
     /// Signs out of the current account and starts a fresh login (the api_id/api_hash are kept).
     func switchAccount() async {
+        let old = lock.withLock { client }
         await logOut()
-        for _ in 0..<40 where lock.withLock({ client != nil }) {
-            try? await Task.sleep(nanoseconds: 250_000_000)
-        }
-        lock.withLock { client = nil }
+        await waitUntilClosed(old)
+        lock.withLock { if client === old { client = nil } }
         start()
     }
 
@@ -682,8 +703,10 @@ final class TDService: @unchecked Sendable {
 
     /// Wipes the TDLib session and files (used by "Sign out & reset").
     func destroyLocalData() async {
-        _ = try? await requireClient().destroy()
-        lock.withLock { client = nil }
+        let old = lock.withLock { client }
+        _ = try? await old?.destroy()
+        await waitUntilClosed(old)
+        lock.withLock { if client === old { client = nil } }
         try? FileManager.default.removeItem(at: databaseDirectory)
         try? FileManager.default.removeItem(at: filesDirectory)
         try? FileManager.default.createDirectory(at: databaseDirectory, withIntermediateDirectories: true)

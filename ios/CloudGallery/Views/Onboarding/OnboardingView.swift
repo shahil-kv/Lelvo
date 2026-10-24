@@ -219,6 +219,10 @@ final class OnboardingModel: ObservableObject {
             let summary = try await self.env.library.scan(full: true) { n in
                 Task { @MainActor in self.scanned = n }
             }
+            // Link the restored items to the photos already on this device before the grid shows, so those
+            // photos never appear as "not backed up" (it otherwise waited for the next app activation).
+            let env = self.env
+            await Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }.value
             self.info = summary.items == 0 ? "Your library is empty: a fresh start." : "Found \(summary.items) items in your library."
             self.step = .photos
         }

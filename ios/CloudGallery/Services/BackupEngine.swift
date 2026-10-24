@@ -103,6 +103,7 @@ final class BackupEngine: @unchecked Sendable {
 
     private unowned let env: AppEnvironment
     private let gate = NSLock()
+    private let relinkLock = NSLock()
     private var running = false
     private var pausedUntil = Date.distantPast
     private var pauseRequested = false
@@ -164,6 +165,9 @@ final class BackupEngine: @unchecked Sendable {
     /// duplicates of the linked photos. Returns the number of items linked.
     @discardableResult
     func relinkRestoredItems() -> Int {
+        // Sign-in, app activation and library switches can all ask at once; one pass at a time is enough.
+        relinkLock.lock()
+        defer { relinkLock.unlock() }
         guard PhotoLibraryService.hasAccess else { return 0 }
         let all = (try? env.store.allItems()) ?? []
         let unlinked = all.filter { $0.status == .backedUp && $0.localIdentifier == nil }

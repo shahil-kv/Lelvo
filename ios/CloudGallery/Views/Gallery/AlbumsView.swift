@@ -32,6 +32,7 @@ struct AlbumsView: View {
         if !rows.contains(where: { $0.0 == .livePhotos }) { rows.insert((.livePhotos, "livephoto"), at: 1) }
         rows.append((.favorites, "heart"))
         rows.append((.cloudOnly, "icloud"))
+        rows.append((.notBackedUp, "icloud.slash"))
         return rows
     }
 

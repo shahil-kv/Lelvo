@@ -13,6 +13,7 @@ struct MacBackupView: View {
     @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
     @State private var rescanning = false
     @State private var rescanResult: String?
+    @Environment(\.openWindow) private var openWindow
     @State private var debugPage: String?
 
     var body: some View {
@@ -25,7 +26,7 @@ struct MacBackupView: View {
                 }
             }
 
-            Section("Library") {
+            Section {
                 countRow("On This Mac", stats.onDevice, Device.symbol, .gray) { navigation.selection = .library }
                 countRow("Backed Up", stats.backedUp, "checkmark.icloud.fill", .green) { navigation.selection = .library }
                 countRow("Only in Cloud", stats.cloudOnly, "icloud.fill", .cyan) { navigation.selection = .cloudOnly }
@@ -35,6 +36,9 @@ struct MacBackupView: View {
                 } label: {
                     iconLabel("Failed", "exclamationmark.icloud.fill", stats.failed > 0 ? .red : .gray, value: stats.failed)
                 }
+            } header: { Text("Library") } footer: {
+                Button("What the icons on photos mean") { openWindow(id: MacNavigation.legendWindowId) }
+                    .buttonStyle(.link)
             }
 
             Section {
