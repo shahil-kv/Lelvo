@@ -122,26 +122,38 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         Task { @MainActor in self.scheduleReload() }
     }
 
+    /// Regroups off the main thread (a pinch must not stall the first scroll after it).
     func setGrouping(_ g: Grouping) {
         guard g != grouping else { return }
         grouping = g
-        sections = Self.group(entries, grouping: g)
-        sectionsRevision += 1
+        let entries = self.entries
+        Task {
+            let sections = await Task.detached(priority: .userInitiated) { Self.group(entries, grouping: g) }.value
+            guard self.grouping == g else { return }
+            self.sections = sections
+            sectionsRevision += 1
+        }
     }
 
     /// Throttled, not debounced: during a backup the store changes every second, and a debounce would keep
     /// postponing the reload; this reloads at most every 1.5 s and never starves.
     func scheduleReload() {
         guard reloadTask == nil else { return }
+        // First change after a quiet moment shows almost at once (e.g. green ticks after linking); during a busy
+        // backup, reloads are spaced 1.5 s apart.
+        let wait = max(0.15, 1.5 - Date().timeIntervalSince(lastReload))
         reloadTask = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             reloadTask = nil
             guard !Task.isCancelled else { return }
             await reload()
         }
     }
 
+    private var lastReload = Date.distantPast
+
     func reload() async {
+        lastReload = Date()
         authorization = PhotoLibraryService.authorizationStatus
         let env = self.env
         let grouping = self.grouping

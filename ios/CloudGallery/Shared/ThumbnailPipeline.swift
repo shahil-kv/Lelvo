@@ -61,8 +61,9 @@ final class ThumbnailPipeline: @unchecked Sendable {
             let env = AppEnvironment.shared
             let task = Task.detached(priority: .userInitiated) { [self] in
                 if let asset = entry.asset {
-                    for await img in env.photos.thumbnails(for: asset, pixels: CGFloat(pixels)) {
+                    for await raw in env.photos.thumbnails(for: asset, pixels: CGFloat(pixels)) {
                         if Task.isCancelled { break }
+                        let img = await Self.decoded(raw)
                         // The first delivery is Photos' quick low-res version; only the sharp one counts as full size.
                         let shortSide = min(img.size.width, img.size.height) * img.scale
                         store(img, pixels: shortSide >= CGFloat(pixels) * 0.6 ? pixels : pixels / 4, for: entry.id)
@@ -71,7 +72,8 @@ final class ThumbnailPipeline: @unchecked Sendable {
                 } else if let item = entry.item {
                     var img = env.media.cachedThumbnail(for: item)
                     if img == nil { img = try? await env.media.thumbnail(for: item) }
-                    if let img, !Task.isCancelled {
+                    if let raw = img, !Task.isCancelled {
+                        let img = await Self.decoded(raw)
                         // Cloud thumbnails come from Telegram at ~320 px; that is the sharpest there is.
                         store(img, pixels: Int.max, for: entry.id)
                         cont.yield(img)
@@ -81,6 +83,15 @@ final class ThumbnailPipeline: @unchecked Sendable {
             }
             cont.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// Decodes the bitmap here, in the background, so showing it on screen costs the main thread nothing.
+    private static func decoded(_ image: PlatformImage) async -> PlatformImage {
+        #if os(iOS)
+        return await image.byPreparingForDisplay() ?? image
+        #else
+        return image
+        #endif
     }
 
     // MARK: - Loading ahead

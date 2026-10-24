@@ -278,7 +278,9 @@ struct NativePhotoGrid: UIViewRepresentable {
         // MARK: Pinch to change columns, like Photos
 
         /// The tiles follow the fingers (an interactive layout transition between two column counts), the tile under
-        /// the fingers stays where it is, a long pinch keeps stepping through sizes, and letting go settles.
+        /// the fingers stays where it is, a long pinch keeps stepping through sizes, and letting go settles quickly.
+        /// UIKit takes ~0.8 s to confirm a finished transition, so the settle is animated here (0.2 s) and a pinch that
+        /// starts during that confirmation is remembered and applied right after it.
         private var pinchTransition: UICollectionViewTransitionLayout?
         private var pinchFinishing = false
         private var pinchTarget = 0
@@ -287,6 +289,14 @@ struct NativePhotoGrid: UIViewRepresentable {
         private var pinchBase: CGFloat = 1
         private var pinchScale: CGFloat = 1
         private var pinchAnchor: (indexPath: IndexPath, screenY: CGFloat)?
+        /// A pinch made while the previous step was still being confirmed: its final scale, applied afterwards.
+        private var queuedPinchScale: CGFloat?
+        /// Whether the step being settled ends at the new layout (UIKit's completion flag isn't reliable for this).
+        private var pinchWillFinish = false
+        private var settleLink: CADisplayLink?
+        private var settleFrom: CGFloat = 0
+        private var settleTo: CGFloat = 0
+        private var settleStart: CFTimeInterval = 0
 
         @objc func pinched(_ g: UIPinchGestureRecognizer) {
             guard let cv = collectionView else { return }
@@ -295,6 +305,7 @@ struct NativePhotoGrid: UIViewRepresentable {
             case .began:
                 pinchActive = true
                 pinchBase = 1
+                queuedPinchScale = nil
                 let point = g.location(in: cv)
                 if let ip = cv.indexPathForItem(at: point) ?? topVisibleItem(cv), let frame = cv.layoutAttributesForItem(at: ip)?.frame {
                     pinchAnchor = (ip, frame.midY - cv.contentOffset.y)
@@ -302,8 +313,16 @@ struct NativePhotoGrid: UIViewRepresentable {
             case .changed:
                 guard !pinchFinishing else { return }
                 let relative = g.scale / pinchBase
+                // Fingers reversed before anything moved: drop this step so the other direction can start.
+                if let t = pinchTransition, t.transitionProgress < 0.02, pinchZoomIn ? relative < 0.92 : relative > 1.08 {
+                    pinchFinishing = true
+                    pinchWillFinish = false
+                    cv.cancelInteractiveTransition()
+                    return
+                }
                 if pinchTransition == nil {
-                    guard abs(relative - 1) > 0.03 else { return }
+                    // A clear movement picks the direction (fingers often wobble a little as a pinch starts).
+                    guard abs(relative - 1) > 0.08 else { return }
                     pinchZoomIn = relative > 1
                     let target = pinchZoomIn ? max(1, appliedColumns - 1) : min(10, appliedColumns + 1)
                     guard target != appliedColumns else { return }
@@ -318,37 +337,81 @@ struct NativePhotoGrid: UIViewRepresentable {
                 if progress >= 1 {
                     // Fully there with the fingers still moving: lock this step in and continue with the next one.
                     pinchFinishing = true
+                    pinchWillFinish = true
                     Haptics.tap()
                     cv.finishInteractiveTransition()
                 }
             case .ended, .cancelled, .failed:
                 pinchActive = false
-                guard let transition = pinchTransition, !pinchFinishing else {
-                    if pinchTransition == nil { pinchGestureDone() }
+                if pinchFinishing {
+                    // Released while the last step is being confirmed: remember how far this pinch went.
+                    if g.state == .ended { queuedPinchScale = g.scale / pinchBase }
+                    return
+                }
+                guard let transition = pinchTransition else {
+                    pinchGestureDone()
                     return
                 }
                 // Settle by distance and by the speed of the fingers at release.
                 let flick = pinchZoomIn ? g.velocity > 1.5 : g.velocity < -1.5
+                let finish = g.state == .ended && (transition.transitionProgress > 0.35 || flick)
+                if finish { Haptics.tap() }
                 pinchFinishing = true
-                if g.state == .ended && (transition.transitionProgress > 0.35 || flick) {
-                    Haptics.tap()
-                    cv.finishInteractiveTransition()
-                } else {
-                    cv.cancelInteractiveTransition()
-                }
+                pinchWillFinish = finish
+                settle(transition, to: finish ? 1 : 0)
             default: break
             }
+        }
+
+        /// Animates the remaining progress in 0.2 s (ease-out), then hands the end state to UIKit.
+        private func settle(_ transition: UICollectionViewTransitionLayout, to target: CGFloat) {
+            settleFrom = transition.transitionProgress
+            settleTo = target
+            settleStart = CACurrentMediaTime()
+            settleLink?.invalidate()
+            let link = CADisplayLink(target: self, selector: #selector(settleTick(_:)))
+            link.add(to: .main, forMode: .common)
+            settleLink = link
+        }
+
+        @objc private func settleTick(_ link: CADisplayLink) {
+            guard let cv = collectionView, let transition = pinchTransition else { link.invalidate(); settleLink = nil; return }
+            let t = min(1, (CACurrentMediaTime() - settleStart) / 0.2)
+            let eased = 1 - pow(1 - t, 3)
+            transition.transitionProgress = settleFrom + (settleTo - settleFrom) * eased
+            guard t >= 1 else { return }
+            link.invalidate()
+            settleLink = nil
+            if settleTo >= 1 { cv.finishInteractiveTransition() } else { cv.cancelInteractiveTransition() }
         }
 
         private func pinchStepEnded(completed: Bool) {
             pinchTransition = nil
             pinchFinishing = false
-            if completed {
+            if pinchWillFinish {
                 appliedColumns = pinchTarget
                 parent.columns = pinchTarget
                 pinchBase = pinchScale
             }
-            if !pinchActive { pinchGestureDone() }
+            if pinchActive { return }
+            // A quick second pinch made during the confirmation: take its step now.
+            if let queued = queuedPinchScale, let cv = collectionView {
+                queuedPinchScale = nil
+                let next = queued > 1.15 ? max(1, appliedColumns - 1) : (queued < 0.85 ? min(10, appliedColumns + 1) : appliedColumns)
+                if next != appliedColumns {
+                    Haptics.tap()
+                    appliedColumns = next
+                    parent.columns = next
+                    let anchor = pinchAnchor
+                    UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+                        cv.setCollectionViewLayout(self.makeLayout(columns: next), animated: false)
+                        cv.layoutIfNeeded()
+                        if let anchor { cv.contentOffset = self.collectionView(cv, targetContentOffsetForProposedContentOffset: cv.contentOffset) ; _ = anchor }
+                    } completion: { _ in self.pinchGestureDone() }
+                    return
+                }
+            }
+            pinchGestureDone()
         }
 
         private func pinchGestureDone() {

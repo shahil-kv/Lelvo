@@ -99,7 +99,10 @@ final class NativeGridTests: XCTestCase {
         grid.cells.element(boundBy: 12).pinch(withScale: 3, velocity: 2)
         let afterIn = grid.cells.firstMatch.frame.width
         XCTAssertGreaterThan(afterIn, afterOut, "Pinching out shows fewer, bigger tiles")
-        XCTAssertTrue(header("Today").waitForExistence(timeout: 5), "Back to day headers")
+        // The grid stays anchored on the tile under the fingers, so check the month headers are gone (day headers back).
+        let month = header(monthFormatter.string(from: Date()))
+        let gone = NSPredicate(format: "exists == false")
+        XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: gone, evaluatedWith: month)], timeout: 5), .completed, "Back to day headers")
         shot("09-pinched-out")
     }
 
