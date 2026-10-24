@@ -1,13 +1,11 @@
-# Xcode
-build/
-DerivedData/
+# Xcode (the project is generated from project.yml with XcodeGen)
 *.xcodeproj/
 *.xcworkspace/
 !*.xcworkspace/contents.xcworkspacedata
 xcuserdata/
 *.xcuserstate
-*.xcscmblueprint
-*.xccheckout
+build/
+DerivedData/
 
 # Swift Package Manager
 .build/
@@ -16,16 +14,23 @@ Package.resolved
 
 # Products
 *.ipa
-*.dSYM.zip
+*.dmg
 *.dSYM
+*.dSYM.zip
 *.xcarchive
 
-# Secrets — never commit
+# Secrets: never commit
+Config/Secrets.xcconfig
 *.xcconfig.local
-Secrets.swift
 .env
 *.mobileprovision
 *.p12
 *.cer
 
+# Local logs and tools
+*.log
 .DS_Store
+.claude/
+.superpowers/
+.idea/
+.vscode/

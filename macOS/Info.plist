@@ -27,7 +27,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>GPL-3.0. Your photos, your Telegram.</string>
+	<string>© 2026 CloudGallery contributors. Free software under the GPL-3.0.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>CloudGallery saves photos you download from your Telegram backup back into your Photos library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
