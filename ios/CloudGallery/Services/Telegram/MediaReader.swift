@@ -167,9 +167,15 @@ final class MediaReader: @unchecked Sendable {
             }
             return try await readStream(item, role: "t", range: 0..<streamSize(item, role: "t"), priority: 8)
         }
-        guard let chatId = library.chatId, let first = item.parts("o").first,
-              let (_, doc) = try await td.documentFile(chatId: chatId, messageId: first.messageId),
+        guard let chatId = library.chatId, let first = item.parts("o").first else { throw ReadError.missing }
+        // Fast path: the thumbnail's remote id from the last scan, downloaded directly.
+        if let remoteId = library.thumbnails.remoteId(messageId: first.messageId, chatId: chatId),
+           let path = try? await td.download(remoteId: remoteId, priority: 8) {
+            return try Data(contentsOf: path)
+        }
+        guard let (_, doc) = try await td.documentFile(chatId: chatId, messageId: first.messageId),
               let thumb = doc.thumbnail else { throw ReadError.missing }
+        library.thumbnails.record([first.messageId: thumb.file.remote.id], chatId: chatId)
         let path = try await td.download(fileId: thumb.file.id, priority: 8)
         return try Data(contentsOf: path)
     }

@@ -7,7 +7,8 @@ import CloudGalleryCore
 final class CloudMediaService: @unchecked Sendable {
     private unowned let env: AppEnvironment
     private let memory = NSCache<NSString, PlatformImage>()
-    private let gate = DownloadGate(limit: 4)
+    /// Thumbnails are small; more in parallel fills the grid faster without starving full-size downloads.
+    private let gate = DownloadGate(limit: 8)
     private let inflight = InflightRegistry()
 
     init(environment: AppEnvironment) {

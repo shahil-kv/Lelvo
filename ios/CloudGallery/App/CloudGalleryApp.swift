@@ -25,6 +25,9 @@ struct CloudGalleryApp: App {
 
     init() {
         UITestSupport.prepareIfNeeded()
+        #if DEBUG
+        ScrollBenchmark.runIfRequested()
+        #endif
     }
 
     var body: some Scene {

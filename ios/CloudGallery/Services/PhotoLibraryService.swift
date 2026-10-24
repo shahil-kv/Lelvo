@@ -32,6 +32,56 @@ struct ExportedAsset {
     }
 }
 
+/// On a Mac where the Photos library isn't set up (or is still being opened), every PhotoKit call waits about
+/// 30 s for the photos daemon. The library is probed once, off the main thread; until it answers the app works
+/// with cloud items only, and if it never answers properly PhotoKit isn't touched again this session.
+/// On iPhone the library is always there, so it counts as available straight away.
+enum PhotoAvailability {
+    enum State { case unknown, probing, available, unavailable }
+    static let didChange = Notification.Name("CloudGallery.photoAvailabilityChanged")
+    private static let lock = NSLock()
+    #if os(macOS)
+    private nonisolated(unsafe) static var state: State = .unknown
+    #else
+    private nonisolated(unsafe) static var state: State = .available
+    #endif
+
+    static var isAvailable: Bool { lock.withLock { state == .available } }
+
+    /// Starts the probe if it hasn't run (call at launch and when the app becomes active).
+    static func probeIfNeeded() {
+        let start: Bool = lock.withLock {
+            guard state == .unknown else { return false }
+            state = .probing
+            return true
+        }
+        guard start else { return }
+        Task.detached(priority: .userInitiated) {
+            let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            guard status == .authorized || status == .limited else {
+                lock.withLock { state = .unknown }
+                return
+            }
+            let began = Date()
+            let options = PHFetchOptions()
+            options.fetchLimit = 1
+            let found = PHAsset.fetchAssets(with: options).count
+            let seconds = Date().timeIntervalSince(began)
+            // A real library answers in milliseconds; a long wait with nothing found means there is no usable library.
+            let usable = found > 0 || seconds < 5
+            lock.withLock { state = usable ? .available : .unavailable }
+            appLog(String(format: "Photos library %@ (probe %.1f s)", usable ? "available" : "not set up on this device", seconds))
+            await MainActor.run { NotificationCenter.default.post(name: didChange, object: nil) }
+        }
+    }
+
+    /// After permission is granted (state goes back to unknown, then probes).
+    static func reset() {
+        lock.withLock { if state != .available { state = .unknown } }
+        probeIfNeeded()
+    }
+}
+
 enum PhotoLibraryError: LocalizedError {
     case noOriginalResource
     case assetMissing
@@ -74,13 +124,16 @@ final class PhotoLibraryService: @unchecked Sendable {
 
     static var authorizationStatus: PHAuthorizationStatus { PHPhotoLibrary.authorizationStatus(for: .readWrite) }
 
+    /// Permission granted and the library actually answers (see `PhotoAvailability`).
     static var hasAccess: Bool {
         let s = authorizationStatus
-        return s == .authorized || s == .limited
+        return (s == .authorized || s == .limited) && PhotoAvailability.isAvailable
     }
 
     static func requestAuthorization() async -> PHAuthorizationStatus {
-        await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        PhotoAvailability.reset()
+        return status
     }
 
     // MARK: - Fetching

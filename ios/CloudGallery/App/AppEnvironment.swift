@@ -61,22 +61,50 @@ final class AppEnvironment: @unchecked Sendable {
         if td.isReady { await td.optimizeStorage(maxBytes: Prefs.mediaCacheBytes) }
     }
 
-    /// Moves to another library channel: stops the backup, clears the local index (it belongs to the old
-    /// library), restores the chosen one from Telegram and re-links this iPhone's photos to it.
+    /// Moves to another library channel: stops the backup, swaps the local index for the chosen library's, and
+    /// re-links this device's photos to it. A library opened before on this device switches instantly from its
+    /// saved index while Telegram is re-scanned in the background; a new one is scanned first (a few seconds).
     func switchLibrary(to chatId: Int64, passphrase: String?) async throws {
+        let t0 = Date()
+        func lap(_ step: String) { appLog(String(format: "Switch timing: %@ at %.2f s", step, Date().timeIntervalSince(t0))) }
         engine.pause()
         for _ in 0..<40 where engine.isRunning { try? await Task.sleep(nanoseconds: 250_000_000) }
-        try store.deleteAll()
+        if let current = library.chatId { LibrarySnapshots.save(chatId: current, items: (try? store.allItems()) ?? []) }
+        lap("backup paused, current index saved")
+        let previousChat = library.chatId
         reader.forgetCaches()
         library.forget()
-        let header = try await library.useExisting(chatId: chatId)
-        if header.encrypted {
-            guard let passphrase, !passphrase.isEmpty else { throw LibraryError.locked }
-            try library.unlock(passphrase: passphrase)
+        let header: LibraryHeader
+        do {
+            header = try await library.useExisting(chatId: chatId)
+            if header.encrypted {
+                guard let passphrase, !passphrase.isEmpty else { throw LibraryError.locked }
+                try library.unlock(passphrase: passphrase)
+            }
+        } catch {
+            // Wrong passphrase or unreachable: stay on the library we were on.
+            if let previousChat { _ = try? await library.useExisting(chatId: previousChat) }
+            throw error
+        }
+        lap("header read")
+        try store.deleteAll()
+        if let saved = LibrarySnapshots.load(chatId: chatId), !saved.isEmpty {
+            try store.upsert(saved)
+            lap("saved index restored (\(saved.count) items)")
+            Task.detached(priority: .utility) { [self] in
+                let summary = try? await library.scan(full: true)
+                let linked = engine.relinkRestoredItems()
+                appLog("Switched library (background re-scan): \(summary?.items ?? -1) items, \(linked) linked to this \(Device.name)")
+            }
+            return
         }
         let summary = try await library.scan(full: true)
-        let linked = engine.relinkRestoredItems()
-        appLog("Switched library: \(summary.items) items, \(linked) linked to this iPhone")
+        lap("scanned")
+        appLog("Switched library: \(summary.items) items")
+        Task.detached(priority: .utility) { [self] in
+            let linked = engine.relinkRestoredItems()
+            if linked > 0 { appLog("Linked \(linked) restored items to this \(Device.name)") }
+        }
     }
 
     /// Creates a new, empty library and makes it the current one (the local index of the old one is cleared;
@@ -103,8 +131,41 @@ final class AppEnvironment: @unchecked Sendable {
         try? FileManager.default.removeItem(at: stagingDirectory)
         try? FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
         KeychainStore.wipe()
+        LibrarySnapshots.removeAll()
         for key in [Prefs.Key.onboardingComplete, Prefs.Key.lastBackupAt] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
+}
+
+/// Each library's local index, saved when switching away, so switching back shows everything at once.
+/// Contains the same metadata as Library.sqlite (names, dates, Telegram ids), never photo contents.
+enum LibrarySnapshots {
+    private static var directory: URL {
+        let dir = AppPaths.support.appendingPathComponent("Libraries", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            var url = dir
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? url.setResourceValues(values)
+        }
+        return dir
+    }
+
+    private static func url(_ chatId: Int64) -> URL { directory.appendingPathComponent("\(chatId).json") }
+
+    static func save(chatId: Int64, items: [MediaItem]) {
+        // Only what's in the cloud belongs to the library; queued uploads stay with the device's backup queue.
+        let cloud = items.filter { $0.status == .backedUp }
+        guard !cloud.isEmpty, let data = try? JSONEncoder().encode(cloud) else { return }
+        try? data.write(to: url(chatId), options: .atomic)
+    }
+
+    static func load(chatId: Int64) -> [MediaItem]? {
+        guard let data = try? Data(contentsOf: url(chatId)) else { return nil }
+        return try? JSONDecoder().decode([MediaItem].self, from: data)
+    }
+
+    static func removeAll() { try? FileManager.default.removeItem(at: directory) }
 }

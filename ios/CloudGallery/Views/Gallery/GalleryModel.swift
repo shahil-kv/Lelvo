@@ -92,16 +92,28 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         init(columns: Int) { self = columns >= 8 ? .year : (columns >= 6 ? .month : .day) }
     }
 
+    private var availabilityObserver: NSObjectProtocol?
+    private var registered = false
+
     override init() {
         super.init()
-        if PhotoLibraryService.hasAccess { PHPhotoLibrary.shared().register(self) }
         observer = NotificationCenter.default.addObserver(forName: LibraryStore.didChange, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.scheduleReload() }
         }
+        // Photos answering (or not) changes what the timeline can show.
+        availabilityObserver = NotificationCenter.default.addObserver(forName: PhotoAvailability.didChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.registerForChangesIfNeeded()
+                await self?.reload()
+            }
+        }
+        PhotoAvailability.probeIfNeeded()
+        registerForChangesIfNeeded()
     }
 
     deinit {
         if let observer { NotificationCenter.default.removeObserver(observer) }
+        if let availabilityObserver { NotificationCenter.default.removeObserver(availabilityObserver) }
     }
 
     nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
@@ -232,7 +244,11 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         }
     }
 
+    /// Off the main thread: registering opens the photo library, which can take a while.
     func registerForChangesIfNeeded() {
-        if PhotoLibraryService.hasAccess { PHPhotoLibrary.shared().register(self) }
+        PhotoAvailability.probeIfNeeded()
+        guard !registered, PhotoLibraryService.hasAccess else { return }
+        registered = true
+        Task.detached(priority: .utility) { PHPhotoLibrary.shared().register(self) }
     }
 }

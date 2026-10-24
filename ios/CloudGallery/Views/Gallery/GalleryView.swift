@@ -123,7 +123,20 @@ struct GalleryView: View {
 
     // MARK: - Grid
 
-    private var grid: some View {
+    @ViewBuilder private var grid: some View {
+        #if DEBUG
+        if ScrollBenchmark.engine == "uikit" {
+            UIKitPhotoGrid(sections: sections, dataVersion: model.revision &* 31 &+ columns, columns: columns) { tap($0) }
+                .ignoresSafeArea(edges: .bottom)
+        } else {
+            swiftUIGrid
+        }
+        #else
+        swiftUIGrid
+        #endif
+    }
+
+    private var swiftUIGrid: some View {
         GeometryReader { geo in
             let side = max(20, (geo.size.width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
             ScrollViewReader { proxy in

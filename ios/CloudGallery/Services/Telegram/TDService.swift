@@ -613,6 +613,16 @@ final class TDService: @unchecked Sendable {
         } catch { throw error.asTD }
     }
 
+    /// Downloads a file by its persistent remote id (no message lookup, so no extra round trip to Telegram).
+    func download(remoteId: String, priority: Int = 16) async throws -> URL {
+        let file: File
+        do { file = try await requireClient().getRemoteFile(fileType: nil, remoteFileId: remoteId) } catch { throw error.asTD }
+        if file.local.isDownloadingCompleted, FileManager.default.fileExists(atPath: file.local.path) {
+            return URL(fileURLWithPath: file.local.path)
+        }
+        return try await download(fileId: file.id, priority: priority)
+    }
+
     /// Removes TDLib's downloaded copy of a file from its cache (the file stays in Telegram).
     func deleteLocalCopy(fileId: Int) async {
         _ = try? await requireClient().deleteFile(fileId: fileId)

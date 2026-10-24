@@ -59,15 +59,22 @@ enum UITestSupport {
         UserDefaults.standard.set(true, forKey: Prefs.Key.onboardingComplete)
         let store = AppEnvironment.shared.store
         let now = Date()
-        let items = (0..<300).map { i -> MediaItem in
+        // `-UITestDemoCount N` (benchmarks): a bigger library; default 300 for the UI tests.
+        let count = args.firstIndex(of: "-UITestDemoCount").flatMap { args.indices.contains($0 + 1) ? Int(args[$0 + 1]) : nil } ?? 300
+        let items = (0..<count).map { i -> MediaItem in
             var item = MediaItem(localIdentifier: nil, sha256: String(format: "%064d", i), filename: "IMG_\(1000 + i).HEIC",
                                  kind: i % 7 == 0 ? .video : .photo, creationDate: now.addingTimeInterval(Double(-i) * 9_000),
                                  fileSize: 2_000_000, status: .backedUp)
+            if i % 7 == 0 { item.duration = Double(5 + i % 90) }
             item.setParts([RemoteFile(messageId: Int64(i + 1), fileId: "demo", fileUniqueId: "demo\(i)", size: 2_000_000)],
                           role: "o", expected: 1)
             return item
         }
+        try? store.deleteAll()
         try? store.upsert(items)
+        #if DEBUG
+        ThumbnailPipeline.shared.seedDemoThumbnails(ids: items.map { "cloud-\($0.id)" })
+        #endif
     }
 }
 

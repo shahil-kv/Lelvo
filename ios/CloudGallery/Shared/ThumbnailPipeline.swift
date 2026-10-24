@@ -1,5 +1,10 @@
 import Foundation
 import Photos
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
 import CloudGalleryCore
 
 /// Grid thumbnails the way Photos does it: an in-memory cache so tiles that scroll back in show instantly,
@@ -110,6 +115,35 @@ final class ThumbnailPipeline: @unchecked Sendable {
         for entry in entries { prefetching.removeValue(forKey: entry.id)?.cancel() }
         lock.unlock()
     }
+
+    #if DEBUG
+    /// Benchmarks: in-memory thumbnails for the demo library (no Photos or Telegram involved).
+    func seedDemoThumbnails(ids: [String]) {
+        let palette: [PlatformImage] = (0..<48).map { i in Self.demoImage(i) }
+        for (i, id) in ids.enumerated() { store(palette[i % palette.count], pixels: Int.max, for: id) }
+    }
+
+    private static func demoImage(_ i: Int) -> PlatformImage {
+        let size = CGSize(width: 384, height: 384)
+        let hue = CGFloat(i) / 48
+        #if os(iOS)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            let colors = [UIColor(hue: hue, saturation: 0.7, brightness: 0.9, alpha: 1).cgColor,
+                          UIColor(hue: hue + 0.1, saturation: 0.8, brightness: 0.4, alpha: 1).cgColor] as CFArray
+            let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: nil)!
+            ctx.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+        }
+        #else
+        return NSImage(size: size, flipped: false) { rect in
+            NSColor(hue: hue, saturation: 0.7, brightness: 0.8, alpha: 1).setFill()
+            rect.fill()
+            return true
+        }
+        #endif
+    }
+    #endif
 
     func clearMemory() {
         memory.removeAllObjects()

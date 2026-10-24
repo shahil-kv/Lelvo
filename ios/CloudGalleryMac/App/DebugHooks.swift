@@ -53,6 +53,13 @@ enum DebugHooks {
             window.sendEvent(down)
         case "export":
             NotificationCenter.default.post(name: .debugExportIndex, object: Int(arg) ?? 0)
+        case "reswitch":
+            // Switches to the current (unencrypted) library again, to time the whole switch.
+            Task {
+                let env = AppEnvironment.shared
+                guard let id = env.library.chatId else { return }
+                do { try await env.switchLibrary(to: id, passphrase: nil) } catch { AppLog.shared.error("reswitch: \(error.localizedDescription)") }
+            }
         case "push":
             NotificationCenter.default.post(name: .debugPush, object: arg)
         case "move":

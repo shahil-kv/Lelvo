@@ -22,6 +22,9 @@ enum LibraryError: LocalizedError {
 /// The user's library channel: creating or choosing it, its header and E2E keys, and rebuilding the
 /// local index by scanning channel history (the channel is the source of truth).
 final class LibraryService: @unchecked Sendable {
+    /// Message id → the document thumbnail's remote file id, learned while scanning (saves a message lookup per tile).
+    let thumbnails = ThumbnailIdStore()
+
     static let titleDefault = "CloudGallery Library"
     private static let chatIdKey = "libraryChatId"
     private static let headerKey = "libraryHeader"
@@ -220,6 +223,7 @@ final class LibraryService: @unchecked Sendable {
         let stopAt: Int64 = full ? 0 : Int64(UserDefaults.standard.integer(forKey: Self.lastScanKey))
         var summary = ScanSummary()
         var cloud: [CloudMessage] = []
+        var thumbnailIds: [Int64: String] = [:]
         var from: Int64 = 0
         var newest: Int64 = 0
         scanLoop: while true {
@@ -245,6 +249,7 @@ final class LibraryService: @unchecked Sendable {
                 do {
                     let meta = try CaptionCodec.decode(caption, captionKey: captionKey)
                     let file = doc.document.document
+                    if let thumb = doc.document.thumbnail?.file.remote.id, !thumb.isEmpty { thumbnailIds[message.id] = thumb }
                     cloud.append(CloudMessage(messageId: message.id, meta: meta, fileId: file.remote.id,
                                               uniqueId: file.remote.uniqueId, size: file.size))
                 } catch {
@@ -256,6 +261,7 @@ final class LibraryService: @unchecked Sendable {
             from = page.nextFromMessageId
         }
 
+        thumbnails.record(thumbnailIds, chatId: chatId)
         try merge(cloud: cloud, full: full, summary: &summary)
         if full { UserDefaults.standard.set(summary.orphans.map { NSNumber(value: $0) }, forKey: Self.duplicatesKey) }
         if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
@@ -333,5 +339,40 @@ final class LibraryService: @unchecked Sendable {
         for batch in stride(from: 0, to: ids.count, by: 100).map({ Array(ids[$0..<min($0 + 100, ids.count)]) }) {
             try await td.deleteMessages(chatId: chatId, ids: batch)
         }
+    }
+}
+
+/// Remembers each document's thumbnail remote id per library, on disk, so grid thumbnails download directly.
+final class ThumbnailIdStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var chatId: Int64?
+    private var ids: [Int64: String] = [:]
+
+    private func url(_ chatId: Int64) -> URL {
+        AppPaths.caches.appendingPathComponent("thumbnail-ids-\(chatId).json")
+    }
+
+    func record(_ found: [Int64: String], chatId: Int64) {
+        guard !found.isEmpty else { return }
+        let snapshot: [Int64: String] = lock.withLock {
+            load(chatId)
+            ids.merge(found) { $1 }
+            return ids
+        }
+        if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: url(chatId), options: .atomic) }
+    }
+
+    func remoteId(messageId: Int64, chatId: Int64) -> String? {
+        lock.withLock {
+            load(chatId)
+            return ids[messageId]
+        }
+    }
+
+    /// Caller holds the lock.
+    private func load(_ chatId: Int64) {
+        guard self.chatId != chatId else { return }
+        self.chatId = chatId
+        ids = (try? Data(contentsOf: url(chatId))).flatMap { try? JSONDecoder().decode([Int64: String].self, from: $0) } ?? [:]
     }
 }
