@@ -31,6 +31,7 @@ enum TDServiceError: LocalizedError {
         case let m where m.contains("PHONE_CODE_EXPIRED"): return "The login code expired. Request a new one."
         case let m where m.contains("PASSWORD_HASH_INVALID"): return "Wrong two-step verification password."
         case let m where m.contains("API_ID_INVALID"): return "api_id / api_hash are invalid. Copy them again from my.telegram.org."
+        case let m where m.contains("API_ID_PUBLISHED_FLOOD"): return "Telegram blocked this api_id. Create your own at my.telegram.org."
         case let m where m.contains("USER_RESTRICTED"):
             return "Telegram has limited this account, so it can't create channels. In Telegram, message @SpamBot to see why and appeal, or use a different Telegram account."
         case let m where m.contains("CHANNELS_TOO_MUCH"):
@@ -42,6 +43,12 @@ enum TDServiceError: LocalizedError {
             return "Telegram asked us to slow down. Waiting \(s) s."
         default: return "Telegram error \(code): \(message)"
         }
+    }
+
+    /// Telegram refused the app's api_id (revoked, or blocked for being published).
+    var keysRejected: Bool {
+        guard case .telegram(_, let message) = self else { return false }
+        return message.contains("API_ID_INVALID") || message.contains("API_ID_PUBLISHED_FLOOD")
     }
 
     /// Classification used by the backup job machine.
@@ -311,6 +318,15 @@ final class TDService: @unchecked Sendable {
 
     func logOut() async {
         _ = try? await requireClient().logOut()
+    }
+
+    /// Closes TDLib and starts it again with the keys saved now (after the built-in ones were refused).
+    func restart() async {
+        let old = lock.withLock { client }
+        _ = try? await old?.close()
+        await waitUntilClosed(old)
+        lock.withLock { if client === old { client = nil } }
+        start()
     }
 
     /// Signs out of the current account and starts a fresh login (the api_id/api_hash are kept).
@@ -729,6 +745,9 @@ struct TDCredentials {
         }
         return bundled
     }
+
+    /// Whether sign-in is running on the built-in keys (nothing entered by hand).
+    static var usingBundled: Bool { KeychainStore.string(for: .tdApiId) == nil && bundled != nil }
 
     /// Keys built into this copy of the app, if any.
     static var bundled: TDCredentials? {

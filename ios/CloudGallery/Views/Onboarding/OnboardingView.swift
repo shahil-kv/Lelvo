@@ -77,6 +77,13 @@ final class OnboardingModel: ObservableObject {
             do {
                 try await work()
                 appLog(String(format: "Onboarding: %@ finished in %.1f s", label, Date().timeIntervalSince(started)))
+            } catch let error as TDServiceError where error.keysRejected && TDCredentials.usingBundled {
+                // Telegram revoked the built-in keys: carry on with the user's own (free, one minute at my.telegram.org).
+                AppLog.shared.error("Onboarding: built-in api_id refused (\(error.localizedDescription)); asking for own keys")
+                apiId = ""
+                apiHash = ""
+                step = .credentials
+                self.error = "This version of CloudGallery can't connect to Telegram with its built-in key. Add your own free key below to continue. Your photos are safe in your channel."
             } catch {
                 AppLog.shared.error(String(format: "Onboarding: %@ failed after %.1f s: %@", label, Date().timeIntervalSince(started), error.localizedDescription))
                 self.error = error.localizedDescription
@@ -99,7 +106,8 @@ final class OnboardingModel: ObservableObject {
         TDCredentials.save(apiId: id, apiHash: apiHash.trimmingCharacters(in: .whitespaces))
         error = nil
         busy = true
-        env.td.start()
+        // Restart rather than start: TDLib may already be running on built-in keys that Telegram refused.
+        Task { await env.td.restart() }
         // If Telegram doesn't answer (wrong keys, no network), show a message instead of spinning forever.
         credentialsTimeout?.cancel()
         credentialsTimeout = Task { [weak self] in
@@ -844,6 +852,10 @@ private struct WelcomeScreen: View {
                     .padding(.top, 10)
                 Label("Stored in a private channel only you can see.", systemImage: "lock.fill")
                     .font(.footnote).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                // Telegram API terms 2.2: say the app uses the Telegram API (and isn't Telegram's own).
+                Text("Uses the Telegram API. Not affiliated with Telegram.")
+                    .font(.caption2).foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 24)

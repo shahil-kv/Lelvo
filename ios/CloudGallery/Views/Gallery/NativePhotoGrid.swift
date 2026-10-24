@@ -25,7 +25,7 @@ struct NativePhotoGrid: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UICollectionView {
         let c = context.coordinator
-        let cv = UICollectionView(frame: .zero, collectionViewLayout: c.makeLayout())
+        let cv = UICollectionView(frame: .zero, collectionViewLayout: c.layout)
         cv.backgroundColor = .systemBackground
         cv.showsVerticalScrollIndicator = false
         cv.alwaysBounceVertical = true
@@ -67,34 +67,16 @@ struct NativePhotoGrid: UIViewRepresentable {
         private var appliedSelecting = false
         private var appliedGrouping: GalleryModel.Grouping = .day
         private var viewerCurrentId: String?
-        private let spacing: CGFloat = 2
+        let layout: PinchGridLayout
 
         init(_ parent: NativePhotoGrid) {
             self.parent = parent
             appliedColumns = parent.columns
             appliedGrouping = parent.grouping
+            layout = PinchGridLayout(columns: parent.columns)
         }
 
         // MARK: Setup
-
-        func makeLayout(columns requested: Int? = nil) -> UICollectionViewCompositionalLayout {
-            let columns = max(1, requested ?? appliedColumns)
-            let spacing = self.spacing
-            return UICollectionViewCompositionalLayout { _, env in
-                let width = env.container.effectiveContentSize.width
-                let side = floor((width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
-                let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .absolute(side), heightDimension: .absolute(side)))
-                let group = NSCollectionLayoutGroup.horizontal(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .absolute(side)),
-                                                               repeatingSubitem: item, count: columns)
-                group.interItemSpacing = .flexible(spacing)
-                let section = NSCollectionLayoutSection(group: group)
-                section.interGroupSpacing = spacing
-                let header = NSCollectionLayoutBoundarySupplementaryItem(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .absolute(48)),
-                                                                         elementKind: UICollectionView.elementKindSectionHeader, alignment: .top)
-                section.boundarySupplementaryItems = [header]
-                return section
-            }
-        }
 
         func attach(_ cv: UICollectionView) {
             collectionView = cv
@@ -124,24 +106,23 @@ struct NativePhotoGrid: UIViewRepresentable {
 
         func update(_ p: NativePhotoGrid) {
             parent = p
-            // Mid-pinch the collection view is in an interactive transition; changes wait until it settles.
-            guard let cv = collectionView, pinchTransition == nil else { return }
+            // Mid-pinch (fingers down or settling) changes wait until it lands.
+            guard let cv = collectionView, !pinchActive, settleLink == nil else { return }
             if p.columns != appliedColumns {
-                // Keep the item at the top in place while the columns change (pinch), like Photos.
-                let anchor = topVisibleItem(cv)
+                // Columns picked from the menu: the tile at the top stays where it is.
+                let keep = screenPosition(of: topVisibleItem(cv), in: cv)
                 appliedColumns = p.columns
-                cv.setCollectionViewLayout(makeLayout(), animated: false)
-                if p.dataVersion == appliedVersion, let anchor { scroll(toAnchor: anchor, in: cv) }
+                layout.setColumns(p.columns)
+                restore(keep, in: cv)
                 refreshVisible()
             }
             if p.dataVersion != appliedVersion {
-                let anchorId = topVisibleItem(cv).flatMap { dataSource?.itemIdentifier(for: $0) }
+                // Regrouping (day ↔ month after a pinch) moves headers around; the tile at the top stays exactly where
+                // it is on screen, which also holds while a finger is scrolling.
+                let keep = p.grouping != appliedGrouping ? screenPosition(of: topVisibleItem(cv), in: cv) : nil
                 appliedVersion = p.dataVersion
                 apply(p.sections)
-                if p.grouping != appliedGrouping, let anchorId, let ip = dataSource?.indexPath(for: anchorId) {
-                    cv.layoutIfNeeded()
-                    scroll(toAnchor: ip, in: cv)
-                }
+                restore(keep, in: cv)
                 appliedGrouping = p.grouping
             }
             if p.selecting != appliedSelecting {
@@ -206,14 +187,23 @@ struct NativePhotoGrid: UIViewRepresentable {
                 .min { ($0.section, $0.item) < ($1.section, $1.item) }
         }
 
-        /// Puts the anchor item at the top; when it's in its section's first row, the date header stays visible above it.
-        private func scroll(toAnchor ip: IndexPath, in cv: UICollectionView) {
-            guard ip.section < cv.numberOfSections, ip.item < cv.numberOfItems(inSection: ip.section) else { return }
-            if ip.item < appliedColumns {
-                scrollToSection(ip.section, in: cv)
-            } else {
-                cv.scrollToItem(at: ip, at: .top, animated: false)
-            }
+        /// An item (by id, so it survives regrouping) and how far below the top of the screen it is.
+        private func screenPosition(of ip: IndexPath?, in cv: UICollectionView) -> (id: String, screenY: CGFloat)? {
+            guard let ip, let id = dataSource?.itemIdentifier(for: ip), let f = layout.layoutAttributesForItem(at: ip)?.frame else { return nil }
+            return (id, f.minY - cv.contentOffset.y)
+        }
+
+        /// Scrolls by however much the item moved, so it's back at the same place on screen.
+        private func restore(_ keep: (id: String, screenY: CGFloat)?, in cv: UICollectionView) {
+            guard let keep, let ip = dataSource?.indexPath(for: keep.id), let f = layout.layoutAttributesForItem(at: ip)?.frame else { return }
+            setOffset(f.minY - keep.screenY, in: cv)
+        }
+
+        private func setOffset(_ y: CGFloat, in cv: UICollectionView) {
+            let inset = cv.adjustedContentInset
+            let maxY = max(-inset.top, layout.collectionViewContentSize.height - cv.bounds.height + inset.bottom)
+            let clamped = min(maxY, max(-inset.top, y))
+            if abs(clamped - cv.contentOffset.y) > 0.25 { cv.contentOffset.y = clamped }
         }
 
         private func scrollToSection(_ section: Int, in cv: UICollectionView) {
@@ -277,22 +267,15 @@ struct NativePhotoGrid: UIViewRepresentable {
 
         // MARK: Pinch to change columns, like Photos
 
-        /// The tiles follow the fingers (an interactive layout transition between two column counts), the tile under
-        /// the fingers stays where it is, a long pinch keeps stepping through sizes, and letting go settles quickly.
-        /// UIKit takes ~0.8 s to confirm a finished transition, so the settle is animated here (0.2 s) and a pinch that
-        /// starts during that confirmation is remembered and applied right after it.
-        private var pinchTransition: UICollectionViewTransitionLayout?
-        private var pinchFinishing = false
-        private var pinchTarget = 0
-        private var pinchZoomIn = false
-        /// Finger scale at which the current step started (each completed step re-bases it).
+        /// The tiles follow the fingers: the layout blends between the current column count and the next one, the
+        /// tile under the fingers stays under them (and follows them up and down), a long pinch steps through several
+        /// sizes, and letting go settles in 0.2 s. Everything is synchronous, so scrolling works the moment it lands.
         private var pinchBase: CGFloat = 1
-        private var pinchScale: CGFloat = 1
+        private var pinchProgress: CGFloat = 0
+        private var pinchTarget: Int?
         private var pinchAnchor: (indexPath: IndexPath, screenY: CGFloat)?
-        /// A pinch made while the previous step was still being confirmed: its final scale, applied afterwards.
-        private var queuedPinchScale: CGFloat?
-        /// Whether the step being settled ends at the new layout (UIKit's completion flag isn't reliable for this).
-        private var pinchWillFinish = false
+        private var fingerStartY: CGFloat = 0
+        private var fingerY: CGFloat = 0
         private var settleLink: CADisplayLink?
         private var settleFrom: CGFloat = 0
         private var settleTo: CGFloat = 0
@@ -300,134 +283,108 @@ struct NativePhotoGrid: UIViewRepresentable {
 
         @objc func pinched(_ g: UIPinchGestureRecognizer) {
             guard let cv = collectionView else { return }
-            pinchScale = g.scale
             switch g.state {
             case .began:
+                // A new pinch while the last one settles: land that one first.
+                finishSettle()
                 pinchActive = true
-                pinchBase = 1
-                queuedPinchScale = nil
+                pinchBase = g.scale
+                pinchProgress = 0
+                pinchTarget = nil
+                // Two fingers would also pan the grid; the pinch moves it instead (the anchor follows the fingers).
+                cv.panGestureRecognizer.isEnabled = false
                 let point = g.location(in: cv)
-                if let ip = cv.indexPathForItem(at: point) ?? topVisibleItem(cv), let frame = cv.layoutAttributesForItem(at: ip)?.frame {
+                fingerStartY = point.y - cv.contentOffset.y
+                fingerY = fingerStartY
+                if let ip = cv.indexPathForItem(at: point) ?? topVisibleItem(cv), let frame = layout.layoutAttributesForItem(at: ip)?.frame {
                     pinchAnchor = (ip, frame.midY - cv.contentOffset.y)
                 }
             case .changed:
-                guard !pinchFinishing else { return }
+                fingerY = g.location(in: cv).y - cv.contentOffset.y
                 let relative = g.scale / pinchBase
-                // Fingers reversed before anything moved: drop this step so the other direction can start.
-                if let t = pinchTransition, t.transitionProgress < 0.02, pinchZoomIn ? relative < 0.92 : relative > 1.08 {
-                    pinchFinishing = true
-                    pinchWillFinish = false
-                    cv.cancelInteractiveTransition()
-                    return
-                }
-                if pinchTransition == nil {
-                    // A clear movement picks the direction (fingers often wobble a little as a pinch starts).
-                    guard abs(relative - 1) > 0.08 else { return }
-                    pinchZoomIn = relative > 1
-                    let target = pinchZoomIn ? max(1, appliedColumns - 1) : min(10, appliedColumns + 1)
-                    guard target != appliedColumns else { return }
-                    pinchTarget = target
-                    pinchTransition = cv.startInteractiveTransition(to: makeLayout(columns: target)) { [weak self] completed, _ in
-                        self?.pinchStepEnded(completed: completed)
-                    }
-                }
+                let zoomIn = relative > 1
+                let target = zoomIn ? max(1, appliedColumns - 1) : min(10, appliedColumns + 1)
                 // Zooming in needs a wider spread of the fingers than zooming out, as in Photos.
-                let progress = min(1, max(0, pinchZoomIn ? (relative - 1) / 0.6 : (1 - relative) / 0.3))
-                pinchTransition?.transitionProgress = progress
-                if progress >= 1 {
+                let progress = min(1, max(0, zoomIn ? (relative - 1) / 0.6 : (1 - relative) / 0.3))
+                if target == appliedColumns || progress == 0 {
+                    pinchTarget = nil
+                    pinchProgress = 0
+                    layout.setColumns(appliedColumns)
+                } else if progress >= 1 {
                     // Fully there with the fingers still moving: lock this step in and continue with the next one.
-                    pinchFinishing = true
-                    pinchWillFinish = true
                     Haptics.tap()
-                    cv.finishInteractiveTransition()
+                    commitColumns(target)
+                    pinchBase = g.scale
+                    pinchTarget = nil
+                    pinchProgress = 0
+                } else {
+                    pinchTarget = target
+                    pinchProgress = progress
+                    layout.setTransition(to: target, progress: progress)
                 }
+                keepAnchor(cv)
             case .ended, .cancelled, .failed:
                 pinchActive = false
-                if pinchFinishing {
-                    // Released while the last step is being confirmed: remember how far this pinch went.
-                    if g.state == .ended { queuedPinchScale = g.scale / pinchBase }
-                    return
-                }
-                guard let transition = pinchTransition else {
-                    pinchGestureDone()
+                cv.panGestureRecognizer.isEnabled = true
+                guard pinchTarget != nil, pinchProgress > 0 else {
+                    pinchDone()
                     return
                 }
                 // Settle by distance and by the speed of the fingers at release.
-                let flick = pinchZoomIn ? g.velocity > 1.5 : g.velocity < -1.5
-                let finish = g.state == .ended && (transition.transitionProgress > 0.35 || flick)
+                let zoomIn = (pinchTarget ?? appliedColumns) < appliedColumns
+                let flick = zoomIn ? g.velocity > 1.5 : g.velocity < -1.5
+                let finish = g.state == .ended && (pinchProgress > 0.35 || flick)
                 if finish { Haptics.tap() }
-                pinchFinishing = true
-                pinchWillFinish = finish
-                settle(transition, to: finish ? 1 : 0)
+                settleFrom = pinchProgress
+                settleTo = finish ? 1 : 0
+                settleStart = CACurrentMediaTime()
+                let link = CADisplayLink(target: self, selector: #selector(settleTick(_:)))
+                link.add(to: .main, forMode: .common)
+                settleLink = link
             default: break
             }
         }
 
-        /// Animates the remaining progress in 0.2 s (ease-out), then hands the end state to UIKit.
-        private func settle(_ transition: UICollectionViewTransitionLayout, to target: CGFloat) {
-            settleFrom = transition.transitionProgress
-            settleTo = target
-            settleStart = CACurrentMediaTime()
-            settleLink?.invalidate()
-            let link = CADisplayLink(target: self, selector: #selector(settleTick(_:)))
-            link.add(to: .main, forMode: .common)
-            settleLink = link
-        }
-
+        /// Animates the remaining progress in 0.2 s (ease-out).
         @objc private func settleTick(_ link: CADisplayLink) {
-            guard let cv = collectionView, let transition = pinchTransition else { link.invalidate(); settleLink = nil; return }
+            guard let cv = collectionView, let target = pinchTarget else { finishSettle(); return }
             let t = min(1, (CACurrentMediaTime() - settleStart) / 0.2)
             let eased = 1 - pow(1 - t, 3)
-            transition.transitionProgress = settleFrom + (settleTo - settleFrom) * eased
-            guard t >= 1 else { return }
+            pinchProgress = settleFrom + (settleTo - settleFrom) * eased
+            guard t < 1 else { finishSettle(); return }
+            layout.setTransition(to: target, progress: pinchProgress)
+            keepAnchor(cv)
+        }
+
+        /// Lands the settle at its end right away (it ran out, a finger started scrolling, or a new pinch began).
+        private func finishSettle() {
+            guard let link = settleLink else { return }
             link.invalidate()
             settleLink = nil
-            if settleTo >= 1 { cv.finishInteractiveTransition() } else { cv.cancelInteractiveTransition() }
+            if let target = pinchTarget, settleTo >= 1 { commitColumns(target) } else { layout.setColumns(appliedColumns) }
+            if let cv = collectionView, !cv.isDragging { keepAnchor(cv) }
+            pinchDone()
         }
 
-        private func pinchStepEnded(completed: Bool) {
-            pinchTransition = nil
-            pinchFinishing = false
-            if pinchWillFinish {
-                appliedColumns = pinchTarget
-                parent.columns = pinchTarget
-                pinchBase = pinchScale
-            }
-            if pinchActive { return }
-            // A quick second pinch made during the confirmation: take its step now.
-            if let queued = queuedPinchScale, let cv = collectionView {
-                queuedPinchScale = nil
-                let next = queued > 1.15 ? max(1, appliedColumns - 1) : (queued < 0.85 ? min(10, appliedColumns + 1) : appliedColumns)
-                if next != appliedColumns {
-                    Haptics.tap()
-                    appliedColumns = next
-                    parent.columns = next
-                    let anchor = pinchAnchor
-                    UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
-                        cv.setCollectionViewLayout(self.makeLayout(columns: next), animated: false)
-                        cv.layoutIfNeeded()
-                        if let anchor { cv.contentOffset = self.collectionView(cv, targetContentOffsetForProposedContentOffset: cv.contentOffset) ; _ = anchor }
-                    } completion: { _ in self.pinchGestureDone() }
-                    return
-                }
-            }
-            pinchGestureDone()
+        private func commitColumns(_ c: Int) {
+            appliedColumns = c
+            layout.setColumns(c)
+            parent.columns = c
         }
 
-        private func pinchGestureDone() {
+        /// The tile under the fingers stays under them while the tiles change size.
+        private func keepAnchor(_ cv: UICollectionView) {
+            guard let anchor = pinchAnchor, let frame = layout.layoutAttributesForItem(at: anchor.indexPath)?.frame else { return }
+            setOffset(frame.midY - (anchor.screenY + fingerY - fingerStartY), in: cv)
+        }
+
+        private func pinchDone() {
+            pinchTarget = nil
+            pinchProgress = 0
             pinchEnded = Date()
             pinchAnchor = nil
             refreshVisible()
             update(parent)
-        }
-
-        /// Keeps the tile under the fingers in place when the layout changes (pinch), like Photos.
-        func collectionView(_ collectionView: UICollectionView, targetContentOffsetForProposedContentOffset proposed: CGPoint) -> CGPoint {
-            guard let anchor = pinchAnchor,
-                  let frame = collectionView.collectionViewLayout.layoutAttributesForItem(at: anchor.indexPath)?.frame else { return proposed }
-            let inset = collectionView.adjustedContentInset
-            let maxY = max(-inset.top, collectionView.collectionViewLayout.collectionViewContentSize.height - collectionView.bounds.height + inset.bottom)
-            return CGPoint(x: proposed.x, y: min(maxY, max(-inset.top, frame.midY - anchor.screenY)))
         }
 
         // MARK: Scrolling (date scrubber)
@@ -437,7 +394,10 @@ struct NativePhotoGrid: UIViewRepresentable {
             parent.motion.fraction = range > 0 ? (scrollView.contentOffset.y + scrollView.adjustedContentInset.top) / range : 0
         }
 
-        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { parent.motion.isScrolling = true }
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            finishSettle()
+            parent.motion.isScrolling = true
+        }
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { parent.motion.isScrolling = false } }
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { parent.motion.isScrolling = false }
 
@@ -677,5 +637,189 @@ final class PhotoSectionHeader: UICollectionReusableView {
         count.sizeToFit()
         title.frame.origin = CGPoint(x: 14, y: bounds.height - title.frame.height - 8)
         count.frame.origin = CGPoint(x: bounds.width - count.frame.width - 14, y: title.frame.maxY - count.frame.height - 1)
+    }
+}
+
+// MARK: - Layout
+
+/// Square tiles in rows under date headers, plus the in-between state shown while pinching: every tile and header
+/// sits part way between its place at the current column count and at the next one. Positions are arithmetic, so a
+/// pinch frame only touches what's on screen, and nothing waits on UIKit's own layout transitions.
+final class PinchGridLayout: UICollectionViewLayout {
+    static let headerHeight: CGFloat = 48
+    private let spacing: CGFloat = 2
+    private(set) var columns: Int
+    /// Column count being moved toward, and how far (0…1).
+    private(set) var target: Int?
+    private(set) var progress: CGFloat = 0
+
+    private struct Metrics {
+        let columns: Int
+        let side: CGFloat
+        let pitchX: CGFloat
+        let tops: [CGFloat]
+        let height: CGFloat
+    }
+
+    private var counts: [Int] = []
+    private var width: CGFloat = 0
+    private var countsValid = false
+    private var cache: [Int: Metrics] = [:]
+
+    init(columns: Int) {
+        self.columns = max(1, columns)
+        super.init()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func setColumns(_ c: Int) {
+        columns = max(1, c)
+        target = nil
+        progress = 0
+        invalidateLayout(with: UICollectionViewLayoutInvalidationContext())
+    }
+
+    func setTransition(to t: Int, progress p: CGFloat) {
+        target = t
+        progress = min(1, max(0, p))
+        invalidateLayout(with: UICollectionViewLayoutInvalidationContext())
+    }
+
+    override func invalidateLayout(with context: UICollectionViewLayoutInvalidationContext) {
+        if context.invalidateEverything || context.invalidateDataSourceCounts { countsValid = false }
+        super.invalidateLayout(with: context)
+    }
+
+    override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool { newBounds.width != width }
+
+    override func prepare() {
+        super.prepare()
+        refreshIfNeeded()
+    }
+
+    private func refreshIfNeeded() {
+        guard let cv = collectionView else { return }
+        let w = cv.bounds.width
+        guard !countsValid || w != width else { return }
+        counts = (0..<cv.numberOfSections).map { cv.numberOfItems(inSection: $0) }
+        width = w
+        countsValid = true
+        cache = [:]
+    }
+
+    private func metrics(_ c: Int) -> Metrics {
+        refreshIfNeeded()
+        if let m = cache[c] { return m }
+        let side = max(1, floor((width - spacing * CGFloat(c - 1)) / CGFloat(c)))
+        let pitchX = c > 1 ? side + (width - side * CGFloat(c)) / CGFloat(c - 1) : 0
+        var tops: [CGFloat] = []
+        tops.reserveCapacity(counts.count)
+        var y: CGFloat = 0
+        for n in counts {
+            tops.append(y)
+            let rows = (n + c - 1) / c
+            y += Self.headerHeight + (rows > 0 ? CGFloat(rows) * side + CGFloat(rows - 1) * spacing : 0)
+        }
+        let m = Metrics(columns: c, side: side, pitchX: pitchX, tops: tops, height: y)
+        cache[c] = m
+        return m
+    }
+
+    /// The two states being blended (the same one twice when not pinching).
+    private var states: (Metrics, Metrics, CGFloat) {
+        let a = metrics(columns)
+        guard let target, progress > 0 else { return (a, a, 0) }
+        return (a, metrics(target), progress)
+    }
+
+    private static func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat { a + (b - a) * t }
+
+    private func itemFrame(_ i: Int, _ s: Int, _ m: Metrics) -> CGRect {
+        let row = i / m.columns, col = i % m.columns
+        return CGRect(x: CGFloat(col) * m.pitchX, y: m.tops[s] + Self.headerHeight + CGFloat(row) * (m.side + spacing),
+                      width: m.side, height: m.side)
+    }
+
+    private func itemFrame(_ i: Int, _ s: Int) -> CGRect {
+        let (a, b, t) = states
+        let fa = itemFrame(i, s, a)
+        guard t > 0 else { return fa }
+        let fb = itemFrame(i, s, b)
+        let side = Self.lerp(fa.width, fb.width, t)
+        return CGRect(x: Self.lerp(fa.minX, fb.minX, t), y: Self.lerp(fa.minY, fb.minY, t), width: side, height: side)
+    }
+
+    private func headerFrame(_ s: Int) -> CGRect {
+        let (a, b, t) = states
+        return CGRect(x: 0, y: Self.lerp(a.tops[s], b.tops[s], t), width: width, height: Self.headerHeight)
+    }
+
+    override var collectionViewContentSize: CGSize {
+        let (a, b, t) = states
+        return CGSize(width: width, height: Self.lerp(a.height, b.height, t))
+    }
+
+    override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
+        let (a, b, t) = states
+        guard !counts.isEmpty else { return [] }
+        let top = { (s: Int) in Self.lerp(a.tops[s], b.tops[s], t) }
+        let side = Self.lerp(a.side, b.side, t)
+        // Last section starting at or above the rect (tops only grow, in both states and so in the blend).
+        var lo = 0, hi = counts.count - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if top(mid) <= rect.minY { lo = mid } else { hi = mid - 1 }
+        }
+        var out: [UICollectionViewLayoutAttributes] = []
+        for s in lo..<counts.count {
+            let sectionTop = top(s)
+            if sectionTop > rect.maxY { break }
+            let header = CGRect(x: 0, y: sectionTop, width: width, height: Self.headerHeight)
+            if header.intersects(rect) { out.append(headerAttributes(s, header)) }
+            let n = counts[s]
+            guard n > 0 else { continue }
+            let minY = { (i: Int) in Self.lerp(self.itemFrame(i, s, a).minY, self.itemFrame(i, s, b).minY, t) }
+            // First tile whose bottom reaches the rect, then every tile until one starts below it.
+            var first = 0, last = n
+            while first < last {
+                let mid = (first + last) / 2
+                if minY(mid) + side < rect.minY { first = mid + 1 } else { last = mid }
+            }
+            var i = first
+            while i < n {
+                let f = itemFrame(i, s)
+                if f.minY > rect.maxY { break }
+                if f.intersects(rect) {
+                    let attrs = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: i, section: s))
+                    attrs.frame = f
+                    out.append(attrs)
+                }
+                i += 1
+            }
+        }
+        return out
+    }
+
+    private func headerAttributes(_ s: Int, _ frame: CGRect) -> UICollectionViewLayoutAttributes {
+        let attrs = UICollectionViewLayoutAttributes(forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
+                                                     with: IndexPath(item: 0, section: s))
+        attrs.frame = frame
+        attrs.zIndex = 1
+        return attrs
+    }
+
+    override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        refreshIfNeeded()
+        guard indexPath.section < counts.count, indexPath.item < counts[indexPath.section] else { return nil }
+        let attrs = UICollectionViewLayoutAttributes(forCellWith: indexPath)
+        attrs.frame = itemFrame(indexPath.item, indexPath.section)
+        return attrs
+    }
+
+    override func layoutAttributesForSupplementaryView(ofKind elementKind: String, at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        refreshIfNeeded()
+        guard elementKind == UICollectionView.elementKindSectionHeader, indexPath.section < counts.count else { return nil }
+        return headerAttributes(indexPath.section, headerFrame(indexPath.section))
     }
 }

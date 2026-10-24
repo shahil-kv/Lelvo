@@ -84,9 +84,8 @@ final class NativeGridTests: XCTestCase {
         waitForGrid()
         let before = grid.cells.firstMatch.frame.width
         // Pinch in the middle of the screen (the grid runs under the tab bar, which takes touches there).
-        // Two pinches: 4 → 5 → 6 columns (a quick synthetic pinch settles one step, like a short real one).
-        grid.cells.element(boundBy: 9).pinch(withScale: 0.3, velocity: -2)
-        grid.cells.element(boundBy: 9).pinch(withScale: 0.3, velocity: -2)
+        // One pinch steps through sizes as the fingers move, like Photos: 4 → 5, then most of the way to 6 and a flick lands it.
+        grid.cells.element(boundBy: 9).pinch(withScale: 0.6, velocity: -2)
         let afterOut = grid.cells.firstMatch.frame.width
         XCTAssertLessThan(afterOut, before, "Pinching in shows more, smaller tiles")
         shot("08a-after-pinch")
@@ -96,7 +95,6 @@ final class NativeGridTests: XCTestCase {
                       "At 6+ columns the timeline is grouped by month")
         shot("08-pinched-in")
         grid.cells.element(boundBy: 12).pinch(withScale: 3, velocity: 2)
-        grid.cells.element(boundBy: 12).pinch(withScale: 3, velocity: 2)
         let afterIn = grid.cells.firstMatch.frame.width
         XCTAssertGreaterThan(afterIn, afterOut, "Pinching out shows fewer, bigger tiles")
         // The grid stays anchored on the tile under the fingers, so check the month headers are gone (day headers back).
@@ -104,6 +102,20 @@ final class NativeGridTests: XCTestCase {
         let gone = NSPredicate(format: "exists == false")
         XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: gone, evaluatedWith: month)], timeout: 5), .completed, "Back to day headers")
         shot("09-pinched-out")
+    }
+
+    /// Scrolling right after a pinch moves the grid with the finger (no wait for the pinch to land, no snapping back).
+    func testScrollRightAfterPinch() {
+        waitForGrid()
+        grid.cells.element(boundBy: 9).pinch(withScale: 0.6, velocity: -2)
+        let cell = grid.cells.element(boundBy: 20)
+        let label = cell.label
+        let before = cell.frame.minY
+        grid.swipeUp(velocity: .slow)
+        let same = grid.cells.matching(NSPredicate(format: "label == %@", label)).firstMatch
+        XCTAssertTrue(same.exists, "A slow swipe moves the grid by about a screen, not a jump")
+        XCTAssertLessThan(same.frame.minY, before - 100, "The grid scrolled up with the finger")
+        shot("10-scroll-after-pinch")
     }
 
     func testFastScrollAndScrubber() {
