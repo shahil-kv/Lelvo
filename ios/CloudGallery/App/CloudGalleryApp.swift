@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
         AppEnvironment.shared.media.trimMemory()
+        ThumbnailPipeline.shared.clearMemory()
     }
 }
 

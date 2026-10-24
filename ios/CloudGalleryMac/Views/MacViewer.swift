@@ -8,14 +8,11 @@ import CloudGalleryCore
 @MainActor
 final class TileRegistry {
     static let shared = TileRegistry()
-    private(set) var frames: [String: CGRect] = [:]
-    private let images = NSCache<NSString, PlatformImage>()
+    /// Set by the grid: a tile's rect in window (SwiftUI global) coordinates, nil when it's off screen.
+    var frameProvider: ((String) -> CGRect?)?
 
-    init() { images.countLimit = 600 }
-
-    func setFrame(_ rect: CGRect?, for id: String) { frames[id] = rect }
-    func setImage(_ image: PlatformImage, for id: String) { images.setObject(image, forKey: id as NSString) }
-    func image(for id: String) -> PlatformImage? { images.object(forKey: id as NSString) }
+    func frame(for id: String) -> CGRect? { frameProvider?(id) }
+    func image(for entry: GalleryEntry) -> PlatformImage? { ThumbnailPipeline.shared.cached(entry)?.image }
 }
 
 /// Decoded full-size images of the items around the one on screen, so ← → shows them instantly.
@@ -68,6 +65,7 @@ struct MacViewer: View {
     @State private var swipeMonitor: Any?
     @State private var swipeAccumulated: CGFloat = 0
     @State private var swipeConsumed = false
+    @State private var viewerWidth: CGFloat = 0
     @FocusState private var focused: Bool
 
     struct Hero {
@@ -104,22 +102,24 @@ struct MacViewer: View {
                 }
             }
             .clipped()
-            .onAppear { open(in: geo.frame(in: .named(MacGalleryView.space))) }
-            .onContinuousHover { phase in
-                switch phase {
-                case .active(let p):
-                    let edge: HorizontalEdge? = p.x < 120 ? .leading : (p.x > geo.size.width - 120 ? .trailing : nil)
-                    if edge != hoverEdge { withAnimation(.easeOut(duration: 0.15)) { hoverEdge = edge } }
-                case .ended:
-                    withAnimation(.easeOut(duration: 0.2)) { hoverEdge = nil }
-                }
-            }
+            .onAppear { open(in: geo.frame(in: .global)) }
+            .onChange(of: geo.size.width, initial: true) { _, w in viewerWidth = w }
         }
         .overlay(alignment: .leading) {
             if contentVisible, hoverEdge == .leading, let i = index, i > 0 { edgeButton("chevron.left") { step(-1) } }
         }
         .overlay(alignment: .trailing) {
             if contentVisible, hoverEdge == .trailing, let i = index, i < entries.count - 1 { edgeButton("chevron.right") { step(1) } }
+        }
+        // Tracked on the whole viewer, arrows included: the arrow stays while the pointer is on it.
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(let p):
+                let edge: HorizontalEdge? = p.x < 140 ? .leading : (p.x > viewerWidth - 140 ? .trailing : nil)
+                if edge != hoverEdge { withAnimation(.easeOut(duration: 0.15)) { hoverEdge = edge } }
+            case .ended:
+                withAnimation(.easeOut(duration: 0.2)) { hoverEdge = nil }
+            }
         }
         .focusable()
         .focused($focused)
@@ -149,8 +149,8 @@ struct MacViewer: View {
     /// Hero zoom from the tile (like Photos), then the real page fades in underneath.
     private func open(in container: CGRect) {
         prefetchNeighbours()
-        guard let entry = current, let source = TileRegistry.shared.frames[entry.id],
-              let image = TileRegistry.shared.image(for: entry.id) else {
+        guard let entry = current, let source = TileRegistry.shared.frame(for: entry.id),
+              let image = TileRegistry.shared.image(for: entry) else {
             withAnimation(.easeOut(duration: 0.2)) { expanded = true; contentVisible = true }
             return
         }
@@ -167,8 +167,8 @@ struct MacViewer: View {
         guard !closing else { return }
         closing = true
         removeSwipeMonitor()
-        guard let entry = current, !zoomed, let source = TileRegistry.shared.frames[entry.id],
-              let image = TileRegistry.shared.image(for: entry.id) else {
+        guard let entry = current, !zoomed, let source = TileRegistry.shared.frame(for: entry.id),
+              let image = TileRegistry.shared.image(for: entry) else {
             withAnimation(.easeIn(duration: 0.16)) { expanded = false; contentVisible = false } completion: { onClose() }
             return
         }
@@ -297,7 +297,7 @@ struct MacViewerPage: View {
         self.isCurrent = isCurrent
         _zoomed = zoomed
         // Start from the grid tile's image, so the page is never black while the full image loads.
-        let tile = MainActor.assumeIsolated { TileRegistry.shared.image(for: entry.id) }
+        let tile = ThumbnailPipeline.shared.cached(entry)?.image
         _content = State(initialValue: .loading(tile))
         _poster = State(initialValue: tile)
     }

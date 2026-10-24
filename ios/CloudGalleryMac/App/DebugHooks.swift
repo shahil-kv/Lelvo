@@ -19,6 +19,12 @@ enum DebugHooks {
         }
     }
 
+    @MainActor private static func findGrid(_ v: NSView) -> NSScrollView? {
+        if let s = v as? NSScrollView, s.documentView is NSCollectionView { return s }
+        for sub in v.subviews { if let found = findGrid(sub) { return found } }
+        return nil
+    }
+
     @MainActor private static func snapshot(to url: URL) {
         guard let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.frame.width > 400 }),
               let view = window.contentView?.superview ?? window.contentView,
@@ -45,8 +51,67 @@ enum DebugHooks {
                                               context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)
             else { return }
             window.sendEvent(down)
+        case "export":
+            NotificationCenter.default.post(name: .debugExportIndex, object: Int(arg) ?? 0)
         case "push":
             NotificationCenter.default.post(name: .debugPush, object: arg)
+        case "move":
+            let xy = arg.split(separator: ",").compactMap { Double($0) }
+            guard xy.count == 2, let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }),
+                  let content = window.contentView else { return }
+            let p = NSPoint(x: xy[0], y: content.bounds.height - xy[1])
+            if let e = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                          windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                window.sendEvent(e)
+            }
+        case "click", "rclick":
+            // "click:x,y" in window points from the top-left of the content.
+            let xy = arg.split(separator: ",").compactMap { Double($0) }
+            guard xy.count == 2, let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }),
+                  let content = window.contentView else { return }
+            let p = NSPoint(x: xy[0], y: content.bounds.height - xy[1])
+            let (down, up): (NSEvent.EventType, NSEvent.EventType) = verb == "click" ? (.leftMouseDown, .leftMouseUp) : (.rightMouseDown, .rightMouseUp)
+            for type in [down, up] {
+                if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    window.sendEvent(e)
+                }
+            }
+        case "scrolltest":
+            // Scrolls the grid top to bottom in 4 s at display rate and logs how late frames were (main-thread hitches).
+            guard let root = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 })?.contentView,
+                  let scroll = findGrid(root) else { return }
+            let clip = scroll.contentView
+            let total = max(0, (scroll.documentView?.frame.height ?? 0) - clip.bounds.height)
+            let start = CACurrentMediaTime()
+            var last = start
+            var gaps: [Double] = []
+            Timer.scheduledTimer(withTimeInterval: 1.0 / 120, repeats: true) { timer in
+                MainActor.assumeIsolated {
+                    let now = CACurrentMediaTime()
+                    gaps.append(now - last)
+                    last = now
+                    let t = min(1, (now - start) / 4)
+                    clip.scroll(to: NSPoint(x: 0, y: total * t))
+                    scroll.reflectScrolledClipView(clip)
+                    if t >= 1 {
+                        timer.invalidate()
+                        let sorted = gaps.sorted()
+                        let p95 = sorted[Int(Double(sorted.count) * 0.95)]
+                        appLog(String(format: "Debug scrolltest: %d ticks, avg %.1f ms, p95 %.1f ms, max %.1f ms, >33ms: %d",
+                                      gaps.count, gaps.reduce(0, +) / Double(gaps.count) * 1000, p95 * 1000, (sorted.last ?? 0) * 1000,
+                                      gaps.filter { $0 > 0.033 }.count))
+                    }
+                }
+            }
+        case "dump":
+            func walk(_ v: NSView, _ depth: Int) {
+                if let sv = v as? NSScrollView {
+                    appLog("Debug: scroll \(type(of: sv.documentView as Any)) frame \(sv.frame) clip \(sv.contentView.bounds) insets \(sv.contentInsets.top),\(sv.contentView.contentInsets.top) doc \(sv.documentView?.frame ?? .zero)")
+                }
+                for s in v.subviews { walk(s, depth + 1) }
+            }
+            if let root = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 })?.contentView { walk(root, 0) }
         case "activate":
             NSApp.activate()
         default: break
@@ -57,5 +122,6 @@ enum DebugHooks {
 extension Notification.Name {
     static let debugOpenIndex = Notification.Name("CloudGallery.debugOpenIndex")
     static let debugPush = Notification.Name("CloudGallery.debugPush")
+    static let debugExportIndex = Notification.Name("CloudGallery.debugExportIndex")
 }
 #endif

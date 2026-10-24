@@ -27,14 +27,19 @@ struct GalleryView: View {
     /// so the grid itself isn't rebuilt on every frame.
     @State private var motion = GridMotion()
     @Namespace private var zoomNamespace
+    @Environment(\.displayScale) private var displayScale
 
     private let spacing: CGFloat = 2
 
     private var grouping: GalleryModel.Grouping { GalleryModel.Grouping(columns: columns) }
-    private var entries: [GalleryEntry] { filter.map { f in model.entries.filter(f.matches) } ?? model.entries }
-    private var sections: [GallerySection] {
-        filter == nil ? model.sections : GalleryModel.group(entries, grouping: grouping)
-    }
+    /// The timeline is already grouped by the model; filtered views (albums, Videos…) are computed once per
+    /// library change off the main thread instead of on every render.
+    private var entries: [GalleryEntry] { filter == nil ? model.entries : filtered.entries }
+    private var sections: [GallerySection] { filter == nil ? model.sections : filtered.sections }
+    @State private var filtered: (entries: [GalleryEntry], sections: [GallerySection]) = ([], [])
+    @State private var prefetcher = GridPrefetcher()
+
+    private struct FilterKey: Equatable { let revision: Int; let grouping: GalleryModel.Grouping; let size: Int }
 
     var body: some View {
         if embedInNavigation { NavigationStack { content } } else { content }
@@ -67,6 +72,20 @@ struct GalleryView: View {
             }
         }
         .task { if !model.loaded { await model.reload() } }
+        .task(id: FilterKey(revision: model.revision, grouping: grouping, size: filterSize)) {
+            let source = model.entries
+            let filter = self.filter
+            let grouping = self.grouping
+            let result = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection], [String: Int]) in
+                let list = filter.map { f in source.filter(f.matches) } ?? source
+                var positions: [String: Int] = [:]
+                positions.reserveCapacity(list.count)
+                for (i, e) in list.enumerated() { positions[e.id] = i }
+                return (list, filter == nil ? [] : GalleryModel.group(list, grouping: grouping), positions)
+            }.value
+            if filter != nil { filtered = (result.0, result.1) }
+            prefetcher.update(entries: result.0, positions: result.2)
+        }
         .onChange(of: columns) { _, c in model.setGrouping(GalleryModel.Grouping(columns: c)) }
         .onAppear { model.setGrouping(grouping) }
         .fullScreenCover(item: $viewerStart) { start in
@@ -94,6 +113,14 @@ struct GalleryView: View {
 
     private var selectedEntries: [GalleryEntry] { entries.filter { selection.contains($0.id) } }
 
+    private var filterSize: Int {
+        switch filter {
+        case .album(_, let ids)?: return ids.count
+        case nil: return -1
+        default: return 0
+        }
+    }
+
     // MARK: - Grid
 
     private var grid: some View {
@@ -118,6 +145,7 @@ struct GalleryView: View {
                                             }
                                         }
                                         .zoomSource(id: entry.id, in: zoomNamespace)
+                                        .onAppear { prefetcher.appeared(entry.id, columns: columns, pixels: ThumbnailPipeline.bucket(side * displayScale)) }
                                         .onTapGesture { tap(entry) }
                                         .onLongPressGesture {
                                             Haptics.tap()
@@ -384,6 +412,15 @@ struct ThumbnailCell: View {
     @State private var failed = false
     @Environment(\.displayScale) private var scale
 
+    init(entry: GalleryEntry, side: CGFloat, selecting: Bool, selected: Bool) {
+        self.entry = entry
+        self.side = side
+        self.selecting = selecting
+        self.selected = selected
+        // A tile scrolling back in shows its image on the first frame instead of an empty square.
+        _image = State(initialValue: ThumbnailPipeline.shared.cached(entry)?.image)
+    }
+
     var body: some View {
         ZStack {
             Rectangle().fill(Color(.secondarySystemBackground))
@@ -421,22 +458,19 @@ struct ThumbnailCell: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.accessibilityLabel)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .task(id: ThumbRequest(id: entry.id, pixels: Int(side * scale / 64) * 64 + 64)) { await load() }
+        .task(id: ThumbRequest(id: entry.id, pixels: ThumbnailPipeline.bucket(side * scale))) { await load() }
     }
 
     private struct ThumbRequest: Equatable { let id: String; let pixels: Int }
 
     private func load() async {
-        let env = AppEnvironment.shared
-        if let asset = entry.asset {
-            // Keeps the current image while a sharper one for a new grid size arrives.
-            for await img in env.photos.thumbnails(for: asset, pixels: CGFloat(Int(side * scale / 64) * 64 + 64)) {
-                image = img
-            }
-        } else if let item = entry.item {
-            if let cached = env.media.cachedThumbnail(for: item) { image = cached; return }
-            do { image = try await env.media.thumbnail(for: item) } catch { failed = true }
+        let pixels = ThumbnailPipeline.bucket(side * scale)
+        if let cached = ThumbnailPipeline.shared.cached(entry), cached.pixels >= pixels {
+            if image !== cached.image { image = cached.image }
+            return
         }
+        // Low-res first, then sharp; the current image stays while a sharper one for a new grid size arrives.
+        for await img in ThumbnailPipeline.shared.images(for: entry, pixels: pixels) { image = img }
         if image == nil { failed = true }
     }
 }

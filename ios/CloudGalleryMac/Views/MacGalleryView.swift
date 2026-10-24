@@ -33,14 +33,14 @@ struct MacGalleryView: View {
     @State private var confirmMacDelete: [GalleryEntry] = []
     @State private var commandToken: UUID?
     @State private var scrollRequest: String?
-    @FocusState private var gridFocused: Bool
-
-    private let spacing: CGFloat = 3
-    private let gutter: CGFloat = 16
+    @State private var scrollToken = 0
+    @State private var dataVersion = 0
+    @State private var photoCount = 0
+    @State private var videoCount = 0
     static let tileRange: ClosedRange<Double> = 64...380
 
     private var grouping: GalleryModel.Grouping { tileSize >= 110 ? .day : (tileSize >= 76 ? .month : .year) }
-    private var selectedEntries: [GalleryEntry] { flat.filter { selection.contains($0.id) } }
+    private var selectedEntries: [GalleryEntry] { selection.compactMap { positions[$0] }.sorted().map { flat[$0] } }
     private var viewerEntry: GalleryEntry? { viewerId.flatMap { positions[$0] }.map { flat[$0] } }
 
     /// The item(s) the toolbar, inspector and menus act on: the viewer's item, else the selection.
@@ -70,7 +70,7 @@ struct MacGalleryView: View {
         .coordinateSpace(name: Self.space)
         .onChange(of: viewerId) { _, id in
             // Keep the grid under the viewer on the current item, so closing zooms back into the right tile.
-            if let id { scrollRequest = id }
+            if let id { scroll(to: id) }
         }
         .overlay(alignment: .bottom) { bottomOverlay }
         .navigationTitle(viewerEntry.map { Format.date($0.date, style: .long, time: .none) } ?? item.title)
@@ -85,6 +85,19 @@ struct MacGalleryView: View {
         #if DEBUG
         .onReceive(NotificationCenter.default.publisher(for: .debugOpenIndex)) { note in
             if let i = note.object as? Int, flat.indices.contains(i) { open(flat[i]) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .debugExportIndex)) { note in
+            guard let i = note.object as? Int, flat.indices.contains(i) else { return }
+            let entry = flat[i]
+            Task {
+                do {
+                    let url = try await GalleryActions.shareableFile(for: entry)
+                    let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
+                    appLog("Debug export #\(i): \(url.lastPathComponent) \(size) bytes (expected \(entry.item?.fileSize ?? -1))")
+                } catch {
+                    AppLog.shared.error("Debug export #\(i) failed: \(error.localizedDescription)")
+                }
+            }
         }
         #endif
         .onDisappear { commandToken.map(navigation.commands.unsubscribe) }
@@ -123,8 +136,7 @@ struct MacGalleryView: View {
             return [Format.date(e.date, style: .none, time: .short), e.badge.label].joined(separator: " · ")
         }
         guard ready else { return "" }
-        let videos = flat.lazy.filter(\.isVideo).count
-        let photos = flat.count - videos
+        let videos = videoCount, photos = photoCount
         var parts: [String] = []
         if photos > 0 { parts.append("\(photos.formatted()) Photo\(photos == 1 ? "" : "s")") }
         if videos > 0 { parts.append("\(videos.formatted()) Video\(videos == 1 ? "" : "s")") }
@@ -145,78 +157,17 @@ struct MacGalleryView: View {
     }
 
     private var grid: some View {
-        GeometryReader { geo in
-            let width = geo.size.width - gutter * 2
-            let cols = max(1, Int((width + spacing) / (CGFloat(tileSize) + spacing)))
-            let side = max(24, floor((width - spacing * CGFloat(cols - 1)) / CGFloat(cols)))
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: spacing), count: cols),
-                              spacing: spacing, pinnedViews: [.sectionHeaders]) {
-                        ForEach(sections) { section in
-                            Section {
-                                ForEach(section.entries) { entry in cell(entry, side: side) }
-                            } header: {
-                                MacSectionHeader(section: section, grouping: grouping, selected: section.entries.filter { selection.contains($0.id) }.count) {
-                                    toggleSection(section)
-                                }
-                                .id("header-\(section.id)")
-                            }
-                        }
-                    }
-                    .padding(.horizontal, gutter)
-                    .padding(.bottom, 80)
-                    .background {
-                        // Clicking empty space clears the selection, like Finder and Photos.
-                        Color.clear.contentShape(Rectangle()).onTapGesture { clearSelection() }
-                    }
-                }
-                .onChange(of: cols, initial: true) { _, c in columns = c }
-                .onChange(of: scrollRequest) { _, id in
-                    guard let id else { return }
-                    proxy.scrollTo(id, anchor: nil)
-                    scrollRequest = nil
-                }
-            }
-        }
-        .focusable()
-        .focused($gridFocused)
-        .focusEffectDisabled()
-        .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
-            moveCursor(press.key, extend: press.modifiers.contains(.shift))
-            return .handled
-        }
-        .onKeyPress(keys: [.space, .return]) { _ in
-            guard let id = cursorId ?? selection.first, let i = positions[id] else { return .ignored }
-            if selecting {
-                if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
-            } else {
-                open(flat[i])
-            }
-            return .handled
-        }
-        .onKeyPress(.escape) { selecting ? endSelecting() : clearSelection(); return .handled }
-        .onKeyPress(keys: [.delete, .deleteForward]) { _ in
-            let cloud = EntryActions(entries: targets).inCloud
-            guard !cloud.isEmpty else { return .ignored }
-            confirmCloudDelete = cloud
-            return .handled
-        }
-        .onKeyPress(characters: CharacterSet(charactersIn: "a")) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            selectAll()
-            return .handled
-        }
-        .onAppear { gridFocused = true }
-    }
-
-    private func cell(_ entry: GalleryEntry, side: CGFloat) -> some View {
-        MacThumbnailCell(entry: entry, side: side, selecting: selecting, selected: selection.contains(entry.id),
-                         cursor: cursorId == entry.id && gridFocused && !selecting)
-            .id(entry.id)
-            .onTapGesture { click(entry) }
-            .contextMenu { contextMenu(for: entry) }
-            .onDrag { dragProvider(entry) }
+        MacPhotoGrid(sections: sections, dataVersion: dataVersion, tileSize: CGFloat(tileSize), grouping: grouping,
+                     selecting: selecting, selection: selection, cursorId: cursorId,
+                     scrollTarget: scrollRequest, scrollToken: scrollToken,
+                     onClick: { entry, modifiers in click(entry, modifiers: modifiers) },
+                     onKey: { key, modifiers in handle(key, modifiers: modifiers) },
+                     menu: { contextMenu(for: $0) },
+                     onToggleSection: { toggleSection($0) },
+                     onMagnify: { amount in tileSize = min(Self.tileRange.upperBound, max(Self.tileRange.lowerBound, tileSize * (1 + amount))) },
+                     dragEntries: { entry in selecting && selection.contains(entry.id) ? selectedEntries : [entry] },
+                     onColumns: { columns = $0 },
+                     onBackgroundClick: { if !selecting { cursorId = nil } })
     }
 
     @ViewBuilder private var emptyState: some View {
@@ -404,46 +355,35 @@ struct MacGalleryView: View {
 
     // MARK: - Context menu and drag
 
-    @ViewBuilder private func contextMenu(for entry: GalleryEntry) -> some View {
-        let group = selection.contains(entry.id) ? selectedEntries : [entry]
+    private func contextMenu(for entry: GalleryEntry) -> [GridMenuItem] {
+        let group = selecting && selection.contains(entry.id) ? selectedEntries : [entry]
         let actions = EntryActions(entries: group)
+        var items: [GridMenuItem] = []
         if group.count == 1 {
-            Button("Open", systemImage: "arrow.up.left.and.arrow.down.right") { open(entry) }
-            Button("Get Info", systemImage: "info.circle") { cursorId = entry.id; if !selecting { selection = [entry.id] }; showInfo = true }
-            Divider()
+            items.append(GridMenuItem(title: "Open", symbol: "arrow.up.left.and.arrow.down.right") { open(entry) })
+            items.append(GridMenuItem(title: "Get Info", symbol: "info.circle") { cursorId = entry.id; showInfo = true })
+            items.append(.separator)
         }
-        Button("Share…", systemImage: "square.and.arrow.up") { Task { await MacActions.share(group, toast: toast) } }
-        Button("Export \(group.count == 1 ? "" : "\(group.count) Items ")to Folder…", systemImage: "square.and.arrow.down.on.square") {
-            Task { await MacActions.export(group, toast: toast) }
-        }
+        items.append(GridMenuItem(title: "Share…", symbol: "square.and.arrow.up") { Task { await MacActions.share(group, toast: toast) } })
+        items.append(GridMenuItem(title: group.count == 1 ? "Export to Folder…" : "Export \(group.count) Items to Folder…",
+                                  symbol: "square.and.arrow.down.on.square") { Task { await MacActions.export(group, toast: toast) } })
         if !actions.downloadable.isEmpty {
-            Button("Save to Photos", systemImage: "photo.badge.plus") { Task { await MacActions.saveToPhotos(actions.downloadable, toast: toast) } }
+            items.append(GridMenuItem(title: "Save to Photos", symbol: "photo.badge.plus") {
+                Task { await MacActions.saveToPhotos(actions.downloadable, toast: toast) }
+            })
         }
         if !actions.notBackedUp.isEmpty {
-            Button("Back Up \(actions.notBackedUp.count == 1 ? "" : "\(actions.notBackedUp.count) Items")", systemImage: "icloud.and.arrow.up") {
-                Task { await MacActions.backUp(actions.notBackedUp, toast: toast) }
-            }
+            items.append(GridMenuItem(title: actions.notBackedUp.count == 1 ? "Back Up" : "Back Up \(actions.notBackedUp.count) Items",
+                                      symbol: "icloud.and.arrow.up") { Task { await MacActions.backUp(actions.notBackedUp, toast: toast) } })
         }
-        Divider()
-        deleteButtons(actions)
-    }
-
-    private func dragProvider(_ entry: GalleryEntry) -> NSItemProvider {
-        let provider = NSItemProvider()
-        let name: String = {
-            if let asset = entry.asset { return PHAssetResource.assetResources(for: asset).first?.originalFilename ?? "Photo" }
-            return entry.item.map(CloudMediaService.displayedFilename) ?? "Photo"
-        }()
-        provider.suggestedName = (name as NSString).deletingPathExtension
-        let type = UTType(filenameExtension: (name as NSString).pathExtension) ?? (entry.isVideo ? .movie : .image)
-        provider.registerFileRepresentation(forTypeIdentifier: type.identifier, fileOptions: [], visibility: .all) { completion in
-            Task {
-                do { completion(try await GalleryActions.shareableFile(for: entry), false, nil) }
-                catch { completion(nil, false, error) }
-            }
-            return nil
-        }
-        return provider
+        items.append(.separator)
+        items.append(GridMenuItem(title: "Delete from Backup…", symbol: "icloud.slash", enabled: !actions.inCloud.isEmpty) {
+            confirmCloudDelete = actions.inCloud
+        })
+        items.append(GridMenuItem(title: "Delete from This Mac…", symbol: "trash", enabled: !actions.onMac.isEmpty) {
+            confirmMacDelete = actions.onMac
+        })
+        return items
     }
 
     // MARK: - Data
@@ -463,6 +403,9 @@ struct MacGalleryView: View {
         self.flat = flat
         self.sections = sections
         self.positions = positions
+        videoCount = flat.reduce(0) { $0 + ($1.isVideo ? 1 : 0) }
+        photoCount = flat.count - videoCount
+        dataVersion += 1
         selection = selection.filter { positions[$0] != nil }
         if let v = viewerId, positions[v] == nil { viewerId = nil }
         ready = true
@@ -471,9 +414,7 @@ struct MacGalleryView: View {
     // MARK: - Selection
 
     /// Click opens, like Photos on iPhone. In Select mode (or with ⌘ / ⇧) it picks instead.
-    private func click(_ entry: GalleryEntry) {
-        gridFocused = true
-        let flags = NSEvent.modifierFlags
+    private func click(_ entry: GalleryEntry, modifiers flags: NSEvent.ModifierFlags) {
         if !selecting && (flags.contains(.command) || flags.contains(.shift)) {
             selecting = true
             selection = cursorId.map { [$0] } ?? []
@@ -545,7 +486,33 @@ struct MacGalleryView: View {
             anchorId = id
         }
         cursorId = id
+        scroll(to: id)
+    }
+
+    private func scroll(to id: String) {
         scrollRequest = id
+        scrollToken += 1
+    }
+
+    private func handle(_ key: GridKey, modifiers: NSEvent.ModifierFlags) {
+        switch key {
+        case .left: moveCursor(.leftArrow, extend: modifiers.contains(.shift))
+        case .right: moveCursor(.rightArrow, extend: modifiers.contains(.shift))
+        case .up: moveCursor(.upArrow, extend: modifiers.contains(.shift))
+        case .down: moveCursor(.downArrow, extend: modifiers.contains(.shift))
+        case .open:
+            guard let id = cursorId ?? selection.first, let i = positions[id] else { return }
+            if selecting {
+                if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+            } else {
+                open(flat[i])
+            }
+        case .escape: selecting ? endSelecting() : clearSelection()
+        case .delete:
+            let cloud = EntryActions(entries: targets).inCloud
+            if !cloud.isEmpty { confirmCloudDelete = cloud }
+        case .selectAll: selectAll()
+        }
     }
 
     // MARK: - Viewer
@@ -559,7 +526,6 @@ struct MacGalleryView: View {
         guard let id = viewerId else { return }
         viewerId = nil
         cursorId = id
-        gridFocused = true
     }
 
     private func afterDelete(_ entries: [GalleryEntry]) {
@@ -612,145 +578,5 @@ struct ZoomControl: View {
             .help("Zoom In (⌘+)")
         }
         .padding(.horizontal, 4)
-    }
-}
-
-/// Date header like Photos: bold day/month/year, the count, and a Select button on hover.
-private struct MacSectionHeader: View {
-    let section: GallerySection
-    let grouping: GalleryModel.Grouping
-    let selected: Int
-    let toggle: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(section.title)
-                .font(grouping == .day ? .title3.weight(.semibold) : .title2.weight(.bold))
-            Text(section.entries.count.formatted())
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-            Spacer()
-            if hovering || selected > 0 {
-                Button(selected == section.entries.count ? "Deselect" : "Select", action: toggle)
-                    .buttonStyle(.link)
-                    .font(.callout)
-            }
-        }
-        .padding(.horizontal, 4)
-        .padding(.top, 14)
-        .padding(.bottom, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background)
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-    }
-}
-
-/// One tile: thumbnail, video duration / Live badge, backup status, selection ring.
-struct MacThumbnailCell: View {
-    let entry: GalleryEntry
-    let side: CGFloat
-    var selecting = false
-    let selected: Bool
-    let cursor: Bool
-    @State private var image: PlatformImage?
-    @State private var failed = false
-    @State private var hovering = false
-    @Environment(\.displayScale) private var scale
-
-    var body: some View {
-        ZStack {
-            Color.tileBackground
-            if let image {
-                Image(platformImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: side, height: side)
-                    .clipped()
-                    .transition(.opacity)
-            } else if failed {
-                Image(systemName: entry.badge == .tooLarge ? "doc.badge.ellipsis" : "photo")
-                    .font(.title2).foregroundStyle(.tertiary)
-            }
-        }
-        .frame(width: side, height: side)
-        .overlay {
-            if hovering && !selected { Color.white.opacity(0.07) }
-        }
-        .overlay(alignment: .bottomLeading) {
-            if side >= 56 {
-                if entry.isVideo, let d = entry.duration {
-                    Text(Duration.seconds(d).formatted(.time(pattern: .minuteSecond)))
-                        .font(.caption2.monospacedDigit().weight(.semibold)).foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.6), radius: 2).padding(5)
-                } else if entry.isLive {
-                    Image(systemName: "livephoto").font(.caption2.weight(.semibold)).foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.6), radius: 2).padding(5)
-                }
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            BadgeView(badge: entry.badge, tileSide: side).padding(side > 60 ? 4 : 2)
-        }
-        .overlay {
-            if selected || cursor {
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .strokeBorder(Color.accentColor, lineWidth: selected ? 3 : 1.5)
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if selecting && side >= 44 {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 17, weight: .semibold))
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, selected ? Color.accentColor : .black.opacity(0.25))
-                    .shadow(color: .black.opacity(0.35), radius: 2)
-                    .padding(5)
-                    .transition(.scale.combined(with: .opacity))
-            }
-        }
-        .scaleEffect(selecting && selected ? 0.92 : 1)
-        .animation(.spring(duration: 0.22, bounce: 0.2), value: selected)
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MacGalleryView.space)) } action: { rect in
-            TileRegistry.shared.setFrame(rect, for: entry.id)
-        }
-        .onDisappear { TileRegistry.shared.setFrame(nil, for: entry.id) }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(entry.accessibilityLabel)
-        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .task(id: ThumbRequest(id: entry.id, pixels: pixels)) { await load() }
-    }
-
-    /// Requests in 128-pixel steps, so dragging the zoom slider doesn't reload every frame.
-    private var pixels: Int { (Int(side * scale) / 128 + 1) * 128 }
-
-    private struct ThumbRequest: Equatable { let id: String; let pixels: Int }
-
-    private func load() async {
-        let env = AppEnvironment.shared
-        if let asset = entry.asset {
-            for await img in env.photos.thumbnails(for: asset, pixels: CGFloat(pixels)) {
-                withAnimation(image == nil ? .easeOut(duration: 0.15) : nil) { image = img }
-                TileRegistry.shared.setImage(img, for: entry.id)
-            }
-        } else if let item = entry.item {
-            if let cached = env.media.cachedThumbnail(for: item) {
-                image = cached
-                TileRegistry.shared.setImage(cached, for: entry.id)
-                return
-            }
-            do {
-                let img = try await env.media.thumbnail(for: item)
-                withAnimation(.easeOut(duration: 0.15)) { image = img }
-                TileRegistry.shared.setImage(img, for: entry.id)
-            } catch { failed = true }
-        }
-        if image == nil { failed = true }
     }
 }

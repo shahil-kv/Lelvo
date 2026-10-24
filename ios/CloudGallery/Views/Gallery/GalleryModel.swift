@@ -114,10 +114,13 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         sections = Self.group(entries, grouping: g)
     }
 
+    /// Throttled, not debounced: during a backup the store changes every second, and a debounce would keep
+    /// postponing the reload; this reloads at most every 1.5 s and never starves.
     func scheduleReload() {
-        reloadTask?.cancel()
+        guard reloadTask == nil else { return }
         reloadTask = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000) // coalesce frequent store updates during backups
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            reloadTask = nil
             guard !Task.isCancelled else { return }
             await reload()
         }
@@ -127,12 +130,16 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         authorization = PhotoLibraryService.authorizationStatus
         let env = self.env
         let grouping = self.grouping
-        let (entries, sections) = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection]) in
+        let old = loaded ? self.entries : nil
+        let result = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection])? in
             let assets: PHFetchResult<PHAsset>? = PhotoLibraryService.hasAccess ? env.photos.fetchAllAssets() : nil
             let items = (try? env.store.allItems()) ?? []
             let merged = Self.merge(assets: assets, items: items)
+            // Nothing visible changed (e.g. an upload checkpoint): keep the grid as it is, no re-render.
+            if let old, old == merged { return nil }
             return (merged, Self.group(merged, grouping: grouping))
         }.value
+        guard let (entries, sections) = result else { return }
         self.entries = entries
         self.sections = sections
         revision += 1

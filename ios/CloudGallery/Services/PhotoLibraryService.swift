@@ -47,7 +47,11 @@ enum PhotoLibraryError: LocalizedError {
 }
 
 final class PhotoLibraryService: @unchecked Sendable {
-    private let gridImages = PHCachingImageManager()
+    let gridImages: PHCachingImageManager = {
+        let m = PHCachingImageManager()
+        m.allowsCachingHighQualityImages = false
+        return m
+    }()
 
     /// Grid thumbnails like Photos: a quick low-res image first, then the sharp one. The request is
     /// cancelled as soon as the cell scrolls away, so fast scrolling doesn't queue up hundreds of loads.
