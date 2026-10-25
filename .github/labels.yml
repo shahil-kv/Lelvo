@@ -1,58 +1,58 @@
 # Synced to GitHub by .github/workflows/labels.yml. Meanings are in CONTRIBUTING.md.
 - name: bug
-  color: d73a4a
+  color: "d73a4a"
   description: Something doesn't work as it should
 - name: enhancement
-  color: a2eeef
+  color: "a2eeef"
   description: New feature or improvement
 - name: question
-  color: d876e3
+  color: "d876e3"
   description: A question; may move to Discussions
 - name: documentation
-  color: 0075ca
+  color: "0075ca"
   description: README, FAQ or docs
 - name: approved
-  color: 2ea44f
+  color: "2ea44f"
   description: Agreed. A pull request may link this issue.
 - name: needs-info
-  color: fbca04
+  color: "fbca04"
   description: Waiting for the reporter; closes after 14 days without a reply
 - name: stale
-  color: ededed
+  color: "ededed"
   description: No activity; about to close
 - name: good first issue
-  color: 7057ff
+  color: "7057ff"
   description: Approved and a good first contribution
 - name: help wanted
-  color: 008672
+  color: "008672"
   description: Approved; contributions welcome
 - name: not planned
-  color: ffffff
+  color: "ffffff"
   description: Won't be done; see docs/not-planned.md
 - name: duplicate
-  color: cfd3d7
+  color: "cfd3d7"
   description: Already reported
 - name: "platform: ios"
-  color: 1d76db
+  color: "1d76db"
   description: iPhone and iPad app
 - name: "platform: macos"
-  color: 5319e7
+  color: "5319e7"
   description: Mac app
 - name: "area: backup"
-  color: c5def5
+  color: "c5def5"
   description: Upload queue, background work, verification
 - name: "area: telegram"
-  color: c5def5
+  color: "c5def5"
   description: Sign-in, TDLib, the library channel
 - name: "area: ui"
-  color: c5def5
+  color: "c5def5"
   description: Screens, grid, viewer
 - name: security
-  color: b60205
+  color: "b60205"
   description: Security hardening (report vulnerabilities privately, see SECURITY.md)
 - name: dependencies
-  color: 0366d6
+  color: "0366d6"
   description: Dependency updates
 - name: skip-changelog
-  color: ededed
+  color: "ededed"
   description: Leave out of the release notes
