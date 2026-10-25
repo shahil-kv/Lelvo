@@ -83,6 +83,12 @@ enum PhotoAvailability {
     }
 }
 
+/// Lets the pre-iOS 18 export path cancel the session from a cancellation handler (the session is thread-safe).
+private struct ExportSessionBox: @unchecked Sendable {
+    let session: AVAssetExportSession
+    init(_ session: AVAssetExportSession) { self.session = session }
+}
+
 enum StreamingCopyError: LocalizedError {
     case unsupported
     var errorDescription: String? { "This video can't be converted to a 1080p copy. It still plays in original quality." }
@@ -335,7 +341,8 @@ final class PhotoLibraryService: @unchecked Sendable {
             #if os(iOS)
             session.outputURL = url
             session.outputFileType = .mp4
-            await withTaskCancellationHandler { await session.export() } onCancel: { session.cancelExport() }
+            let box = ExportSessionBox(session)
+            await withTaskCancellationHandler { await box.session.export() } onCancel: { box.session.cancelExport() }
             try Task.checkCancellation()
             if let error = session.error { throw error }
             guard session.status == .completed else { throw StreamingCopyError.unsupported }
