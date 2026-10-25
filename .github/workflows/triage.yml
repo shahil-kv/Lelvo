@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: Welcome a new issue
         if: github.event_name == 'issues' && github.event.action == 'opened'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const issue = context.payload.issue;
@@ -41,7 +41,7 @@ jobs:
       - name: Require an approved issue
         id: gate
         if: github.event_name == 'pull_request_target'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const pr = context.payload.pull_request;
@@ -92,7 +92,7 @@ jobs:
 
       - name: Thank a new pull request
         if: github.event_name == 'pull_request_target' && github.event.action == 'opened' && steps.gate.outputs.blocked != 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const pr = context.payload.pull_request;
@@ -102,7 +102,7 @@ jobs:
 
       - name: Reopen pull requests closed by the gate
         if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'approved'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const issue = context.payload.issue.number;
