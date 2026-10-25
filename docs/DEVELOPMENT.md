@@ -25,6 +25,7 @@ Shared/                      compiled into both apps
   Views/                     sign-in, settings, backup, free up space, gallery model
 Packages/MemvoCore/   platform-independent core: caption format, encryption, index, job queue, cache
 UITests/                     iOS UI tests (demo library, no Telegram account needed)
+website/                     the website: plain HTML and CSS, deployed to Cloudflare by .github/workflows/website.yml
 Scripts/build.sh             command-line builds and tests
 ```
 

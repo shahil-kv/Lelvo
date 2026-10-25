@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://memvo.mshahilkv.workers.dev/sitemap.xml

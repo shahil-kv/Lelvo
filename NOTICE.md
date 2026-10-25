@@ -11,6 +11,9 @@ Settings → About → Acknowledgements.
 | [TDLibKit](https://github.com/Swiftgram/TDLibKit) | Swift API for TDLib | [MIT](https://github.com/Swiftgram/TDLibKit/blob/main/LICENSE) |
 | [OpenSSL](https://www.openssl.org) 3.x | Cryptography inside TDLib | [Apache License 2.0](https://www.openssl.org/source/license.html) |
 
+The website ([website/](website/)) uses the fonts [Bricolage Grotesque](https://github.com/ateliertriay/bricolage) and
+[Source Serif 4](https://github.com/adobe-fonts/source-serif), both under the [SIL Open Font License 1.1](https://openfontlicense.org).
+
 Apple frameworks (SwiftUI, UIKit, AppKit, PhotoKit, AVFoundation, CryptoKit, SQLite and others) are part of the
 operating system and aren't redistributed.
 
