@@ -93,6 +93,17 @@
       <p class="river-caption">HEIC, ProRAW, 4K HDR and Live Photos, backed up bit for bit with their dates and places.</p>
     </section>
 
+    <section class="reasons" aria-label="Why people choose Memvo">
+      <div class="ticker-row" data-direction="left">
+        <div class="ticker-track"><span>Your photos. Your Telegram. Nobody in the middle.</span><span>No 5 GB limit. No monthly plan.</span><span>End-to-end encrypted if you want it: even Telegram can't look.</span><span>Originals, bit for bit. Nothing compressed.</span><span>No ads, no analytics, no AI reading your memories.</span><span>New phone? Sign in, and it's all back.</span></div>
+        <div class="ticker-track" aria-hidden="true"><span>Your photos. Your Telegram. Nobody in the middle.</span><span>No 5 GB limit. No monthly plan.</span><span>End-to-end encrypted if you want it: even Telegram can't look.</span><span>Originals, bit for bit. Nothing compressed.</span><span>No ads, no analytics, no AI reading your memories.</span><span>New phone? Sign in, and it's all back.</span></div>
+      </div>
+      <div class="ticker-row" data-direction="right">
+        <div class="ticker-track"><span>Every line of code is public.</span><span>A private channel only you can open.</span><span>Videos stream in seconds, without filling your phone.</span><span>Delete Memvo, and your photos are still in your Telegram.</span><span>Built for iPhone and Mac, the way Photos works.</span><span>Free, and it stays free.</span></div>
+        <div class="ticker-track" aria-hidden="true"><span>Every line of code is public.</span><span>A private channel only you can open.</span><span>Videos stream in seconds, without filling your phone.</span><span>Delete Memvo, and your photos are still in your Telegram.</span><span>Built for iPhone and Mac, the way Photos works.</span><span>Free, and it stays free.</span></div>
+      </div>
+    </section>
+
     <section id="features" class="features" aria-labelledby="features-title">
       <h2 id="features-title">Everything Photos does, with a backup you own.</h2>
       <div class="tour">
@@ -211,95 +222,42 @@
 
     <section id="faq" class="faq" aria-labelledby="faq-title">
       <h2 id="faq-title">Questions people ask</h2>
-      <p class="faq-intro">Most are about Telegram itself. The answers link to Telegram's own pages, because Telegram's rules are Telegram's to set.</p>
+      <p class="faq-intro">The short answers. Telegram's rules are Telegram's to set, so the answers link to Telegram's own pages.</p>
 
-      <h3 class="faq-group">Telegram and the rules</h3>
       <details>
-        <summary>Is this allowed by Telegram?</summary>
-        <div class="answer"><p>Yes. Telegram opens its API to third-party apps under the <a href="https://core.telegram.org/api/terms">Telegram API Terms of Service</a>. Memvo follows them: it uses its own app key, says clearly that it uses the Telegram API, doesn't put "Telegram" in its name or use Telegram's logo, and doesn't change how Telegram works for anyone else.</p></div>
+        <summary>Can Telegram see my photos?</summary>
+        <div class="answer"><p>In a Standard library, files are encrypted on the way and stored like any Telegram cloud chat, which isn't end-to-end encrypted (<a href="https://telegram.org/faq#q-so-how-do-you-encrypt-data">Telegram FAQ</a>). In an End-to-end encrypted library, Memvo encrypts every file and its details on your device first, so Telegram only ever holds files it can't open.</p></div>
       </details>
       <details>
         <summary>Is the storage really unlimited?</summary>
         <div class="answer"><p>Telegram describes its cloud storage as unlimited, with files up to 2 GB each, or 4 GB with Telegram Premium (<a href="https://telegram.org/tos">Terms of Service</a>, <a href="https://telegram.org/faq">FAQ</a>). That's Telegram's offer, not a promise Memvo can make, and Telegram can change it. Memvo splits bigger files into parts on its own.</p></div>
       </details>
       <details>
+        <summary>Is this allowed by Telegram?</summary>
+        <div class="answer"><p>Yes. Telegram opens its API to third-party apps under the <a href="https://core.telegram.org/api/terms">Telegram API Terms of Service</a>. Memvo follows them: it uses its own app key, says clearly that it uses the Telegram API, doesn't put "Telegram" in its name or use Telegram's logo, and doesn't change how Telegram works for anyone else.</p></div>
+      </details>
+      <details>
         <summary>Can my account get banned for this?</summary>
         <div class="answer"><p>Backing up your own photos to your own private channel is ordinary use. Bans come from breaking Telegram's <a href="https://telegram.org/tos">Terms of Service</a>, such as spam or scams. Memvo only posts to your private channel, uploads at most two files at a time with a pause between them, and waits whenever Telegram asks it to slow down.</p></div>
-      </details>
-      <details>
-        <summary>What does "Telegram asked to slow down" mean?</summary>
-        <div class="answer"><p>Telegram limits how fast any account can send. When it asks Memvo to wait, Memvo waits exactly that long and then carries on by itself. Nothing is lost, and respecting the limit is what keeps your account in good standing.</p></div>
-      </details>
-      <details>
-        <summary>What happens if Telegram deletes my account for inactivity?</summary>
-        <div class="answer"><p>Telegram deletes accounts that don't come online for a set time, 18 months by default, and everything in them goes too (<a href="https://telegram.org/faq#q-how-does-account-self-destruction-work">Telegram FAQ</a>). Memvo shows your current setting and can change it to the longest Telegram allows, two years. Opening the Telegram app now and then keeps the account active.</p></div>
-      </details>
-      <details>
-        <summary>What if my account gets frozen?</summary>
-        <div class="answer"><p>Telegram freezes accounts that were restricted after reports from other people. A frozen account can still read its chats but can't post, and you can appeal in the Telegram app (<a href="https://telegram.org/faq#q-what-is-a-frozen-account">Telegram FAQ</a>). In Memvo you can still browse, view and download your library; backups pause with a clear message and continue once the account is unfrozen.</p></div>
-      </details>
-      <details>
-        <summary>My account is limited and can only message contacts. Does that stop backups?</summary>
-        <div class="answer"><p>That limit is Telegram's anti-spam rule for messaging people who don't have your number. Telegram suggests contacting <a href="https://t.me/SpamBot">@SpamBot</a> if you think it's a mistake, and says first limits usually last a few days (<a href="https://telegram.org/faq_spam">Telegram spam FAQ</a>). If Telegram also blocks creating a channel, Memvo tells you and suggests using a channel you already have.</p></div>
-      </details>
-      <details>
-        <summary>What if I delete the channel, or messages in it?</summary>
-        <div class="answer"><p>A deleted channel takes every file in it, and it can't be restored by Memvo or anyone else. Photos still on your phone are safe: after a re-scan they show as not backed up, and Retry uploads them again. Please don't delete or edit messages in the library channel by hand.</p></div>
-      </details>
-
-      <h3 class="faq-group">Privacy and safety</h3>
-      <details>
-        <summary>Can Telegram see my photos?</summary>
-        <div class="answer"><p>In a Standard library, files are encrypted on the way and stored like any Telegram cloud chat, which isn't end-to-end encrypted (<a href="https://telegram.org/faq#q-so-how-do-you-encrypt-data">Telegram FAQ</a>). In an End-to-end encrypted library, Memvo encrypts every file and its details on your device first, so Telegram only ever holds files it can't open.</p></div>
-      </details>
-      <details>
-        <summary>I forgot my encryption passphrase.</summary>
-        <div class="answer"><p>Nobody can recover it, including the people who make Memvo. That's what end-to-end encryption means. Keep the passphrase in a password manager.</p></div>
-      </details>
-      <details>
-        <summary>Does Memvo collect anything about me?</summary>
-        <div class="answer"><p>No. There are no Memvo servers, no analytics, no crash reporting and no ads. Your phone number and login code go only to Telegram, to sign you in.</p></div>
-      </details>
-      <details>
-        <summary>Can Memvo delete photos from my phone?</summary>
-        <div class="answer"><p>Only when you ask, and iOS always asks you to confirm. Free up space offers only photos that Memvo has just checked are complete in Telegram and unchanged since their backup.</p></div>
-      </details>
-
-      <h3 class="faq-group">Using it</h3>
-      <details>
-        <summary>Does it log me out of my other Telegram apps?</summary>
-        <div class="answer"><p>No. Memvo is one more session, like Telegram Desktop. You'll see it in Telegram under Settings → Devices.</p></div>
-      </details>
-      <details>
-        <summary>The login code doesn't arrive.</summary>
-        <div class="answer"><p>Telegram sends it to your other Telegram apps first, in the chat named Telegram, not by SMS. If you have no other device signed in, wait for the option to get it by SMS or a call.</p></div>
-      </details>
-      <details>
-        <summary>Why does a big backup need the app open?</summary>
-        <div class="answer"><p>iPhones only let apps work in the background in short, system-controlled windows. Memvo uploads while it's open, keeps going in the background on iOS 26 and later after you tap Back up now, and also runs overnight while charging. It always continues where it stopped.</p></div>
-      </details>
-      <details>
-        <summary>Will it fill up my phone?</summary>
-        <div class="answer"><p>No. Thumbnails and items you've viewed are cached with limits you choose, 300 MB and 1 GB by default, and you can clear them any time.</p></div>
       </details>
       <details>
         <summary>How do I restore on a new phone?</summary>
         <div class="answer"><p>Install Memvo, sign in with the same Telegram account and pick your library. Dates, places, albums and Live Photos come back, and photos already on the phone aren't uploaded again.</p></div>
       </details>
       <details>
-        <summary>How do I install it today?</summary>
-        <div class="answer"><p>Download the latest build from <a href="https://github.com/shahil-kv/Memvo/releases">GitHub Releases</a>. On iPhone, install it with SideStore, AltStore or Sideloadly; apps signed with a free Apple ID need refreshing every 7 days, which SideStore and AltStore do for you. A TestFlight beta and the App Store come next.</p></div>
+        <summary>What if I delete the channel, or messages in it?</summary>
+        <div class="answer"><p>A deleted channel takes every file in it, and it can't be restored by Memvo or anyone else. Photos still on your phone are safe: after a re-scan they show as not backed up, and Retry uploads them again. Please don't delete or edit messages in the library channel by hand.</p></div>
       </details>
       <details>
-        <summary>Is there an Android version?</summary>
-        <div class="answer"><p>Not planned. The project focuses on making the iPhone and Mac apps excellent. The storage format is documented, so anyone can build a compatible app.</p></div>
+        <summary>Can Memvo delete photos from my phone?</summary>
+        <div class="answer"><p>Only when you ask, and iOS always asks you to confirm. Free up space offers only photos that Memvo has just checked are complete in Telegram and unchanged since their backup.</p></div>
       </details>
       <details>
         <summary>Is it really free? Who pays for it?</summary>
         <div class="answer"><p>Memvo is free and open source under the GPL-3.0, and every feature stays free. Your storage is your own Telegram account's, so there's no plan to buy. Making Memvo isn't free, though: the Apple developer membership costs $99 a year, plus test devices, the website and a lot of evenings. If Memvo saves you a storage plan, a small contribution keeps it going.</p></div>
       </details>
 
-      <p class="faq-more">More in the <a href="https://github.com/shahil-kv/Memvo/blob/main/docs/FAQ.md">full FAQ</a>. Still stuck? <a href="https://github.com/shahil-kv/Memvo/discussions">Ask in Discussions</a>.</p>
+      <p class="faq-more">Frozen accounts, login codes, encryption, storage and more: <a href="https://github.com/shahil-kv/Memvo/blob/main/docs/FAQ.md">read the full FAQ</a>. Still stuck? <a href="https://github.com/shahil-kv/Memvo/discussions">Ask in Discussions</a>.</p>
     </section>
 
     <section class="open" aria-labelledby="open-title">

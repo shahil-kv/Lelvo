@@ -173,6 +173,24 @@ h2 { font-size: clamp(2.1rem, 4.6vw, 3.6rem); line-height: 1.04; letter-spacing:
 .river-row img { width: clamp(9rem, 15vw, 13rem); aspect-ratio: 3 / 4; object-fit: cover; border-radius: 14px; }
 .river-caption { max-width: var(--wide); margin: 1.5rem auto 0; padding-inline: var(--gutter); font-size: 1.05rem; font-weight: 500; color: var(--slate); }
 
+/* Why band: short statements drifting past in two directions */
+
+.reasons { max-width: none !important; padding: 0 !important; overflow: hidden; }
+.ticker-row { display: flex; width: max-content; }
+.ticker-row + .ticker-row { margin-top: 0.4rem; }
+.ticker-track { display: flex; flex: none; animation: ticker 60s linear infinite; }
+.ticker-row[data-direction="right"] .ticker-track { animation-direction: reverse; animation-duration: 70s; }
+.ticker-row:hover .ticker-track { animation-play-state: paused; }
+.ticker-track span {
+  font-family: var(--display); font-weight: 700; font-size: clamp(1.4rem, 3.2vw, 2.6rem); letter-spacing: -0.025em;
+  white-space: nowrap; padding: 0.35rem 0; display: inline-flex; align-items: center;
+}
+.ticker-track span::after {
+  content: ""; width: 0.42em; height: 0.42em; margin: 0 0.9em; border-radius: 50%; background: var(--signal); flex: none;
+}
+.ticker-row[data-direction="right"] span { color: var(--slate); }
+@keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+
 /* Feature tour: the phone stays, the screen changes */
 
 .features h2 { max-width: 15ch; }
@@ -268,6 +286,10 @@ h2 { font-size: clamp(2.1rem, 4.6vw, 3.6rem); line-height: 1.04; letter-spacing:
 .js [data-reveal].is-visible { opacity: 1; transform: none; }
 
 @media (prefers-reduced-motion: reduce) {
+  .ticker-track { animation: none; }
+  .ticker-row { width: auto; flex-wrap: wrap; }
+  .ticker-track[aria-hidden] { display: none; }
+  .ticker-track { flex-wrap: wrap; padding-inline: var(--gutter); }
   .js [data-reveal] { opacity: 1; transform: none; transition: none; }
   .tour-step { transition: none; }
   .tour-phone .phone > img { transition: none; }

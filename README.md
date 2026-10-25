@@ -23,15 +23,50 @@ Your photos go straight from your device to your Telegram account, and nowhere e
 
 ## Contents
 
+- [Why Memvo exists](#why-memvo-exists)
 - [What it does](#what-it-does)
 - [Install](#install)
 - [First launch](#first-launch)
 - [Before you trust it with your only copy](#before-you-trust-it-with-your-only-copy)
+- [What Memvo doesn't do (yet)](#what-memvo-doesnt-do-yet)
 - [Questions people ask](#questions-people-ask)
 - [Privacy](#privacy)
 - [Contributing](#contributing)
 - [Building from source](#building-from-source)
 - [License and credits](#license-and-credits)
+
+## Why Memvo exists
+
+Every photo cloud makes the same deal: free at first, then a storage plan, and a company that can see your library.
+iCloud gives you 5 GB, Google 15 GB shared with Gmail, and then it's a monthly bill for as long as you want your
+memories back.
+
+Telegram already gives every account cloud storage with no stated cap, and files of up to 2 GB each. Memvo turns
+that into a real photo backup: your library goes to a **private channel that you own**, inside **your own** Telegram
+account. There is no Memvo server in between, no Memvo account, and nothing for us to see.
+
+### But can Telegram see my photos?
+
+The honest answer: in a Standard library, yes, Telegram could. Cloud chats are encrypted on the way and on
+Telegram's servers, but they aren't end-to-end encrypted. The same is true of Google Photos, and of iCloud unless
+you turn on Advanced Data Protection.
+
+So Memvo offers **End-to-end encrypted libraries**: every photo and its details are encrypted on your device
+before they leave it, with a key made from a passphrase only you know. Telegram then stores files it can't open,
+and so does nobody else, including us.
+
+| | Memvo | iCloud Photos | Google Photos |
+|---|---|---|---|
+| Free storage | Your Telegram account's cloud, no stated cap | 5 GB | 15 GB, shared with Gmail and Drive |
+| After that | Still free | Monthly plan | Monthly plan |
+| Originals kept bit for bit | Yes | Yes | Yes (Original quality uses your storage) |
+| End-to-end encryption | Optional, per library | Only with Advanced Data Protection | No |
+| Who runs the servers | Telegram, in your own account | Apple | Google |
+| Open source | Yes, every line | No | No |
+| Leave any time | Download everything, or open the channel in Telegram | Yes | Yes (Takeout) |
+
+Nobody is asking you to trust Telegram blindly either. Memvo just gives you another choice: storage you already
+have, encryption you control, and code you can read.
 
 ## What it does
 
@@ -118,6 +153,18 @@ Memvo is careful, but your backup lives in a Telegram account that Telegram cont
    **Settings → Download a copy of your library** makes that easy.
 
 The details, with links to Telegram's own pages, are in **[docs/FAQ.md](docs/FAQ.md)**.
+
+## What Memvo doesn't do (yet)
+
+Being honest about the gaps matters as much as the features:
+
+- **No shared albums, links or family libraries.** It's a private backup of your own photos.
+- **No face, object or text search.** Nothing analyses your photos, on a server or otherwise.
+- **iPhone and Mac only.** Your library is still reachable from any Telegram app on any device, as files.
+- **Big first backups need the app open** (or iOS 26's background continuation). iPhones only let apps upload in
+  the background in short, system-controlled windows.
+- **Videos stream in their original quality.** There's no automatic lower-quality version for slow connections yet.
+- **Telegram's rules apply to your storage.** If Telegram changes its limits or terms, Memvo can't override them.
 
 ## Questions people ask
 
