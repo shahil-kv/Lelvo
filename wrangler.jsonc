@@ -1,4 +1,4 @@
-// The Memvo website (website/), served as static files by Cloudflare. Deployed by .github/workflows/website.yml.
+// The Memvo website (website/), served as static files by Cloudflare. Cloudflare Workers Builds deploys it on every push to main.
 {
   "name": "memvo",
   "compatibility_date": "2026-10-19",

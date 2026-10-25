@@ -35,7 +35,6 @@ jobs:
               - '!.github/ISSUE_TEMPLATE/**'
               - '!website/**'
               - '!wrangler.jsonc'
-              - '!.github/workflows/website.yml'
           predicate-quantifier: every
 
   core:
