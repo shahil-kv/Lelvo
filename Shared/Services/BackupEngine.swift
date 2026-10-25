@@ -705,14 +705,14 @@ final class BackupEngine: @unchecked Sendable {
 
     // MARK: - Streaming copies
 
-    /// Makes and uploads 1080p copies (role `sp`) of large videos that are backed up and still on this device,
-    /// newest first, one at a time after the originals. A copy is optional: it never changes an item's status,
+    /// Makes and uploads 1080p copies (role `sp`) of large backed-up videos, newest first, one at a time after the
+    /// originals. Videos no longer on this device are downloaded from Telegram first, on Wi-Fi only. A copy is optional: it never changes an item's status,
     /// and the original is never touched.
     @discardableResult
     func makeStreamingCopies(deadline: Date?, isCancelled: @escaping @Sendable () -> Bool) async -> Int {
         guard Prefs.streamingCopies, !DemoMode.isActive else { return 0 }
         let candidates = ((try? env.store.items(status: .backedUp)) ?? []).filter {
-            $0.cloudParts != nil && $0.localIdentifier != nil && $0.streamingCopySkipped != true && !$0.hasStreamingCopy
+            $0.cloudParts != nil && $0.streamingCopySkipped != true && !$0.hasStreamingCopy
                 && StreamingCopyPolicy.shouldMake($0)
         }
         guard !candidates.isEmpty else { return 0 }
@@ -737,15 +737,22 @@ final class BackupEngine: @unchecked Sendable {
     private func makeStreamingCopy(_ candidate: MediaItem) async -> Bool {
         let store = env.store
         guard var item = try? store.item(id: candidate.id), item.status == .backedUp, !item.hasStreamingCopy,
-              let localId = item.localIdentifier, let asset = env.photos.asset(localIdentifier: localId),
               let chatId = env.library.chatId else { return false }
+        let asset = item.localIdentifier.flatMap { env.photos.asset(localIdentifier: $0) }
+        // Not on this device: the original has to come from Telegram, which isn't for mobile data.
+        if asset == nil && NetworkStatus.shared.isExpensive { return false }
         let itemId = item.id
         let name = "\((item.filename as NSString).deletingPathExtension)-1080p.mp4"
         let laneKey = "copy"
         await publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: name, sent: 0, total: 0) }
         let url = rawDirectory.appendingPathComponent("\(itemId)-1080p.mp4")
+        let sourceRole = VideoPlayback.role(.original, for: item)
+        let sourceName = sourceRole == "e" ? (item.editedFilename ?? item.filename) : item.filename
+        let sourceExt = (sourceName as NSString).pathExtension.isEmpty ? "mov" : (sourceName as NSString).pathExtension
+        let downloaded = rawDirectory.appendingPathComponent("\(itemId)-source.\(sourceExt)")
         defer {
             try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: downloaded)
             Task { await self.publish { $0.lanes[laneKey] = nil } }
         }
         do {
@@ -755,7 +762,18 @@ final class BackupEngine: @unchecked Sendable {
                 try await env.td.deleteMessages(chatId: chatId, ids: stale)
                 item = try store.update(id: itemId) { $0.cloudParts?["sp"] = nil; $0.expectedParts?["sp"] = nil } ?? item
             }
-            let copy = try await env.photos.exportStreamingCopy(of: asset, to: url)
+            let copy: (url: URL, width: Int, height: Int)
+            if let asset {
+                copy = try await env.photos.exportStreamingCopy(of: asset, to: url)
+            } else {
+                // What the viewer plays (the edit, if any); the download leaves no copy in TDLib's cache.
+                let label = "Downloading \(item.filename)"
+                try await env.reader.download(item, role: sourceRole, to: downloaded, evict: true) { [weak self] p in
+                    Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: Int64(p * 1000), total: 1000) } }
+                }
+                await publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: name, sent: 0, total: 0) }
+                copy = try await PhotoLibraryService.exportStreamingCopy(from: AVURLAsset(url: downloaded), to: url)
+            }
             let size = try CloudUploader.size(of: copy.url)
             guard StreamingCopyPolicy.isWorthKeeping(copyBytes: size, originalBytes: item.fileSize) else {
                 _ = try? store.update(id: itemId) { $0.streamingCopySkipped = true }

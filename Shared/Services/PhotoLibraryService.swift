@@ -330,6 +330,11 @@ final class PhotoLibraryService: @unchecked Sendable {
             PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { a, _, _ in cont.resume(returning: a) }
         }
         guard let source else { throw PhotoLibraryError.noOriginalResource }
+        return try await Self.exportStreamingCopy(from: source, to: url)
+    }
+
+    /// The same 1080p copy from any video (a cloud original downloaded from Telegram when it's not on this device).
+    static func exportStreamingCopy(from source: AVAsset, to url: URL) async throws -> (url: URL, width: Int, height: Int) {
         guard let session = AVAssetExportSession(asset: source, presetName: AVAssetExportPresetHEVC1920x1080) else {
             throw StreamingCopyError.unsupported
         }

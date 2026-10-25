@@ -54,7 +54,7 @@ Read this first when resuming. Scope: the iOS and Mac apps. Android isn't part o
 ## iOS: not done / known gaps
 
 - Switching quality restarts loading at the same moment (no seamless mid-play switching like HLS).
-- Streaming copies are only made for videos still on the device (not for ones already removed with Free up space).
+- Streaming copies of videos no longer on the device download the original from Telegram first (Wi-Fi only).
 - One-time import of 1.0 (Bot API) uploads is not implemented; 1.0 files stay in the old channel.
 - Uploads can't run as iOS background transfers (MTProto); they run in-app, in continued-processing (iOS 26+), overnight while charging, or for ~25 s per Shortcut.
 - No dedicated performance profiling on 50k+ items yet.
