@@ -80,6 +80,18 @@ all use the same instance. `AppModel` holds UI-wide state (onboarding, tabs, sig
 
 `StreamingAsset` answers AVPlayer's content-information and data requests on a unique `cgstream://` URL per player.
 Seeking works even when a MOV's `moov` atom sits at the end of the file, because the player requests that range first.
+iPhone camera videos always put it there, so the neighbour prefetch fetches the start and, using
+`MovieLayout.trailingIndexRange`, the `moov` box too.
+
+### Video quality
+
+A video can have a 1080p copy (role `sp`), made after the backup by `BackupEngine.makeStreamingCopies` with Apple's
+hardware encoder (`AVAssetExportPresetHEVC1920x1080`, `moov` first) when `StreamingCopyPolicy` says it's worth it
+(over 20 MB and above 12 Mbit/s or 1080p). Copies are optional, run after the originals, and are skipped when not at
+least 30% smaller. `CloudVideoSession` picks the version when a video opens (`VideoQualityPolicy`): the copy on mobile
+data or Low Data Mode, or on Wi-Fi when the speed measured from earlier playback (`StreamingThroughput`) is too slow
+for the original; otherwise the original. With Automatic, a 3 s stall on the original switches to the copy. The
+viewer's quality pill switches either way at the same moment; the user's choice always wins.
 
 ## Platform specifics
 

@@ -300,6 +300,7 @@ final class LibraryService: @unchecked Sendable {
                 item.localIdentifier = local.localIdentifier
                 item.verifiedAt = local.verifiedAt
                 item.chosen = local.chosen
+                item.streamingCopySkipped = local.streamingCopySkipped
                 if item.status != .backedUp, local.status == .uploading || local.status == .queued {
                     // Still being uploaded by this device: keep the queue state, update known parts.
                     item.status = local.status

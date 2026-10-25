@@ -66,6 +66,7 @@ struct MacViewer: View {
     @State private var swipeAccumulated: CGFloat = 0
     @State private var swipeConsumed = false
     @State private var viewerWidth: CGFloat = 0
+    @StateObject private var videos = ViewerVideoSessions()
     @FocusState private var focused: Bool
 
     struct Hero {
@@ -84,6 +85,7 @@ struct MacViewer: View {
                 Color.black.opacity(expanded ? 1 : 0)
                 if let current {
                     MacViewerPage(entry: current, isCurrent: true, zoomed: $zoomed)
+                        .environmentObject(videos)
                         .id(current.id)
                         .transition(.asymmetric(
                             insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
@@ -259,7 +261,7 @@ struct MacViewer: View {
             let e = entries[j]
             ViewerImageCache.shared.preload(e, target: screen)
             if let item = e.item, e.isCloudOnly, item.kind == .video, item.isViewableFromCloud {
-                AppEnvironment.shared.reader.prefetch(item)
+                AppEnvironment.shared.reader.prefetch(item, role: VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item))
             }
         }
     }
@@ -285,8 +287,9 @@ struct MacViewerPage: View {
     }
 
     @State private var content: Content
-    /// Keeps the resource loader alive while a cloud video plays.
-    @State private var stream: StreamingAsset?
+    /// A cloud video's player and quality (original or 1080p copy).
+    @State private var session: CloudVideoSession?
+    @EnvironmentObject private var videos: ViewerVideoSessions
     @State private var poster: PlatformImage?
     @State private var videoReady = false
     @State private var liveControl = LiveControl()
@@ -325,9 +328,16 @@ struct MacViewerPage: View {
                             .allowsHitTesting(false)
                         }
                     }
+                    .overlay { if let session { VideoSwitchingOverlay(session: session) } }
+                    .overlay(alignment: .topTrailing) {
+                        if let session, session.hasCopy { VideoQualityMenu(session: session).padding(16) }
+                    }
                     .onAppear { if isCurrent { player.play() } }
                     .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }
-                    .onDisappear { player.pause() }
+                    .onDisappear {
+                        player.pause()
+                        if session != nil { videos.close(entry.id) }
+                    }
                     .onReceive(NotificationCenter.default.publisher(for: .macViewerTogglePlay)) { note in
                         guard isCurrent else { return }
                         if player.timeControlStatus == .playing { player.pause() } else { player.play() }
@@ -407,10 +417,11 @@ struct MacViewerPage: View {
         do {
             switch item.kind {
             case .video:
-                // Stream byte ranges straight from Telegram; play the edit when there is one, like Photos.
-                let s = StreamingAsset(item: item, role: item.hasEdit == true && !item.parts("e").isEmpty ? "e" : "o", reader: env.reader)
-                stream = s
-                content = .video(AVPlayer(playerItem: AVPlayerItem(asset: s.asset)))
+                // Stream byte ranges straight from Telegram; play the edit when there is one, like Photos, or the
+                // 1080p copy on a slow or metered connection (Settings → Video quality).
+                let s = videos.open(entry.id, item: item, reader: env.reader)
+                session = s
+                content = .video(s.player)
             case .livePhoto:
                 let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) { content = .image(image) }

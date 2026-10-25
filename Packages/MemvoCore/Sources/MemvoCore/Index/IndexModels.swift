@@ -100,6 +100,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var assetModifiedAt: Date?
     /// Queued only to upload a newer edited version (the original is already in the cloud).
     public var editCheck: Bool?
+    /// No 1080p copy will be made: it wouldn't be smaller, or making it failed for good. Local only.
+    public var streamingCopySkipped: Bool?
 
     /// Ids are lowercase, like the caption `id` field, so a channel scan matches the local item.
     public init(id: String = UUID().uuidString.lowercased(), localIdentifier: String?, sha256: String, filename: String,

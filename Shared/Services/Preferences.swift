@@ -1,4 +1,5 @@
 import Foundation
+import MemvoCore
 
 /// UserDefaults-backed settings. Views bind with `@AppStorage(Prefs.Key.x)`; services read `Prefs.x`.
 enum Prefs {
@@ -24,6 +25,8 @@ enum Prefs {
         static let lastBackupAt = "lastBackupAt"
         static let backupPaused = "backupPaused"
         static let autoBackup = "autoBackup"
+        static let streamingCopies = "streamingCopies"
+        static let videoQuality = "videoQuality"
     }
 
     enum AlbumMode: String, CaseIterable, Identifiable {
@@ -67,6 +70,8 @@ enum Prefs {
             Key.allowFreeUpSpace: false,
             Key.gridColumns: 4,
             Key.autoBackup: false,
+            Key.streamingCopies: false,
+            Key.videoQuality: VideoQualityPreference.automatic.rawValue,
             Key.onboardingComplete: false
         ])
     }
@@ -85,6 +90,11 @@ enum Prefs {
     /// Off (default): nothing is queued on its own. "Back up now" queues everything not yet in the cloud;
     /// "Back up" on chosen photos queues just those.
     static var autoBackup: Bool { defaults.bool(forKey: Key.autoBackup) }
+    /// Make a 1080p copy of large videos after backing them up, for smooth playback on mobile data (role `sp`).
+    static var streamingCopies: Bool { defaults.bool(forKey: Key.streamingCopies) }
+    static var videoQuality: VideoQualityPreference {
+        VideoQualityPreference(rawValue: defaults.string(forKey: Key.videoQuality) ?? "") ?? .automatic
+    }
     /// Only back up items taken on/after this date, when enabled.
     static var dateFrom: Date? {
         guard defaults.bool(forKey: Key.dateFromEnabled) else { return nil }

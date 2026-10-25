@@ -34,7 +34,7 @@ An **item** is what the user sees as one photo or video. It has a random UUID `i
 
 Optional resources:
 - `t`: encrypted thumbnail (E2E libraries only, §4)
-- `sp`: smooth-streaming copy, a 1080p HEVC preview of a video over 500 MB (always optional; the original is never replaced)
+- `sp`: smooth-streaming copy, a 1080p HEVC preview of a large or high-bitrate video, with its `moov` box first (always optional; the original is never replaced; it never counts towards an item being complete). Its caption describes the copy itself: `h`, `s`, `n`, `wh` and `c` are the copy's.
 - `e`: edited version (Photos' rendered edit: crop, filter, trim…) when the item was edited; required when the original's caption has `ed: 1`. The original is always stored untouched as `o`.
 
 ## 3. Messages

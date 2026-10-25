@@ -20,6 +20,9 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   connects to Telegram.
 - New website pages: [changelog](https://memvo.mshahilkv.workers.dev/changelog) and
   [privacy policy](https://memvo.mshahilkv.workers.dev/privacy).
+- **Smoother cloud videos:** optional 1080p copies of large videos play on mobile data and slow connections, with a
+  quality button in the viewer to switch to the original at any time (Settings → Backup options → Videos). Videos start
+  faster when you swipe to them.
 - Versions restart at **0.1.0** for both apps in this repository, released with a one-button Release workflow. Compiler warnings fixed on both platforms.
 
 ## Before this repository

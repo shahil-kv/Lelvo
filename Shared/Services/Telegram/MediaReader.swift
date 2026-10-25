@@ -180,13 +180,16 @@ final class MediaReader: @unchecked Sendable {
         return try Data(contentsOf: path)
     }
 
-    /// Prefetches the start of a video so playback begins instantly when swiped to.
+    /// Prefetches the start of a video, and its index when that sits at the end (iPhone camera videos keep
+    /// `moov` after the media data), so playback begins without waiting when swiped to.
     func prefetch(_ item: MediaItem, role: String = "o", bytes: Int64 = 2 << 20) {
         Task.detached(priority: .utility) { [self] in
             let size = (try? await plaintextSize(item, role: role)) ?? 0
             // Same streaming path as the player, so swiping to this video shares the download instead of
             // waiting behind a separate low-priority one holding the file gate (AVPlayer timed out at 18 s).
-            _ = try? await read(item, role: role, range: 0..<min(size, bytes), streaming: true)
+            guard let head = try? await read(item, role: role, range: 0..<min(size, bytes), streaming: true),
+                  let tail = MovieLayout.trailingIndexRange(prefix: head, totalSize: size), tail.count <= 4 << 20 else { return }
+            _ = try? await read(item, role: role, range: tail, streaming: true)
         }
     }
 

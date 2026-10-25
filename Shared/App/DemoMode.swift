@@ -94,6 +94,11 @@ enum DemoMode {
         item.favorite = e.favorite
         item.setParts([RemoteFile(messageId: Int64(stableHash(e.file) % 1_000_000), fileId: "demo", fileUniqueId: idPrefix + e.file, size: e.size)],
                       role: "o", expected: 1)
+        // Videos show the quality switch (original / 1080p copy); the same clip plays for both.
+        if item.kind == .video {
+            item.setParts([RemoteFile(messageId: Int64(stableHash(e.file + "sp") % 1_000_000), fileId: "demo", fileUniqueId: idPrefix + e.file + ".sp", size: e.size)],
+                          role: "sp", expected: 1)
+        }
         return item
     }
 

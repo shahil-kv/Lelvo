@@ -17,6 +17,7 @@ struct ViewerView: View {
     @State private var message: GalleryAlert?
     @State private var busy = false
     @State private var confirmDelete = false
+    @StateObject private var videos = ViewerVideoSessions()
     @Environment(\.dismiss) private var dismiss
 
     /// Set when presented from UIKit (the grid); SwiftUI presentations use `dismiss`.
@@ -50,12 +51,16 @@ struct ViewerView: View {
             .scrollDisabled(zoomed)
             .background(Color.black.ignoresSafeArea())
             .ignoresSafeArea()
-            .onAppear { if let currentId { proxy.scrollTo(currentId) } }
+            .onAppear {
+                if let currentId { proxy.scrollTo(currentId) }
+                prefetchNeighbours(of: currentId)
+            }
             .onChange(of: currentId) { _, id in
                 prefetchNeighbours(of: id)
                 if let id { onPageChange(id) }
             }
         }
+        .environmentObject(videos)
         .overlay(alignment: .top) { if !chromeHidden { topBar.transition(.opacity) } }
         .overlay(alignment: .bottom) { if !chromeHidden { bottomBar.transition(.opacity) } }
         .overlay { if busy { ProgressView().tint(.white).scaleEffect(1.4) } }
@@ -99,6 +104,9 @@ struct ViewerView: View {
                 }
                 .accessibilityLabel("Close")
                 Spacer()
+                if let currentId, let session = videos.sessions[currentId], session.hasCopy {
+                    VideoQualityMenu(session: session)
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -146,7 +154,7 @@ struct ViewerView: View {
         guard let id, let i = entries.firstIndex(where: { $0.id == id }) else { return }
         for j in [i - 1, i + 1] where entries.indices.contains(j) {
             if let item = entries[j].item, entries[j].isCloudOnly, item.kind == .video, item.isViewableFromCloud {
-                AppEnvironment.shared.reader.prefetch(item)
+                AppEnvironment.shared.reader.prefetch(item, role: VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item))
             }
         }
     }
@@ -212,8 +220,9 @@ struct ViewerPage: View {
     }
 
     @State private var content: Content = .loading(nil)
-    /// Keeps the resource loader alive while a cloud video plays.
-    @State private var stream: StreamingAsset?
+    /// A cloud video's player and quality (original or 1080p copy).
+    @State private var session: CloudVideoSession?
+    @EnvironmentObject private var videos: ViewerVideoSessions
     @State private var pip: AVPictureInPictureController?
     /// Shown over a video until its first frame is on screen (instead of a black page).
     @State private var poster: UIImage?
@@ -242,12 +251,22 @@ struct ViewerPage: View {
                             .allowsHitTesting(false)
                         }
                     }
+                    .overlay { if let session { VideoSwitchingOverlay(session: session) } }
                     .overlay(alignment: .bottom) {
                         if !chromeHidden { VideoControls(player: player, pip: pip).padding(.bottom, 112).transition(.opacity) }
                     }
+                    .onChange(of: session?.quality) { _, q in
+                        // A new item after a quality switch: trace it like the first.
+                        if let q, let item = player.currentItem, let name = entry.item?.filename {
+                            trace = VideoTrace(item: item, name: name, source: q == .original ? "cloud original" : "cloud 1080p copy")
+                        }
+                    }
                     .onAppear { if isCurrent { player.play() } }
                     .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }
-                    .onDisappear { player.pause() }
+                    .onDisappear {
+                        player.pause()
+                        if session != nil { videos.close(entry.id) }
+                    }
                     .onReceive(NotificationCenter.default.publisher(for: .viewerWillClose)) { _ in player.pause() }
                     .onReceive(NotificationCenter.default.publisher(for: .viewerCloseCancelled)) { _ in if isCurrent { player.play() } }
             case .unavailable(let reason, let placeholder):
@@ -295,18 +314,17 @@ struct ViewerPage: View {
         }
         do {
             switch item.kind {
-            case .video where DemoMode.fileURL(for: item) != nil:
-                let playerItem = AVPlayerItem(url: DemoMode.fileURL(for: item)!)
-                trace = VideoTrace(item: playerItem, name: item.filename, source: "demo")
-                content = .video(AVPlayer(playerItem: playerItem))
             case .video:
                 // Stream byte ranges straight from Telegram: no full download needed.
                 // Edited in Photos (e.g. trimmed): play the edit, as Photos would.
-                let s = StreamingAsset(item: item, role: item.hasEdit == true && !item.parts("e").isEmpty ? "e" : "o", reader: env.reader)
-                stream = s
-                let playerItem = AVPlayerItem(asset: s.asset)
-                trace = VideoTrace(item: playerItem, name: item.filename, source: "cloud \(Format.bytes(item.fileSize))")
-                content = .video(AVPlayer(playerItem: playerItem))
+                // The 1080p copy instead on mobile data or a slow connection (Settings → Video quality).
+                let s = videos.open(entry.id, item: item, reader: env.reader)
+                session = s
+                if let playerItem = s.player.currentItem {
+                    trace = VideoTrace(item: playerItem, name: item.filename,
+                                       source: s.quality == .original ? "cloud \(Format.bytes(item.fileSize))" : "cloud 1080p copy")
+                }
+                content = .video(s.player)
             case .livePhoto:
                 let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) { content = .image(image) }
