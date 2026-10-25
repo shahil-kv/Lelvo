@@ -36,6 +36,9 @@ public enum ItemStatus: String, Codable, Sendable, CaseIterable {
     case tooLarge
     /// Gave up after retries; will be retried on the next run.
     case failed
+    /// Deleted from the cloud by the user but kept in the channel for 30 days (`CloudTrash`). Never counts as
+    /// backed up, so Free Up Space and the badges treat the photo as not in the cloud.
+    case trashed
 }
 
 /// Which file of an item an upload carries.
@@ -102,6 +105,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var editCheck: Bool?
     /// No 1080p copy will be made: it wouldn't be smaller, or making it failed for good. Local only.
     public var streamingCopySkipped: Bool?
+    /// When the user deleted it from the cloud (status `trashed`); its messages go 30 days later.
+    public var trashedAt: Date?
 
     /// Ids are lowercase, like the caption `id` field, so a channel scan matches the local item.
     public init(id: String = UUID().uuidString.lowercased(), localIdentifier: String?, sha256: String, filename: String,
@@ -212,7 +217,7 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
             switch status {
             case .queued: state = .pending
             case .uploading: state = .uploading
-            case .backedUp: state = .verified
+            case .backedUp, .trashed: state = .verified
             case .failed, .tooLarge: state = .failed
             }
             return JobStatus(state: state, attempts: attempts, lastError: lastError, notBefore: notBefore)

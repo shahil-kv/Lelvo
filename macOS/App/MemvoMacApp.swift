@@ -72,6 +72,7 @@ struct MemvoMacApp: App {
             guard model.onboardingComplete else { return }
             env.td.start()
             Task { await env.enforceCacheLimits() }
+            Task.detached(priority: .utility) { await GalleryActions.emptyExpiredTrash() }
             Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
         case .background:
             env.originalsCache.flush()

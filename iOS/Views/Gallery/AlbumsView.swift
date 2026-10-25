@@ -8,6 +8,7 @@ struct AlbumsView: View {
     @State private var albums: [(title: String, ids: Set<String>)] = []
     /// iPhone media types from Photos' smart albums (Selfies, Screenshots, …), empty ones dropped.
     @State private var smartTypes: [(title: String, symbol: String, ids: Set<String>)] = []
+    @State private var trashedCount = 0
 
     private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
     private static let smartAlbums: [(PHAssetCollectionSubtype, String, String)] = [
@@ -64,12 +65,31 @@ struct AlbumsView: View {
                         }
                         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
                     }
+                    VStack(alignment: .leading, spacing: 12) {
+                        sectionTitle("Utilities")
+                        NavigationLink { RecentlyDeletedView() } label: {
+                            HStack(spacing: 14) {
+                                Image(systemName: "trash").font(.body).foregroundStyle(.tint).frame(width: 24)
+                                Text("Recently Deleted").foregroundStyle(.primary)
+                                Spacer()
+                                Text(trashedCount.formatted()).foregroundStyle(.secondary).monospacedDigit()
+                                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 48)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                        .accessibilityLabel("Recently Deleted, \(trashedCount) items")
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
             .navigationTitle("Albums")
             .task { await loadAlbums() }
+            .task(id: model.revision) { trashedCount = await Task.detached { GalleryActions.trashedItems().count }.value }
         }
     }
 

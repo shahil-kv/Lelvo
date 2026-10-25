@@ -90,7 +90,7 @@ struct GalleryView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete from Backup", role: .destructive) { Task { await deleteFromCloud() } }
         } message: {
-            Text("They're removed from your Telegram library. Any still on this iPhone stay there.")
+            Text("They move to Recently Deleted in Memvo and are removed from your Telegram library after 30 days. Any still on this iPhone stay there.")
         }
         .alert("Delete \(selection.count) from this iPhone?", isPresented: $confirmDeviceDelete) {
             Button("Cancel", role: .cancel) {}

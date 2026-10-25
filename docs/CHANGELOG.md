@@ -23,6 +23,7 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - **Smoother cloud videos:** optional 1080p copies of large videos play on mobile data and slow connections, with a
   quality button in the viewer to switch to the original at any time (Settings → Backup options → Videos). Videos start
   faster when you swipe to them.
+- **Recently Deleted for your backup:** deleting from the cloud keeps the item for 30 days, so you can recover it.
 - Versions restart at **0.1.0** for both apps in this repository, released with a one-button Release workflow. Compiler warnings fixed on both platforms.
 
 ## Before this repository

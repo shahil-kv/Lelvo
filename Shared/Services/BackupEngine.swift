@@ -200,6 +200,12 @@ final class BackupEngine: @unchecked Sendable {
         for id in localIdentifiers {
             if var existing = try? env.store.item(localIdentifier: id) {
                 guard existing.status != .backedUp else { continue }
+                if existing.status == .trashed {
+                    // Still in the channel (Recently Deleted): backing it up again is just recovering it.
+                    CloudTrash.recover(&existing)
+                    items.append(existing)
+                    continue
+                }
                 if existing.status == .failed { existing.job = JobMachine.reduce(existing.job, .retry) }
                 existing.chosen = true
                 items.append(existing)
@@ -334,6 +340,7 @@ final class BackupEngine: @unchecked Sendable {
         summary.failed = counts.failed
         summary.remaining = runnableItems(now: .distantFuture, onlyChosen: onlyChosen).count
         await env.enforceCacheLimits()
+        await GalleryActions.emptyExpiredTrash()
         if summary.uploaded > 0 { UserDefaults.standard.set(Date(), forKey: Prefs.Key.lastBackupAt) }
         if isPauseRequested {
             summary.error = "Paused. \(summary.uploaded) backed up in this run; tap Back up now to continue where it stopped."

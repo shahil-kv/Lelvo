@@ -25,6 +25,8 @@ struct GalleryEntry: Identifiable, Equatable, Hashable {
         case .queued: return .waiting
         case .uploading: return .uploading
         case .failed: return .failed
+        // Deleted from the cloud: only the phone copy is left.
+        case .trashed: return .phoneOnly
         }
     }
 

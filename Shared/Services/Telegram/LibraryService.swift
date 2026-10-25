@@ -301,6 +301,11 @@ final class LibraryService: @unchecked Sendable {
                 item.verifiedAt = local.verifiedAt
                 item.chosen = local.chosen
                 item.streamingCopySkipped = local.streamingCopySkipped
+                if local.status == .trashed, item.status == .backedUp {
+                    // In Recently Deleted on this device: the messages are still there on purpose.
+                    item.status = .trashed
+                    item.trashedAt = local.trashedAt
+                }
                 if item.status != .backedUp, local.status == .uploading || local.status == .queued {
                     // Still being uploaded by this device: keep the queue state, update known parts.
                     item.status = local.status
@@ -312,6 +317,8 @@ final class LibraryService: @unchecked Sendable {
         if full {
             // Items that vanished from the channel: keep phone-linked ones as failed so they re-upload.
             let seen = Set(result.items.map(\.id))
+            // Deleted elsewhere while in Recently Deleted here: nothing left to recover.
+            for item in existing.values where !seen.contains(item.id) && item.status == .trashed { try store.delete(id: item.id) }
             for item in existing.values where !seen.contains(item.id) && item.cloudParts != nil && item.status == .backedUp {
                 if item.localIdentifier != nil {
                     var missing = item
