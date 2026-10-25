@@ -30,19 +30,40 @@ final class BackupActivity: ObservableObject {
     @Published var lastSummary: BackupEngine.Summary?
 }
 
-/// Current network path (for Wi-Fi only).
+/// Current network path (for Wi-Fi only, video quality, and telling TDLib when the network changes).
 final class NetworkStatus: @unchecked Sendable {
     static let shared = NetworkStatus()
     private let monitor = NWPathMonitor()
     private let lock = NSLock()
     private var path: NWPath?
+    private var lastKind: Kind?
+
+    enum Kind: String { case wifi = "Wi-Fi", mobile = "mobile data", other = "other network", none = "no network" }
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] p in
             guard let self else { return }
-            self.lock.withLock { self.path = p }
+            let kind = Self.kind(of: p)
+            let changed: Bool = self.lock.withLock {
+                self.path = p
+                defer { self.lastKind = kind }
+                return self.lastKind != nil && self.lastKind != kind
+            }
+            if changed {
+                appLog("Network changed to \(kind.rawValue)")
+                TDService.shared.networkChanged(to: kind)
+            }
         }
         monitor.start(queue: DispatchQueue(label: "memvo.network"))
+    }
+
+    var kind: Kind { lock.withLock { path.map(Self.kind(of:)) ?? .other } }
+
+    private static func kind(of p: NWPath) -> Kind {
+        guard p.status == .satisfied else { return .none }
+        if p.usesInterfaceType(.wifi) || p.usesInterfaceType(.wiredEthernet) { return .wifi }
+        if p.usesInterfaceType(.cellular) { return .mobile }
+        return .other
     }
 
     /// Unknown counts as online so the first run isn't blocked before the monitor reports.

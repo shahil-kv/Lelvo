@@ -292,6 +292,7 @@ final class TDService: @unchecked Sendable {
         case .authorizationStateReady:
             setAuth(.ready)
             appLog("Telegram session ready")
+            networkChanged(to: NetworkStatus.shared.kind)
         case .authorizationStateLoggingOut, .authorizationStateClosing: setAuth(.loggingOut)
         case .authorizationStateClosed:
             lock.withLock { if self.client === client { self.client = nil } }
@@ -698,6 +699,21 @@ final class TDService: @unchecked Sendable {
     /// Removes TDLib's downloaded copy of a file from its cache (the file stays in Telegram).
     func deleteLocalCopy(fileId: Int) async {
         _ = try? await requireClient().deleteFile(fileId: fileId)
+    }
+
+    /// Tells TDLib which network is in use. It then reopens its connections at once instead of waiting for the old
+    /// ones (on the network that just went away) to time out, which left videos stuck for many seconds after
+    /// switching between Wi-Fi and mobile data. TDLib asks for this on every change.
+    func networkChanged(to kind: NetworkStatus.Kind) {
+        guard let client = try? requireClient() else { return }
+        let type: NetworkType
+        switch kind {
+        case .wifi: type = .networkTypeWiFi
+        case .mobile: type = .networkTypeMobile
+        case .other: type = .networkTypeOther
+        case .none: type = .networkTypeNone
+        }
+        Task { _ = try? await client.setNetworkType(type: type) }
     }
 
     func cancelDownload(fileId: Int) {
