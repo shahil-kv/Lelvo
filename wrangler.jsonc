@@ -6,5 +6,7 @@
     "directory": "website",
     "not_found_handling": "404-page"
   },
-  "observability": { "enabled": false }
+  "observability": { "enabled": false },
+  // Pull requests get a preview URL through `wrangler preview`, which refuses to run without this block.
+  "previews": {}
 }
