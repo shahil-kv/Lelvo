@@ -8,7 +8,7 @@ enum SidebarItem: Hashable {
     case notBackedUp, cloudOnly
     case smart(String)
     case album(String)
-    case backup
+    case backup, recentlyDeleted
 
     var title: String {
         switch self {
@@ -20,6 +20,7 @@ enum SidebarItem: Hashable {
         case .cloudOnly: return "Only in Cloud"
         case .smart(let t), .album(let t): return t
         case .backup: return "Backup"
+        case .recentlyDeleted: return "Recently Deleted"
         }
     }
 
@@ -34,6 +35,7 @@ enum SidebarItem: Hashable {
         case .smart(let t): return MacLibraryIndex.smartAlbums.first { $0.title == t }?.symbol ?? "square.grid.2x2"
         case .album: return "rectangle.stack"
         case .backup: return "arrow.triangle.2.circlepath.icloud"
+        case .recentlyDeleted: return "trash"
         }
     }
 
@@ -87,7 +89,7 @@ final class MacLibraryIndex: ObservableObject {
 
     func filter(for item: SidebarItem) -> GalleryFilter? {
         switch item {
-        case .library, .backup: return nil
+        case .library, .backup, .recentlyDeleted: return nil
         case .favorites: return .favorites
         case .videos: return .videos
         case .livePhotos: return .livePhotos
@@ -170,6 +172,8 @@ struct MainWindowView: View {
         switch navigation.selection ?? .library {
         case .backup:
             NavigationStack { MacBackupView() }
+        case .recentlyDeleted:
+            NavigationStack { RecentlyDeletedView() }
         case let item:
             MacGalleryView(item: item, filter: index.filter(for: item))
                 .id(item)
@@ -198,6 +202,7 @@ struct MacSidebar: View {
                 row(.notBackedUp)
                 row(.cloudOnly)
                 row(.backup)
+                row(.recentlyDeleted)
             }
             if !index.smartTypes.isEmpty {
                 Section("Media Types", isExpanded: $typesExpanded) {

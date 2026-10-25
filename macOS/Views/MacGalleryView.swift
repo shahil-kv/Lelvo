@@ -109,7 +109,7 @@ struct MacGalleryView: View {
                 Task { await MacActions.deleteFromCloud(entries, toast: toast); afterDelete(entries) }
             }
         } message: {
-            Text("They're removed from your Telegram library. Any still in Photos on this Mac stay there.")
+            Text("They move to Recently Deleted in Memvo and are removed from your Telegram library after 30 days. Any still in Photos on this Mac stay there.")
         }
         .alert("Delete \(confirmMacDelete.count) item\(confirmMacDelete.count == 1 ? "" : "s") from this Mac?",
                isPresented: Binding(get: { !confirmMacDelete.isEmpty }, set: { if !$0 { confirmMacDelete = [] } })) {

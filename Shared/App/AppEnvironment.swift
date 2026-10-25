@@ -157,8 +157,9 @@ enum LibrarySnapshots {
     private static func url(_ chatId: Int64) -> URL { directory.appendingPathComponent("\(chatId).json") }
 
     static func save(chatId: Int64, items: [MediaItem]) {
-        // Only what's in the cloud belongs to the library; queued uploads stay with the device's backup queue.
-        let cloud = items.filter { $0.status == .backedUp }
+        // Only what's in the cloud belongs to the library (Recently Deleted included); queued uploads stay with the
+        // device's backup queue.
+        let cloud = items.filter { $0.status == .backedUp || $0.status == .trashed }
         guard !cloud.isEmpty, let data = try? JSONEncoder().encode(cloud) else { return }
         try? data.write(to: url(chatId), options: .atomic)
     }

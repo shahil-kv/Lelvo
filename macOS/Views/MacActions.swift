@@ -162,7 +162,7 @@ enum MacActions {
         toast.progress("Deleting \(items.count) from your backup…")
         do {
             try await GalleryActions.deleteFromCloud(items)
-            toast.show(.success, "Deleted \(items.count) from your backup")
+            toast.show(.success, "Moved \(items.count) to Recently Deleted", detail: "They're removed from your Telegram library after 30 days.")
         } catch {
             toast.show(.failure, "Couldn't delete", detail: error.localizedDescription)
         }

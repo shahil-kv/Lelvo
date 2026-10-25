@@ -20,6 +20,7 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   connects to Telegram.
 - New website pages: [changelog](https://memvo.mshahilkv.workers.dev/changelog) and
   [privacy policy](https://memvo.mshahilkv.workers.dev/privacy).
+- **Recently Deleted for your backup:** deleting from the cloud keeps the item for 30 days, so you can recover it.
 - Versions restart at **0.1.0** for both apps in this repository, released with a one-button Release workflow. Compiler warnings fixed on both platforms.
 
 ## Before this repository

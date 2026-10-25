@@ -43,6 +43,7 @@ struct MemvoApp: App {
                 guard model.onboardingComplete else { return }
                 env.td.start()
                 Task { await env.enforceCacheLimits() }
+                Task.detached(priority: .utility) { await GalleryActions.emptyExpiredTrash() }
                 #if DEBUG
                 CloudReadCheck.runIfRequested()
                 if ProcessInfo.processInfo.arguments.contains("-clearCacheTest") {
