@@ -48,7 +48,7 @@ jobs:
             if (["OWNER", "MEMBER", "COLLABORATOR"].includes(pr.author_association) || pr.user.type === "Bot") return;
 
             const files = await github.paginate(github.rest.pulls.listFiles, { ...context.repo, pull_number: pr.number, per_page: 100 });
-            const isDocs = (f) => f.endsWith(".md") || f.startsWith("docs/");
+            const isDocs = (f) => f.endsWith(".md") || f.startsWith("docs/") || f.startsWith("website/");
             if (files.length > 0 && files.every((f) => isDocs(f.filename))) return;
 
             const { repository } = await github.graphql(`

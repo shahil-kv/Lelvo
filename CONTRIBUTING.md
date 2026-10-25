@@ -14,7 +14,7 @@ to it.
 4. **CI must be green** and a maintainer reviews. An automated CodeRabbit review may comment first.
 
 A pull request whose linked issue isn't `approved` is **closed automatically, unreviewed**. It reopens on its own once
-the issue is approved. Docs-only changes (`*.md`, `docs/`) skip this and need no approval.
+the issue is approved. Docs-only changes (`*.md`, `docs/`, `website/`) skip this and need no approval.
 
 ## Before you open an issue
 
