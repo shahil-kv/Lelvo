@@ -116,6 +116,15 @@ import MemvoCore
         #expect(MovieLayout.trailingIndexRange(prefix: prefix, totalSize: total) == (20 + 5_000_000_000)..<total)
     }
 
+    @Test func impossibleSizesAreRejected() {
+        var huge = box("ftyp", 20) + Data(count: 12)
+        huge += box("mdat", 1) + Data([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff])
+        #expect(MovieLayout.trailingIndexRange(prefix: huge, totalSize: 1000) == nil)
+        var tooLong = box("ftyp", 20) + Data(count: 12)
+        tooLong += box("mdat", 5000)
+        #expect(MovieLayout.trailingIndexRange(prefix: tooLong, totalSize: 1000) == nil)
+    }
+
     @Test func garbageIsIgnored() {
         #expect(MovieLayout.trailingIndexRange(prefix: Data([0, 0, 0, 2, 1, 2, 3, 4]), totalSize: 100) == nil)
     }

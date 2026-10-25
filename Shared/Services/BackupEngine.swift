@@ -320,8 +320,13 @@ final class BackupEngine: @unchecked Sendable {
         gate.withLock { laneTask = lanes }
         if isPauseRequested { lanes.cancel() }
         await lanes.value
-        // Originals first; streaming copies only with time left (they're optional).
-        if !isPauseRequested { await makeStreamingCopies(deadline: deadline, isCancelled: isCancelled) }
+        // Originals first; streaming copies only with time left (they're optional). Pause cancels them like the lanes.
+        if !isPauseRequested {
+            let copies = Task { _ = await makeStreamingCopies(deadline: deadline, isCancelled: isCancelled) }
+            gate.withLock { laneTask = copies }
+            if isPauseRequested { copies.cancel() }
+            await copies.value
+        }
 
         let counts = await counter.snapshot()
         summary.uploaded = counts.uploaded
@@ -708,7 +713,7 @@ final class BackupEngine: @unchecked Sendable {
         await publish { $0.message = "Making 1080p copies of large videos…" }
         var made = 0
         for item in candidates {
-            if isCancelled() || deadline.map({ Date() > $0 }) == true { break }
+            if Task.isCancelled || isCancelled() || deadline.map({ Date() > $0 }) == true { break }
             if await blocker() != nil { break }
             // Encoding is heavy; leave it for a better moment.
             if ProcessInfo.processInfo.isLowPowerModeEnabled { break }
@@ -719,6 +724,8 @@ final class BackupEngine: @unchecked Sendable {
         if made > 0 { appLog("Streaming copies: \(made) uploaded") }
         return made
     }
+
+    private static let unconvertibleAVErrors: Set<AVError.Code> = [.fileFormatNotRecognized, .decoderNotFound, .encoderNotFound, .decodeFailed]
 
     private func makeStreamingCopy(_ candidate: MediaItem) async -> Bool {
         let store = env.store
@@ -781,8 +788,8 @@ final class BackupEngine: @unchecked Sendable {
                 return false
             }
             // The video itself can't be converted: don't try again every run. Anything else (library locked, disk
-            // full) is tried again later.
-            let unconvertible = error is StreamingCopyError || error is PhotoLibraryError || (error as NSError).domain == AVFoundationErrorDomain
+            // full, the app suspended mid-export, iCloud not answering) is tried again later.
+            let unconvertible = error is StreamingCopyError || Self.unconvertibleAVErrors.contains((error as? AVError)?.code ?? .unknown)
             if unconvertible { _ = try? store.update(id: itemId) { $0.streamingCopySkipped = true } }
             AppLog.shared.warn("No 1080p copy for \(item.filename)\(unconvertible ? "" : " yet"): \(error.localizedDescription)")
             return false

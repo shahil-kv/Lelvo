@@ -15,12 +15,14 @@ public enum MovieLayout {
             var size = Int64(prefix[base..<base + 4].reduce(UInt32(0)) { $0 << 8 | UInt32($1) })
             let type = String(decoding: prefix[base + 4..<base + 8], as: UTF8.self)
             if size == 1 {
-                guard offset + 16 <= Int64(prefix.count) else { return nil }
-                size = Int64(prefix[base + 8..<base + 16].reduce(UInt64(0)) { $0 << 8 | UInt64($1) })
+                guard offset + 16 <= Int64(prefix.count),
+                      let large = Int64(exactly: prefix[base + 8..<base + 16].reduce(UInt64(0)) { $0 << 8 | UInt64($1) }) else { return nil }
+                size = large
             } else if size == 0 {
                 size = totalSize - offset
             }
-            guard size >= 8 else { return nil }
+            // The bytes come from the channel: a box can't be smaller than its header or run past the file.
+            guard size >= 8, size <= totalSize - offset else { return nil }
             if type == "moov" {
                 // In the prefix already: nothing extra to fetch.
                 return offset + size <= Int64(prefix.count) ? nil : offset..<min(totalSize, offset + size)
