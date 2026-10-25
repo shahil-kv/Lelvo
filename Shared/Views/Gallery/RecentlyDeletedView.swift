@@ -55,8 +55,8 @@ struct RecentlyDeletedView: View {
             Text("This can't be undone. Photos still on this \(Device.name) aren't affected.")
         }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
-        .task { reload() }
-        .onReceive(NotificationCenter.default.publisher(for: LibraryStore.didChange)) { _ in reload() }
+        .task { await reload() }
+        .onReceive(NotificationCenter.default.publisher(for: LibraryStore.didChange)) { _ in Task { await reload() } }
     }
 
     private var deleteTitle: String {
@@ -101,7 +101,7 @@ struct RecentlyDeletedView: View {
         let targets = selecting && !selection.isEmpty ? selected : items
         let all = !(selecting && !selection.isEmpty)
         return HStack {
-            Button(all ? "Recover All" : "Recover") { recover(targets) }
+            Button(all ? "Recover All" : "Recover") { Task { await recover(targets) } }
             Spacer()
             Button(all ? "Delete All" : "Delete", role: .destructive) { confirmDelete = targets }
                 .foregroundStyle(.red)
@@ -112,14 +112,16 @@ struct RecentlyDeletedView: View {
         .background(.bar)
     }
 
-    private func reload() {
-        items = GalleryActions.trashedItems()
+    private func reload() async {
+        items = await Task.detached(priority: .userInitiated) { GalleryActions.trashedItems() }.value
         selection.formIntersection(items.map(\.id))
     }
 
-    private func recover(_ targets: [MediaItem]) {
+    private func recover(_ targets: [MediaItem]) async {
+        busy = true
+        defer { busy = false }
         do {
-            try GalleryActions.recover(targets)
+            try await Task.detached(priority: .userInitiated) { _ = try GalleryActions.recover(targets) }.value
             Haptics.success()
             selection.removeAll()
             selecting = false

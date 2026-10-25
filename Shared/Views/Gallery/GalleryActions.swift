@@ -55,29 +55,43 @@ enum GalleryActions {
         }
     }
 
-    static func recover(_ items: [MediaItem]) throws {
+    /// Recovers the items, except ones whose messages are being deleted right now. Returns how many came back.
+    @discardableResult
+    static func recover(_ items: [MediaItem]) throws -> Int {
         let env = AppEnvironment.shared
-        for item in items { try env.store.update(id: item.id) { CloudTrash.recover(&$0) } }
-        appLog("Recovered \(items.count) items from Recently Deleted")
+        var recovered = 0
+        for item in items {
+            // Holding the gate means a deletion can't start on this item while it's recovered, and vice versa.
+            let done = try TrashGate.shared.ifNotDeleting(item.id) {
+                try env.store.update(id: item.id) { CloudTrash.recover(&$0) }
+            }
+            if done { recovered += 1 }
+        }
+        appLog("Recovered \(recovered) items from Recently Deleted")
+        if recovered < items.count { throw TrashError.alreadyDeleting }
+        return recovered
     }
 
-    /// Deletes every message of the trashed items (all resources and parts) from the channel. Only items in
-    /// Recently Deleted can go; anything else is left alone.
-    static func deletePermanently(_ items: [MediaItem]) async throws {
+    /// Deletes every message of the trashed items (all resources and parts) from the channel. Only items still in
+    /// Recently Deleted when their turn comes can go (`onlyIfExpired` for the 30-day cleanup); anything recovered
+    /// meanwhile is left alone.
+    static func deletePermanently(_ items: [MediaItem], onlyIfExpired: Bool = false) async throws {
         let env = AppEnvironment.shared
-        let trashed = items.compactMap { try? env.store.item(id: $0.id) }.filter { $0.status == .trashed }
-        guard !trashed.isEmpty else { return }
-        if DemoMode.isActive {
-            for item in trashed { try env.store.delete(id: item.id) }
-            return
-        }
-        guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
-        try await env.td.waitUntilReady(timeout: 20)
-        for item in trashed {
-            try await env.td.deleteMessages(chatId: chatId, ids: item.allMessageIds)
-            try env.store.delete(id: item.id)
-            env.thumbnailCache.remove(CloudMediaService.thumbnailKey(item))
-            appLog("Deleted \(item.filename) from cloud")
+        guard !items.isEmpty else { return }
+        if !DemoMode.isActive { try await env.td.waitUntilReady(timeout: 20) }
+        for item in items {
+            // Re-read under the gate: the user may have recovered it since the list was made.
+            guard let current = TrashGate.shared.claim(item.id, {
+                (try? env.store.item(id: item.id)).flatMap { $0.status == .trashed && (!onlyIfExpired || CloudTrash.isExpired($0)) ? $0 : nil }
+            }) else { continue }
+            defer { TrashGate.shared.release(item.id) }
+            if !DemoMode.isActive {
+                guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
+                try await env.td.deleteMessages(chatId: chatId, ids: current.allMessageIds)
+            }
+            try env.store.delete(id: current.id)
+            env.thumbnailCache.remove(CloudMediaService.thumbnailKey(current))
+            appLog("Deleted \(current.filename) from cloud")
         }
     }
 
@@ -91,7 +105,40 @@ enum GalleryActions {
     static func emptyExpiredTrash() async {
         let expired = trashedItems().filter { CloudTrash.isExpired($0) }
         guard !expired.isEmpty, AppEnvironment.shared.isConfigured || DemoMode.isActive else { return }
-        do { try await deletePermanently(expired) }
+        do { try await deletePermanently(expired, onlyIfExpired: true) }
         catch { AppLog.shared.warn("Emptying Recently Deleted failed: \(error.localizedDescription)") }
+    }
+}
+
+enum TrashError: LocalizedError {
+    case alreadyDeleting
+    var errorDescription: String? { "Some items were already being removed from your Telegram library and couldn't be recovered." }
+}
+
+/// Keeps recovering and permanently deleting the same item from overlapping (the 30-day cleanup runs in the
+/// background while the user can tap Recover).
+final class TrashGate: @unchecked Sendable {
+    static let shared = TrashGate()
+    private let lock = NSLock()
+    private var deleting = Set<String>()
+
+    /// Marks `id` as being deleted when `check` (run under the lock) returns an item; nil if it's taken or gone.
+    func claim<T>(_ id: String, _ check: () -> T?) -> T? {
+        lock.withLock {
+            guard !deleting.contains(id), let value = check() else { return nil }
+            deleting.insert(id)
+            return value
+        }
+    }
+
+    func release(_ id: String) { _ = lock.withLock { deleting.remove(id) } }
+
+    /// Runs `body` unless `id` is being deleted. Returns whether it ran.
+    func ifNotDeleting(_ id: String, _ body: () throws -> Void) throws -> Bool {
+        try lock.withLock {
+            guard !deleting.contains(id) else { return false }
+            try body()
+            return true
+        }
     }
 }
