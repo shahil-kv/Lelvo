@@ -579,11 +579,10 @@ final class TDService: @unchecked Sendable {
             }
             if file.local.isDownloadingCompleted || (file.size > 0 && offset + have >= Int64(file.size)) { break }
             let window = lock.withLock { streamWindows[fileId] }
-            let reach: Int64 = await {
-                guard let window, window <= offset, file.local.isDownloadingActive else { return -1 }
-                return (try? await client.getFileDownloadedPrefixSize(fileId: fileId, offset: window))?.size ?? 0
-            }()
-            let covered = window.map { reach >= 0 && offset <= $0 + reach + ahead } ?? false
+            // Where TDLib is really downloading (as Unigram's player checks it), not where we last asked: anything else
+            // that calls downloadFile on this file moves it, and a stale note left reads waiting for data that never came.
+            let begin = file.local.downloadOffset, end = begin + file.local.downloadedPrefixSize
+            let covered = file.local.isDownloadingActive && begin <= offset && offset <= end + ahead
             if !covered && smallReads && count <= 512 << 10 {
                 // Small read outside the window: fetch just this range; the gate holds the window back meanwhile.
                 let gate = fileGate(fileId)
@@ -653,12 +652,23 @@ final class TDService: @unchecked Sendable {
             // The copy is gone: a download makes TDLib check the location, drop it and fetch from Telegram.
             AppLog.shared.warn("Re-downloading file \(fileId): local copy unusable (\(first.localizedDescription))")
             lock.withLock { streamWindows[fileId] = nil }
-            do {
-                _ = try await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: 32, synchronous: true)
-                return try await client.readFilePart(count: count, fileId: fileId, offset: offset).data
-            } catch {
-                throw error.asTD
+            var lastError: Swift.Error = first
+            for _ in 0..<5 {
+                do {
+                    _ = try await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: 32, synchronous: true)
+                    return try await client.readFilePart(count: count, fileId: fileId, offset: offset).data
+                } catch {
+                    lastError = error.asTD
+                    // The player's own download for this file replaced ours ("Canceled by another downloadFile
+                    // request"): it fetches the same bytes, so read them once they're there instead of failing.
+                    guard "\(error)".contains("Canceled by another") else { break }
+                    try await Task.sleep(nanoseconds: 200_000_000)
+                    if let data = try? await client.readFilePart(count: count, fileId: fileId, offset: offset).data, data.count == Int(count) {
+                        return data
+                    }
+                }
             }
+            throw lastError
         }
     }
 
