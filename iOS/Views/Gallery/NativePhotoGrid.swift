@@ -455,6 +455,11 @@ struct NativePhotoGrid: UIViewRepresentable {
         private func openViewer(_ entry: GalleryEntry, from cv: UICollectionView) {
             guard let presenter = cv.window?.rootViewController?.topmostPresented else { return }
             VisibleVideoPreloader.shared.cancel()
+            // Start fetching a cloud video during the zoom animation instead of after it.
+            if entry.isCloudOnly, let item = entry.item, item.kind == .video, item.isViewableFromCloud {
+                let role = VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item)
+                Task { await AppEnvironment.shared.reader.prefetch(item, role: role, bytes: role == "sp" ? VisibleVideoPreloader.bytes : 2 << 20) }
+            }
             viewerCurrentId = entry.id
             parent.onViewerPage(entry.id)
             var host: UIViewController?

@@ -22,6 +22,8 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
     /// AVPlayer gets data in pieces of this size: small, so the first frame can show as soon as the start of the file
     /// arrives (at Telegram's ~1 MB/s a 1 MB piece alone took 1.5 s), and memory stays flat for multi-GB files.
     private static let slice: Int64 = 256 << 10
+    private static let startSlice: Int64 = 64 << 10
+    private static let startRegion: Int64 = 1 << 20
 
     init(item: MediaItem, role: String = "o", reader: MediaReader) {
         self.item = item
@@ -53,8 +55,13 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
     }
 
     deinit {
-        lock.withLock { tasks.values.forEach { $0.cancel() } }
+        cancel()
         reader.streamClosed(item, role: role)
+    }
+
+    /// Stops every request in flight now (they'd otherwise finish downloading before the asset goes away).
+    func cancel() {
+        lock.withLock { tasks.values.forEach { $0.cancel() } }
     }
 
     private var contentType: String {
@@ -110,7 +117,10 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
         while offset < end {
             try Task.checkCancellation()
             let started = Date()
-            let chunk = try await reader.read(item, role: role, range: offset ..< min(end, offset + Self.slice), streaming: true)
+            // Small pieces at the start of the file: the index and first frame reach the player as soon as Telegram's
+            // first bytes arrive, instead of after a whole slice.
+            let piece = offset < Self.startRegion ? Self.startSlice : Self.slice
+            let chunk = try await reader.read(item, role: role, range: offset ..< min(end, offset + piece), streaming: true)
             if chunk.isEmpty { break }
             StreamingThroughput.shared.record(bytes: chunk.count, seconds: Date().timeIntervalSince(started))
             data.respond(with: chunk)

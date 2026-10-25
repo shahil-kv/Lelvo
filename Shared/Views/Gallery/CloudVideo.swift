@@ -20,7 +20,10 @@ final class CloudVideoSession: ObservableObject {
     /// The user picked a quality in the viewer: never switch on our own after that.
     private(set) var userChose: Bool
     private var stallTask: Task<Void, Never>?
+    private var startTask: Task<Void, Never>?
     private var statusObservation: NSKeyValueObservation?
+    private let opened = Date()
+    private var playingLogged = false
 
     var hasCopy: Bool { item.hasStreamingCopy }
 
@@ -84,7 +87,9 @@ final class CloudVideoSession: ObservableObject {
             appLog("Video speed: Telegram delivered about \(Format.bytes(Int64(speed)))/s while \(item.filename) played")
         }
         stallTask?.cancel()
+        startTask?.cancel()
         player.pause()
+        stream?.cancel()
         player.replaceCurrentItem(with: nil)
         stream = nil
     }
@@ -116,7 +121,30 @@ final class CloudVideoSession: ObservableObject {
         }
     }
 
+    /// Once about a second is buffered, start instead of waiting for AVPlayer's larger "won't stall" buffer: the fast
+    /// version arrives about twice as fast as it plays, so it keeps ahead. Stalls later are still handled by AVPlayer.
+    private func startSoon() {
+        guard startTask == nil else { return }
+        startTask = Task { [weak self] in
+            while let self, !Task.isCancelled, self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
+                let reason = self.player.reasonForWaitingToPlay
+                if reason == .toMinimizeStalls || reason == .evaluatingBufferingRate, let item = self.player.currentItem,
+                   item.bufferedAhead >= 1 {
+                    self.player.playImmediately(atRate: self.player.defaultRate > 0 ? self.player.defaultRate : 1)
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            self?.startTask = nil
+        }
+    }
+
     private func timeControlChanged() {
+        if player.timeControlStatus == .playing, !playingLogged {
+            playingLogged = true
+            appLog(String(format: "Video timing: %@: playing after %.2f s", item.filename, Date().timeIntervalSince(opened)))
+        }
+        if player.timeControlStatus == .waitingToPlayAtSpecifiedRate { startSoon() }
         stallTask?.cancel()
         guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate, !switching,
               VideoQualityPolicy.fallsBackOnStall(playing: quality, preference: Prefs.videoQuality, hasCopy: hasCopy, userChose: userChose)
@@ -249,6 +277,15 @@ final class NeighbourPrefetcher {
 }
 
 extension AVPlayerItem {
+    /// Seconds loaded ahead of the playhead.
+    var bufferedAhead: Double {
+        let now = currentTime()
+        for range in loadedTimeRanges.map(\.timeRangeValue) where range.containsTime(now) {
+            return (range.end - now).seconds
+        }
+        return 0
+    }
+
     /// Enough of this video is loaded that fetching others won't make it stall: 15 s ahead, or up to its end.
     var hasPlentyBuffered: Bool {
         guard status == .readyToPlay else { return false }
