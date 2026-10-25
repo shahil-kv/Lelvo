@@ -43,22 +43,15 @@ public enum StreamingCopyPolicy {
 
 /// Picks the version to play when a cloud video opens, and when to fall back to the copy while playing.
 public enum VideoQualityPolicy {
-    /// The original must arrive at least this much faster than it plays, or it would keep stopping to load.
-    public static let speedMargin = 1.3
-    /// Until playback has measured the connection: about what Telegram sends free accounts.
-    public static let assumedBytesPerSecond: Double = 1_000_000
     /// The original paused to load for this long while playing: switch to the copy (Automatic only).
     public static let stallSecondsBeforeFallback: TimeInterval = 3
 
+    /// Automatic always starts on the fast version when there is one: it plays at once on any connection, and the
+    /// viewer's quality button switches to the original whenever the user wants it.
     public static func initial(preference: VideoQualityPreference, hasCopy: Bool, isExpensiveNetwork: Bool,
                                bytesPerSecond: Double?, originalBitsPerSecond: Double?) -> VideoQuality {
         guard hasCopy, preference == .automatic else { return .original }
-        if isExpensiveNetwork { return .streamingCopy }
-        // Wi-Fi: the original when the connection (measured, else Telegram's usual speed) keeps up with it.
-        if let needed = originalBitsPerSecond, (bytesPerSecond ?? assumedBytesPerSecond) * 8 < needed * speedMargin {
-            return .streamingCopy
-        }
-        return .original
+        return .streamingCopy
     }
 
     /// Whether a stall while playing the original should switch to the copy. Never overrides the user's own

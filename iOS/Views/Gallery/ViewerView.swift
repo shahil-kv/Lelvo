@@ -734,7 +734,7 @@ struct VideoControls: View {
             Slider(value: Binding(get: { scrubbing ? scrubValue : state.current }, set: { scrubValue = $0 }),
                    in: 0...max(state.duration, 0.1)) { editing in
                 scrubbing = editing
-                if !editing { player.seek(to: CMTime(seconds: scrubValue, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
+                if !editing { Self.seek(player, to: scrubValue) }
                 else { scrubValue = state.current }
             }
             .tint(.white)
@@ -772,6 +772,18 @@ struct VideoControls: View {
         .padding(.horizontal, 16)
         .onAppear { state.attach(player) }
         .onDisappear { state.detach() }
+    }
+
+    /// Where the scrubber was let go. Landing up to half a second early on a keyframe shows the picture at once; an
+    /// exact frame would first need everything from the keyframe before it, which may still be downloading.
+    static func seek(_ player: AVPlayer, to seconds: Double) {
+        let started = Date()
+        let name = (player.currentItem?.asset as? AVURLAsset)?.url.pathComponents.dropLast().last ?? "video"
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
+                    toleranceBefore: CMTime(seconds: 0.5, preferredTimescale: 600), toleranceAfter: .zero) { finished in
+            guard finished else { return }
+            appLog(String(format: "Video timing: seek in %@ to %.1f s shown after %.2f s", String(name.prefix(8)), seconds, Date().timeIntervalSince(started)))
+        }
     }
 
     private func setSpeed(_ s: Float) {

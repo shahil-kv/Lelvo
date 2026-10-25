@@ -68,7 +68,9 @@ enum StreamingCopyEncoder {
                 AVVideoCompressionPropertiesKey: [
                     AVVideoAverageBitRateKey: Int(StreamingCopyPolicy.targetBitsPerSecond),
                     AVVideoExpectedSourceFrameRateKey: min(30, Int(fps.rounded())),
-                    AVVideoMaxKeyFrameIntervalDurationKey: 2
+                    // A seek can only show a picture from a keyframe: one per second keeps the data needed before
+                    // a seek small (the sound would otherwise play over a frozen picture while it downloads).
+                    AVVideoMaxKeyFrameIntervalDurationKey: 1
                 ]
             ])
             videoIn.expectsMediaDataInRealTime = false

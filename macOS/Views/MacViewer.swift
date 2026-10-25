@@ -154,6 +154,12 @@ struct MacViewer: View {
 
     /// Hero zoom from the tile (like Photos), then the real page fades in underneath.
     private func open(in container: CGRect) {
+        VisibleVideoPreloader.shared.cancel()
+        // Start fetching a cloud video during the zoom animation instead of after it.
+        if let entry = current, entry.isCloudOnly, let item = entry.item, item.kind == .video, item.isViewableFromCloud {
+            let role = VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item)
+            Task { await AppEnvironment.shared.reader.prefetch(item, role: role, bytes: role == "sp" ? VisibleVideoPreloader.bytes : 2 << 20) }
+        }
         prefetchNeighbours()
         guard let entry = current, let source = TileRegistry.shared.frame(for: entry.id),
               let image = TileRegistry.shared.image(for: entry) else {

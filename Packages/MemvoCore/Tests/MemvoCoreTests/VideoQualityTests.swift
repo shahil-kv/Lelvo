@@ -43,18 +43,10 @@ import MemvoCore
                                            bytesPerSecond: nil, originalBitsPerSecond: 50e6) == .streamingCopy)
     }
 
-    @Test func wifiPlaysOriginalUnlessTooSlow() {
-        // Not measured yet: Telegram's usual ~1 MB/s can't carry a 50 Mbit/s original, but a 5 Mbit/s one is fine.
+    @Test func automaticAlwaysStartsOnTheFastVersion() {
+        // Even on a fast connection: 1080p first, the original only when the user asks for it.
         #expect(VideoQualityPolicy.initial(preference: .automatic, hasCopy: true, isExpensiveNetwork: false,
-                                           bytesPerSecond: nil, originalBitsPerSecond: 50e6) == .streamingCopy)
-        #expect(VideoQualityPolicy.initial(preference: .automatic, hasCopy: true, isExpensiveNetwork: false,
-                                           bytesPerSecond: nil, originalBitsPerSecond: 5e6) == .original)
-        // 20 MB/s = 160 Mbit/s for a 50 Mbit/s original: original.
-        #expect(VideoQualityPolicy.initial(preference: .automatic, hasCopy: true, isExpensiveNetwork: false,
-                                           bytesPerSecond: 20e6, originalBitsPerSecond: 50e6) == .original)
-        // 2 MB/s = 16 Mbit/s: copy.
-        #expect(VideoQualityPolicy.initial(preference: .automatic, hasCopy: true, isExpensiveNetwork: false,
-                                           bytesPerSecond: 2e6, originalBitsPerSecond: 50e6) == .streamingCopy)
+                                           bytesPerSecond: 50e6, originalBitsPerSecond: 5e6) == .streamingCopy)
     }
 
     @Test func stallFallbackRespectsTheUser() {
