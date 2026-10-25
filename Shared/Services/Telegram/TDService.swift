@@ -552,12 +552,17 @@ final class TDService: @unchecked Sendable {
     /// `ahead`: how far past the running download a request may be and still just wait for it. Jumping restarts
     /// the download (~0.4 s to the first bytes) and, after a seek, AVPlayer asks for several nearby ranges at once:
     /// jumping between them left all of them waiting.
-    func streamRead(fileId: Int, offset: Int64, count: Int64, ahead: Int64 = 2 << 20) async throws -> Data {
+    /// `smallReads`: small requests outside the download fetch just their range (originals need this for an index at
+    /// the end of the file). Off for fast versions (index first): like Unigram's TDLib player, one download follows
+    /// playback, since TDLib runs one download per file and separate small ones kept cancelling it (8 s waits).
+    func streamRead(fileId: Int, offset: Int64, count: Int64, ahead: Int64 = 2 << 20, smallReads: Bool = true) async throws -> Data {
         let client = try requireClient()
         let started = Foundation.Date()
         var myWindow: Int64?
         var lastIssue: Foundation.Date?
         var lastReport = started
+        var moves = 0
+        var usedSmallRead = false
         while true {
             try Task.checkCancellation()
             let have = (try? await client.getFileDownloadedPrefixSize(fileId: fileId, offset: offset))?.size ?? 0
@@ -579,14 +584,22 @@ final class TDService: @unchecked Sendable {
                 return (try? await client.getFileDownloadedPrefixSize(fileId: fileId, offset: window))?.size ?? 0
             }()
             let covered = window.map { reach >= 0 && offset <= $0 + reach + ahead } ?? false
-            if !covered && count <= 512 << 10 {
+            if !covered && smallReads && count <= 512 << 10 {
                 // Small read outside the window: fetch just this range; the gate holds the window back meanwhile.
                 let gate = fileGate(fileId)
                 await gate.acquire()
                 defer { Task { await gate.release() } }
                 lock.withLock { streamWindows[fileId] = nil }
                 _ = try? await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: 32, synchronous: true)
+                usedSmallRead = true
                 break
+            }
+            // Another request just moved the download (AVPlayer asks for several ranges at once): give that a moment
+            // rather than moving it straight back, unless this one has already waited a while.
+            let movedRecently = lock.withLock { lastWindowMove[fileId].map { Foundation.Date().timeIntervalSince($0) < 1 } ?? false }
+            if !covered && !smallReads && movedRecently && myWindow == nil && Foundation.Date().timeIntervalSince(started) < 1.5 {
+                try await Task.sleep(nanoseconds: 40_000_000)
+                continue
             }
             // Move the window when it doesn't cover us: immediately if a small read stopped it,
             // otherwise only after a fresh download has had a moment to report as active.
@@ -596,7 +609,10 @@ final class TDService: @unchecked Sendable {
                 await gate.acquire()
                 do {
                     _ = try await client.downloadFile(fileId: fileId, limit: 0, offset: offset, priority: 32, synchronous: false)
-                    lock.withLock { streamWindows[fileId] = offset }
+                    lock.withLock {
+                        streamWindows[fileId] = offset
+                        lastWindowMove[fileId] = Foundation.Date()
+                    }
                 } catch {
                     await gate.release()
                     throw error.asTD
@@ -604,11 +620,15 @@ final class TDService: @unchecked Sendable {
                 await gate.release()
                 myWindow = offset
                 lastIssue = Foundation.Date()
+                moves += 1
             }
             try await Task.sleep(nanoseconds: 40_000_000)
         }
         let waited = Foundation.Date().timeIntervalSince(started)
-        if waited > 1 { AppLog.shared.warn(String(format: "Playback waited %.1f s for %lld bytes at %lld (file %d)", waited, count, offset, fileId)) }
+        if waited > 1 {
+            let how = usedSmallRead ? ", fetched on its own" : (moves > 0 ? ", download restarted \(moves)×" : "")
+            AppLog.shared.warn(String(format: "Playback waited %.1f s for %lld bytes at %lld (file %d%@)", waited, count, offset, fileId, how))
+        }
         return try await readPart(client, fileId: fileId, offset: offset, count: count)
     }
 
@@ -644,6 +664,8 @@ final class TDService: @unchecked Sendable {
 
     private var fileGates: [Int: AsyncGate] = [:]
     private var lastSpeedLimitLog = Foundation.Date.distantPast
+    /// When each file's streaming download last moved (see `streamRead`).
+    private var lastWindowMove: [Int: Foundation.Date] = [:]
     private var loadedChats = Set<Int64>()
 
     /// TDLib only knows chats it has loaded in this session; after a restart the library channel must be
