@@ -208,6 +208,20 @@ struct ViewerView: View {
         }
     }
 
+
+    private func deleteCurrent() async {
+        guard let item = current?.item else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            try await GalleryActions.deleteFromCloud([item])
+            Haptics.success()
+            if current?.isCloudOnly == true { close() }
+        } catch {
+            message = GalleryAlert(title: "Couldn't delete", message: error.localizedDescription)
+        }
+    }
+
     /// The original downloads from Telegram (it can be large): a slim bar showing how far it is, with a way to stop it.
     private func saveBanner(_ progress: Double) -> some View {
         let total = current?.item?.fileSize ?? 0
