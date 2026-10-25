@@ -76,8 +76,12 @@ have, encryption you control, and code you can read.
   parts and joined again on download.
 - **One timeline.** Photos on this device and everything in your backup, by day, month or year, with pinch to resize,
   a date scrubber, albums, favourites, videos and Live Photos.
-- **Stream, don't download.** Backed-up videos play in a second or two straight from Telegram, with seeking,
-  Picture in Picture and AirPlay.
+- **Fast from the cloud, originals kept.** Each video you back up also gets a small *fast version* (1080p, about a
+  tenth of the size), made on your device while it uploads. Cloud videos open on it in well under a second, seek
+  instantly and don't stop to load, even on mobile data. One tap on the quality button (**1080p ⌄**) switches to the
+  original 4K at any time, or choose *Original Quality* in Settings. The start of the videos on screen and the
+  photos next to the one you're viewing are fetched ahead, so they open at once. Saving or sharing always gives
+  you the original file, and videos still on your device always play from your device.
 - **Restore by signing in.** Your channel is the source of truth. On a new phone or after a reinstall, sign in and the
   library comes back: dates, places, albums and Live Photo pairs.
 - **Never twice.** Items are matched by Photos identifier and SHA-256, so nothing is uploaded twice, even across
@@ -163,7 +167,10 @@ Being honest about the gaps matters as much as the features:
 - **iPhone and Mac only.** Your library is still reachable from any Telegram app on any device, as files.
 - **Big first backups need the app open** (or iOS 26's background continuation). iPhones only let apps upload in
   the background in short, system-controlled windows.
-- **Videos stream in their original quality.** There's no automatic lower-quality version for slow connections yet.
+- **Cloud speed is Telegram's.** Telegram sends free accounts roughly 1 MB/s, so saving a 4K original to Photos
+  takes about a minute per 60 MB, and playing a 4K original (instead of its fast version) can stop to load.
+  Fast versions exist for videos backed up with Memvo 0.1 or later; older ones play the original unless you tap
+  *Make Fast Version*. Each fast version adds about 10% to the space a video takes in your Telegram.
 - **Telegram's rules apply to your storage.** If Telegram changes its limits or terms, Memvo can't override them.
 
 ## Questions people ask
@@ -201,6 +208,16 @@ the Telegram app; photos still on your phone are never deleted by any of this.
 
 No. Thumbnails and viewed items are cached with hard limits (300 MB and 1 GB by default) and can be cleared in
 Settings → Storage. Viewing cloud items never keeps them permanently.
+</details>
+
+<details><summary><b>How do cloud videos play so fast if the originals are huge?</b></summary>
+
+Like iCloud Photos and Google Photos, Memvo plays a smaller version and keeps the original untouched. Because Memvo
+has no servers, your phone makes that version itself while backing up: 1080p HEVC at about 2 Mbit/s, the sound
+copied as it is, about a tenth of the size of a 4K original. Telegram delivers it about four times faster than it
+plays, so it starts at once and never waits. Tap **1080p ⌄** in the viewer to switch to the 4K original, or set
+Settings → Backup options → *Play cloud videos* → *Original Quality*. Photos have no smaller version: the original
+is shown, and the ones next to it are fetched ahead.
 </details>
 
 <details><summary><b>Android? Windows? Web?</b></summary>
