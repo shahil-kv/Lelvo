@@ -64,6 +64,27 @@ enum UITestSupport {
         guard isDemo else { return }
         UserDefaults.standard.set(true, forKey: Prefs.Key.onboardingComplete)
         let store = AppEnvironment.shared.store
+        // `-UITestDemoFromPhotos` (website screenshots): the photos already on the device become the backed-up library,
+        // except every ninth one, which stays "not backed up" so that state shows too.
+        if args.contains("-UITestDemoFromPhotos"), PhotoLibraryService.hasAccess {
+            var items: [MediaItem] = []
+            var index = 0
+            AppEnvironment.shared.photos.fetchAllAssets().enumerateObjects { asset, _, _ in
+                defer { index += 1 }
+                guard index % 9 != 8 else { return }
+                var item = MediaItem(localIdentifier: asset.localIdentifier, sha256: String(format: "%064d", index),
+                                     filename: "IMG_\(4000 + index).HEIC", kind: PhotoLibraryService.kind(of: asset),
+                                     creationDate: asset.creationDate, pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight,
+                                     duration: asset.mediaType == .video ? asset.duration : nil, fileSize: 3_400_000, status: .backedUp)
+                item.uploadedAt = asset.creationDate
+                item.setParts([RemoteFile(messageId: Int64(index + 1), fileId: "demo", fileUniqueId: "demo\(index)", size: 3_400_000)],
+                              role: "o", expected: 1)
+                items.append(item)
+            }
+            try? store.deleteAll()
+            try? store.upsert(items)
+            return
+        }
         let now = Date()
         // `-UITestDemoCount N` (benchmarks): a bigger library; default 300 for the UI tests.
         let count = args.firstIndex(of: "-UITestDemoCount").flatMap { args.indices.contains($0 + 1) ? Int(args[$0 + 1]) : nil } ?? 300

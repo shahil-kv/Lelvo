@@ -114,9 +114,12 @@ final class NativeGridTests: XCTestCase {
         let cell = grid.cells.element(boundBy: 20)
         let label = cell.label
         let before = cell.frame.minY
-        grid.swipeUp(velocity: .slow)
+        // An exact drag with a hold before lifting the finger: no momentum, so the distance doesn't depend on machine speed.
+        let from = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+        let to = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.3)
         let same = grid.cells.matching(NSPredicate(format: "label == %@", label)).firstMatch
-        XCTAssertTrue(same.exists, "A slow swipe moves the grid by about a screen, not a jump")
+        XCTAssertTrue(same.exists, "A drag moves the grid with the finger, not a jump")
         XCTAssertLessThan(same.frame.minY, before - 100, "The grid scrolled up with the finger")
         shot("10-scroll-after-pinch")
     }
