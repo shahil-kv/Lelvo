@@ -55,6 +55,11 @@ jobs:
     timeout-minutes: 60
     env:
       TAG: ios-v${{ needs.plan.outputs.version }}
+      # App Store Connect API key (docs/RELEASING.md → TestFlight). Without these the TestFlight step is skipped.
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v7
       - name: Refuse an existing tag
@@ -83,6 +88,36 @@ jobs:
           rm -rf build/Payload && mkdir -p build/Payload && cp -R "$APP" build/Payload/
           (cd build && zip -qry Memvo.ipa Payload)
           shasum -a 256 build/Memvo.ipa | tee build/Memvo.ipa.sha256
+      - name: Upload to TestFlight
+        if: env.ASC_KEY_ID != '' && env.APPLE_TEAM_ID != ''
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+          trap 'rm -f "$KEY"' EXIT
+          printf '%s\n' "$ASC_KEY_P8" > "$KEY"
+          # Xcode signs with the team's cloud-managed distribution certificate, using the API key.
+          AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$KEY" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+          xcodebuild archive -project Memvo.xcodeproj -scheme Memvo -configuration Release \
+            -destination "generic/platform=iOS" -archivePath build/Memvo-signed.xcarchive \
+            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
+            MARKETING_VERSION="${{ inputs.version }}" CURRENT_PROJECT_VERSION="${{ needs.plan.outputs.build }}" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Automatic "${AUTH[@]}" \
+            > build/archive-signed.log 2>&1 || { grep -E "error:" build/archive-signed.log | head -50; tail -60 build/archive-signed.log; exit 1; }
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath build/Memvo-signed.xcarchive -exportOptionsPlist build/ExportOptions.plist \
+            -exportPath build/export "${AUTH[@]}" \
+            > build/upload.log 2>&1 || { grep -E "error:|Error" build/upload.log | head -50; tail -60 build/upload.log; exit 1; }
+          echo "Uploaded build ${{ needs.plan.outputs.build }} to App Store Connect. It appears in TestFlight after Apple's processing (10-30 minutes)." >> "$GITHUB_STEP_SUMMARY"
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}

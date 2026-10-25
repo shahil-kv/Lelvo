@@ -1,0 +1,2 @@
+Sample photos in this folder are from Unsplash (https://unsplash.com/license), via picsum.photos, resized.
+The two clips were made from those photos. They are used only for the App Review demo library.

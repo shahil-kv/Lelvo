@@ -1,0 +1,474 @@
+{
+ "items": [
+  {
+   "file": "photo01.jpg",
+   "name": "IMG_4100.HEIC",
+   "kind": "photo",
+   "daysAgo": 0,
+   "minutes": 0,
+   "w": 1050,
+   "h": 1400,
+   "size": 1988514,
+   "pending": true
+  },
+  {
+   "file": "photo02.jpg",
+   "name": "IMG_4101.HEIC",
+   "kind": "photo",
+   "daysAgo": 0,
+   "minutes": 47,
+   "w": 1050,
+   "h": 1400,
+   "size": 1321740,
+   "pending": true
+  },
+  {
+   "file": "photo03.jpg",
+   "name": "IMG_4102.HEIC",
+   "kind": "photo",
+   "daysAgo": 0,
+   "minutes": 94,
+   "w": 1050,
+   "h": 1400,
+   "size": 2977821,
+   "pending": true
+  },
+  {
+   "file": "photo04.jpg",
+   "name": "IMG_4103.HEIC",
+   "kind": "photo",
+   "daysAgo": 0,
+   "minutes": 141,
+   "w": 1050,
+   "h": 1400,
+   "size": 2204622,
+   "pending": true,
+   "favorite": true
+  },
+  {
+   "file": "photo05.jpg",
+   "name": "IMG_4104.HEIC",
+   "kind": "photo",
+   "daysAgo": 0,
+   "minutes": 188,
+   "w": 1050,
+   "h": 1400,
+   "size": 2527173,
+   "pending": true
+  },
+  {
+   "file": "photo06.jpg",
+   "name": "IMG_4105.HEIC",
+   "kind": "photo",
+   "daysAgo": 0,
+   "minutes": 235,
+   "w": 1050,
+   "h": 1400,
+   "size": 1852308,
+   "pending": true
+  },
+  {
+   "file": "photo07.jpg",
+   "name": "IMG_4106.HEIC",
+   "kind": "photo",
+   "daysAgo": 1,
+   "minutes": 282,
+   "w": 1050,
+   "h": 1400,
+   "size": 3651012,
+   "lat": 48.8584,
+   "lon": 2.2945,
+   "albums": [
+    "Paris"
+   ]
+  },
+  {
+   "file": "photo08.jpg",
+   "name": "IMG_4107.HEIC",
+   "kind": "photo",
+   "daysAgo": 1,
+   "minutes": 329,
+   "w": 1050,
+   "h": 1400,
+   "size": 1826379,
+   "lat": 48.8606,
+   "lon": 2.3376,
+   "albums": [
+    "Paris"
+   ]
+  },
+  {
+   "file": "photo09.jpg",
+   "name": "IMG_4108.HEIC",
+   "kind": "photo",
+   "daysAgo": 1,
+   "minutes": 376,
+   "w": 1050,
+   "h": 1400,
+   "size": 2178621
+  },
+  {
+   "file": "photo10.jpg",
+   "name": "IMG_4109.HEIC",
+   "kind": "photo",
+   "daysAgo": 1,
+   "minutes": 423,
+   "w": 1050,
+   "h": 1400,
+   "size": 3179178,
+   "favorite": true
+  },
+  {
+   "file": "photo11.jpg",
+   "name": "IMG_4110.HEIC",
+   "kind": "photo",
+   "daysAgo": 2,
+   "minutes": 470,
+   "w": 1050,
+   "h": 1400,
+   "size": 3858525,
+   "lat": 35.6762,
+   "lon": 139.6503
+  },
+  {
+   "file": "photo12.jpg",
+   "name": "IMG_4111.HEIC",
+   "kind": "photo",
+   "daysAgo": 2,
+   "minutes": 517,
+   "w": 1050,
+   "h": 1400,
+   "size": 1293057
+  },
+  {
+   "file": "photo13.jpg",
+   "name": "IMG_4112.HEIC",
+   "kind": "photo",
+   "daysAgo": 2,
+   "minutes": 564,
+   "w": 1050,
+   "h": 1400,
+   "size": 425025
+  },
+  {
+   "file": "photo14.jpg",
+   "name": "IMG_4113.HEIC",
+   "kind": "photo",
+   "daysAgo": 4,
+   "minutes": 11,
+   "w": 1050,
+   "h": 1400,
+   "size": 955323,
+   "lat": 9.9312,
+   "lon": 76.2673,
+   "albums": [
+    "Kerala"
+   ],
+   "favorite": true
+  },
+  {
+   "file": "photo15.jpg",
+   "name": "IMG_4114.HEIC",
+   "kind": "photo",
+   "daysAgo": 4,
+   "minutes": 58,
+   "w": 1050,
+   "h": 1400,
+   "size": 1245744,
+   "lat": 9.9312,
+   "lon": 76.2673,
+   "albums": [
+    "Kerala"
+   ]
+  },
+  {
+   "file": "photo16.jpg",
+   "name": "IMG_4115.HEIC",
+   "kind": "photo",
+   "daysAgo": 4,
+   "minutes": 105,
+   "w": 1050,
+   "h": 1400,
+   "size": 1264455,
+   "albums": [
+    "Kerala"
+   ]
+  },
+  {
+   "file": "photo17.jpg",
+   "name": "IMG_4116.HEIC",
+   "kind": "photo",
+   "daysAgo": 4,
+   "minutes": 152,
+   "w": 1050,
+   "h": 1400,
+   "size": 863577
+  },
+  {
+   "file": "photo18.jpg",
+   "name": "IMG_4117.HEIC",
+   "kind": "photo",
+   "daysAgo": 7,
+   "minutes": 199,
+   "w": 1050,
+   "h": 1400,
+   "size": 2163078,
+   "lat": 40.758,
+   "lon": -73.9855
+  },
+  {
+   "file": "photo19.jpg",
+   "name": "IMG_4118.HEIC",
+   "kind": "photo",
+   "daysAgo": 7,
+   "minutes": 246,
+   "w": 1050,
+   "h": 1400,
+   "size": 1489914
+  },
+  {
+   "file": "photo20.jpg",
+   "name": "IMG_4119.HEIC",
+   "kind": "photo",
+   "daysAgo": 7,
+   "minutes": 293,
+   "w": 1050,
+   "h": 1400,
+   "size": 2370411
+  },
+  {
+   "file": "photo21.jpg",
+   "name": "IMG_4120.HEIC",
+   "kind": "photo",
+   "daysAgo": 12,
+   "minutes": 340,
+   "w": 1050,
+   "h": 1400,
+   "size": 1566639
+  },
+  {
+   "file": "photo22.jpg",
+   "name": "IMG_4121.HEIC",
+   "kind": "photo",
+   "daysAgo": 12,
+   "minutes": 387,
+   "w": 1050,
+   "h": 1400,
+   "size": 2388654
+  },
+  {
+   "file": "photo23.jpg",
+   "name": "IMG_4122.HEIC",
+   "kind": "photo",
+   "daysAgo": 19,
+   "minutes": 434,
+   "w": 1050,
+   "h": 1400,
+   "size": 1892205,
+   "favorite": true
+  },
+  {
+   "file": "photo24.jpg",
+   "name": "IMG_4123.HEIC",
+   "kind": "photo",
+   "daysAgo": 19,
+   "minutes": 481,
+   "w": 1050,
+   "h": 1400,
+   "size": 3342051
+  },
+  {
+   "file": "photo25.jpg",
+   "name": "IMG_4124.HEIC",
+   "kind": "photo",
+   "daysAgo": 19,
+   "minutes": 528,
+   "w": 1050,
+   "h": 1400,
+   "size": 900855
+  },
+  {
+   "file": "photo26.jpg",
+   "name": "IMG_4125.HEIC",
+   "kind": "photo",
+   "daysAgo": 33,
+   "minutes": 575,
+   "w": 1050,
+   "h": 1400,
+   "size": 1172772,
+   "lat": 46.5197,
+   "lon": 6.6323
+  },
+  {
+   "file": "photo27.jpg",
+   "name": "IMG_4126.HEIC",
+   "kind": "photo",
+   "daysAgo": 33,
+   "minutes": 22,
+   "w": 1050,
+   "h": 1400,
+   "size": 2215395
+  },
+  {
+   "file": "photo28.jpg",
+   "name": "IMG_4127.HEIC",
+   "kind": "photo",
+   "daysAgo": 48,
+   "minutes": 69,
+   "w": 1050,
+   "h": 1400,
+   "size": 1281033
+  },
+  {
+   "file": "photo29.jpg",
+   "name": "IMG_4128.HEIC",
+   "kind": "photo",
+   "daysAgo": 48,
+   "minutes": 116,
+   "w": 1050,
+   "h": 1400,
+   "size": 2634615
+  },
+  {
+   "file": "photo30.jpg",
+   "name": "IMG_4129.HEIC",
+   "kind": "photo",
+   "daysAgo": 48,
+   "minutes": 163,
+   "w": 1050,
+   "h": 1400,
+   "size": 2069064
+  },
+  {
+   "file": "photo31.jpg",
+   "name": "IMG_4130.HEIC",
+   "kind": "photo",
+   "daysAgo": 76,
+   "minutes": 210,
+   "w": 1050,
+   "h": 1400,
+   "size": 1417599,
+   "lat": 36.4618,
+   "lon": 25.3753,
+   "albums": [
+    "Santorini"
+   ],
+   "favorite": true
+  },
+  {
+   "file": "photo32.jpg",
+   "name": "IMG_4131.HEIC",
+   "kind": "photo",
+   "daysAgo": 76,
+   "minutes": 257,
+   "w": 1050,
+   "h": 1400,
+   "size": 1648791,
+   "albums": [
+    "Santorini"
+   ]
+  },
+  {
+   "file": "photo33.jpg",
+   "name": "IMG_4132.HEIC",
+   "kind": "photo",
+   "daysAgo": 110,
+   "minutes": 304,
+   "w": 1050,
+   "h": 1400,
+   "size": 1285848
+  },
+  {
+   "file": "photo34.jpg",
+   "name": "IMG_4133.HEIC",
+   "kind": "photo",
+   "daysAgo": 110,
+   "minutes": 351,
+   "w": 1050,
+   "h": 1400,
+   "size": 345069
+  },
+  {
+   "file": "photo35.jpg",
+   "name": "IMG_4134.HEIC",
+   "kind": "photo",
+   "daysAgo": 160,
+   "minutes": 398,
+   "w": 1050,
+   "h": 1400,
+   "size": 2434599
+  },
+  {
+   "file": "photo36.jpg",
+   "name": "IMG_4135.HEIC",
+   "kind": "photo",
+   "daysAgo": 160,
+   "minutes": 445,
+   "w": 1050,
+   "h": 1400,
+   "size": 723717
+  },
+  {
+   "file": "photo37.jpg",
+   "name": "IMG_4136.HEIC",
+   "kind": "photo",
+   "daysAgo": 230,
+   "minutes": 492,
+   "w": 1050,
+   "h": 1400,
+   "size": 1947843
+  },
+  {
+   "file": "photo38.jpg",
+   "name": "IMG_4137.HEIC",
+   "kind": "photo",
+   "daysAgo": 230,
+   "minutes": 539,
+   "w": 1050,
+   "h": 1400,
+   "size": 4103937
+  },
+  {
+   "file": "photo39.jpg",
+   "name": "IMG_4138.HEIC",
+   "kind": "photo",
+   "daysAgo": 320,
+   "minutes": 586,
+   "w": 1050,
+   "h": 1400,
+   "size": 1035099
+  },
+  {
+   "file": "photo40.jpg",
+   "name": "IMG_4139.HEIC",
+   "kind": "photo",
+   "daysAgo": 320,
+   "minutes": 33,
+   "w": 1050,
+   "h": 1400,
+   "size": 2077983
+  },
+  {
+   "file": "video01.mp4",
+   "name": "IMG_4200.MOV",
+   "kind": "video",
+   "daysAgo": 1,
+   "minutes": 300,
+   "w": 1080,
+   "h": 1440,
+   "duration": 8.0,
+   "size": 12253542
+  },
+  {
+   "file": "video02.mp4",
+   "name": "IMG_4201.MOV",
+   "kind": "video",
+   "daysAgo": 12,
+   "minutes": 390,
+   "w": 1080,
+   "h": 1440,
+   "duration": 6.0,
+   "size": 4354134
+  }
+ ]
+}

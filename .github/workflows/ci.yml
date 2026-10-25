@@ -36,6 +36,10 @@ jobs:
               - '!website/**'
               - '!wrangler.jsonc'
           predicate-quantifier: every
+      - name: Website pages match their Markdown
+        run: |
+          python3 Scripts/website-pages.py
+          git diff --exit-code -- website/ || { echo "::error::Run python3 Scripts/website-pages.py and commit the result."; exit 1; }
 
   core:
     name: Core unit tests

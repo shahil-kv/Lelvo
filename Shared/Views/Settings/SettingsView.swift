@@ -97,6 +97,11 @@ struct SettingsView: View {
             .overlay { if busy { ProgressView().padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) } }
             .task {
                 refreshUsage()
+                if DemoMode.isActive {
+                    accountName = "Demo account"
+                    libraryName = "Demo library"
+                    return
+                }
                 accountName = await env.td.displayName() ?? (env.td.isReady ? "—" : "Not connected")
                 libraryName = await env.library.title()
                 accountTtl = await env.td.accountTtlDays()

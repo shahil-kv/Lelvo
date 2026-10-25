@@ -95,8 +95,12 @@ final class OnboardingModel: ObservableObject {
         }
     }
 
+    /// The phone step comes first even without app keys, so the App Review demo number always works;
+    /// a real number then asks for keys if the build has none.
     func start() {
-        if env.td.isReady { goToLibrary() } else if TDCredentials.load() != nil { step = .phone; env.td.start() } else { step = .credentials }
+        if env.td.isReady { goToLibrary(); return }
+        step = .phone
+        if TDCredentials.load() != nil { env.td.start() }
     }
 
     func saveCredentials() {
@@ -128,8 +132,20 @@ final class OnboardingModel: ObservableObject {
         !dialCode.filter(\.isNumber).isEmpty && Countries.lengths(forDialCode: dialCode).contains(nationalNumber.filter(\.isNumber).count)
     }
 
+    /// The App Review number was entered: the code step checks the demo code instead of Telegram's.
+    private var demoSignIn = false
+
     func submitPhone() {
         phone = fullPhone
+        if DemoMode.matches(phone: fullPhone) {
+            demoSignIn = true
+            error = nil
+            codeLength = DemoMode.code.count
+            codeInfo = "Demo account: enter the code from the App Review notes."
+            step = .code
+            return
+        }
+        guard TDCredentials.load() != nil else { step = .credentials; return }
         run { try await self.env.td.submitPhone(self.fullPhone) }
     }
 
@@ -141,6 +157,10 @@ final class OnboardingModel: ObservableObject {
         info = nil
         switch step {
         case .credentials, .phone: step = .welcome
+        case .code where demoSignIn:
+            demoSignIn = false
+            code = ""
+            step = .phone
         case .code, .password, .otherDevice: useDifferentAccount(keepNumber: true)
         case .noAccount: useDifferentAccount()
         case .unlock:
@@ -153,6 +173,17 @@ final class OnboardingModel: ObservableObject {
 
     func submitCode() {
         let code = codeLength > 0 ? self.code.filter(\.isNumber) : self.code.trimmingCharacters(in: .whitespacesAndNewlines)
+        if demoSignIn {
+            guard code == DemoMode.code else {
+                error = "That code isn't right. Check the code in the App Review notes."
+                Haptics.error()
+                return
+            }
+            DemoMode.enter(store: env.store)
+            info = "Demo library: sample photos and videos, nothing is uploaded."
+            step = .photos
+            return
+        }
         run { try await self.env.td.submitCode(code) }
     }
     func submitPassword() { run { try await self.env.td.submitPassword(self.password) } }
@@ -385,8 +416,10 @@ struct OnboardingView: View {
         let status = m.photoStatus
         let decided = status != .notDetermined
         return OnboardingPage(icon: "photo.on.rectangle.angled", title: "Back up your photos",
-                              subtitle: m.info.map { "\($0) Allow Full Access so everything on this \(Device.name) is backed up too." }
-                                ?? "Allow Full Access so everything on this \(Device.name) is backed up.",
+                              subtitle: DemoMode.isActive
+                                ? "\(m.info ?? "") Allowing access shows this \(Device.name)'s photos next to the samples; they stay on the \(Device.name)."
+                                : m.info.map { "\($0) Allow Full Access so everything on this \(Device.name) is backed up too." }
+                                    ?? "Allow Full Access so everything on this \(Device.name) is backed up.",
                               m: m, showsInfo: false,
                               button: decided ? .init(title: "Start using Memvo", enabled: true) { app.finishOnboarding() }
                                               : .init(title: "Allow Access", enabled: true) { m.requestPhotos() }) {
@@ -959,6 +992,7 @@ private struct PhoneScreen: View {
                         TextField("", text: $m.dialCode)
                             .platformKeyboard(.numberPad)
                             .frame(width: 48)
+                            .accessibilityLabel("Country code")
                             .onChange(of: m.dialCode) { _, v in
                                 let digits = String(v.filter(\.isNumber).prefix(4))
                                 if digits != v { m.dialCode = digits }

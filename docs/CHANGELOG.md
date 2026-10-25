@@ -15,6 +15,11 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - **About** shows the source code, license, privacy policy, help and the licenses of included libraries.
 - **Privacy manifests** for both apps (no tracking, no data collected).
 - Release builds no longer contain the test switches used by UI tests.
+- **Sign-in starts at your phone number** in every build; a build without Telegram app keys asks for them after.
+- **iPhone only** for now (it still runs on iPad in iPhone mode), and a **demo library** for App Review that never
+  connects to Telegram.
+- New website pages: [changelog](https://memvo.mshahilkv.workers.dev/changelog) and
+  [privacy policy](https://memvo.mshahilkv.workers.dev/privacy).
 - Versions restart at **0.1.0** for both apps in this repository, released with a one-button Release workflow. Compiler warnings fixed on both platforms.
 
 ## Before this repository

@@ -21,7 +21,7 @@ final class AppModel: ObservableObject {
                 // Re-read the current state: the startup "no client yet" state must not flash sign-in.
                 let step = TDService.shared.auth
                 let signedOut = step == .waitPhone || (step == .needsCredentials && TDCredentials.load() == nil)
-                AppModel.shared.needsSignIn = signedOut && AppModel.shared.onboardingComplete && !UITestSupport.isDemo
+                AppModel.shared.needsSignIn = signedOut && AppModel.shared.onboardingComplete && !UITestSupport.isDemo && !DemoMode.isActive
             }
         }
     }

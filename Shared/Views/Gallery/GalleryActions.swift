@@ -48,6 +48,10 @@ enum GalleryActions {
     /// Deletes every message of the items (all resources and parts) from the channel.
     static func deleteFromCloud(_ items: [MediaItem]) async throws {
         let env = AppEnvironment.shared
+        if DemoMode.isActive {
+            for item in items { try env.store.delete(id: item.id) }
+            return
+        }
         guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
         try await env.td.waitUntilReady(timeout: 20)
         for item in items {

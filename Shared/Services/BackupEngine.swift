@@ -168,7 +168,7 @@ final class BackupEngine: @unchecked Sendable {
         // Sign-in, app activation and library switches can all ask at once; one pass at a time is enough.
         relinkLock.lock()
         defer { relinkLock.unlock() }
-        guard PhotoLibraryService.hasAccess else { return 0 }
+        guard PhotoLibraryService.hasAccess, !DemoMode.isActive else { return 0 }
         let all = (try? env.store.allItems()) ?? []
         let unlinked = all.filter { $0.status == .backedUp && $0.localIdentifier == nil }
         guard !unlinked.isEmpty else { return 0 }
@@ -245,6 +245,7 @@ final class BackupEngine: @unchecked Sendable {
             summary.error = "Backup is paused. Open Memvo and tap Back up now to resume."
             return summary
         }
+        if DemoMode.isActive { return userStarted ? await runDemo(progress: progress) : summary }
         if let reason = await blocker() { summary.error = reason.localizedDescription; return summary }
         let alreadyRunning: Bool = gate.withLock {
             if running { return true }
@@ -332,6 +333,47 @@ final class BackupEngine: @unchecked Sendable {
         let final = summary
         await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.lanes = [:]; a.notice = nil }
         appLog("Backup run finished: \(summary.text)")
+        return summary
+    }
+
+    /// App Review demo: "uploads" the demo's waiting items with real progress in the UI, without any network.
+    /// The reviewer's own photos are never marked as backed up.
+    private func runDemo(progress: (@Sendable (Int, Int) -> Void)?) async -> Summary {
+        var summary = Summary()
+        let alreadyRunning: Bool = gate.withLock {
+            if running { return true }
+            running = true
+            return false
+        }
+        if alreadyRunning { summary.error = StopReason.alreadyRunning.localizedDescription; return summary }
+        defer { gate.withLock { running = false } }
+        let items = DemoMode.pendingItems()
+        let total = items.count
+        await publish { a in
+            a.isRunning = true; a.done = 0; a.total = total; a.uploaded = 0; a.failed = 0; a.lanes = [:]
+            a.message = total == 0 ? "Everything is backed up." : "Backing up \(total) items…"
+        }
+        for (i, original) in items.enumerated() {
+            let lane = "\(i % Self.maxConcurrentUploads)"
+            let size = original.fileSize
+            for step in 1...10 {
+                try? await Task.sleep(nanoseconds: 120_000_000)
+                await publish { $0.lanes[lane] = BackupActivity.LaneProgress(name: original.filename, sent: size * Int64(step) / 10, total: size) }
+            }
+            var item = original
+            item.uploadedAt = Date()
+            item.verifiedAt = Date()
+            save(item)
+            summary.uploaded += 1
+            progress?(i + 1, total)
+            let done = i + 1
+            await publish { a in a.done = done; a.uploaded = done; a.lanes[lane] = nil }
+        }
+        DemoMode.pendingUploaded()
+        if total > 0 { UserDefaults.standard.set(Date(), forKey: Prefs.Key.lastBackupAt) }
+        let final = summary
+        await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.lanes = [:] }
+        appLog("Demo backup finished: \(final.text)")
         return summary
     }
 

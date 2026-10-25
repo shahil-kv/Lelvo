@@ -47,10 +47,27 @@ gh secret set TD_API_ID --body "<id>"
 gh secret set TD_API_HASH --body "<hash>"
 ```
 
+## TestFlight
+
+The iOS job also signs the build and uploads it to App Store Connect when these repository secrets exist (without
+them the step is skipped and only the unsigned build is published):
+
+| Secret | Where it comes from |
+|---|---|
+| `APPLE_TEAM_ID` | developer.apple.com → Membership details → Team ID |
+| `ASC_KEY_ID` | App Store Connect → Users and Access → Integrations → App Store Connect API → your key's Key ID |
+| `ASC_ISSUER_ID` | The same page, "Issuer ID" above the key list |
+| `ASC_KEY_P8` | The `AuthKey_<id>.p8` file downloaded when the key was made (one download only): `gh secret set ASC_KEY_P8 -R shahil-kv/Memvo < AuthKey_<id>.p8` |
+
+Give the key the **App Manager** role (Admin works too); Xcode then signs with the team's cloud-managed distribution
+certificate and creates the provisioning profile itself. The app record must exist in App Store Connect first
+(APP_STORE_RELEASE.md, Phase 5). The build appears in TestFlight after Apple's processing, 10–30 minutes later.
+The workflow is written but untested until the Apple account exists; the first run may need a fix.
+
 ## Later: signed builds
 
-- **TestFlight and the App Store (iOS):** follow [APP_STORE_RELEASE.md](APP_STORE_RELEASE.md). The Release workflow
-  gets a signed `-exportArchive` step and an upload with an App Store Connect API key once the Apple account exists.
+- **App Store (iOS):** follow [APP_STORE_RELEASE.md](APP_STORE_RELEASE.md); a TestFlight build is submitted for review
+  from App Store Connect.
 - **Mac outside the App Store:** with a paid Apple Developer account, sign with a Developer ID certificate, notarize
   with `xcrun notarytool submit --wait`, staple with `xcrun stapler staple`, and ship a DMG. Users then open the app
   without the right-click step. A Homebrew cask can follow once releases are notarized.

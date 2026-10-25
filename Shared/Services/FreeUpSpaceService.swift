@@ -13,6 +13,7 @@ final class FreeUpSpaceService: @unchecked Sendable {
 
     /// Backed-up items still on the phone (and unchanged since their backup), so they can be downloaded again.
     func candidates() -> [MediaItem] {
+        guard !DemoMode.isActive else { return [] }
         let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.sizeClass == .normal && $0.localIdentifier != nil }
         let present = env.photos.existingIdentifiers(items.compactMap(\.localIdentifier))
         return items.filter { item in

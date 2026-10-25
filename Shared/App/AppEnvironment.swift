@@ -121,6 +121,7 @@ final class AppEnvironment: @unchecked Sendable {
 
     /// Wipes local state (sign out / reset). The Telegram channel is not touched.
     func resetEverything() async {
+        DemoMode.exit()
         await td.logOut()
         await td.destroyLocalData()
         try? store.deleteAll()

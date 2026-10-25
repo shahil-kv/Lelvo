@@ -39,6 +39,10 @@ targets:
       Release: Config/App.xcconfig
     sources:
       - path: iOS
+        excludes: [DemoLibrary]
+      # App Review demo library (DemoMode), bundled as one folder.
+      - path: iOS/DemoLibrary
+        type: folder
       - path: Shared
     dependencies:
       - package: MemvoCore
@@ -47,7 +51,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.memvo
         PRODUCT_NAME: Memvo
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: NO

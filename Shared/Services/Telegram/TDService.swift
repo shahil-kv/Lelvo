@@ -186,6 +186,8 @@ final class TDService: @unchecked Sendable {
     private let startLock = NSLock()
 
     func start() {
+        // The App Review demo works without Telegram.
+        guard !DemoMode.isActive else { return }
         startLock.lock()
         defer { startLock.unlock() }
         lock.lock()

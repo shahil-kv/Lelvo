@@ -13,6 +13,9 @@ Settings → About → Acknowledgements.
 
 The website ([website/](website/)) uses the fonts [Bricolage Grotesque](https://github.com/ateliertriay/bricolage) and
 [Source Serif 4](https://github.com/adobe-fonts/source-serif), both under the [SIL Open Font License 1.1](https://openfontlicense.org).
+The App Review demo library in the iPhone app ([iOS/DemoLibrary](iOS/DemoLibrary)) uses sample photos from
+[Unsplash](https://unsplash.com/license).
+
 Smooth scrolling uses [Lenis](https://github.com/darkroomengineering/lenis) under the MIT License
 ([website/vendor/LENIS-LICENSE.txt](website/vendor/LENIS-LICENSE.txt)). Sample photos in the screenshots are from
 [Unsplash](https://unsplash.com/license).

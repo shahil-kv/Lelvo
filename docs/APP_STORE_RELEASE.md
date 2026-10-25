@@ -11,6 +11,35 @@ Legend: ✅ already done in the code · 🔧 code change needed · 📝 paperwor
 
 ---
 
+## Your workflow, start to finish
+
+What's left is mostly yours (accounts, App Store Connect, testing on a device). In order:
+
+1. **Join the Apple Developer Program** (Phase 0). Wait for the approval email (usually 1–2 days).
+2. **Telegram key for the App Store build:** create it on a spare Telegram account (Phase 0), put it in
+   `Config/Secrets.xcconfig`, and save it for CI:
+   `! gh secret set TD_API_ID -R shahil-kv/Memvo` and `! gh secret set TD_API_HASH -R shahil-kv/Memvo`.
+3. **Icon:** commission or draw a distinctive Memvo icon (Phase 1.2); send it and it goes into the asset catalog.
+4. **Trademark search** for "Memvo" in class 9 (Phase 1.2).
+5. **App Store Connect:** register the bundle ID, create the app, fill in app information, age rating, privacy
+   label, URLs and listing text (Phase 5). All text is ready below; copy it in.
+6. **API key for uploads:** App Store Connect → Users and Access → Integrations → App Store Connect API → generate a
+   key with the *App Manager* role. Then save four secrets:
+   `! gh secret set APPLE_TEAM_ID -R shahil-kv/Memvo`, `! gh secret set ASC_KEY_ID -R shahil-kv/Memvo`,
+   `! gh secret set ASC_ISSUER_ID -R shahil-kv/Memvo`, and the key file itself:
+   `! gh secret set ASC_KEY_P8 -R shahil-kv/Memvo < ~/Downloads/AuthKey_XXXXXXXXXX.p8`.
+7. **First TestFlight build:** GitHub → Actions → Release → Run workflow (app: ios, channel: beta, version 0.1.0).
+   It archives, signs and uploads to App Store Connect; the build shows in TestFlight 10–30 minutes later.
+   (Or archive in Xcode: Product → Archive → Distribute → App Store Connect.)
+8. **Test the TestFlight build on your iPhone** (Phase 3.5 list), including the demo: sign out, enter
+   `+1 555 010 0199`, code `24680`.
+9. **Record the real-flow video** (Phase 2.2) and screenshots (Phase 5.5; the demo library gives clean photos).
+10. **External TestFlight** with a few testers (Phase 6), then **submit for review** (Phase 7) with the review
+    notes from Phase 2.3.
+11. **After approval:** release manually and watch crashes for a week (Phase 9).
+
+---
+
 ## Phase 0 — Accounts and keys (do first)
 
 - [ ] 📝 **Apple Developer Program** ($99/year) at developer.apple.com/programs. Enrol as an *Individual*; your legal
@@ -23,10 +52,11 @@ Legend: ✅ already done in the code · 🔧 code change needed · 📝 paperwor
       TD_API_HASH = <new hash>
       ```
       Why: if Telegram ever flags the app, the warning and any action land on that account, not your personal one.
-- [ ] 📝 Add the same keys as GitHub secrets so CI builds have them:
+- [ ] 📝 Add the same keys as GitHub secrets so CI builds have them (each command asks for the value, so it never
+      lands in your shell history):
       ```bash
-      gh secret set TD_API_ID --body "<new id>"
-      gh secret set TD_API_HASH --body "<new hash>"
+      gh secret set TD_API_ID -R shahil-kv/Memvo
+      gh secret set TD_API_HASH -R shahil-kv/Memvo
       ```
 - [ ] 📝 Keep the old (personal) api_id only for local debug builds, or revoke it.
 
@@ -87,21 +117,20 @@ certain.
 Build a demo mode that a special phone number unlocks. Apple accepts "a fully-featured demo mode" in place of a demo
 account.
 
-- [ ] 🔧 On the phone step, if the number equals a reserved reviewer number (e.g. `+1 555 010 0199`, which can't be a
-      real Telegram number), don't contact Telegram. Go to the code step, and accept a fixed code (e.g. `24680`).
-- [ ] 🔧 Then load a **demo library**: reuse `UITestSupport.prepareIfNeeded()` (`Shared/App/AppModel.swift`, Debug-only today),
-      but make it work in Release:
-  - [ ] Real sample photos and videos bundled in the app (about 40 royalty-free images and 2–3 short clips you own),
-        not grey tiles. `seedDemoThumbnails` is currently `#if DEBUG` only.
-  - [ ] Viewer opens photos and plays a video.
-  - [ ] Backup screen shows a simulated backup running (progress, then "backed up" badges), because the reviewer will
-        look for the core feature.
-  - [ ] Pinch columns, select, share, save to Photos all work.
-  - [ ] Settings → Sign out returns to the welcome screen and clears demo data.
-- [ ] 🔧 Show a small "Demo library" banner while in demo mode, so it's clearly a demo and not a fake library.
-- [ ] 🔧 Make sure demo mode never touches a real Telegram session or the user's Photos library, apart from the
-      Photos permission prompt.
-- [ ] 🧪 Test the whole demo on a clean install of a **Release** build from TestFlight, not a Debug build.
+✅ Built (`Shared/App/DemoMode.swift`, works in Release; UI test `UITests/DemoModeTests.swift`):
+
+- ✅ Phone `+1 555 010 0199` (555-01xx numbers are reserved for fiction, so it can't be a real account) skips
+  Telegram; code `24680` opens the demo. The phone step comes first even in builds without app keys.
+- ✅ **Demo library** bundled in `iOS/DemoLibrary` (11 MB): 40 Unsplash photos and 2 short clips, with dates
+  relative to today, places, favourites and albums.
+- ✅ Viewer opens photos, zooms and plays the clips; share and save work (files come from the app bundle).
+- ✅ **Back up now** simulates the backup: 6 waiting items upload with progress bars, then join the timeline.
+  The reviewer's own photos are never marked as backed up, and Free Up Space offers nothing in the demo.
+- ✅ A "Demo library: sample photos, nothing is uploaded" banner stays at the top of every tab.
+- ✅ Telegram never starts in demo mode; Settings shows "Demo account"; **Sign out and reset** leaves demo mode
+  and returns to the welcome screen.
+- [ ] 🧪 Test the whole demo on a clean install of the **TestFlight** build, not a Debug build.
+- [ ] 🔧 Later: the Mac app has no demo mode yet (needed before the Mac App Store submission).
 
 ### 2.2 Proof that the real flow works 📝
 
@@ -117,10 +146,14 @@ Telegram account, using the official Telegram API (TDLib). We run no servers and
 
 DEMO ACCESS (no Telegram account needed):
 1. Tap "Continue with Telegram".
-2. Enter phone number +1 555 010 0199 and tap Next.
-3. Enter code 24680.
-A demo library with sample photos loads; every feature (timeline, viewer, video playback,
-backup progress, selection, sharing, settings) works in the demo.
+2. Enter the phone number +1 555 010 0199 (type it with the +1, or pick United States
+   and enter 5550100199), then tap Continue.
+3. Enter the code 24680.
+4. Choose whether to allow Photos access (either works), then tap "Start using Memvo".
+A demo library with sample photos and videos loads, marked by a banner at the top. Every
+feature works: timeline, pinch to resize, viewer, video playback, selection, sharing,
+albums, settings. On the Backup tab, "Back up now" shows a simulated backup of 6 items.
+In demo mode nothing is uploaded and no Telegram connection is made.
 
 REAL FLOW: signing in with a real number sends the login code to that account's Telegram app.
 A video of the real sign-in and backup is here: <link>
@@ -175,8 +208,9 @@ no manifest of its own and calls `stat`/`statfs`, which the app manifest covers.
 `TARGETED_DEVICE_FAMILY = "1,2"` means you claim iPad support, so the reviewer may test on an iPad, and iPad
 screenshots become mandatory.
 
-- [ ] 🔧 **Recommended for v1:** set `TARGETED_DEVICE_FAMILY: "1"` (iPhone only) in `project.yml`. Reviewers
-      still run iPhone apps on iPad in compatibility mode, so the app must not crash or look broken there.
+- ✅ **iPhone only for v1:** `TARGETED_DEVICE_FAMILY: "1"` in `project.yml`, so no iPad screenshots are needed.
+- [ ] 🧪 Reviewers still run iPhone apps on iPad in compatibility mode: open the app once on an iPad simulator and
+      check nothing crashes or looks broken.
 - [ ] 🧪 Or keep iPad: then test every screen on an iPad simulator in both orientations, plus Split View and Stage
       Manager, and make 13" iPad screenshots.
 
@@ -223,9 +257,17 @@ standard and published algorithms, used to protect the user's own data, which co
 
 ---
 
-## Phase 4 — Privacy policy and support pages 📝
+## Phase 4 — Privacy policy and support pages ✅
 
-Host both on GitHub Pages (free), e.g. `https://shahil-kv.github.io/<app>/privacy`.
+Both are live (Cloudflare, deployed on every push to main):
+
+- **Privacy Policy URL:** https://memvo.mshahilkv.workers.dev/privacy (built from [PRIVACY.md](../PRIVACY.md) by
+  `Scripts/website-pages.py`; the app's About screen links here).
+- **Support URL:** https://github.com/shahil-kv/Memvo/blob/main/SUPPORT.md (contact email, FAQ, how to report a
+  problem).
+- **Marketing URL:** https://memvo.mshahilkv.workers.dev
+
+What the policy covers, for reference:
 
 - [ ] 📝 **Privacy policy**, in plain words, covering:
   - Who you are (your name, contact email).
@@ -308,7 +350,7 @@ Templates to adapt:
   This app uses the Telegram API. It is not affiliated with or endorsed by Telegram.
   Storage in your Telegram account is subject to Telegram's terms.
   ```
-- [ ] Copyright: `2026 <Your Legal Name>`.
+- [ ] Copyright: `2026 <Your Legal Name>` (the name on your Apple Developer account).
 - [ ] Support URL, Privacy URL, (Marketing URL).
 
 ### 5.5 Screenshots
@@ -327,8 +369,8 @@ Templates to adapt:
 External TestFlight goes through a light Beta App Review. It's the cheapest way to catch problems before the real
 review.
 
-- [ ] Archive: Xcode → Product → Archive (Release, Generic iOS Device), then Distribute → App Store Connect → Upload.
-      Or use CI.
+- [ ] Upload: Actions → Release (with the App Store Connect secrets set, it signs and uploads automatically; see
+      the workflow above), or Xcode → Product → Archive → Distribute → App Store Connect → Upload.
 - [ ] Fix any email from App Store Connect after upload (ITMS-9xxxx warnings: privacy manifest, missing usage
       strings, icons).
 - [ ] Internal testing on your own iPhone: run the whole Phase 3.5 list on the TestFlight build.
@@ -371,8 +413,9 @@ If a reply doesn't help, you can appeal to the App Review Board (App Store Conne
 
 - [ ] Release manually.
 - [ ] Watch crashes in Xcode Organizer → Crashes for the first week.
-- [ ] Keep the Telegram app account (Phase 0) active. Telegram deletes inactive accounts, by default after 6 months;
-      set *Settings → Privacy → Delete my account if away* to the maximum.
+- [ ] Keep the Telegram app account (Phase 0) active. Telegram deletes accounts that stay offline for a set time;
+      set *Settings → Privacy and Security → Delete my account → If away for* to the maximum, and open the app now
+      and then.
 - [ ] Before each update: re-run Phase 3.5, bump `CURRENT_PROJECT_VERSION`, and keep the demo mode working, because
       every update is reviewed again.
 - [ ] If Telegram ever revokes the api_id: create a new one on the app account, ship an update. Users meanwhile can
@@ -392,11 +435,13 @@ If a reply doesn't help, you can appeal to the App Review Board (App Store Conne
 | Background task identifiers | ✅ done |
 | Separate Telegram account for api_id | ⬜ Phase 0 |
 | GPL-3.0 + CLA, acknowledgements in About | ✅ Phase 1.1 |
-| New app name + original icon | ⬜ Phase 1.2 |
-| Reviewer demo mode (Release build, real sample media) | ⬜ Phase 2.1 |
+| New app name | ✅ Memvo |
+| Original icon | ⬜ Phase 1.2 |
+| Reviewer demo mode (Release build, real sample media) | ✅ Phase 2.1 · ⬜ test on TestFlight |
 | PrivacyInfo.xcprivacy (iOS and Mac) | ✅ Phase 3.1 |
-| iPhone-only or full iPad support decision | ⬜ Phase 3.3 |
+| iPhone-only or full iPad support decision | ✅ iPhone only (Phase 3.3) |
 | Privacy policy link + sign-out & remove data in Settings | ✅ Phase 3.4 |
-| Privacy policy + support pages (PRIVACY.md, SUPPORT.md, docs/FAQ.md) | ✅ written · ⬜ host on GitHub Pages |
+| Privacy policy + support pages | ✅ live (Phase 4) |
+| TestFlight upload from CI | ✅ workflow ready · ⬜ App Store Connect secrets (step 6 of the workflow) |
 | App Store Connect listing, privacy label, screenshots | ⬜ Phase 5 |
 | TestFlight external beta passed | ⬜ Phase 6 |

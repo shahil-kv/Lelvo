@@ -42,7 +42,12 @@ final class BackupStatsModel: ObservableObject {
             let idleQueue = queued.count - activeQueue
             let all = (try? env.store.items(status: .backedUp)) ?? []
             var onDevice = 0, notQueued = 0, cloudOnly = 0
-            if PhotoLibraryService.hasAccess {
+            if DemoMode.isActive {
+                // App Review demo: the sample items waiting for "Back up now" stand in for this iPhone's photos.
+                notQueued = DemoMode.pendingItems().count
+                onDevice = notQueued
+                cloudOnly = all.count
+            } else if PhotoLibraryService.hasAccess {
                 let assets = env.photos.fetchAllAssets()
                 onDevice = assets.count
                 let known = (try? env.store.knownLocalIdentifiers()) ?? []

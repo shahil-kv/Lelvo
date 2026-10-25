@@ -1,5 +1,6 @@
 import Foundation
 import ImageIO
+import AVFoundation
 import MemvoCore
 
 /// Thumbnails and full-size originals for cloud items, with an in-memory cache, a 300 MB thumbnail
@@ -26,6 +27,11 @@ final class CloudMediaService: @unchecked Sendable {
 
     func thumbnail(for item: MediaItem) async throws -> PlatformImage {
         if let img = memory.object(forKey: item.id as NSString) { return img }
+        if let demo = DemoMode.fileURL(for: item) {
+            guard let image = Self.downsampled(demo, maxPixel: 400) ?? Self.videoFrame(demo) else { throw MediaReader.ReadError.missing }
+            memory.setObject(image, forKey: item.id as NSString)
+            return image
+        }
         let key = Self.thumbnailKey(item)
         let url = try await inflight.run(key) { [self] in
             if let cached = env.thumbnailCache.url(for: key) { return cached }
@@ -50,6 +56,7 @@ final class CloudMediaService: @unchecked Sendable {
 
     /// Downloads (or returns the cached) full original for photos, sharing and saving.
     func original(for item: MediaItem, role: UploadRole = .original, progress: ((Double) -> Void)? = nil) async throws -> URL {
+        if let demo = DemoMode.fileURL(for: item) { return demo }
         let r = MediaItem.captionRole(role)
         let name = role == .pairedVideo ? (item.pairedVideoFilename ?? "video.mov")
             : role == .edited ? (item.editedFilename ?? item.filename) : item.filename
@@ -76,6 +83,15 @@ final class CloudMediaService: @unchecked Sendable {
             kCGImageSourceThumbnailMaxPixelSize: maxPixel
         ]
         guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, thumbOptions as CFDictionary) else { return nil }
+        return PlatformImage(cgImage: cg)
+    }
+
+    /// First frame of a bundled demo clip (cloud videos get their thumbnail from Telegram).
+    private static func videoFrame(_ url: URL) -> PlatformImage? {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 400, height: 400)
+        guard let cg = try? generator.copyCGImage(at: .zero, actualTime: nil) else { return nil }
         return PlatformImage(cgImage: cg)
     }
 

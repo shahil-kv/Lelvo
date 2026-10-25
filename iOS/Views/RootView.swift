@@ -22,6 +22,7 @@ struct RootView: View {
                         .tag(AppModel.Tab.settings)
                 }
                 .environmentObject(gallery)
+                .safeAreaInset(edge: .top, spacing: 0) { if DemoMode.isActive { DemoBanner() } }
                 .fullScreenCover(isPresented: $model.needsSignIn) {
                     OnboardingView().environmentObject(model)
                 }
@@ -30,5 +31,18 @@ struct RootView: View {
             }
         }
         .animation(.default, value: model.onboardingComplete)
+    }
+}
+
+/// Always visible in the App Review demo, so the sample library is never mistaken for a real one.
+private struct DemoBanner: View {
+    var body: some View {
+        Label("Demo library: sample photos, nothing is uploaded", systemImage: "info.circle.fill")
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .accessibilityIdentifier("demoBanner")
     }
 }

@@ -295,6 +295,10 @@ struct ViewerPage: View {
         }
         do {
             switch item.kind {
+            case .video where DemoMode.fileURL(for: item) != nil:
+                let playerItem = AVPlayerItem(url: DemoMode.fileURL(for: item)!)
+                trace = VideoTrace(item: playerItem, name: item.filename, source: "demo")
+                content = .video(AVPlayer(playerItem: playerItem))
             case .video:
                 // Stream byte ranges straight from Telegram: no full download needed.
                 // Edited in Photos (e.g. trimmed): play the edit, as Photos would.
