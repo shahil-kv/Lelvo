@@ -181,6 +181,31 @@
     steps[0].classList.add("is-active");
   }
 
+  // Support page: pick one-time or monthly and an amount, then go to GitHub Sponsors with both filled in.
+  const give = document.querySelector(".give");
+  if (give) {
+    const user = give.dataset.sponsor;
+    const go = give.querySelector(".give-go");
+    const other = give.querySelector(".other input");
+    const presets = [...give.querySelectorAll("[data-amount]")];
+    const freqs = [...give.querySelectorAll("[data-frequency]")];
+    let frequency = "one-time", amount = 0;
+    const update = () => {
+      presets.forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.amount) === amount && !other.value)));
+      freqs.forEach((b) => b.setAttribute("aria-checked", String(b.dataset.frequency === frequency)));
+      give.querySelectorAll("[data-note]").forEach((n) => { n.hidden = n.dataset.note !== frequency; });
+      const ok = amount >= 1;
+      go.setAttribute("aria-disabled", String(!ok));
+      go.textContent = ok ? `Support with $${amount}${frequency === "recurring" ? " a month" : ""}` : "Choose an amount";
+      // GitHub takes whole dollars.
+      go.href = `https://github.com/sponsors/${user}/sponsorships?frequency=${frequency}${ok ? `&amount=${amount}` : ""}`;
+    };
+    presets.forEach((b) => b.addEventListener("click", () => { other.value = ""; amount = Number(b.dataset.amount); update(); }));
+    freqs.forEach((b) => b.addEventListener("click", () => { frequency = b.dataset.frequency; update(); }));
+    other.addEventListener("input", () => { amount = Math.round(Number(other.value)) || 0; update(); });
+    update();
+  }
+
   // FAQ: answers slide open and closed instead of jumping.
   document.querySelectorAll(".faq details").forEach((d) => {
     const summary = d.querySelector("summary");

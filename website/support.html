@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support Memvo</title>
+  <meta name="description" content="Memvo is free and open source. Support keeps it on the App Store and keeps it improving: Apple's yearly fee, test devices and development time.">
+  <link rel="canonical" href="https://memvo.mshahilkv.workers.dev/support">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://memvo.mshahilkv.workers.dev/support">
+  <meta property="og:title" content="Support Memvo">
+  <meta property="og:description" content="Memvo is free and open source. Support keeps it on the App Store and keeps it improving.">
+  <meta property="og:image" content="https://memvo.mshahilkv.workers.dev/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="theme-color" content="#F3F5F4">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="preload" href="fonts/BricolageGrotesque-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="fonts/fonts.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/lenis.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="bar">
+      <a class="wordmark" href="./" aria-label="Memvo home">
+        <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="7" width="26" height="20" rx="4"/><path d="M8 23l6-7 4 4 3-3 4 6z"/><circle cx="22" cy="12.5" r="2.2"/></svg>
+        Memvo
+      </a>
+      <nav aria-label="Main">
+        <a href="./#features">Features</a>
+        <a href="./#how">How it works</a>
+        <a href="./#faq">Questions</a>
+        <a class="nav-support" href="support" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.6-7 10-7 10z"/></svg>Support</a>
+        <a class="nav-github" href="https://github.com/shahil-kv/Memvo">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="support" aria-labelledby="support-title">
+      <div class="support-text">
+        <h1 id="support-title">Enjoying Memvo?</h1>
+        <p class="lede">Memvo is free and open source, and it stays that way. There's no paid plan, no ads and nothing locked. That also means the only thing that keeps it going is support from the people who use it. If Memvo saves you a storage plan, consider giving a little of that back.</p>
+
+        <h2 class="costs-title">Where your support goes</h2>
+        <dl class="costs">
+          <div>
+            <dt>Apple's yearly fee <span>$99 a year</span></dt>
+            <dd>Apple charges every developer to publish on the App Store and TestFlight. Without it, Memvo can't be installed the normal way.</dd>
+          </div>
+          <div>
+            <dt>Devices for testing</dt>
+            <dd>iPhones and Macs on different versions of iOS and macOS, so an update never breaks someone's backup.</dd>
+          </div>
+          <div>
+            <dt>Time</dt>
+            <dd>Memvo is built by one developer, in evenings and weekends: new features, keeping up with Telegram and Apple changes, fixing bugs and answering your questions.</dd>
+          </div>
+          <div>
+            <dt>Not servers</dt>
+            <dd>Memvo has none, and your photos live in your own Telegram. Nothing you give goes to hosting; it all goes into the app.</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="give" data-sponsor="shahil-kv">
+        <div class="give-tabs" role="tablist" aria-label="Ways to support">
+          <button role="tab" id="tab-card" aria-controls="panel-card" aria-selected="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10.5h18"/></svg>Card
+          </button>
+        </div>
+
+        <div class="give-panel" role="tabpanel" id="panel-card" aria-labelledby="tab-card">
+          <p class="give-intro">Pay by card through GitHub Sponsors. GitHub takes no fee, so every dollar reaches Memvo.</p>
+          <div class="segmented" role="radiogroup" aria-label="How often">
+            <button role="radio" aria-checked="true" data-frequency="one-time">One-time</button>
+            <button role="radio" aria-checked="false" data-frequency="recurring">Monthly</button>
+          </div>
+          <p class="give-label" id="amount-label">Amount (USD)</p>
+          <div class="amounts" role="group" aria-labelledby="amount-label">
+            <button data-amount="5" aria-pressed="false">$5</button>
+            <button data-amount="10" aria-pressed="false">$10</button>
+            <button data-amount="25" aria-pressed="false">$25</button>
+            <button data-amount="50" aria-pressed="false">$50</button>
+          </div>
+          <label class="other">
+            <span>$</span>
+            <input type="number" inputmode="numeric" min="1" step="1" placeholder="Other amount" aria-label="Other amount in US dollars">
+          </label>
+          <a class="button give-go" href="https://github.com/sponsors/shahil-kv" aria-disabled="true">Choose an amount</a>
+          <p class="give-note" data-note="one-time">A one-time payment. It doesn't renew.</p>
+          <p class="give-note" data-note="recurring" hidden>Every month, until you cancel on GitHub.</p>
+          <p class="give-foot"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 018 0v2.5"/></svg>Payments handled by GitHub Sponsors. You'll sign in to GitHub to pay.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="other-help" aria-labelledby="help-title">
+      <h2 id="help-title">Other ways to help</h2>
+      <ul>
+        <li><a href="https://github.com/shahil-kv/Memvo">Star Memvo on GitHub</a> so more people find it.</li>
+        <li>Tell a friend who's paying for photo storage.</li>
+        <li><a href="https://github.com/shahil-kv/Memvo/issues/new/choose">Report a bug or suggest an idea</a>.</li>
+        <li><a href="https://github.com/shahil-kv/Memvo/blob/main/CONTRIBUTING.md">Contribute code or translations</a>.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Memvo is free software under the <a href="https://github.com/shahil-kv/Memvo/blob/main/LICENSE">GPL-3.0</a>. It uses the Telegram API and isn't made or endorsed by Telegram.</p>
+    <nav aria-label="Footer">
+      <a href="https://github.com/shahil-kv/Memvo">GitHub</a>
+      <a href="https://github.com/shahil-kv/Memvo/blob/main/PRIVACY.md">Privacy</a>
+      <a href="https://github.com/shahil-kv/Memvo/security/advisories/new">Report a security issue</a>
+      <a href="mailto:mshahilkv@gmail.com">Email</a>
+    </nav>
+  </footer>
+</body>
+</html>
