@@ -88,6 +88,9 @@ final class CloudUploader: @unchecked Sendable {
             done.append(MemvoCore.RemoteFile(messageId: message.id, fileId: file.remote.id,
                                                     fileUniqueId: file.remote.uniqueId, size: file.size))
             try checkpoint(done, layout.partCount)
+            // TDLib keeps the upload's temporary file as this file's local copy; it's deleted below, so the first
+            // read when playing from the cloud would fail and retry. Forget it now: reads then go to Telegram directly.
+            await td.deleteLocalCopy(fileId: file.id)
             try? FileManager.default.removeItem(at: partURL)
             progress(Int64(index + 1) * layout.partSize, streamSize)
         }

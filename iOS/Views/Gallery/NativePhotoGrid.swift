@@ -69,12 +69,26 @@ struct NativePhotoGrid: UIViewRepresentable {
         private var viewerCurrentId: String?
         let layout: PinchGridLayout
 
+        private var observers: [NSObjectProtocol] = []
+
         init(_ parent: NativePhotoGrid) {
             self.parent = parent
             appliedColumns = parent.columns
             appliedGrouping = parent.grouping
             layout = PinchGridLayout(columns: parent.columns)
+            super.init()
+            // The grid is on screen again (tab switch, viewer closed): preload the cloud videos it shows.
+            let nc = NotificationCenter.default
+            observers.append(nc.addObserver(forName: .galleryDidAppear, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.preloadVisibleVideos() }
+            })
+            observers.append(nc.addObserver(forName: .viewerWillClose, object: nil, queue: .main) { [weak self] _ in
+                // After the close animation; a cancelled swipe leaves the viewer up and the check below skips it.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { self?.preloadVisibleVideos() } }
+            })
         }
+
+        deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
 
         // MARK: Setup
 

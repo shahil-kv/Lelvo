@@ -130,6 +130,7 @@ struct GalleryView: View {
                         },
                         onViewerPage: { viewerCurrentId = $0 })
             .ignoresSafeArea(edges: .bottom)
+            .onAppear { NotificationCenter.default.post(name: .galleryDidAppear, object: nil) }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if model.authorization == .limited && filter == nil { limitedBanner.padding(.horizontal).padding(.vertical, 6).background(.bar) }
             }

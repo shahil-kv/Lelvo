@@ -839,6 +839,8 @@ extension Notification.Name {
     static let viewerWillClose = Notification.Name("ViewerWillClose")
     /// An interactive close was cancelled; the viewer stays.
     static let viewerCloseCancelled = Notification.Name("ViewerCloseCancelled")
+    /// The photo grid is on screen (it preloads the cloud videos it shows).
+    static let galleryDidAppear = Notification.Name("GalleryDidAppear")
 }
 
 /// UIKit tells the presented screen `viewWillDisappear` as soon as a dismissal starts (including the
