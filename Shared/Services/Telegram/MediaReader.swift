@@ -198,6 +198,14 @@ final class MediaReader: @unchecked Sendable {
         }
     }
 
+    /// Looks up the resource's Telegram files right away, so the player's first read doesn't wait for it.
+    /// Returns how long the lookup took (for the timing log).
+    func warmUp(_ item: MediaItem, role: String) async -> TimeInterval {
+        let started = Date()
+        for part in parts(item, role: role) { _ = try? await tdFileId(for: part) }
+        return Date().timeIntervalSince(started)
+    }
+
     // MARK: - Open players
 
     func streamOpened(_ item: MediaItem, role: String) {

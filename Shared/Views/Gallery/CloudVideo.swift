@@ -238,7 +238,9 @@ final class NeighbourPrefetcher {
             }
             for item in items {
                 if Task.isCancelled { return }
-                await AppEnvironment.shared.reader.prefetch(item, role: VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item))
+                let role = VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item)
+                // A fast version starts from its first ~0.5 MB (index first); an original needs more, plus its tail.
+                await AppEnvironment.shared.reader.prefetch(item, role: role, bytes: role == "sp" ? 512 << 10 : 2 << 20)
             }
         }
     }

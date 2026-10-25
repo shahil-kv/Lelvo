@@ -16,6 +16,8 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
     private let lock = NSLock()
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var plaintextSize: Int64?
+    private let opened = Date()
+    private var firstDataLogged = false
 
     /// AVPlayer gets data in pieces of this size: small, so the first frame can show as soon as the start of the file
     /// arrives (at Telegram's ~1 MB/s a 1 MB piece alone took 1.5 s), and memory stays flat for multi-GB files.
@@ -39,6 +41,15 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
         super.init()
         asset.resourceLoader.setDelegate(self, queue: queue)
         reader.streamOpened(item, role: role)
+        // Find the file while AVPlayer sets up, instead of when it first asks for data; the timing log shows each step
+        // of a cold start (Telegram connection, file lookup, first data, first frame in `VideoTrace`).
+        let title = item.filename, opened = self.opened
+        Task.detached(priority: .userInitiated) { [reader, item, role] in
+            try? await TDService.shared.waitUntilReady(timeout: 30)
+            let ready = Date().timeIntervalSince(opened)
+            let lookup = await reader.warmUp(item, role: role)
+            appLog(String(format: "Video timing: %@ [%@]: Telegram ready %.2f s, file found +%.2f s", title, role, ready, lookup))
+        }
     }
 
     deinit {
@@ -103,6 +114,14 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
             if chunk.isEmpty { break }
             StreamingThroughput.shared.record(bytes: chunk.count, seconds: Date().timeIntervalSince(started))
             data.respond(with: chunk)
+            let first: Bool = lock.withLock {
+                defer { firstDataLogged = true }
+                return !firstDataLogged
+            }
+            if first {
+                appLog(String(format: "Video timing: %@ [%@]: first data (%@ at %lld) after %.2f s",
+                              item.filename, role, Format.bytes(Int64(chunk.count)), offset, Date().timeIntervalSince(opened)))
+            }
             offset += Int64(chunk.count)
         }
     }
