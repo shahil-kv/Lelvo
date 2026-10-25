@@ -80,6 +80,9 @@ final class CloudVideoSession: ObservableObject {
 
     /// Leaving the video: stop playing and let go of its stream, which also stops its download.
     func stop() {
+        if let speed = StreamingThroughput.shared.bytesPerSecond, stream != nil {
+            appLog("Video speed: Telegram delivered about \(Format.bytes(Int64(speed)))/s while \(item.filename) played")
+        }
         stallTask?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -211,10 +214,15 @@ final class ViewerVideoSessions: ObservableObject {
         if session.userChose { chosen[session.item.id] = session.quality }
         session.stop()
     }
+
+    /// The viewer closed: no player may keep downloading in the background.
+    func closeAll() {
+        for id in Array(sessions.keys) { close(id) }
+    }
 }
 
-/// Fetches the start of the neighbouring cloud videos, but only once the video on screen plays smoothly, so they
-/// never take its bandwidth. Moving on cancels the previous fetches and their downloads.
+/// Fetches the start of the neighbouring cloud videos, but only once the video on screen has plenty buffered, so
+/// they never take its bandwidth. Moving on cancels the previous fetches and their downloads.
 @MainActor
 final class NeighbourPrefetcher {
     private var task: Task<Void, Never>?
@@ -236,6 +244,20 @@ final class NeighbourPrefetcher {
     }
 
     func cancel() { task?.cancel() }
+}
+
+extension AVPlayerItem {
+    /// Enough of this video is loaded that fetching others won't make it stall: 15 s ahead, or up to its end.
+    var hasPlentyBuffered: Bool {
+        guard status == .readyToPlay else { return false }
+        let now = currentTime()
+        for range in loadedTimeRanges.map(\.timeRangeValue) where range.containsTime(now) || range.start > now {
+            let end = range.end
+            if (end - now).seconds >= 15 { return true }
+            if duration.isNumeric, (duration - end).seconds < 0.5 { return true }
+        }
+        return false
+    }
 }
 
 /// Spinner over a video while it switches quality (the new version is loading at the same moment).

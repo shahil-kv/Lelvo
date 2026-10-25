@@ -27,6 +27,46 @@ public enum LibraryIndexer {
         public var orphanMessageIds: [Int64]
     }
 
+    /// The messages already known for `item` (minus `scanned`), as `build` needs them when a recent scan only sees an
+    /// item's newer messages. Each role's caption comes from the item itself (that role's own name, size and hash),
+    /// never from whichever message happened to be new: a fast version uploaded later must not become the original.
+    public static func knownMessages(of item: MediaItem, excluding scanned: Set<Int64>) -> [CloudMessage] {
+        let kind: CaptionMeta.Kind = item.kind == .livePhoto ? .live : (item.kind == .video ? .video : .photo)
+        var out: [CloudMessage] = []
+        for (role, parts) in item.cloudParts ?? [:] {
+            guard let r = CaptionMeta.Role(rawValue: role) else { continue }
+            let name: String, size: Int64
+            switch role {
+            case "o": (name, size) = (item.filename, item.fileSize)
+            case "pv": (name, size) = (item.pairedVideoFilename ?? item.filename, item.pairedVideoSize ?? 0)
+            case "e": (name, size) = (item.editedFilename ?? item.filename, item.editedSize ?? 0)
+            default: (name, size) = (item.filename, parts.reduce(0) { $0 + $1.size })
+            }
+            let hash = item.roleHashes?[role] ?? (role == "o" ? item.sha256 : String(repeating: "0", count: 64))
+            var meta = CaptionMeta(id: item.id, role: r, kind: kind, sha256: hash, name: name, size: size)
+            meta.m = item.mimeType
+            meta.t = item.creationDate.map { Int64($0.timeIntervalSince1970) }
+            meta.tz = item.tzOffsetMinutes
+            if let lat = item.latitude, let lon = item.longitude { meta.g = [lat, lon] }
+            if item.pixelWidth > 0 { meta.wh = [item.pixelWidth, item.pixelHeight] }
+            meta.d = item.duration
+            meta.c = item.codec
+            meta.hdr = item.hdr
+            meta.a = item.albums
+            meta.fav = item.favorite == true ? 1 : nil
+            meta.l = item.sourceLocalIdentifier
+            meta.ed = role == "o" && item.hasEdit == true ? 1 : nil
+            meta.e = item.encrypted ? 1 : nil
+            let count = item.expectedParts?[role] ?? parts.count
+            for (i, f) in parts.enumerated() where !scanned.contains(f.messageId) {
+                var m = meta
+                m.p = count > 1 ? [Int64(i), Int64(count), 0] : nil
+                out.append(CloudMessage(messageId: f.messageId, meta: m, fileId: f.fileId, uniqueId: f.fileUniqueId, size: f.size))
+            }
+        }
+        return out
+    }
+
     public static func build(_ messages: [CloudMessage]) -> Result {
         var orphans: [Int64] = []
         // id → role → part index → message (lowest message id wins).

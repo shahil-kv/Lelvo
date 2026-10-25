@@ -94,4 +94,20 @@ import MemvoCore
         item.job = JobMachine.reduce(JobStatus(), .start)
         #expect(item.status == .uploading)
     }
+
+    @Test func fastVersionScannedLaterKeepsTheOriginal() {
+        // The original is known locally; a recent scan only sees the fast version uploaded afterwards.
+        let item = LibraryIndexer.build([msg(10, kind: .video, size: 1000)]).items[0]
+        var fast = CaptionMeta(id: id, role: .smoothPreview, kind: .video, sha256: String(repeating: "f", count: 64),
+                               name: "IMG_1-fast.mp4", size: 100)
+        fast.wh = [1920, 1080]
+        let new = CloudMessage(messageId: 20, meta: fast, fileId: "f20", uniqueId: "u20", size: 100)
+        let rebuilt = LibraryIndexer.build(LibraryIndexer.knownMessages(of: item, excluding: [20]) + [new]).items[0]
+        #expect(rebuilt.filename == item.filename)
+        #expect(rebuilt.fileSize == item.fileSize)
+        #expect(rebuilt.sha256 == item.sha256)
+        #expect(rebuilt.roleHashes?["sp"] == String(repeating: "f", count: 64))
+        #expect(rebuilt.hasStreamingCopy)
+        #expect(rebuilt.status == .backedUp)
+    }
 }

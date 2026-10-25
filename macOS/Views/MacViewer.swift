@@ -144,7 +144,10 @@ struct MacViewer: View {
             focused = true
             installSwipeMonitor()
         }
-        .onDisappear { removeSwipeMonitor() }
+        .onDisappear {
+            removeSwipeMonitor()
+            videos.closeAll()
+        }
     }
 
     // MARK: - Open / close
@@ -269,7 +272,7 @@ struct MacViewer: View {
         let videos = self.videos
         prefetcher.schedule(videoItems) {
             guard current.isCloudOnly, current.isVideo else { return true }
-            return videos.sessions[current.id]?.player.currentItem?.isPlaybackLikelyToKeepUp == true
+            return videos.sessions[current.id]?.player.currentItem?.hasPlentyBuffered == true
         }
     }
 }

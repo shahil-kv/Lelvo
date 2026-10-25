@@ -62,6 +62,7 @@ struct ViewerView: View {
             }
         }
         .environmentObject(videos)
+        .onDisappear { videos.closeAll() }
         .overlay(alignment: .top) { if !chromeHidden { topBar.transition(.opacity) } }
         .overlay(alignment: .bottom) { if !chromeHidden { bottomBar.transition(.opacity) } }
         .overlay { if busy { ProgressView().tint(.white).scaleEffect(1.4) } }
@@ -163,7 +164,7 @@ struct ViewerView: View {
         let videos = self.videos
         prefetcher.schedule(items) {
             guard current.isCloudOnly, current.isVideo else { return true }
-            return videos.sessions[current.id]?.player.currentItem?.isPlaybackLikelyToKeepUp == true
+            return videos.sessions[current.id]?.player.currentItem?.hasPlentyBuffered == true
         }
     }
 
@@ -285,6 +286,18 @@ struct ViewerPage: View {
             }
         }
         .task(id: entry.id) { await load() }
+        .onChange(of: isCurrent) { _, now in
+            guard entry.asset == nil, let item = entry.item, item.kind == .video, item.isViewableFromCloud else { return }
+            if now, session == nil {
+                startCloudVideo(item)
+            } else if !now, session != nil {
+                // Swiped away: stop it and its download.
+                videos.close(entry.id)
+                session = nil
+                videoReady = false
+                content = .loading(poster)
+            }
+        }
     }
 
     private func load() async {
@@ -323,16 +336,9 @@ struct ViewerPage: View {
         do {
             switch item.kind {
             case .video:
-                // Stream byte ranges straight from Telegram: no full download needed.
-                // Edited in Photos (e.g. trimmed): play the edit, as Photos would.
-                // The fast version instead on mobile data or a slow connection (Settings → Video quality).
-                let s = videos.open(entry.id, item: item, reader: env.reader)
-                session = s
-                if let playerItem = s.player.currentItem {
-                    trace = VideoTrace(item: playerItem, name: item.filename,
-                                       source: s.quality == .original ? "cloud \(Format.bytes(item.fileSize))" : "cloud fast version")
-                }
-                content = .video(s.player)
+                // Only the page on screen gets a player: a paused player keeps downloading, and the pages next to it
+                // would take bandwidth from the video being watched. Their start is prefetched instead.
+                if isCurrent { startCloudVideo(item) }
             case .livePhoto:
                 let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) { content = .image(image) }
@@ -352,6 +358,18 @@ struct ViewerPage: View {
         } catch {
             content = .unavailable(error.localizedDescription, thumb)
         }
+    }
+
+    /// Streams a cloud video from Telegram (no full download): the fast version when the connection can't carry the
+    /// original (Settings → Video quality), and the edit rather than the original when it was edited in Photos.
+    private func startCloudVideo(_ item: MediaItem) {
+        let s = videos.open(entry.id, item: item, reader: AppEnvironment.shared.reader)
+        session = s
+        if let playerItem = s.player.currentItem {
+            trace = VideoTrace(item: playerItem, name: item.filename,
+                               source: s.quality == .original ? "cloud \(Format.bytes(item.fileSize))" : "cloud fast version")
+        }
+        content = .video(s.player)
     }
 
     static func decode(_ url: URL, maxPixel: CGFloat) async -> UIImage? {

@@ -248,6 +248,16 @@ final class TDService: @unchecked Sendable {
             let observer = uploadObservers[u.file.id]
             lock.unlock()
             observer?(u.file.remote.uploadedSize, u.file.size)
+        case .updateSpeedLimitNotification(let u):
+            // Telegram slows transfers for accounts without Premium and tells clients so; logged (at most every few
+            // minutes) because it explains slow cloud playback that no setting in the app can fix.
+            let now = Foundation.Date()
+            let log: Bool = lock.withLock {
+                guard now.timeIntervalSince(lastSpeedLimitLog) > 300 else { return false }
+                lastSpeedLimitLog = now
+                return true
+            }
+            if log { AppLog.shared.warn("Telegram limited the \(u.isUpload ? "upload" : "download") speed of this account (no Premium)") }
         default:
             break
         }
@@ -629,6 +639,7 @@ final class TDService: @unchecked Sendable {
     }
 
     private var fileGates: [Int: AsyncGate] = [:]
+    private var lastSpeedLimitLog = Foundation.Date.distantPast
     private var loadedChats = Set<Int64>()
 
     /// TDLib only knows chats it has loaded in this session; after a restart the library channel must be

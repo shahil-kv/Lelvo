@@ -73,6 +73,10 @@ struct MemvoMacApp: App {
             env.td.start()
             Task { await env.enforceCacheLimits() }
             Task.detached(priority: .utility) { await GalleryActions.emptyExpiredTrash() }
+            Task.detached(priority: .utility) {
+                guard env.library.needsRepairScan, (try? await env.td.waitUntilReady(timeout: 30)) != nil else { return }
+                _ = try? await env.library.scan(full: true)
+            }
             Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
         case .background:
             env.originalsCache.flush()
