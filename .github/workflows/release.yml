@@ -56,7 +56,7 @@ jobs:
     env:
       TAG: ios-v${{ needs.plan.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Refuse an existing tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -103,7 +103,7 @@ jobs:
     env:
       TAG: macos-v${{ needs.plan.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Refuse an existing tag
         env:
           GH_TOKEN: ${{ github.token }}
