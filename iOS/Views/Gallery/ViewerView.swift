@@ -267,6 +267,8 @@ struct ViewerPage: View {
     }
 
     @State private var content: Content = .loading(nil)
+    /// The photo is shown at screen resolution; zooming in loads more detail once (see `loadFullDetail`).
+    @State private var fullDetailLoaded = false
     /// A cloud video's player and quality (original or fast version).
     @State private var session: CloudVideoSession?
     @EnvironmentObject private var videos: ViewerVideoSessions
@@ -324,6 +326,11 @@ struct ViewerPage: View {
             }
         }
         .task(id: entry.id) { await load() }
+        .onChange(of: zoomed) { _, now in
+            guard now, isCurrent, !fullDetailLoaded, case .image = content else { return }
+            fullDetailLoaded = true
+            Task { await loadFullDetail() }
+        }
         .onChange(of: isCurrent) { _, now in
             guard entry.asset == nil, let item = entry.item, item.kind == .video, item.isViewableFromCloud else { return }
             if now, session == nil {
@@ -410,6 +417,26 @@ struct ViewerPage: View {
                                source: s.quality == .original ? "cloud \(Format.bytes(item.fileSize))" : "cloud fast version")
         }
         content = .video(s.player)
+    }
+
+    /// Zoomed in: replace the screen-size image with up to 4800 px of the original (all of a 12 MP photo; enough of a
+    /// 48 MP one to zoom into, at ~70 MB instead of ~195 MB decoded), like Photos. The zoom and position stay.
+    private func loadFullDetail() async {
+        let env = AppEnvironment.shared
+        let started = Date()
+        let image: UIImage?
+        if let asset = entry.asset {
+            guard asset.mediaType == .image, !asset.mediaSubtypes.contains(.photoLive) else { return }
+            image = await env.photos.image(for: asset, targetSize: CGSize(width: 4800, height: 4800))
+        } else if let item = entry.item, item.kind == .photo, let url = try? await env.media.displayed(for: item) {
+            let long = CGFloat(max(item.pixelWidth, item.pixelHeight))
+            image = await Self.decode(url, maxPixel: long > 0 ? min(4800, long) : 4800)
+        } else {
+            return
+        }
+        guard let image, case .image(let current) = content, image.size.width * image.scale > current.size.width * current.scale else { return }
+        content = .image(image)
+        appLog(String(format: "Photo detail: %@ at %.0f px after %.2f s", entry.item?.filename ?? "photo", max(image.size.width, image.size.height) * image.scale, Date().timeIntervalSince(started)))
     }
 
     static func decode(_ url: URL, maxPixel: CGFloat) async -> UIImage? {
