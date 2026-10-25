@@ -28,7 +28,7 @@ final class CloudMediaService: @unchecked Sendable {
     func thumbnail(for item: MediaItem) async throws -> PlatformImage {
         if let img = memory.object(forKey: item.id as NSString) { return img }
         if let demo = DemoMode.fileURL(for: item) {
-            guard let image = Self.downsampled(demo, maxPixel: 400) ?? Self.videoFrame(demo) else { throw MediaReader.ReadError.missing }
+            guard let image = await Self.demoImage(demo) else { throw MediaReader.ReadError.missing }
             memory.setObject(image, forKey: item.id as NSString)
             return image
         }
@@ -87,11 +87,12 @@ final class CloudMediaService: @unchecked Sendable {
     }
 
     /// First frame of a bundled demo clip (cloud videos get their thumbnail from Telegram).
-    private static func videoFrame(_ url: URL) -> PlatformImage? {
+    private static func demoImage(_ url: URL) async -> PlatformImage? {
+        if let photo = downsampled(url, maxPixel: 400) { return photo }
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 400, height: 400)
-        guard let cg = try? generator.copyCGImage(at: .zero, actualTime: nil) else { return nil }
+        guard let cg = try? await generator.image(at: .zero).image else { return nil }
         return PlatformImage(cgImage: cg)
     }
 
