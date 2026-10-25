@@ -162,8 +162,9 @@ struct ViewerView: View {
     /// playback at once without slowing the current one down.
     private func prefetchNeighbours(of id: String?) {
         guard let id, let i = entries.firstIndex(where: { $0.id == id }) else { prefetcher.cancel(); return }
+        // Cloud videos (their start) and cloud photos (their original): the next one first.
         let items = [i + 1, i - 1].filter(entries.indices.contains).compactMap { j -> MediaItem? in
-            guard let item = entries[j].item, entries[j].isCloudOnly, item.kind == .video, item.isViewableFromCloud else { return nil }
+            guard let item = entries[j].item, entries[j].isCloudOnly, item.isViewableFromCloud else { return nil }
             return item
         }
         let current = entries[i]
@@ -385,9 +386,11 @@ struct ViewerPage: View {
                 }
             case .photo:
                 // Progressive: thumbnail → screen-size decode → full detail when zooming.
+                let opened = Date(), cached = env.media.hasDisplayed(item)
                 let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) {
                     content = .image(image)
+                    CloudMediaService.logPhotoTiming(item, opened: opened, wasCached: cached)
                 } else {
                     content = .unavailable("This file format can't be previewed. Use Share to open it in another app.", thumb)
                 }

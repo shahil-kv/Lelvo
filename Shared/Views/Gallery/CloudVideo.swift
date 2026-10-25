@@ -249,8 +249,8 @@ final class ViewerVideoSessions: ObservableObject {
     }
 }
 
-/// Fetches the start of the neighbouring cloud videos, but only once the video on screen has plenty buffered, so
-/// they never take its bandwidth. Moving on cancels the previous fetches and their downloads.
+/// Fetches the neighbouring cloud items ahead of a swipe (a video's start, a photo's original), but only once a video
+/// on screen has plenty buffered, so they never take its bandwidth. Moving on cancels the previous fetches.
 @MainActor
 final class NeighbourPrefetcher {
     private var task: Task<Void, Never>?
@@ -266,6 +266,10 @@ final class NeighbourPrefetcher {
             }
             for item in items {
                 if Task.isCancelled { return }
+                if item.kind != .video {
+                    await AppEnvironment.shared.media.prefetchPhoto(item)
+                    continue
+                }
                 let role = VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item)
                 // A fast version starts from its first ~0.5 MB (index first); an original needs more, plus its tail.
                 await AppEnvironment.shared.reader.prefetch(item, role: role, bytes: role == "sp" ? 512 << 10 : 2 << 20)

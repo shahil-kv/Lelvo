@@ -38,6 +38,8 @@ final class ViewerImageCache {
             if let asset = entry.asset {
                 img = await env.photos.image(for: asset, targetSize: target)
             } else if let item = entry.item, item.kind == .photo, item.isViewableFromCloud {
+                // Not downloaded yet: fetch it ahead of the arrow key (Wi-Fi, not huge files).
+                await env.media.prefetchPhoto(item)
                 let role = item.hasEdit == true && !item.parts("e").isEmpty ? "e" : "o"
                 if let url = env.originalsCache.url(for: CloudMediaService.originalKey(item, role: role)) {
                     img = await MacViewerPage.decode(url, maxPixel: max(target.width, target.height))
@@ -446,10 +448,12 @@ struct MacViewerPage: View {
                     content = .live(live, still: nil)
                 }
             case .photo:
+                let opened = Date(), cached = env.media.hasDisplayed(item)
                 let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) {
                     content = .image(image)
                     ViewerImageCache.shared.store(image, for: entry.id)
+                    CloudMediaService.logPhotoTiming(item, opened: opened, wasCached: cached)
                 } else {
                     content = .unavailable("This file format can't be previewed. Use Export to open it in another app.", thumb)
                 }
