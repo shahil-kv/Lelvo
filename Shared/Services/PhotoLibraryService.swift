@@ -83,15 +83,9 @@ enum PhotoAvailability {
     }
 }
 
-/// Lets the pre-iOS 18 export path cancel the session from a cancellation handler (the session is thread-safe).
-private struct ExportSessionBox: @unchecked Sendable {
-    let session: AVAssetExportSession
-    init(_ session: AVAssetExportSession) { self.session = session }
-}
-
 enum StreamingCopyError: LocalizedError {
     case unsupported
-    var errorDescription: String? { "This video can't be converted to a 1080p copy. It still plays in original quality." }
+    var errorDescription: String? { "This video can't be converted to a fast version. It still plays in original quality." }
 }
 
 enum PhotoLibraryError: LocalizedError {
@@ -319,8 +313,7 @@ final class PhotoLibraryService: @unchecked Sendable {
         return resources.first { $0.type == type }
     }
 
-    /// A 1080p HEVC copy of a video for streaming (role `sp`): what Photos plays (edits and slow motion applied),
-    /// encoded by the hardware encoder, with its index at the start so playback can begin from the first bytes.
+    /// The fast version of a video (role `sp`) from what Photos plays: edits and slow motion applied.
     func exportStreamingCopy(of asset: PHAsset, to url: URL) async throws -> (url: URL, width: Int, height: Int) {
         let options = PHVideoRequestOptions()
         options.isNetworkAccessAllowed = true
@@ -330,34 +323,7 @@ final class PhotoLibraryService: @unchecked Sendable {
             PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { a, _, _ in cont.resume(returning: a) }
         }
         guard let source else { throw PhotoLibraryError.noOriginalResource }
-        return try await Self.exportStreamingCopy(from: source, to: url)
-    }
-
-    /// The same 1080p copy from any video (a cloud original downloaded from Telegram when it's not on this device).
-    static func exportStreamingCopy(from source: AVAsset, to url: URL) async throws -> (url: URL, width: Int, height: Int) {
-        guard let session = AVAssetExportSession(asset: source, presetName: AVAssetExportPresetHEVC1920x1080) else {
-            throw StreamingCopyError.unsupported
-        }
-        session.shouldOptimizeForNetworkUse = true
-        try? FileManager.default.removeItem(at: url)
-        if #available(iOS 18, *) {
-            try await session.export(to: url, as: .mp4)
-        } else {
-            #if os(iOS)
-            session.outputURL = url
-            session.outputFileType = .mp4
-            let box = ExportSessionBox(session)
-            await withTaskCancellationHandler { await box.session.export() } onCancel: { box.session.cancelExport() }
-            try Task.checkCancellation()
-            if let error = session.error { throw error }
-            guard session.status == .completed else { throw StreamingCopyError.unsupported }
-            #endif
-        }
-        let out = AVURLAsset(url: url)
-        guard let track = try await out.loadTracks(withMediaType: .video).first else { throw StreamingCopyError.unsupported }
-        let (natural, transform) = try await track.load(.naturalSize, .preferredTransform)
-        let shown = natural.applying(transform)
-        return (url, Int(abs(shown.width).rounded()), Int(abs(shown.height).rounded()))
+        return try await StreamingCopyEncoder.encode(source, to: url)
     }
 
     private func renderedImageData(of asset: PHAsset) async throws -> (Data, String?) {

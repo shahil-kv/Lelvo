@@ -67,6 +67,7 @@ struct MacViewer: View {
     @State private var swipeConsumed = false
     @State private var viewerWidth: CGFloat = 0
     @StateObject private var videos = ViewerVideoSessions()
+    @State private var prefetcher = NeighbourPrefetcher()
     @FocusState private var focused: Bool
 
     struct Hero {
@@ -252,17 +253,23 @@ struct MacViewer: View {
         swipeMonitor = nil
     }
 
-    /// Decodes the neighbours' full images and fetches the start of adjacent cloud videos.
+    /// Decodes the neighbours' full images, and fetches the start of adjacent cloud videos once the one on screen
+    /// plays smoothly (so they never slow it down).
     private func prefetchNeighbours() {
-        guard let i = index else { return }
+        guard let i = index else { prefetcher.cancel(); return }
         let screen = NSScreen.main.map { CGSize(width: $0.frame.width * $0.backingScaleFactor * 1.5, height: $0.frame.height * $0.backingScaleFactor * 1.5) }
             ?? CGSize(width: 4096, height: 4096)
-        for j in [i - 1, i + 1, i + 2] where entries.indices.contains(j) {
+        var videoItems: [MediaItem] = []
+        for j in [i + 1, i - 1, i + 2] where entries.indices.contains(j) {
             let e = entries[j]
             ViewerImageCache.shared.preload(e, target: screen)
-            if let item = e.item, e.isCloudOnly, item.kind == .video, item.isViewableFromCloud {
-                AppEnvironment.shared.reader.prefetch(item, role: VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item))
-            }
+            if let item = e.item, e.isCloudOnly, item.kind == .video, item.isViewableFromCloud { videoItems.append(item) }
+        }
+        let current = entries[i]
+        let videos = self.videos
+        prefetcher.schedule(videoItems) {
+            guard current.isCloudOnly, current.isVideo else { return true }
+            return videos.sessions[current.id]?.player.currentItem?.isPlaybackLikelyToKeepUp == true
         }
     }
 }
@@ -330,7 +337,7 @@ struct MacViewerPage: View {
                     }
                     .overlay { if let session { VideoSwitchingOverlay(session: session) } }
                     .overlay(alignment: .topTrailing) {
-                        if let session, session.hasCopy { VideoQualityMenu(session: session).padding(16) }
+                        if let session { VideoQualityMenu(session: session).padding(16) }
                     }
                     .onAppear { if isCurrent { player.play() } }
                     .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }

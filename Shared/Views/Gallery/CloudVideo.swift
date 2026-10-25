@@ -2,14 +2,18 @@ import SwiftUI
 import AVFoundation
 import MemvoCore
 
-/// One cloud video in a viewer: its player, which version plays (original or 1080p copy) and switching between
-/// them at the same moment. With Automatic quality, a stall of a few seconds on the original switches to the copy.
+/// One cloud video in a viewer: its player, which version plays (original or fast version) and switching between
+/// them at the same moment. With Automatic quality, a stall of a few seconds on the original switches to the fast
+/// version.
 @MainActor
 final class CloudVideoSession: ObservableObject {
-    let item: MediaItem
+    @Published private(set) var item: MediaItem
     let player: AVPlayer
     @Published private(set) var quality: VideoQuality
     @Published private(set) var switching = false
+    /// "Make Fast Version" is running, or just failed (shown briefly in the pill).
+    @Published private(set) var making = false
+    @Published private(set) var makeFailed = false
     /// Keeps the resource loader alive while its item plays.
     private var stream: StreamingAsset?
     private let reader: MediaReader
@@ -36,7 +40,7 @@ final class CloudVideoSession: ObservableObject {
         }
     }
 
-    static func name(_ q: VideoQuality) -> String { q == .original ? "the original" : "the 1080p copy" }
+    static func name(_ q: VideoQuality) -> String { q == .original ? "the original" : "the fast version" }
 
     private static func playerItem(_ item: MediaItem, _ quality: VideoQuality, _ reader: MediaReader) -> (AVPlayerItem, StreamingAsset?) {
         // App Review demo: the bundled clip stands in for both versions.
@@ -49,6 +53,37 @@ final class CloudVideoSession: ObservableObject {
     func choose(_ q: VideoQuality) {
         userChose = true
         Task { await switchTo(q) }
+    }
+
+    /// "Make Fast Version" for a video without one (backed up before fast versions, and not on this device).
+    func makeFastVersion() {
+        guard !making, !hasCopy else { return }
+        making = true
+        makeFailed = false
+        let id = item.id
+        Task {
+            do {
+                try await Task.detached(priority: .userInitiated) { try await AppEnvironment.shared.engine.makeFastVersion(itemId: id) }.value
+                if let updated = try? AppEnvironment.shared.store.item(id: id) { item = updated }
+                making = false
+                // The user waited for it: use it now if it's the better fit for this connection.
+                if !userChose, VideoPlayback.initialQuality(for: item) == .streamingCopy { await switchTo(.streamingCopy) }
+            } catch {
+                AppLog.shared.warn("Make fast version of \(item.filename) failed: \(error.localizedDescription)")
+                making = false
+                makeFailed = true
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                makeFailed = false
+            }
+        }
+    }
+
+    /// Leaving the video: stop playing and let go of its stream, which also stops its download.
+    func stop() {
+        stallTask?.cancel()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        stream = nil
     }
 
     private func switchTo(_ q: VideoQuality) async {
@@ -92,21 +127,36 @@ final class CloudVideoSession: ObservableObject {
     }
 }
 
-/// The quality pill in the viewer, shown for cloud videos that have a 1080p copy: says what plays and lets the
-/// user switch to the other version at any time.
+/// The quality pill on cloud videos: says what plays and switches to the other version at any time. Videos
+/// without a fast version offer to make one.
 struct VideoQualityMenu: View {
     @ObservedObject var session: CloudVideoSession
 
+    private var title: String {
+        if session.making { return "Preparing" }
+        if session.makeFailed { return "Couldn't Prepare" }
+        return session.quality == .original ? "Original" : "Fast"
+    }
+
     var body: some View {
         Menu {
-            Section("Video Quality") {
-                option(.original, "Play Original Quality")
-                option(.streamingCopy, "Play 1080p Copy")
+            if session.hasCopy {
+                Section("Video Quality") {
+                    option(.original, "Play Original Quality")
+                    option(.streamingCopy, "Play Fast Version")
+                }
+            } else {
+                Section("This video has no fast version yet") {
+                    Button { session.makeFastVersion() } label: {
+                        Label(session.making ? "Making Fast Version…" : "Make Fast Version", systemImage: "bolt")
+                    }
+                    .disabled(session.making)
+                }
             }
         } label: {
             HStack(spacing: 5) {
-                if session.switching { ProgressView().controlSize(.small).tint(.white) }
-                Text(session.quality == .original ? "Original" : "1080p")
+                if session.switching || session.making { ProgressView().controlSize(.small).tint(.white) }
+                Text(title)
                     .font(.subheadline.weight(.semibold))
                 Image(systemName: "chevron.down").font(.caption2.weight(.bold))
             }
@@ -121,7 +171,7 @@ struct VideoQualityMenu: View {
         .buttonStyle(.plain)
         .fixedSize()
         .accessibilityLabel("Video quality")
-        .accessibilityValue(session.quality == .original ? "Original" : "1080p copy")
+        .accessibilityValue(session.making ? "Preparing fast version" : (session.quality == .original ? "Original" : "Fast version"))
     }
 
     @ViewBuilder private func option(_ q: VideoQuality, _ title: String) -> some View {
@@ -148,8 +198,33 @@ final class ViewerVideoSessions: ObservableObject {
     func close(_ entryId: String) {
         guard let session = sessions.removeValue(forKey: entryId) else { return }
         if session.userChose { chosen[session.item.id] = session.quality }
-        session.player.pause()
+        session.stop()
     }
+}
+
+/// Fetches the start of the neighbouring cloud videos, but only once the video on screen plays smoothly, so they
+/// never take its bandwidth. Moving on cancels the previous fetches and their downloads.
+@MainActor
+final class NeighbourPrefetcher {
+    private var task: Task<Void, Never>?
+
+    func schedule(_ items: [MediaItem], whenReady currentIsReady: @escaping @MainActor () -> Bool) {
+        task?.cancel()
+        guard !items.isEmpty else { return }
+        task = Task {
+            let deadline = Date().addingTimeInterval(20)
+            while !currentIsReady(), Date() < deadline {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                if Task.isCancelled { return }
+            }
+            for item in items {
+                if Task.isCancelled { return }
+                await AppEnvironment.shared.reader.prefetch(item, role: VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item))
+            }
+        }
+    }
+
+    func cancel() { task?.cancel() }
 }
 
 /// Spinner over a video while it switches quality (the new version is loading at the same moment).

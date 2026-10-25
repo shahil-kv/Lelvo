@@ -4,25 +4,28 @@ import Foundation
 public enum VideoQuality: String, Sendable {
     /// The original (or its edit, role `e`): full resolution, full bitrate.
     case original
-    /// The 1080p copy (role `sp`).
+    /// The fast version (role `sp`): at most 1080p, ~2.5 Mbit/s.
     case streamingCopy
 }
 
 /// The user's setting for cloud video playback.
 public enum VideoQualityPreference: String, CaseIterable, Sendable {
-    /// Streaming copy on mobile data or a slow connection, original otherwise.
+    /// Fast version on mobile data or a slow connection, original otherwise.
     case automatic
     /// Always the original, even if it buffers.
     case original
 }
 
-/// When to make a streaming copy (role `sp`) of a video. Like Ente's stream generation, small or already
-/// low-bitrate videos are skipped: they stream fine as they are and a copy would save little.
+/// When to make a fast version (role `sp`) of a video. Telegram sends free accounts about 1 MB/s (8 Mbit/s), while
+/// iPhone videos are 15–60 Mbit/s, so originals can't stream smoothly. Like Ente's streams (720p, 2 Mbit/s), the fast
+/// version is small enough to play at once at that speed. Videos that already stream fine are skipped.
 public enum StreamingCopyPolicy {
-    /// About 1.5× what a 1080p HEVC copy needs; below this the original streams as easily as a copy would.
-    public static let minimumBitsPerSecond: Double = 12_000_000
-    /// Smaller videos load in a moment even on mobile data.
-    public static let minimumBytes: Int64 = 20 << 20
+    /// The fast version's video bitrate: a third of Telegram's typical speed, so it never waits.
+    public static let targetBitsPerSecond: Double = 2_500_000
+    /// Below this the original streams about as easily as a fast version would.
+    public static let minimumBitsPerSecond: Double = 4_000_000
+    /// Smaller videos load in a moment anyway.
+    public static let minimumBytes: Int64 = 4 << 20
     /// A copy at least this much smaller than the original is worth storing.
     public static let maximumSizeRatio = 0.7
 
@@ -41,6 +44,8 @@ public enum StreamingCopyPolicy {
 public enum VideoQualityPolicy {
     /// The original must arrive at least this much faster than it plays, or it would keep stopping to load.
     public static let speedMargin = 1.3
+    /// Until playback has measured the connection: about what Telegram sends free accounts.
+    public static let assumedBytesPerSecond: Double = 1_000_000
     /// The original paused to load for this long while playing: switch to the copy (Automatic only).
     public static let stallSecondsBeforeFallback: TimeInterval = 3
 
@@ -48,8 +53,8 @@ public enum VideoQualityPolicy {
                                bytesPerSecond: Double?, originalBitsPerSecond: Double?) -> VideoQuality {
         guard hasCopy, preference == .automatic else { return .original }
         if isExpensiveNetwork { return .streamingCopy }
-        // Wi-Fi: original unless the connection measured so far is clearly too slow for it.
-        if let speed = bytesPerSecond, let needed = originalBitsPerSecond, speed * 8 < needed * speedMargin {
+        // Wi-Fi: the original when the connection (measured, else Telegram's usual speed) keeps up with it.
+        if let needed = originalBitsPerSecond, (bytesPerSecond ?? assumedBytesPerSecond) * 8 < needed * speedMargin {
             return .streamingCopy
         }
         return .original
@@ -82,7 +87,7 @@ public struct ThroughputEstimator: Sendable {
 }
 
 extension MediaItem {
-    /// A 1080p copy is stored with all of its parts.
+    /// A fast version is stored with all of its parts.
     public var hasStreamingCopy: Bool {
         let have = parts("sp").count
         return have > 0 && have == (expectedParts?["sp"] ?? 1)

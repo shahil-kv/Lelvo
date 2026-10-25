@@ -8,14 +8,15 @@ import MemvoCore
                   pixelWidth: w, pixelHeight: h, duration: seconds, fileSize: mb << 20, status: .backedUp)
     }
 
-    @Test func copiesLargeHighBitrateVideos() {
-        #expect(StreamingCopyPolicy.shouldMake(video(mb: 400, seconds: 60)))            // 4K, ~56 Mbit/s
-        #expect(StreamingCopyPolicy.shouldMake(video(mb: 120, seconds: 60, w: 1920, h: 1080))) // 1080p60, ~17 Mbit/s
+    @Test func copiesVideosTelegramCantStream() {
+        #expect(StreamingCopyPolicy.shouldMake(video(mb: 400, seconds: 60)))                     // 4K, ~56 Mbit/s
+        #expect(StreamingCopyPolicy.shouldMake(video(mb: 28, seconds: 8)))                       // short 4K clip, ~29 Mbit/s
+        #expect(StreamingCopyPolicy.shouldMake(video(mb: 60, seconds: 60, w: 1920, h: 1080)))   // 1080p, ~8 Mbit/s
     }
 
     @Test func skipsSmallLowBitrateAndNonVideos() {
-        #expect(!StreamingCopyPolicy.shouldMake(video(mb: 15, seconds: 3)))                      // under 20 MB
-        #expect(!StreamingCopyPolicy.shouldMake(video(mb: 60, seconds: 60, w: 1920, h: 1080))) // 1080p, ~8 Mbit/s
+        #expect(!StreamingCopyPolicy.shouldMake(video(mb: 3, seconds: 2)))                       // under 4 MB
+        #expect(!StreamingCopyPolicy.shouldMake(video(mb: 20, seconds: 60, w: 1920, h: 1080)))  // ~2.8 Mbit/s already
         var live = video(mb: 400, seconds: 60)
         live.kind = .livePhoto
         #expect(!StreamingCopyPolicy.shouldMake(live))
@@ -42,10 +43,12 @@ import MemvoCore
                                            bytesPerSecond: nil, originalBitsPerSecond: 50e6) == .streamingCopy)
     }
 
-    @Test func wifiPlaysOriginalUnlessMeasuredTooSlow() {
-        // Unknown speed: original.
+    @Test func wifiPlaysOriginalUnlessTooSlow() {
+        // Not measured yet: Telegram's usual ~1 MB/s can't carry a 50 Mbit/s original, but a 5 Mbit/s one is fine.
         #expect(VideoQualityPolicy.initial(preference: .automatic, hasCopy: true, isExpensiveNetwork: false,
-                                           bytesPerSecond: nil, originalBitsPerSecond: 50e6) == .original)
+                                           bytesPerSecond: nil, originalBitsPerSecond: 50e6) == .streamingCopy)
+        #expect(VideoQualityPolicy.initial(preference: .automatic, hasCopy: true, isExpensiveNetwork: false,
+                                           bytesPerSecond: nil, originalBitsPerSecond: 5e6) == .original)
         // 20 MB/s = 160 Mbit/s for a 50 Mbit/s original: original.
         #expect(VideoQualityPolicy.initial(preference: .automatic, hasCopy: true, isExpensiveNetwork: false,
                                            bytesPerSecond: 20e6, originalBitsPerSecond: 50e6) == .original)

@@ -649,7 +649,7 @@ struct BackupOptionsView: View {
     @AppStorage(Prefs.Key.includeScreenshots) private var includeScreenshots = true
     @AppStorage(Prefs.Key.dateFromEnabled) private var dateFromEnabled = false
     @AppStorage(Prefs.Key.dateFrom) private var dateFrom: Double = Date().addingTimeInterval(-365 * 86400).timeIntervalSince1970
-    @AppStorage(Prefs.Key.streamingCopies) private var streamingCopies = false
+    @AppStorage(Prefs.Key.streamingCopies) private var streamingCopies = true
     @AppStorage(Prefs.Key.videoQuality) private var videoQuality = VideoQualityPreference.automatic.rawValue
 
     var body: some View {
@@ -676,13 +676,13 @@ struct BackupOptionsView: View {
             }
 
             Section {
-                Toggle("Make 1080p copies of large videos", isOn: $streamingCopies)
+                Toggle("Make fast versions of videos", isOn: $streamingCopies)
                 Picker("Play cloud videos", selection: $videoQuality) {
                     Text("Automatic").tag(VideoQualityPreference.automatic.rawValue)
                     Text("Original Quality").tag(VideoQualityPreference.original.rawValue)
                 }
             } header: { Text("Videos") } footer: {
-                Text("A 1080p copy plays smoothly on mobile data and slow connections. Copies are made when you back up, use extra space in your Telegram library and never replace the original. Automatic plays the copy on mobile data or a slow connection; you can switch in the video at any time.")
+                Text("A fast version is a small copy (about a tenth of the size) made while a video is backed up, so it plays at once from your Telegram library. The original is always kept. Automatic plays the fast version when the connection is too slow for the original; you can switch in the video at any time.")
             }
         }
         .navigationTitle("Backup options")

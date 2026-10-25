@@ -18,6 +18,7 @@ struct ViewerView: View {
     @State private var busy = false
     @State private var confirmDelete = false
     @StateObject private var videos = ViewerVideoSessions()
+    @State private var prefetcher = NeighbourPrefetcher()
     @Environment(\.dismiss) private var dismiss
 
     /// Set when presented from UIKit (the grid); SwiftUI presentations use `dismiss`.
@@ -104,7 +105,7 @@ struct ViewerView: View {
                 }
                 .accessibilityLabel("Close")
                 Spacer()
-                if let currentId, let session = videos.sessions[currentId], session.hasCopy {
+                if let currentId, let session = videos.sessions[currentId] {
                     VideoQualityMenu(session: session)
                 }
             }
@@ -150,12 +151,19 @@ struct ViewerView: View {
         if let onClose { onClose() } else { dismiss() }
     }
 
+    /// Fetches the start of adjacent cloud videos once the one on screen plays smoothly, so swiping to them starts
+    /// playback at once without slowing the current one down.
     private func prefetchNeighbours(of id: String?) {
-        guard let id, let i = entries.firstIndex(where: { $0.id == id }) else { return }
-        for j in [i - 1, i + 1] where entries.indices.contains(j) {
-            if let item = entries[j].item, entries[j].isCloudOnly, item.kind == .video, item.isViewableFromCloud {
-                AppEnvironment.shared.reader.prefetch(item, role: VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item))
-            }
+        guard let id, let i = entries.firstIndex(where: { $0.id == id }) else { prefetcher.cancel(); return }
+        let items = [i + 1, i - 1].filter(entries.indices.contains).compactMap { j -> MediaItem? in
+            guard let item = entries[j].item, entries[j].isCloudOnly, item.kind == .video, item.isViewableFromCloud else { return nil }
+            return item
+        }
+        let current = entries[i]
+        let videos = self.videos
+        prefetcher.schedule(items) {
+            guard current.isCloudOnly, current.isVideo else { return true }
+            return videos.sessions[current.id]?.player.currentItem?.isPlaybackLikelyToKeepUp == true
         }
     }
 

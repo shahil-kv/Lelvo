@@ -1,6 +1,6 @@
 import XCTest
 
-/// The quality pill on cloud videos with a 1080p copy: shows what plays and switches at any time (issue #10).
+/// The quality pill on cloud videos with a fast version: shows what plays and switches at any time (issue #10).
 /// Runs on the App Review demo library, whose sample videos stand in for both versions.
 final class VideoQualityTests: XCTestCase {
     private var app: XCUIApplication!
@@ -61,27 +61,28 @@ final class VideoQualityTests: XCTestCase {
         XCTAssertTrue(video.waitForExistence(timeout: 5), "The demo library has a video")
         video.tap()
 
-        // Wi-Fi with no measured speed: the original plays, and the pill says so.
+        // Not measured yet: Telegram's usual ~1 MB/s can't carry the original, so the fast version plays first.
         let pill = app.buttons["Video quality"]
         XCTAssertTrue(pill.waitForExistence(timeout: 10))
-        XCTAssertEqual(pill.value as? String, "Original")
+        XCTAssertEqual(pill.value as? String, "Fast version")
+        sleep(2)
+        screenshot("video-quality-fast")
+
+        // Switch to the original at any time…
+        pill.tap()
+        let original = app.buttons["Play Original Quality"]
+        XCTAssertTrue(original.waitForExistence(timeout: 5))
+        screenshot("video-quality-menu")
+        original.tap()
+        let switched = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Original"), object: pill)
+        wait(for: [switched], timeout: 10)
         sleep(2)
         screenshot("video-quality-original")
 
+        // …and back.
         pill.tap()
-        let copy = app.buttons["Play 1080p Copy"]
-        XCTAssertTrue(copy.waitForExistence(timeout: 5))
-        screenshot("video-quality-menu")
-        copy.tap()
-        let switched = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1080p copy"), object: pill)
-        wait(for: [switched], timeout: 10)
-        sleep(2)
-        screenshot("video-quality-copy")
-
-        // And back to the original at any time.
-        pill.tap()
-        app.buttons["Play Original Quality"].tap()
-        let back = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Original"), object: pill)
+        app.buttons["Play Fast Version"].tap()
+        let back = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Fast version"), object: pill)
         wait(for: [back], timeout: 10)
     }
 }

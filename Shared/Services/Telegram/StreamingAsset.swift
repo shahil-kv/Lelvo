@@ -37,10 +37,12 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
         asset = AVURLAsset(url: url)
         super.init()
         asset.resourceLoader.setDelegate(self, queue: queue)
+        reader.streamOpened(item, role: role)
     }
 
     deinit {
         lock.withLock { tasks.values.forEach { $0.cancel() } }
+        reader.streamClosed(item, role: role)
     }
 
     private var contentType: String {

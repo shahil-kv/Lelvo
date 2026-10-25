@@ -70,7 +70,7 @@ enum Prefs {
             Key.allowFreeUpSpace: false,
             Key.gridColumns: 4,
             Key.autoBackup: false,
-            Key.streamingCopies: false,
+            Key.streamingCopies: true,
             Key.videoQuality: VideoQualityPreference.automatic.rawValue,
             Key.onboardingComplete: false
         ])
@@ -90,7 +90,7 @@ enum Prefs {
     /// Off (default): nothing is queued on its own. "Back up now" queues everything not yet in the cloud;
     /// "Back up" on chosen photos queues just those.
     static var autoBackup: Bool { defaults.bool(forKey: Key.autoBackup) }
-    /// Make a 1080p copy of large videos after backing them up, for smooth playback on mobile data (role `sp`).
+    /// Make a small fast version of each video while backing it up, so it plays at once from the cloud (role `sp`).
     static var streamingCopies: Bool { defaults.bool(forKey: Key.streamingCopies) }
     static var videoQuality: VideoQualityPreference {
         VideoQualityPreference(rawValue: defaults.string(forKey: Key.videoQuality) ?? "") ?? .automatic
