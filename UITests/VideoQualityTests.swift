@@ -70,7 +70,7 @@ final class VideoQualityTests: XCTestCase {
 
         // Switch to the original at any time…
         pill.tap()
-        let original = app.buttons["Play Original Quality"]
+        let original = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Play Original Quality")).firstMatch
         XCTAssertTrue(original.waitForExistence(timeout: 5))
         screenshot("video-quality-menu")
         original.tap()
@@ -81,7 +81,7 @@ final class VideoQualityTests: XCTestCase {
 
         // …and back.
         pill.tap()
-        app.buttons["Play Fast Version"].tap()
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Play Fast Version")).firstMatch.tap()
         let back = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Fast version"), object: pill)
         wait(for: [back], timeout: 10)
     }

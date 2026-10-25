@@ -93,6 +93,21 @@ extension MediaItem {
         return have > 0 && have == (expectedParts?["sp"] ?? 1)
     }
 
+    /// Resolution label of a version, from the original's pixel size: "4K", "1080p", "720p"… The fast version is
+    /// at most 1920 pixels on its long side.
+    public func resolutionLabel(_ quality: VideoQuality) -> String? {
+        let long = max(pixelWidth, pixelHeight), short = min(pixelWidth, pixelHeight)
+        guard long > 0, short > 0 else { return nil }
+        let shown = quality == .original ? short : Int((Double(short) * min(1, 1920 / Double(long))).rounded())
+        switch shown {
+        case 2160...: return "4K"
+        case 1440..<2160: return "1440p"
+        case 1080..<1440: return "1080p"
+        case 720..<1080: return "720p"
+        default: return "\(shown)p"
+        }
+    }
+
     /// Average bitrate of the original, from its size and duration.
     public var originalBitsPerSecond: Double? {
         guard let duration, duration > 0, fileSize > 0 else { return nil }

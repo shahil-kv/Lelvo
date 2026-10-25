@@ -533,7 +533,9 @@ final class BackupEngine: @unchecked Sendable {
                 let source = exp.editedURL ?? exp.primaryURL
                 let backedUp = item
                 do {
+                    // Same document thumbnail as the original, so it doesn't show as a blank file in Telegram.
                     _ = try await uploadStreamingCopy(backedUp, laneKey: laneKey,
+                                                      thumbnail: thumbData != nil ? (thumbURL, thumbSize.0, thumbSize.1) : nil,
                                                       encode: { try await StreamingCopyEncoder.encode(AVURLAsset(url: source), to: $0) })
                 } catch {
                     noteStreamingCopyFailure(error, backedUp)
@@ -737,7 +739,7 @@ final class BackupEngine: @unchecked Sendable {
 
     /// Encodes the fast version with `encode` and uploads it as role `sp`. Returns false (and never tries that video
     /// again) when it wouldn't be much smaller than the original, unless `force` (the user asked for it).
-    private func uploadStreamingCopy(_ item: MediaItem, laneKey: String, force: Bool = false,
+    private func uploadStreamingCopy(_ item: MediaItem, laneKey: String, force: Bool = false, thumbnail: (URL, Int, Int)? = nil,
                                      encode: (URL) async throws -> (url: URL, width: Int, height: Int)) async throws -> Bool {
         let store = env.store
         guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
@@ -771,7 +773,7 @@ final class BackupEngine: @unchecked Sendable {
         meta.m = "video/mp4"
         let parts = try await env.uploader.upload(
             itemId: itemId, resource: PreparedResource(role: "sp", fileURL: copy.url, meta: meta),
-            encrypted: item.encrypted, thumbnail: nil, existing: [],
+            encrypted: item.encrypted, thumbnail: thumbnail, existing: [],
             checkpoint: { parts, expected in try store.update(id: itemId) { $0.setParts(parts, role: "sp", expected: expected) } },
             progress: { [weak self] sent, total in
                 Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }

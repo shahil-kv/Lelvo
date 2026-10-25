@@ -132,18 +132,29 @@ final class CloudVideoSession: ObservableObject {
 struct VideoQualityMenu: View {
     @ObservedObject var session: CloudVideoSession
 
+    /// "4K" / "1080p" when the two versions differ in resolution; otherwise "Original" / "Fast".
+    private func label(_ q: VideoQuality) -> String? {
+        let item = session.item
+        guard let mine = item.resolutionLabel(q), mine != item.resolutionLabel(q == .original ? .streamingCopy : .original) else { return nil }
+        return mine
+    }
+
     private var title: String {
         if session.making { return "Preparing" }
         if session.makeFailed { return "Couldn't Prepare" }
-        return session.quality == .original ? "Original" : "Fast"
+        return label(session.quality) ?? (session.quality == .original ? "Original" : "Fast")
+    }
+
+    private func named(_ title: String, _ q: VideoQuality) -> String {
+        label(q).map { "\(title) (\($0))" } ?? title
     }
 
     var body: some View {
         Menu {
             if session.hasCopy {
                 Section("Video Quality") {
-                    option(.original, "Play Original Quality")
-                    option(.streamingCopy, "Play Fast Version")
+                    option(.original, named("Play Original Quality", .original))
+                    option(.streamingCopy, named("Play Fast Version", .streamingCopy))
                 }
             } else {
                 Section("This video has no fast version yet") {

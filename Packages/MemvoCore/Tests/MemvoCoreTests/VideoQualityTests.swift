@@ -75,6 +75,18 @@ import MemvoCore
         #expect(abs(t.bytesPerSecond! - (Double(1 << 21) + 0.3 * (Double(1 << 20) - Double(1 << 21)))) < 1)
     }
 
+    @Test func resolutionLabels() {
+        let fourK = video(mb: 400, seconds: 60)
+        #expect(fourK.resolutionLabel(.original) == "4K")
+        #expect(fourK.resolutionLabel(.streamingCopy) == "1080p")
+        let portrait = video(mb: 100, seconds: 60, w: 1080, h: 1920)
+        #expect(portrait.resolutionLabel(.original) == "1080p")
+        #expect(portrait.resolutionLabel(.streamingCopy) == "1080p")
+        let small = video(mb: 10, seconds: 10, w: 1280, h: 720)
+        #expect(small.resolutionLabel(.streamingCopy) == "720p")
+        #expect(video(mb: 10, seconds: 10, w: 0, h: 0).resolutionLabel(.original) == nil)
+    }
+
     @Test func streamingCopyNeedsAllParts() {
         var item = video(mb: 400, seconds: 60)
         #expect(!item.hasStreamingCopy)
