@@ -54,7 +54,9 @@ runs:
 
     - name: Generate Xcode project
       shell: bash
-      run: xcodegen generate
+      run: |
+        xcodegen generate
+        mkdir -p build   # logs and build products; missing on a fresh checkout without a cache hit
 
     # TDLib (~350 MB) and TDLibKit (~66k lines) dominate build time: keep resolved packages and build products.
     - name: Cache Swift packages and build products
