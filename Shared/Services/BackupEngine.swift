@@ -326,13 +326,6 @@ final class BackupEngine: @unchecked Sendable {
         gate.withLock { laneTask = lanes }
         if isPauseRequested { lanes.cancel() }
         await lanes.value
-        // Originals first; streaming copies only with time left (they're optional). Pause cancels them like the lanes.
-        if !isPauseRequested {
-            let copies = Task { _ = await makeStreamingCopies(deadline: deadline, isCancelled: isCancelled) }
-            gate.withLock { laneTask = copies }
-            if isPauseRequested { copies.cancel() }
-            await copies.value
-        }
 
         let counts = await counter.snapshot()
         summary.uploaded = counts.uploaded
@@ -717,40 +710,6 @@ final class BackupEngine: @unchecked Sendable {
     }
 
     // MARK: - Fast versions (role `sp`)
-
-    /// Fast versions for backed-up videos still on this device that don't have one yet (backed up before fast
-    /// versions existed), made from the local file, newest first, after the originals. Nothing is downloaded.
-    @discardableResult
-    func makeStreamingCopies(deadline: Date?, isCancelled: @escaping @Sendable () -> Bool) async -> Int {
-        guard Prefs.streamingCopies, !DemoMode.isActive else { return 0 }
-        let candidates = ((try? env.store.items(status: .backedUp)) ?? []).filter {
-            $0.cloudParts != nil && $0.localIdentifier != nil && $0.streamingCopySkipped != true && !$0.hasStreamingCopy
-                && StreamingCopyPolicy.shouldMake($0)
-        }
-        guard !candidates.isEmpty else { return 0 }
-        appLog("Fast versions: \(candidates.count) videos on this \(Device.name) to convert")
-        await publish { $0.message = "Making fast versions of videos…" }
-        var made = 0
-        for candidate in candidates {
-            if Task.isCancelled || isCancelled() || deadline.map({ Date() > $0 }) == true { break }
-            if await blocker() != nil { break }
-            // Encoding is heavy; leave it for a better moment.
-            if ProcessInfo.processInfo.isLowPowerModeEnabled { break }
-            guard let item = try? env.store.item(id: candidate.id), item.status == .backedUp, !item.hasStreamingCopy,
-                  let localId = item.localIdentifier, let asset = env.photos.asset(localIdentifier: localId) else { continue }
-            await waitForFloodPause(isCancelled: isCancelled)
-            await paceUploadStart()
-            do {
-                if try await uploadStreamingCopy(item, laneKey: "copy", encode: { try await self.env.photos.exportStreamingCopy(of: asset, to: $0) }) {
-                    made += 1
-                }
-            } catch {
-                noteStreamingCopyFailure(error, item)
-            }
-        }
-        if made > 0 { appLog("Fast versions: \(made) uploaded") }
-        return made
-    }
 
     /// "Make Fast Version" in the viewer: the fast version of one video, now. A video that's no longer on this
     /// device is downloaded from Telegram first (the user asked for it; it stays in the viewing cache).

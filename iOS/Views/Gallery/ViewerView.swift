@@ -228,7 +228,7 @@ struct ViewerPage: View {
     }
 
     @State private var content: Content = .loading(nil)
-    /// A cloud video's player and quality (original or 1080p copy).
+    /// A cloud video's player and quality (original or fast version).
     @State private var session: CloudVideoSession?
     @EnvironmentObject private var videos: ViewerVideoSessions
     @State private var pip: AVPictureInPictureController?
@@ -266,7 +266,7 @@ struct ViewerPage: View {
                     .onChange(of: session?.quality) { _, q in
                         // A new item after a quality switch: trace it like the first.
                         if let q, let item = player.currentItem, let name = entry.item?.filename {
-                            trace = VideoTrace(item: item, name: name, source: q == .original ? "cloud original" : "cloud 1080p copy")
+                            trace = VideoTrace(item: item, name: name, source: q == .original ? "cloud original" : "cloud fast version")
                         }
                     }
                     .onAppear { if isCurrent { player.play() } }
@@ -325,12 +325,12 @@ struct ViewerPage: View {
             case .video:
                 // Stream byte ranges straight from Telegram: no full download needed.
                 // Edited in Photos (e.g. trimmed): play the edit, as Photos would.
-                // The 1080p copy instead on mobile data or a slow connection (Settings → Video quality).
+                // The fast version instead on mobile data or a slow connection (Settings → Video quality).
                 let s = videos.open(entry.id, item: item, reader: env.reader)
                 session = s
                 if let playerItem = s.player.currentItem {
                     trace = VideoTrace(item: playerItem, name: item.filename,
-                                       source: s.quality == .original ? "cloud \(Format.bytes(item.fileSize))" : "cloud 1080p copy")
+                                       source: s.quality == .original ? "cloud \(Format.bytes(item.fileSize))" : "cloud fast version")
                 }
                 content = .video(s.player)
             case .livePhoto:

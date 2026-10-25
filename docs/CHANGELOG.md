@@ -20,9 +20,9 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   connects to Telegram.
 - New website pages: [changelog](https://memvo.mshahilkv.workers.dev/changelog) and
   [privacy policy](https://memvo.mshahilkv.workers.dev/privacy).
-- **Smoother cloud videos:** optional 1080p copies of large videos play on mobile data and slow connections, with a
-  quality button in the viewer to switch to the original at any time (Settings → Backup options → Videos). Videos start
-  faster when you swipe to them.
+- **Fast cloud videos:** each video you back up also gets a small fast version (about a tenth of the size), so it
+  plays at once from your Telegram library. The quality button in the viewer switches to the original at any time,
+  and older videos can get one with Make Fast Version.
 - **Recently Deleted for your backup:** deleting from the cloud keeps the item for 30 days, so you can recover it.
 - Versions restart at **0.1.0** for both apps in this repository, released with a one-button Release workflow. Compiler warnings fixed on both platforms.
 

@@ -294,7 +294,7 @@ struct MacViewerPage: View {
     }
 
     @State private var content: Content
-    /// A cloud video's player and quality (original or 1080p copy).
+    /// A cloud video's player and quality (original or fast version).
     @State private var session: CloudVideoSession?
     @EnvironmentObject private var videos: ViewerVideoSessions
     @State private var poster: PlatformImage?
@@ -425,7 +425,7 @@ struct MacViewerPage: View {
             switch item.kind {
             case .video:
                 // Stream byte ranges straight from Telegram; play the edit when there is one, like Photos, or the
-                // 1080p copy on a slow or metered connection (Settings → Video quality).
+                // fast version on a slow or metered connection (Settings → Video quality).
                 let s = videos.open(entry.id, item: item, reader: env.reader)
                 session = s
                 content = .video(s.player)

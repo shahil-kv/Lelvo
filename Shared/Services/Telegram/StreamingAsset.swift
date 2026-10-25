@@ -17,8 +17,9 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var plaintextSize: Int64?
 
-    /// AVPlayer pulls at most this much per response; keeps memory flat for multi-GB files.
-    private static let slice: Int64 = 1 << 20
+    /// AVPlayer gets data in pieces of this size: small, so the first frame can show as soon as the start of the file
+    /// arrives (at Telegram's ~1 MB/s a 1 MB piece alone took 1.5 s), and memory stays flat for multi-GB files.
+    private static let slice: Int64 = 256 << 10
 
     init(item: MediaItem, role: String = "o", reader: MediaReader) {
         self.item = item
@@ -126,7 +127,7 @@ final class StreamingThroughput: @unchecked Sendable {
 
 /// Which stored file plays for a cloud video.
 enum VideoPlayback {
-    /// The 1080p copy (`sp`), or what the user sees in Photos: the edit when there is one, else the original.
+    /// The fast version (`sp`), or what the user sees in Photos: the edit when there is one, else the original.
     static func role(_ quality: VideoQuality, for item: MediaItem) -> String {
         if quality == .streamingCopy, item.hasStreamingCopy { return "sp" }
         return item.hasEdit == true && !item.parts("e").isEmpty ? "e" : "o"
