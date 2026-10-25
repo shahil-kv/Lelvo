@@ -69,7 +69,8 @@ struct ViewerView: View {
         .overlay(alignment: .top) { if !chromeHidden { topBar.transition(.opacity) } }
         .overlay(alignment: .bottom) { if !chromeHidden { bottomBar.transition(.opacity) } }
         .overlay { if busy { ProgressView().tint(.white).scaleEffect(1.4) } }
-        .overlay(alignment: .bottom) { if let saveProgress { saveBanner(saveProgress).padding(.bottom, 90) } }
+        // Under the top bar, where it covers neither the picture's centre nor the video controls.
+        .overlay(alignment: .top) { if let saveProgress { saveBanner(saveProgress).padding(.top, 58).transition(.opacity) } }
         .statusBarHidden(chromeHidden)
         .background(CloseObserver())
         .sheet(isPresented: $showInfo) {
@@ -207,38 +208,31 @@ struct ViewerView: View {
         }
     }
 
-    /// The original downloads from Telegram (it can be large); shows how far it is and lets the user stop it.
+    /// The original downloads from Telegram (it can be large): a slim bar showing how far it is, with a way to stop it.
     private func saveBanner(_ progress: Double) -> some View {
         let total = current?.item?.fileSize ?? 0
-        return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Downloading the original… \(Int(progress * 100))%").font(.subheadline.weight(.semibold))
-                ProgressView(value: progress).tint(.white)
+        return VStack(spacing: 7) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle").font(.subheadline.weight(.semibold))
+                Text("Saving original \(Int(progress * 100))%").font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
                 if total > 0 {
-                    Text("\(Format.bytes(Int64(Double(total) * progress))) of \(Format.bytes(total))").font(.caption).foregroundStyle(.secondary)
+                    Text("\(Format.bytes(Int64(Double(total) * progress))) / \(Format.bytes(total))")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
+                Button { saveTask?.cancel() } label: {
+                    Image(systemName: "xmark.circle.fill").font(.title3).symbolRenderingMode(.hierarchical)
+                }
+                .accessibilityLabel("Cancel saving")
             }
-            Button("Cancel") { saveTask?.cancel() }.font(.subheadline.weight(.semibold))
+            ProgressView(value: progress).tint(.white)
         }
         .foregroundStyle(.white)
-        .padding(14)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
         .environment(\.colorScheme, .dark)
         .padding(.horizontal, 16)
-        .accessibilityElement(children: .combine)
-    }
-
-    private func deleteCurrent() async {
-        guard let item = current?.item else { return }
-        busy = true
-        defer { busy = false }
-        do {
-            try await GalleryActions.deleteFromCloud([item])
-            Haptics.success()
-            if current?.isCloudOnly == true { close() }
-        } catch {
-            message = GalleryAlert(title: "Couldn't delete", message: error.localizedDescription)
-        }
     }
 }
 
