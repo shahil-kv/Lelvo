@@ -288,3 +288,63 @@ import MemvoCore
         #expect(decoded.l == "A/L0/001")
     }
 }
+
+@Suite struct CloudTrashTests {
+    func backedUp() -> MediaItem {
+        var item = MediaItem(localIdentifier: "A", sha256: "h", filename: "IMG_1.HEIC", kind: .photo, creationDate: nil, fileSize: 10, status: .backedUp)
+        item.setParts([RemoteFile(messageId: 1, fileId: "f", fileUniqueId: "u", size: 10)], role: "o", expected: 1)
+        return item
+    }
+
+    @Test func trashKeepsMessagesAndStopsCountingAsBackedUp() {
+        var item = backedUp()
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        CloudTrash.trash(&item, now: now)
+        #expect(item.status == .trashed)
+        #expect(item.trashedAt == now)
+        #expect(item.allMessageIds == [1])
+        #expect(!item.isViewableFromCloud)
+        #expect(CloudTrash.daysLeft(item, now: now) == 30)
+    }
+
+    @Test func onlyBackedUpItemsCanBeTrashed() {
+        var item = backedUp()
+        item.status = .uploading
+        CloudTrash.trash(&item)
+        #expect(item.status == .uploading)
+        #expect(item.trashedAt == nil)
+    }
+
+    @Test func expiresAfterThirtyDays() {
+        var item = backedUp()
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        CloudTrash.trash(&item, now: now)
+        #expect(!CloudTrash.isExpired(item, now: now.addingTimeInterval(29 * 86400)))
+        #expect(CloudTrash.daysLeft(item, now: now.addingTimeInterval(60)) == 30)
+        #expect(CloudTrash.daysLeft(item, now: now.addingTimeInterval(29.5 * 86400)) == 1)
+        #expect(CloudTrash.daysLeft(item, now: now.addingTimeInterval(31 * 86400)) == 0)
+        #expect(CloudTrash.isExpired(item, now: now.addingTimeInterval(30 * 86400)))
+    }
+
+    @Test func missingDateNeverExpires() {
+        var item = backedUp()
+        item.status = .trashed
+        #expect(!CloudTrash.isExpired(item, now: .distantFuture))
+    }
+
+    @Test func recoverRestoresBackedUp() {
+        var item = backedUp()
+        CloudTrash.trash(&item)
+        CloudTrash.recover(&item)
+        #expect(item.status == .backedUp)
+        #expect(item.trashedAt == nil)
+    }
+
+    @Test func trashedStatusSurvivesEncoding() throws {
+        var item = backedUp()
+        CloudTrash.trash(&item, now: Date(timeIntervalSince1970: 5))
+        let decoded = try JSONDecoder().decode(MediaItem.self, from: JSONEncoder().encode(item))
+        #expect(decoded.status == .trashed)
+        #expect(decoded.trashedAt == Date(timeIntervalSince1970: 5))
+    }
+}
