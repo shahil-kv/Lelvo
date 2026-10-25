@@ -121,15 +121,15 @@ final class CloudVideoSession: ObservableObject {
         }
     }
 
-    /// Once about a second is buffered, start instead of waiting for AVPlayer's larger "won't stall" buffer: the fast
-    /// version arrives about twice as fast as it plays, so it keeps ahead. Stalls later are still handled by AVPlayer.
+    /// Once half a second is buffered, start instead of waiting for AVPlayer's larger "won't stall" buffer: measured
+    /// speeds deliver the fast version two to four times faster than it plays, so it keeps ahead. Stalls later are still handled by AVPlayer.
     private func startSoon() {
         guard startTask == nil else { return }
         startTask = Task { [weak self] in
             while let self, !Task.isCancelled, self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
                 let reason = self.player.reasonForWaitingToPlay
                 if reason == .toMinimizeStalls || reason == .evaluatingBufferingRate, let item = self.player.currentItem,
-                   item.bufferedAhead >= 1 {
+                   item.bufferedAhead >= 0.5 {
                     self.player.playImmediately(atRate: self.player.defaultRate > 0 ? self.player.defaultRate : 1)
                     break
                 }
