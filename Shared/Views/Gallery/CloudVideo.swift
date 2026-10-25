@@ -283,13 +283,13 @@ final class VisibleVideoPreloader {
     /// Enough for a fast version to start: its index and first seconds.
     static let bytes: Int64 = 512 << 10
     private var task: Task<Void, Never>?
-    private var preloaded = Set<String>()
 
     func gridSettled(on entries: [GalleryEntry]) {
         task?.cancel()
         let items = entries.compactMap { e -> MediaItem? in
-            guard e.isCloudOnly, let item = e.item, item.kind == .video, item.hasStreamingCopy, item.isViewableFromCloud,
-                  !preloaded.contains(item.id) else { return nil }
+            // No memory of what was preloaded: the cache can be cleared or trimmed at any time, and fetching a start
+            // that's already downloaded returns at once.
+            guard e.isCloudOnly, let item = e.item, item.kind == .video, item.hasStreamingCopy, item.isViewableFromCloud else { return nil }
             return item
         }.prefix(6)
         guard !items.isEmpty, !NetworkStatus.shared.isExpensive, !DemoMode.isActive else { return }
@@ -301,7 +301,7 @@ final class VisibleVideoPreloader {
             for item in items {
                 if Task.isCancelled { break }
                 await AppEnvironment.shared.reader.prefetch(item, role: "sp", bytes: Self.bytes)
-                if !Task.isCancelled { preloaded.insert(item.id); done += 1 }
+                if !Task.isCancelled { done += 1 }
             }
             if done > 0 { appLog(String(format: "Preloaded the start of %d cloud videos on screen in %.1f s", done, Date().timeIntervalSince(started))) }
         }
