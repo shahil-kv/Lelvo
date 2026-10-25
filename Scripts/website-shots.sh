@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Takes the app screenshots for the website on a dedicated simulator with sample photos.
-#   Scripts/website-shots.sh <folder with sample .jpg/.mp4>    → website/shots/*.png
+#   Scripts/website-shots.sh <folder with sample .jpg/.mp4>    → website/img/<screen>.jpg
 # Uses free-licence sample photos only (never your own library).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -27,6 +27,6 @@ run() { # $1 = appearance, rest = tests
 run light testLibraryScreens testWelcome
 run dark testDenseTimelineAndDarkMode
 xcrun simctl ui "$udid" appearance light
-mkdir -p website/shots
-for f in "$out"/*.png; do sips -Z 1290 "$f" --out "website/shots/$(basename "$f")" >/dev/null; done
-ls website/shots
+mkdir -p website/img
+for f in "$out"/*.png; do sips -s format jpeg -s formatOptions 82 -Z 1320 "$f" --out "website/img/$(basename "$f" .png).jpg" >/dev/null; done
+ls website/img

@@ -1,6 +1,6 @@
 import XCTest
 
-/// Screenshots for the website (website/shots). Not part of the normal test run: it needs real photos in the
+/// Screenshots for the website (website/img). Not part of the normal test run: it needs real photos in the
 /// simulator's library and only does anything when `CG_SCREENSHOT_DIR` is set. Run it with Scripts/website-shots.sh.
 final class WebsiteScreenshots: XCTestCase {
     private var dir: String?
@@ -29,7 +29,7 @@ final class WebsiteScreenshots: XCTestCase {
     }
 
     func testLibraryScreens() {
-        let app = launchLibrary(columns: 3)
+        let app = launchLibrary(columns: 4)
         let grid = app.collectionViews["galleryGrid"]
         shot("timeline")
 
