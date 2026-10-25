@@ -74,3 +74,5 @@ open an issue first so the work is coordinated.
 - Only submit work you have the right to submit. Don't paste code from other projects unless its license is
   compatible and you say where it came from.
 - Everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+Maintainers: the day-to-day process (triage, reviews, releases, connected services) is in [MAINTAINING.md](MAINTAINING.md).
