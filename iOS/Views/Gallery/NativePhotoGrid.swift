@@ -154,6 +154,7 @@ struct NativePhotoGrid: UIViewRepresentable {
             dataSource?.apply(snapshot, animatingDifferences: false)
             // Same ids with new content (e.g. a backup finished): update visible tiles and headers in place.
             refreshVisible()
+            preloadVisibleVideos()
         }
 
         private func refreshVisible() {
@@ -397,9 +398,24 @@ struct NativePhotoGrid: UIViewRepresentable {
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             finishSettle()
             parent.motion.isScrolling = true
+            VisibleVideoPreloader.shared.cancel()
         }
-        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { parent.motion.isScrolling = false } }
-        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { parent.motion.isScrolling = false }
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            guard !decelerate else { return }
+            parent.motion.isScrolling = false
+            preloadVisibleVideos()
+        }
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            parent.motion.isScrolling = false
+            preloadVisibleVideos()
+        }
+
+        /// The cloud videos on screen start instantly when tapped (`VisibleVideoPreloader`).
+        private func preloadVisibleVideos() {
+            // Not while the viewer (or anything else) is open over the grid.
+            guard let cv = collectionView, cv.window?.rootViewController?.presentedViewController == nil else { return }
+            VisibleVideoPreloader.shared.gridSettled(on: entriesAt(cv.indexPathsForVisibleItems.sorted()))
+        }
 
         // MARK: Prefetching
 
@@ -424,6 +440,7 @@ struct NativePhotoGrid: UIViewRepresentable {
         /// Presents the viewer with the system zoom from the tile (and back into the tile of the item on screen).
         private func openViewer(_ entry: GalleryEntry, from cv: UICollectionView) {
             guard let presenter = cv.window?.rootViewController?.topmostPresented else { return }
+            VisibleVideoPreloader.shared.cancel()
             viewerCurrentId = entry.id
             parent.onViewerPage(entry.id)
             var host: UIViewController?

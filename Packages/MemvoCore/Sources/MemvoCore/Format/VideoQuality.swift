@@ -4,7 +4,7 @@ import Foundation
 public enum VideoQuality: String, Sendable {
     /// The original (or its edit, role `e`): full resolution, full bitrate.
     case original
-    /// The fast version (role `sp`): at most 1080p, ~2.5 Mbit/s.
+    /// The fast version (role `sp`): at most 1080p, ~2 Mbit/s.
     case streamingCopy
 }
 
@@ -20,8 +20,9 @@ public enum VideoQualityPreference: String, CaseIterable, Sendable {
 /// iPhone videos are 15–60 Mbit/s, so originals can't stream smoothly. Like Ente's streams (720p, 2 Mbit/s), the fast
 /// version is small enough to play at once at that speed. Videos that already stream fine are skipped.
 public enum StreamingCopyPolicy {
-    /// The fast version's video bitrate: a third of Telegram's typical speed, so it never waits.
-    public static let targetBitsPerSecond: Double = 2_500_000
+    /// The fast version's video bitrate (Ente's streams use the same): measured Telegram speeds were 300–900 KB/s,
+    /// and 2 Mbit/s (250 KB/s) stays below even the low end, so playback doesn't stop to load.
+    public static let targetBitsPerSecond: Double = 2_000_000
     /// Below this the original streams about as easily as a fast version would.
     public static let minimumBitsPerSecond: Double = 4_000_000
     /// Smaller videos load in a moment anyway.

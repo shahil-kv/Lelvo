@@ -85,12 +85,13 @@ iPhone camera videos always put it there, so the neighbour prefetch fetches the 
 
 ### Video quality
 
-A video can have a fast version (role `sp`): HEVC at ~2.5 Mbit/s, at most 1080p and 30 fps, `moov` first, encoded by
+A video can have a fast version (role `sp`): HEVC at ~2 Mbit/s, at most 1080p and 30 fps, `moov` first, encoded by
 `StreamingCopyEncoder` (AVAssetReader/Writer, because export presets can't set a bitrate). Telegram sends free
 accounts about 1 MB/s, so iPhone originals (15–60 Mbit/s) can't stream smoothly while the fast version plays at once.
 It's made while the video is backed up, from the file already on the device (`StreamingCopyPolicy`: over 4 MB and
 4 Mbit/s), or on request ("Make Fast Version" in the viewer, which downloads the original once). Optional: a failure
-never affects the backup. `CloudVideoSession` picks the version when a video opens (`VideoQualityPolicy`): the copy on mobile
+never affects the backup. When the iPhone grid comes to rest, `VisibleVideoPreloader` fetches the first 512 KB of
+the fast versions on screen (Wi-Fi only), so tapping one starts at once. `CloudVideoSession` picks the version when a video opens (`VideoQualityPolicy`): the copy on mobile
 data or Low Data Mode, or on Wi-Fi when the speed measured from earlier playback (`StreamingThroughput`) is too slow
 for the original; otherwise the original. With Automatic, a 3 s stall on the original switches to the copy. The
 viewer's quality pill switches either way at the same moment; the user's choice always wins.

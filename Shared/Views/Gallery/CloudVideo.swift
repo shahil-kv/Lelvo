@@ -273,3 +273,39 @@ struct VideoSwitchingOverlay: View {
         }
     }
 }
+
+/// When the grid comes to rest, fetches the start of the fast versions of the cloud videos on screen, so tapping one
+/// starts at once (like Photos and Google Photos). Wi-Fi only, at most a screenful, one at a time; scrolling on or
+/// opening a video cancels it, so it never competes with what's being watched.
+@MainActor
+final class VisibleVideoPreloader {
+    static let shared = VisibleVideoPreloader()
+    /// Enough for a fast version to start: its index and first seconds.
+    static let bytes: Int64 = 512 << 10
+    private var task: Task<Void, Never>?
+    private var preloaded = Set<String>()
+
+    func gridSettled(on entries: [GalleryEntry]) {
+        task?.cancel()
+        let items = entries.compactMap { e -> MediaItem? in
+            guard e.isCloudOnly, let item = e.item, item.kind == .video, item.hasStreamingCopy, item.isViewableFromCloud,
+                  !preloaded.contains(item.id) else { return nil }
+            return item
+        }.prefix(6)
+        guard !items.isEmpty, !NetworkStatus.shared.isExpensive, !DemoMode.isActive else { return }
+        task = Task {
+            // Let a fling settle completely before using the network.
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            let started = Date()
+            var done = 0
+            for item in items {
+                if Task.isCancelled { break }
+                await AppEnvironment.shared.reader.prefetch(item, role: "sp", bytes: Self.bytes)
+                if !Task.isCancelled { preloaded.insert(item.id); done += 1 }
+            }
+            if done > 0 { appLog(String(format: "Preloaded the start of %d cloud videos on screen in %.1f s", done, Date().timeIntervalSince(started))) }
+        }
+    }
+
+    func cancel() { task?.cancel() }
+}
