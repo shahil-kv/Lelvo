@@ -25,12 +25,18 @@ enum GalleryActions {
     }
 
     /// Downloads a cloud item into Photos and links it so it is not uploaded again.
-    static func saveToPhotos(_ item: MediaItem) async throws {
+    /// `progress` (0…1) follows the download of the original, the slow part.
+    static func saveToPhotos(_ item: MediaItem, progress: (@Sendable (Double) -> Void)? = nil) async throws {
         let env = AppEnvironment.shared
+        let started = Date()
         let status = PhotoLibraryService.authorizationStatus
         guard status == .authorized || status == .limited else { throw PhotoLibraryError.notAuthorized }
         // Saves what the user sees (the edit, if any); the untouched original stays in the cloud.
-        let primary = try env.media.shareableCopy(of: try await env.media.displayed(for: item), filename: CloudMediaService.displayedFilename(item))
+        let primary = try env.media.shareableCopy(of: try await env.media.displayed(for: item, progress: progress),
+                                                  filename: CloudMediaService.displayedFilename(item))
+        let took = Date().timeIntervalSince(started)
+        appLog(String(format: "Downloaded %@ to save: %@ in %.0f s (%@/s)", item.filename, Format.bytes(item.fileSize), took,
+                      Format.bytes(Int64(Double(item.fileSize) / max(took, 0.1)))))
         var paired: URL?
         if item.kind == .livePhoto, !item.parts("pv").isEmpty || item.pairedVideo != nil {
             paired = try env.media.shareableCopy(of: try await env.media.original(for: item, role: .pairedVideo),

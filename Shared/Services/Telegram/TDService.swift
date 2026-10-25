@@ -707,7 +707,8 @@ final class TDService: @unchecked Sendable {
     }
 
     /// Downloads the whole file and returns its local path.
-    func download(fileId: Int, priority: Int = 16) async throws -> URL {
+    /// `progress` (downloaded, total bytes) reports a download the user is waiting for; cancelling the task stops it.
+    func download(fileId: Int, priority: Int = 16, progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> URL {
         // Same per-file gate as ranged reads: TDLib runs one download per file and cancels the other
         // ("Canceled by another downloadFile request"), e.g. sharing a video while it streams.
         let gate = fileGate(fileId)
@@ -715,9 +716,28 @@ final class TDService: @unchecked Sendable {
         defer { Task { await gate.release() } }
         do {
             let client = try requireClient()
-            let file = try await client.downloadFile(fileId: fileId, limit: 0, offset: 0, priority: priority, synchronous: true)
-            guard file.local.isDownloadingCompleted else { throw TDServiceError.sendFailed("download incomplete") }
-            return URL(fileURLWithPath: file.local.path)
+            guard let progress else {
+                let file = try await client.downloadFile(fileId: fileId, limit: 0, offset: 0, priority: priority, synchronous: true)
+                guard file.local.isDownloadingCompleted else { throw TDServiceError.sendFailed("download incomplete") }
+                return URL(fileURLWithPath: file.local.path)
+            }
+            return try await withTaskCancellationHandler {
+                var file = try await client.downloadFile(fileId: fileId, limit: 0, offset: 0, priority: priority, synchronous: false)
+                while !file.local.isDownloadingCompleted {
+                    try Task.checkCancellation()
+                    progress(file.local.downloadedSize, file.size)
+                    try await Task.sleep(nanoseconds: 250_000_000)
+                    file = try await client.getFile(fileId: fileId)
+                    // Stopped by something else (another download of this file, a network change): carry on.
+                    if !file.local.isDownloadingActive && !file.local.isDownloadingCompleted {
+                        file = try await client.downloadFile(fileId: fileId, limit: 0, offset: 0, priority: priority, synchronous: false)
+                    }
+                }
+                progress(file.size, file.size)
+                return URL(fileURLWithPath: file.local.path)
+            } onCancel: {
+                Task { _ = try? await client.cancelDownloadFile(fileId: fileId, onlyIfPending: false) }
+            }
         } catch { throw error.asTD }
     }
 

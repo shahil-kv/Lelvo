@@ -17,6 +17,9 @@ struct ViewerView: View {
     @State private var message: GalleryAlert?
     @State private var busy = false
     @State private var confirmDelete = false
+    /// Saving a cloud item downloads its original: progress (0…1) and the task, so it can be cancelled.
+    @State private var saveProgress: Double?
+    @State private var saveTask: Task<Void, Never>?
     @StateObject private var videos = ViewerVideoSessions()
     @State private var prefetcher = NeighbourPrefetcher()
     @Environment(\.dismiss) private var dismiss
@@ -66,6 +69,7 @@ struct ViewerView: View {
         .overlay(alignment: .top) { if !chromeHidden { topBar.transition(.opacity) } }
         .overlay(alignment: .bottom) { if !chromeHidden { bottomBar.transition(.opacity) } }
         .overlay { if busy { ProgressView().tint(.white).scaleEffect(1.4) } }
+        .overlay(alignment: .bottom) { if let saveProgress { saveBanner(saveProgress).padding(.bottom, 90) } }
         .statusBarHidden(chromeHidden)
         .background(CloseObserver())
         .sheet(isPresented: $showInfo) {
@@ -123,7 +127,8 @@ struct ViewerView: View {
                 .accessibilityLabel("Share")
             Spacer()
             if let current, current.isCloudOnly, current.item?.isViewableFromCloud == true {
-                Button { Task { await saveCurrent() } } label: { Image(systemName: "square.and.arrow.down") }
+                Button { saveTask = Task { await saveCurrent() } } label: { Image(systemName: "square.and.arrow.down") }
+                    .disabled(saveProgress != nil)
                     .accessibilityLabel("Save to Photos")
                 Spacer()
             }
@@ -187,16 +192,40 @@ struct ViewerView: View {
 
     private func saveCurrent() async {
         guard let item = current?.item else { return }
-        busy = true
-        defer { busy = false }
+        saveProgress = 0
+        defer { saveProgress = nil; saveTask = nil }
         do {
-            try await GalleryActions.saveToPhotos(item)
+            try await GalleryActions.saveToPhotos(item) { p in Task { @MainActor in if saveProgress != nil { saveProgress = p } } }
             Haptics.success()
             message = GalleryAlert(title: "Saved", message: "Saved to your photo library.")
+        } catch is CancellationError {
+            // The user cancelled.
         } catch {
+            if Task.isCancelled { return }
             Haptics.error()
             message = GalleryAlert(title: "Couldn't save", message: error.localizedDescription)
         }
+    }
+
+    /// The original downloads from Telegram (it can be large); shows how far it is and lets the user stop it.
+    private func saveBanner(_ progress: Double) -> some View {
+        let total = current?.item?.fileSize ?? 0
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Downloading the original… \(Int(progress * 100))%").font(.subheadline.weight(.semibold))
+                ProgressView(value: progress).tint(.white)
+                if total > 0 {
+                    Text("\(Format.bytes(Int64(Double(total) * progress))) of \(Format.bytes(total))").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Button("Cancel") { saveTask?.cancel() }.font(.subheadline.weight(.semibold))
+        }
+        .foregroundStyle(.white)
+        .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .environment(\.colorScheme, .dark)
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .combine)
     }
 
     private func deleteCurrent() async {

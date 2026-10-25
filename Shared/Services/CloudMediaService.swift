@@ -46,7 +46,7 @@ final class CloudMediaService: @unchecked Sendable {
     }
 
     /// What the user sees: the edited version when the item was edited in Photos, else the original.
-    func displayed(for item: MediaItem, progress: ((Double) -> Void)? = nil) async throws -> URL {
+    func displayed(for item: MediaItem, progress: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
         try await original(for: item, role: item.hasEdit == true && !item.parts("e").isEmpty ? .edited : .original, progress: progress)
     }
 
@@ -55,7 +55,7 @@ final class CloudMediaService: @unchecked Sendable {
     }
 
     /// Downloads (or returns the cached) full original for photos, sharing and saving.
-    func original(for item: MediaItem, role: UploadRole = .original, progress: ((Double) -> Void)? = nil) async throws -> URL {
+    func original(for item: MediaItem, role: UploadRole = .original, progress: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
         if let demo = DemoMode.fileURL(for: item) { return demo }
         let r = MediaItem.captionRole(role)
         let name = role == .pairedVideo ? (item.pairedVideoFilename ?? "video.mov")
