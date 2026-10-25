@@ -25,6 +25,11 @@ import MemvoCore
         #expect(!StreamingCopyPolicy.shouldMake(noDuration))
     }
 
+    @Test func sixtyFramesGetMoreBits() {
+        #expect(StreamingCopyPolicy.targetBitsPerSecond(fps: 30) == 2_000_000)
+        #expect(StreamingCopyPolicy.targetBitsPerSecond(fps: 60) == 3_000_000)
+    }
+
     @Test func keepsOnlyCopiesThatSaveSpace() {
         #expect(StreamingCopyPolicy.isWorthKeeping(copyBytes: 60, originalBytes: 400))
         #expect(!StreamingCopyPolicy.isWorthKeeping(copyBytes: 300, originalBytes: 400))

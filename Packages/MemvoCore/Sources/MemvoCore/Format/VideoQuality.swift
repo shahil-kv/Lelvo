@@ -23,6 +23,8 @@ public enum StreamingCopyPolicy {
     /// The fast version's video bitrate (Ente's streams use the same): measured Telegram speeds were 300–900 KB/s,
     /// and 2 Mbit/s (250 KB/s) stays below even the low end, so playback doesn't stop to load.
     public static let targetBitsPerSecond: Double = 2_000_000
+    /// Bitrate for a fast version at `fps`: 60 fps videos keep their fluid motion with half as much again.
+    public static func targetBitsPerSecond(fps: Double) -> Double { fps > 31 ? 3_000_000 : targetBitsPerSecond }
     /// Below this the original streams about as easily as a fast version would.
     public static let minimumBitsPerSecond: Double = 4_000_000
     /// Smaller videos load in a moment anyway.

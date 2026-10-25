@@ -2,8 +2,8 @@ import Foundation
 import AVFoundation
 import MemvoCore
 
-/// Encodes a video's fast version (role `sp`): HEVC at `StreamingCopyPolicy.targetBitsPerSecond`, at most 1080p and
-/// 30 fps, SDR, AAC audio, `moov` first. Apple's export presets can't set a bitrate (their 1080p HEVC is ~9 Mbit/s,
+/// Encodes a video's fast version (role `sp`): HEVC at `StreamingCopyPolicy.targetBitsPerSecond(fps:)`, at most 1080p
+/// and 60 fps, SDR, `moov` first. Stereo AAC sound is copied untouched; anything else becomes 48 kHz stereo AAC. Apple's export presets can't set a bitrate (their 1080p HEVC is ~9 Mbit/s,
 /// more than Telegram delivers to free accounts), so this reads and writes the frames itself.
 enum StreamingCopyEncoder {
     static func encode(_ asset: AVAsset, to url: URL) async throws -> (url: URL, width: Int, height: Int) {
@@ -19,7 +19,7 @@ enum StreamingCopyEncoder {
         let writer: AVAssetWriter
         let videoOut: AVAssetReaderVideoCompositionOutput
         let videoIn: AVAssetWriterInput
-        let audioOut: AVAssetReaderAudioMixOutput?
+        let audioOut: AVAssetReaderOutput?
         let audioIn: AVAssetWriterInput?
         let width: Int
         let height: Int
@@ -33,7 +33,9 @@ enum StreamingCopyEncoder {
             // which every screen shows correctly at this size.
             let composition = try await AVMutableVideoComposition.videoComposition(withPropertiesOf: asset)
             let fps = try await track.load(.nominalFrameRate)
-            if fps > 30 { composition.frameDuration = CMTime(value: 1, timescale: 30) }
+            // Slow-motion originals (120/240 fps) play at 60; 30 and 60 fps videos keep their own rate.
+            if fps > 60 { composition.frameDuration = CMTime(value: 1, timescale: 60) }
+            let outFPS = min(60, Double(fps))
             composition.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
             composition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
             composition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
@@ -66,8 +68,8 @@ enum StreamingCopyEncoder {
                     AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
                 ],
                 AVVideoCompressionPropertiesKey: [
-                    AVVideoAverageBitRateKey: Int(StreamingCopyPolicy.targetBitsPerSecond),
-                    AVVideoExpectedSourceFrameRateKey: min(30, Int(fps.rounded())),
+                    AVVideoAverageBitRateKey: Int(StreamingCopyPolicy.targetBitsPerSecond(fps: outFPS)),
+                    AVVideoExpectedSourceFrameRateKey: Int(outFPS.rounded()),
                     // A seek can only show a picture from a keyframe: one per second keeps the data needed before
                     // a seek small (the sound would otherwise play over a frozen picture while it downloads).
                     AVVideoMaxKeyFrameIntervalDurationKey: 1
@@ -77,13 +79,36 @@ enum StreamingCopyEncoder {
             guard writer.canAdd(videoIn) else { throw StreamingCopyError.unsupported }
             writer.add(videoIn)
 
-            if !audioTracks.isEmpty {
+            // Sound sounds exactly like the original when it can be copied: one plain stereo AAC track, no edits
+            // (iPhone videos, mostly). Spatial or multichannel sound, and Photos' edits (slow motion), are mixed down.
+            var copyAudio: (AVAssetTrack, CMFormatDescription)?
+            if audioTracks.count == 1, !(asset is AVComposition), let track = audioTracks.first,
+               let desc = try await track.load(.formatDescriptions).first,
+               CMFormatDescriptionGetMediaSubType(desc) == kAudioFormatMPEG4AAC,
+               (CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee.mChannelsPerFrame ?? 3) <= 2,
+               try await track.load(.segments).count <= 1 {
+                copyAudio = (track, desc)
+            }
+            if let (track, desc) = copyAudio {
+                let out = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+                let input = AVAssetWriterInput(mediaType: .audio, outputSettings: nil, sourceFormatHint: desc)
+                input.expectsMediaDataInRealTime = false
+                if reader.canAdd(out), writer.canAdd(input) {
+                    reader.add(out)
+                    writer.add(input)
+                    audioOut = out
+                    audioIn = input
+                } else {
+                    audioOut = nil
+                    audioIn = nil
+                }
+            } else if !audioTracks.isEmpty {
                 let out = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: [
-                    AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 2
+                    AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 48_000, AVNumberOfChannelsKey: 2
                 ])
                 let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-                    AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 2,
-                    AVEncoderBitRateKey: 128_000
+                    AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 48_000, AVNumberOfChannelsKey: 2,
+                    AVEncoderBitRateKey: 160_000
                 ])
                 input.expectsMediaDataInRealTime = false
                 if reader.canAdd(out), writer.canAdd(input) {

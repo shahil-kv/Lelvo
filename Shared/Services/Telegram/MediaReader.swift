@@ -70,7 +70,8 @@ final class MediaReader: @unchecked Sendable {
         for seg in layout.segments(for: range) {
             let fileId = try await tdFileId(for: ps[seg.part])
             out.append(streaming
-                       ? try await td.streamRead(fileId: fileId, offset: seg.offset, count: seg.length)
+                       // A fast version arrives about four times faster than it plays: wait for nearby data.
+                       ? try await td.streamRead(fileId: fileId, offset: seg.offset, count: seg.length, ahead: role == "sp" ? 4 << 20 : 2 << 20)
                        : try await td.read(fileId: fileId, offset: seg.offset, count: seg.length, priority: priority))
         }
         return out

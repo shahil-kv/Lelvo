@@ -549,7 +549,10 @@ final class TDService: @unchecked Sendable {
     /// playhead, like Telegram's own player, instead of one request per slice (which can't keep up with 4K).
     /// Small reads elsewhere in the file (the player's probes and the `moov` index at the end) are fetched
     /// on their own under the file gate, so they don't fight the main download over TDLib's single slot.
-    func streamRead(fileId: Int, offset: Int64, count: Int64) async throws -> Data {
+    /// `ahead`: how far past the running download a request may be and still just wait for it. Jumping restarts
+    /// the download (~0.4 s to the first bytes) and, after a seek, AVPlayer asks for several nearby ranges at once:
+    /// jumping between them left all of them waiting.
+    func streamRead(fileId: Int, offset: Int64, count: Int64, ahead: Int64 = 2 << 20) async throws -> Data {
         let client = try requireClient()
         let started = Foundation.Date()
         var myWindow: Int64?
@@ -575,7 +578,7 @@ final class TDService: @unchecked Sendable {
                 guard let window, window <= offset, file.local.isDownloadingActive else { return -1 }
                 return (try? await client.getFileDownloadedPrefixSize(fileId: fileId, offset: window))?.size ?? 0
             }()
-            let covered = window.map { reach >= 0 && offset <= $0 + reach + (2 << 20) } ?? false
+            let covered = window.map { reach >= 0 && offset <= $0 + reach + ahead } ?? false
             if !covered && count <= 512 << 10 {
                 // Small read outside the window: fetch just this range; the gate holds the window back meanwhile.
                 let gate = fileGate(fileId)
