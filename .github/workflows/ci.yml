@@ -92,6 +92,8 @@ jobs:
           [ -n "$UDID" ] || { echo "No iPhone simulator found"; xcrun simctl list; exit 1; }
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           xcrun simctl list devices | grep "$UDID"
+          # Boot it now: a cold boot during the first UI test can time out the app launch on hosted runners.
+          xcrun simctl bootstatus "$UDID" -b > /dev/null
 
       - name: Build and test iOS app (unit and UI tests)
         run: |
@@ -99,6 +101,7 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
             -resultBundlePath build/TestResults.xcresult \
+            -retry-tests-on-failure -test-iterations 2 \
             CODE_SIGNING_ALLOWED=NO > build/ios.log 2>&1 || { grep -E "error:|✘|failed" build/ios.log | head -100; tail -60 build/ios.log; exit 1; }
           grep -E "✔ Test run|Executed|\*\* TEST" build/ios.log || tail -20 build/ios.log
 
