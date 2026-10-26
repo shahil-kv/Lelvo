@@ -30,6 +30,7 @@ final class LibraryService: @unchecked Sendable {
     private static let headerKey = "libraryHeader"
     private static let lastScanKey = "libraryLastScannedMessageId"
     private static let duplicatesKey = "libraryDuplicateMessageIds"
+    private static let repairedKey = "fastVersionScanRepaired"
 
     /// Extra copies of already-stored parts found by the last full scan (safe to delete; the first copy stays).
     var duplicateMessageIds: [Int64] {
@@ -213,10 +214,16 @@ final class LibraryService: @unchecked Sendable {
     }
 
     /// Reads every Memvo document in the channel and rebuilds the local index.
+    /// The one-time full scan that repairs items from test builds hasn't run yet (see `scan`).
+    var needsRepairScan: Bool { isConfigured && store.meta(Self.repairedKey) == nil }
+
     /// `full == false` only reads messages newer than the last scan (cheap; used before resuming uploads).
     @discardableResult
-    func scan(full: Bool, progress: ((Int) -> Void)? = nil) async throws -> ScanSummary {
+    func scan(full requestedFull: Bool, progress: ((Int) -> Void)? = nil) async throws -> ScanSummary {
         guard let chatId else { throw LibraryError.noLibrary }
+        // Recent scans in test builds before this fix could copy a fast version's name, size and hash onto its item;
+        // one full scan rebuilds every item from its own captions.
+        let full = requestedFull || store.meta(Self.repairedKey) == nil
         guard isUnlocked else { throw LibraryError.locked }
         let api = try td.api()
         await td.ensureChat(chatId)
@@ -265,6 +272,7 @@ final class LibraryService: @unchecked Sendable {
         try merge(cloud: cloud, full: full, summary: &summary)
         if full { UserDefaults.standard.set(summary.orphans.map { NSNumber(value: $0) }, forKey: Self.duplicatesKey) }
         if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
+        if full { store.setMeta(Self.repairedKey, "1") }
         appLog("Library scan (\(full ? "full" : "recent")): \(summary.messages) messages, \(summary.items) items, \(summary.incomplete) incomplete, \(summary.orphans.count) duplicates")
         return summary
     }
@@ -277,15 +285,7 @@ final class LibraryService: @unchecked Sendable {
             let ids = Set(cloud.map(\.meta.id))
             let scanned = Set(cloud.map(\.messageId))
             for item in try store.allItems() where ids.contains(item.id) {
-                for (role, parts) in item.cloudParts ?? [:] {
-                    for (i, f) in parts.enumerated() where !scanned.contains(f.messageId) {
-                        guard var meta = cloud.first(where: { $0.meta.id == item.id })?.meta,
-                              let r = CaptionMeta.Role(rawValue: role) else { continue }
-                        meta.r = r
-                        if let n = item.expectedParts?[role], n > 1 { meta.p = [Int64(i), Int64(n), 0] } else { meta.p = nil }
-                        messages.append(CloudMessage(messageId: f.messageId, meta: meta, fileId: f.fileId, uniqueId: f.fileUniqueId, size: f.size))
-                    }
-                }
+                messages += LibraryIndexer.knownMessages(of: item, excluding: scanned)
             }
         }
         let result = LibraryIndexer.build(messages)
@@ -300,6 +300,7 @@ final class LibraryService: @unchecked Sendable {
                 item.localIdentifier = local.localIdentifier
                 item.verifiedAt = local.verifiedAt
                 item.chosen = local.chosen
+                item.streamingCopySkipped = local.streamingCopySkipped
                 if local.status == .trashed, item.status == .backedUp {
                     // In Recently Deleted on this device: the messages are still there on purpose.
                     item.status = .trashed

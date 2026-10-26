@@ -1,5 +1,6 @@
 import Foundation
 import Photos
+import AVFoundation
 import CoreLocation
 #if os(iOS)
 import UIKit
@@ -80,6 +81,11 @@ enum PhotoAvailability {
         lock.withLock { if state != .available { state = .unknown } }
         probeIfNeeded()
     }
+}
+
+enum StreamingCopyError: LocalizedError {
+    case unsupported
+    var errorDescription: String? { "This video can't be converted to a fast version. It still plays in original quality." }
 }
 
 enum PhotoLibraryError: LocalizedError {
@@ -305,6 +311,19 @@ final class PhotoLibraryService: @unchecked Sendable {
         guard original else { return nil } // only a rendered version exists: that's already the primary
         let type: PHAssetResourceType = asset.mediaType == .video ? .fullSizeVideo : .fullSizePhoto
         return resources.first { $0.type == type }
+    }
+
+    /// The fast version of a video (role `sp`) from what Photos plays: edits and slow motion applied.
+    func exportStreamingCopy(of asset: PHAsset, to url: URL) async throws -> (url: URL, width: Int, height: Int) {
+        let options = PHVideoRequestOptions()
+        options.isNetworkAccessAllowed = true
+        options.version = .current
+        options.deliveryMode = .highQualityFormat
+        let source: AVAsset? = await withCheckedContinuation { cont in
+            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { a, _, _ in cont.resume(returning: a) }
+        }
+        guard let source else { throw PhotoLibraryError.noOriginalResource }
+        return try await StreamingCopyEncoder.encode(source, to: url)
     }
 
     private func renderedImageData(of asset: PHAsset) async throws -> (Data, String?) {

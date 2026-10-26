@@ -17,6 +17,11 @@ struct ViewerView: View {
     @State private var message: GalleryAlert?
     @State private var busy = false
     @State private var confirmDelete = false
+    /// Saving a cloud item downloads its original: progress (0…1) and the task, so it can be cancelled.
+    @State private var saveProgress: Double?
+    @State private var saveTask: Task<Void, Never>?
+    @StateObject private var videos = ViewerVideoSessions()
+    @State private var prefetcher = NeighbourPrefetcher()
     @Environment(\.dismiss) private var dismiss
 
     /// Set when presented from UIKit (the grid); SwiftUI presentations use `dismiss`.
@@ -50,15 +55,22 @@ struct ViewerView: View {
             .scrollDisabled(zoomed)
             .background(Color.black.ignoresSafeArea())
             .ignoresSafeArea()
-            .onAppear { if let currentId { proxy.scrollTo(currentId) } }
+            .onAppear {
+                if let currentId { proxy.scrollTo(currentId) }
+                prefetchNeighbours(of: currentId)
+            }
             .onChange(of: currentId) { _, id in
                 prefetchNeighbours(of: id)
                 if let id { onPageChange(id) }
             }
         }
+        .environmentObject(videos)
+        .onDisappear { videos.closeAll() }
         .overlay(alignment: .top) { if !chromeHidden { topBar.transition(.opacity) } }
         .overlay(alignment: .bottom) { if !chromeHidden { bottomBar.transition(.opacity) } }
         .overlay { if busy { ProgressView().tint(.white).scaleEffect(1.4) } }
+        // Under the top bar, where it covers neither the picture's centre nor the video controls.
+        .overlay(alignment: .top) { if let saveProgress { saveBanner(saveProgress).padding(.top, 58).transition(.opacity) } }
         .statusBarHidden(chromeHidden)
         .background(CloseObserver())
         .sheet(isPresented: $showInfo) {
@@ -99,6 +111,9 @@ struct ViewerView: View {
                 }
                 .accessibilityLabel("Close")
                 Spacer()
+                if let currentId, let session = videos.sessions[currentId] {
+                    VideoQualityMenu(session: session)
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -113,7 +128,8 @@ struct ViewerView: View {
                 .accessibilityLabel("Share")
             Spacer()
             if let current, current.isCloudOnly, current.item?.isViewableFromCloud == true {
-                Button { Task { await saveCurrent() } } label: { Image(systemName: "square.and.arrow.down") }
+                Button { saveTask = Task { await saveCurrent() } } label: { Image(systemName: "square.and.arrow.down") }
+                    .disabled(saveProgress != nil)
                     .accessibilityLabel("Save to Photos")
                 Spacer()
             }
@@ -142,12 +158,20 @@ struct ViewerView: View {
         if let onClose { onClose() } else { dismiss() }
     }
 
+    /// Fetches the start of adjacent cloud videos once the one on screen plays smoothly, so swiping to them starts
+    /// playback at once without slowing the current one down.
     private func prefetchNeighbours(of id: String?) {
-        guard let id, let i = entries.firstIndex(where: { $0.id == id }) else { return }
-        for j in [i - 1, i + 1] where entries.indices.contains(j) {
-            if let item = entries[j].item, entries[j].isCloudOnly, item.kind == .video, item.isViewableFromCloud {
-                AppEnvironment.shared.reader.prefetch(item)
-            }
+        guard let id, let i = entries.firstIndex(where: { $0.id == id }) else { prefetcher.cancel(); return }
+        // Cloud videos (their start) and cloud photos (their original): the next one first.
+        let items = [i + 1, i - 1].filter(entries.indices.contains).compactMap { j -> MediaItem? in
+            guard let item = entries[j].item, entries[j].isCloudOnly, item.isViewableFromCloud else { return nil }
+            return item
+        }
+        let current = entries[i]
+        let videos = self.videos
+        prefetcher.schedule(items) {
+            guard current.isCloudOnly, current.isVideo else { return true }
+            return videos.sessions[current.id]?.player.currentItem?.hasPlentyBuffered == true
         }
     }
 
@@ -170,17 +194,21 @@ struct ViewerView: View {
 
     private func saveCurrent() async {
         guard let item = current?.item else { return }
-        busy = true
-        defer { busy = false }
+        saveProgress = 0
+        defer { saveProgress = nil; saveTask = nil }
         do {
-            try await GalleryActions.saveToPhotos(item)
+            try await GalleryActions.saveToPhotos(item) { p in Task { @MainActor in if saveProgress != nil { saveProgress = p } } }
             Haptics.success()
             message = GalleryAlert(title: "Saved", message: "Saved to your photo library.")
+        } catch is CancellationError {
+            // The user cancelled.
         } catch {
+            if Task.isCancelled { return }
             Haptics.error()
             message = GalleryAlert(title: "Couldn't save", message: error.localizedDescription)
         }
     }
+
 
     private func deleteCurrent() async {
         guard let item = current?.item else { return }
@@ -193,6 +221,33 @@ struct ViewerView: View {
         } catch {
             message = GalleryAlert(title: "Couldn't delete", message: error.localizedDescription)
         }
+    }
+
+    /// The original downloads from Telegram (it can be large): a slim bar showing how far it is, with a way to stop it.
+    private func saveBanner(_ progress: Double) -> some View {
+        let total = current?.item?.fileSize ?? 0
+        return VStack(spacing: 7) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle").font(.subheadline.weight(.semibold))
+                Text("Saving original \(Int(progress * 100))%").font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+                if total > 0 {
+                    Text("\(Format.bytes(Int64(Double(total) * progress))) / \(Format.bytes(total))")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Button { saveTask?.cancel() } label: {
+                    Image(systemName: "xmark.circle.fill").font(.title3).symbolRenderingMode(.hierarchical)
+                }
+                .accessibilityLabel("Cancel saving")
+            }
+            ProgressView(value: progress).tint(.white)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .environment(\.colorScheme, .dark)
+        .padding(.horizontal, 16)
     }
 }
 
@@ -212,8 +267,11 @@ struct ViewerPage: View {
     }
 
     @State private var content: Content = .loading(nil)
-    /// Keeps the resource loader alive while a cloud video plays.
-    @State private var stream: StreamingAsset?
+    /// The photo is shown at screen resolution; zooming in loads more detail once (see `loadFullDetail`).
+    @State private var fullDetailLoaded = false
+    /// A cloud video's player and quality (original or fast version).
+    @State private var session: CloudVideoSession?
+    @EnvironmentObject private var videos: ViewerVideoSessions
     @State private var pip: AVPictureInPictureController?
     /// Shown over a video until its first frame is on screen (instead of a black page).
     @State private var poster: UIImage?
@@ -242,12 +300,22 @@ struct ViewerPage: View {
                             .allowsHitTesting(false)
                         }
                     }
+                    .overlay { if let session { VideoSwitchingOverlay(session: session) } }
                     .overlay(alignment: .bottom) {
                         if !chromeHidden { VideoControls(player: player, pip: pip).padding(.bottom, 112).transition(.opacity) }
                     }
+                    .onChange(of: session?.quality) { _, q in
+                        // A new item after a quality switch: trace it like the first.
+                        if let q, let item = player.currentItem, let name = entry.item?.filename {
+                            trace = VideoTrace(item: item, name: name, source: q == .original ? "cloud original" : "cloud fast version")
+                        }
+                    }
                     .onAppear { if isCurrent { player.play() } }
                     .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }
-                    .onDisappear { player.pause() }
+                    .onDisappear {
+                        player.pause()
+                        if session != nil { videos.close(entry.id) }
+                    }
                     .onReceive(NotificationCenter.default.publisher(for: .viewerWillClose)) { _ in player.pause() }
                     .onReceive(NotificationCenter.default.publisher(for: .viewerCloseCancelled)) { _ in if isCurrent { player.play() } }
             case .unavailable(let reason, let placeholder):
@@ -258,6 +326,23 @@ struct ViewerPage: View {
             }
         }
         .task(id: entry.id) { await load() }
+        .onChange(of: zoomed) { _, now in
+            guard now, isCurrent, !fullDetailLoaded, case .image = content else { return }
+            fullDetailLoaded = true
+            Task { await loadFullDetail() }
+        }
+        .onChange(of: isCurrent) { _, now in
+            guard entry.asset == nil, let item = entry.item, item.kind == .video, item.isViewableFromCloud else { return }
+            if now, session == nil {
+                startCloudVideo(item)
+            } else if !now, session != nil {
+                // Swiped away: stop it and its download.
+                videos.close(entry.id)
+                session = nil
+                videoReady = false
+                content = .loading(poster)
+            }
+        }
     }
 
     private func load() async {
@@ -295,18 +380,10 @@ struct ViewerPage: View {
         }
         do {
             switch item.kind {
-            case .video where DemoMode.fileURL(for: item) != nil:
-                let playerItem = AVPlayerItem(url: DemoMode.fileURL(for: item)!)
-                trace = VideoTrace(item: playerItem, name: item.filename, source: "demo")
-                content = .video(AVPlayer(playerItem: playerItem))
             case .video:
-                // Stream byte ranges straight from Telegram: no full download needed.
-                // Edited in Photos (e.g. trimmed): play the edit, as Photos would.
-                let s = StreamingAsset(item: item, role: item.hasEdit == true && !item.parts("e").isEmpty ? "e" : "o", reader: env.reader)
-                stream = s
-                let playerItem = AVPlayerItem(asset: s.asset)
-                trace = VideoTrace(item: playerItem, name: item.filename, source: "cloud \(Format.bytes(item.fileSize))")
-                content = .video(AVPlayer(playerItem: playerItem))
+                // Only the page on screen gets a player: a paused player keeps downloading, and the pages next to it
+                // would take bandwidth from the video being watched. Their start is prefetched instead.
+                if isCurrent { startCloudVideo(item) }
             case .livePhoto:
                 let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) { content = .image(image) }
@@ -316,9 +393,11 @@ struct ViewerPage: View {
                 }
             case .photo:
                 // Progressive: thumbnail → screen-size decode → full detail when zooming.
+                let opened = Date(), cached = env.media.hasDisplayed(item)
                 let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) {
                     content = .image(image)
+                    CloudMediaService.logPhotoTiming(item, opened: opened, wasCached: cached)
                 } else {
                     content = .unavailable("This file format can't be previewed. Use Share to open it in another app.", thumb)
                 }
@@ -326,6 +405,38 @@ struct ViewerPage: View {
         } catch {
             content = .unavailable(error.localizedDescription, thumb)
         }
+    }
+
+    /// Streams a cloud video from Telegram (no full download): the fast version when the connection can't carry the
+    /// original (Settings → Video quality), and the edit rather than the original when it was edited in Photos.
+    private func startCloudVideo(_ item: MediaItem) {
+        let s = videos.open(entry.id, item: item, reader: AppEnvironment.shared.reader)
+        session = s
+        if let playerItem = s.player.currentItem {
+            trace = VideoTrace(item: playerItem, name: item.filename,
+                               source: s.quality == .original ? "cloud \(Format.bytes(item.fileSize))" : "cloud fast version")
+        }
+        content = .video(s.player)
+    }
+
+    /// Zoomed in: replace the screen-size image with up to 4800 px of the original (all of a 12 MP photo; enough of a
+    /// 48 MP one to zoom into, at ~70 MB instead of ~195 MB decoded), like Photos. The zoom and position stay.
+    private func loadFullDetail() async {
+        let env = AppEnvironment.shared
+        let started = Date()
+        let image: UIImage?
+        if let asset = entry.asset {
+            guard asset.mediaType == .image, !asset.mediaSubtypes.contains(.photoLive) else { return }
+            image = await env.photos.image(for: asset, targetSize: CGSize(width: 4800, height: 4800))
+        } else if let item = entry.item, item.kind == .photo, let url = try? await env.media.displayed(for: item) {
+            let long = CGFloat(max(item.pixelWidth, item.pixelHeight))
+            image = await Self.decode(url, maxPixel: long > 0 ? min(4800, long) : 4800)
+        } else {
+            return
+        }
+        guard let image, case .image(let current) = content, image.size.width * image.scale > current.size.width * current.scale else { return }
+        content = .image(image)
+        appLog(String(format: "Photo detail: %@ at %.0f px after %.2f s", entry.item?.filename ?? "photo", max(image.size.width, image.size.height) * image.scale, Date().timeIntervalSince(started)))
     }
 
     static func decode(_ url: URL, maxPixel: CGFloat) async -> UIImage? {
@@ -690,7 +801,7 @@ struct VideoControls: View {
             Slider(value: Binding(get: { scrubbing ? scrubValue : state.current }, set: { scrubValue = $0 }),
                    in: 0...max(state.duration, 0.1)) { editing in
                 scrubbing = editing
-                if !editing { player.seek(to: CMTime(seconds: scrubValue, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
+                if !editing { Self.seek(player, to: scrubValue) }
                 else { scrubValue = state.current }
             }
             .tint(.white)
@@ -728,6 +839,18 @@ struct VideoControls: View {
         .padding(.horizontal, 16)
         .onAppear { state.attach(player) }
         .onDisappear { state.detach() }
+    }
+
+    /// Where the scrubber was let go. Landing up to half a second early on a keyframe shows the picture at once; an
+    /// exact frame would first need everything from the keyframe before it, which may still be downloading.
+    static func seek(_ player: AVPlayer, to seconds: Double) {
+        let started = Date()
+        let name = (player.currentItem?.asset as? AVURLAsset)?.url.pathComponents.dropLast().last ?? "video"
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
+                    toleranceBefore: CMTime(seconds: 0.5, preferredTimescale: 600), toleranceAfter: .zero) { finished in
+            guard finished else { return }
+            appLog(String(format: "Video timing: seek in %@ to %.1f s shown after %.2f s", String(name.prefix(8)), seconds, Date().timeIntervalSince(started)))
+        }
     }
 
     private func setSpeed(_ s: Float) {
@@ -795,6 +918,8 @@ extension Notification.Name {
     static let viewerWillClose = Notification.Name("ViewerWillClose")
     /// An interactive close was cancelled; the viewer stays.
     static let viewerCloseCancelled = Notification.Name("ViewerCloseCancelled")
+    /// The photo grid is on screen (it preloads the cloud videos it shows).
+    static let galleryDidAppear = Notification.Name("GalleryDidAppear")
 }
 
 /// UIKit tells the presented screen `viewWillDisappear` as soon as a dismissal starts (including the

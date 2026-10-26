@@ -1,5 +1,6 @@
 import Foundation
 import Photos
+import AVFoundation
 import Network
 import MemvoCore
 
@@ -29,19 +30,40 @@ final class BackupActivity: ObservableObject {
     @Published var lastSummary: BackupEngine.Summary?
 }
 
-/// Current network path (for Wi-Fi only).
+/// Current network path (for Wi-Fi only, video quality, and telling TDLib when the network changes).
 final class NetworkStatus: @unchecked Sendable {
     static let shared = NetworkStatus()
     private let monitor = NWPathMonitor()
     private let lock = NSLock()
     private var path: NWPath?
+    private var lastKind: Kind?
+
+    enum Kind: String { case wifi = "Wi-Fi", mobile = "mobile data", other = "other network", none = "no network" }
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] p in
             guard let self else { return }
-            self.lock.withLock { self.path = p }
+            let kind = Self.kind(of: p)
+            let changed: Bool = self.lock.withLock {
+                self.path = p
+                defer { self.lastKind = kind }
+                return self.lastKind != nil && self.lastKind != kind
+            }
+            if changed {
+                appLog("Network changed to \(kind.rawValue)")
+                TDService.shared.networkChanged(to: kind)
+            }
         }
         monitor.start(queue: DispatchQueue(label: "memvo.network"))
+    }
+
+    var kind: Kind { lock.withLock { path.map(Self.kind(of:)) ?? .other } }
+
+    private static func kind(of p: NWPath) -> Kind {
+        guard p.status == .satisfied else { return .none }
+        if p.usesInterfaceType(.wifi) || p.usesInterfaceType(.wiredEthernet) { return .wifi }
+        if p.usesInterfaceType(.cellular) { return .mobile }
+        return .other
     }
 
     /// Unknown counts as online so the first run isn't blocked before the monitor reports.
@@ -525,7 +547,22 @@ final class BackupEngine: @unchecked Sendable {
             if let editedHash { hashes["e"] = editedHash }
             item.roleHashes = hashes
             save(item)
-            return item.status == .backedUp ? .uploaded : .failed
+            guard item.status == .backedUp else { return .failed }
+            // The fast version, from the file that's already here: no extra download, so the video plays at once
+            // from the cloud later. Optional: a failure never undoes the backup.
+            if item.kind == .video, Prefs.streamingCopies, StreamingCopyPolicy.shouldMake(item), !isCancelled() {
+                let source = exp.editedURL ?? exp.primaryURL
+                let backedUp = item
+                do {
+                    // Same document thumbnail as the original, so it doesn't show as a blank file in Telegram.
+                    _ = try await uploadStreamingCopy(backedUp, laneKey: laneKey,
+                                                      thumbnail: thumbData != nil ? (thumbURL, thumbSize.0, thumbSize.1) : nil,
+                                                      encode: { try await StreamingCopyEncoder.encode(AVURLAsset(url: source), to: $0) })
+                } catch {
+                    noteStreamingCopyFailure(error, backedUp)
+                }
+            }
+            return .uploaded
         } catch {
             return fail(&item, error)
         }
@@ -654,11 +691,20 @@ final class BackupEngine: @unchecked Sendable {
             let hash = try Deduplicator.sha256(of: url)
             if hash == item.roleHashes?["e"] { return finish(.duplicate) }
 
-            // Remove the previous edit first, so a scan never picks the stale one; the original stays safe.
-            let old = item.parts("e").map(\.messageId)
-            if !old.isEmpty, let chatId = env.library.chatId { try? await env.td.deleteMessages(chatId: chatId, ids: old) }
+            // Remove the previous edit first, so a scan never picks the stale one; the original stays safe. The fast
+            // version shows the edit too, so it goes as well and is made again from the new edit.
+            // Only forget them once Telegram confirms: stale messages left without a local record would win a later
+            // scan (it keeps the lowest message id). A failure throws, and the edit is checked again next run.
+            let old = (item.parts("e") + item.parts("sp")).map(\.messageId)
+            if !old.isEmpty {
+                guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
+                try await env.td.deleteMessages(chatId: chatId, ids: old)
+            }
             item.cloudParts?["e"] = nil
             item.expectedParts?["e"] = nil
+            item.cloudParts?["sp"] = nil
+            item.expectedParts?["sp"] = nil
+            item.streamingCopySkipped = nil
             item.hasEdit = true
             item.editedFilename = resource.originalFilename
             item.editedSize = try CloudUploader.size(of: url)
@@ -689,6 +735,103 @@ final class BackupEngine: @unchecked Sendable {
             item.lastError = "The newer edit couldn't be uploaded: \(error.localizedDescription)"
             return finish(.failed, handled: false)
         }
+    }
+
+    // MARK: - Fast versions (role `sp`)
+
+    /// "Make Fast Version" in the viewer: the fast version of one video, now. A video that's no longer on this
+    /// device is downloaded from Telegram first (the user asked for it; it stays in the viewing cache).
+    func makeFastVersion(itemId: String) async throws {
+        guard !DemoMode.isActive else { return }
+        try await env.td.waitUntilReady(timeout: 20)
+        guard let item = try env.store.item(id: itemId), item.status == .backedUp, item.kind == .video else {
+            throw StreamingCopyError.unsupported
+        }
+        guard !item.hasStreamingCopy else { return }
+        if let id = item.localIdentifier, let asset = env.photos.asset(localIdentifier: id) {
+            _ = try await uploadStreamingCopy(item, laneKey: "copy", force: true,
+                                              encode: { try await self.env.photos.exportStreamingCopy(of: asset, to: $0) })
+            return
+        }
+        let role = VideoPlayback.role(.original, for: item)
+        let name = role == "e" ? (item.editedFilename ?? item.filename) : item.filename
+        let ext = (name as NSString).pathExtension.isEmpty ? "mov" : (name as NSString).pathExtension
+        let source = rawDirectory.appendingPathComponent("\(item.id)-source.\(ext)")
+        defer { try? FileManager.default.removeItem(at: source) }
+        try await env.reader.download(item, role: role, to: source)
+        _ = try await uploadStreamingCopy(item, laneKey: "copy", force: true,
+                                          encode: { try await StreamingCopyEncoder.encode(AVURLAsset(url: source), to: $0) })
+    }
+
+    /// Encodes the fast version with `encode` and uploads it as role `sp`. Returns false (and never tries that video
+    /// again) when it wouldn't be much smaller than the original, unless `force` (the user asked for it).
+    private func uploadStreamingCopy(_ item: MediaItem, laneKey: String, force: Bool = false, thumbnail: (URL, Int, Int)? = nil,
+                                     encode: (URL) async throws -> (url: URL, width: Int, height: Int)) async throws -> Bool {
+        let store = env.store
+        guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
+        let itemId = item.id
+        let name = "\((item.filename as NSString).deletingPathExtension)-fast.mp4"
+        let label = "\(item.filename) (fast version)"
+        await publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: 0, total: 0) }
+        let url = rawDirectory.appendingPathComponent("\(itemId)-fast.mp4")
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            Task { await self.publish { $0.lanes[laneKey] = nil } }
+        }
+        // Parts of an earlier, interrupted copy: a new encode isn't byte-identical, so start over.
+        let stale = item.parts("sp").map(\.messageId)
+        if !stale.isEmpty {
+            try await env.td.deleteMessages(chatId: chatId, ids: stale)
+            _ = try store.update(id: itemId) { $0.cloudParts?["sp"] = nil; $0.expectedParts?["sp"] = nil }
+        }
+        let copy = try await encode(url)
+        let size = try CloudUploader.size(of: copy.url)
+        guard force || StreamingCopyPolicy.isWorthKeeping(copyBytes: size, originalBytes: item.fileSize) else {
+            _ = try? store.update(id: itemId) { $0.streamingCopySkipped = true }
+            appLog("No fast version for \(item.filename): \(Format.bytes(size)) isn't much smaller than \(Format.bytes(item.fileSize))")
+            return false
+        }
+        let hash = try Deduplicator.sha256(of: copy.url)
+        var meta = captionMeta(item, role: .smoothPreview, hash: hash, name: name, size: size)
+        meta.wh = [copy.width, copy.height]
+        meta.c = "hevc"
+        meta.hdr = nil
+        meta.m = "video/mp4"
+        let parts = try await env.uploader.upload(
+            itemId: itemId, resource: PreparedResource(role: "sp", fileURL: copy.url, meta: meta),
+            encrypted: item.encrypted, thumbnail: thumbnail, existing: [],
+            checkpoint: { parts, expected in try store.update(id: itemId) { $0.setParts(parts, role: "sp", expected: expected) } },
+            progress: { [weak self] sent, total in
+                Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
+            })
+        _ = try store.update(id: itemId) {
+            $0.setParts(parts, role: "sp", expected: parts.count)
+            $0.streamingCopySkipped = nil
+            var hashes = $0.roleHashes ?? [:]
+            hashes["sp"] = hash
+            $0.roleHashes = hashes
+        }
+        appLog("Uploaded the fast version of \(item.filename): \(Format.bytes(size)) for a \(Format.bytes(item.fileSize)) original")
+        return true
+    }
+
+    private static let unconvertibleAVErrors: Set<AVError.Code> = [.fileFormatNotRecognized, .decoderNotFound, .encoderNotFound, .decodeFailed]
+
+    /// A fast version is optional: a failure never touches the item. Only a video that can't be converted at all is
+    /// left alone from then on; anything else (network, disk full, the app suspended mid-encode) is tried later.
+    private func noteStreamingCopyFailure(_ error: Error, _ item: MediaItem) {
+        if error is CancellationError { return }
+        if let td = error as? TDServiceError {
+            if case .cancelled = td { return }
+            if case .floodWait(let s) = td.kind {
+                gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+            }
+            AppLog.shared.warn("Fast version of \(item.filename) will be retried: \(error.localizedDescription)")
+            return
+        }
+        let unconvertible = error is StreamingCopyError || Self.unconvertibleAVErrors.contains((error as? AVError)?.code ?? .unknown)
+        if unconvertible { _ = try? env.store.update(id: item.id) { $0.streamingCopySkipped = true } }
+        AppLog.shared.warn("No fast version for \(item.filename)\(unconvertible ? "" : " yet"): \(error.localizedDescription)")
     }
 
     private func fail(_ item: inout MediaItem, _ error: Error) -> Outcome {

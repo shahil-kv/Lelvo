@@ -80,6 +80,20 @@ all use the same instance. `AppModel` holds UI-wide state (onboarding, tabs, sig
 
 `StreamingAsset` answers AVPlayer's content-information and data requests on a unique `cgstream://` URL per player.
 Seeking works even when a MOV's `moov` atom sits at the end of the file, because the player requests that range first.
+iPhone camera videos always put it there, so the neighbour prefetch fetches the start and, using
+`MovieLayout.trailingIndexRange`, the `moov` box too.
+
+### Video quality
+
+A video can have a fast version (role `sp`): HEVC at ~2 Mbit/s, at most 1080p and 30 fps, `moov` first, encoded by
+`StreamingCopyEncoder` (AVAssetReader/Writer, because export presets can't set a bitrate). Telegram sends free
+accounts about 1 MB/s, so iPhone originals (15–60 Mbit/s) can't stream smoothly while the fast version plays at once.
+It's made while the video is backed up, from the file already on the device (`StreamingCopyPolicy`: over 4 MB and
+4 Mbit/s), or on request ("Make Fast Version" in the viewer, which downloads the original once). Optional: a failure
+never affects the backup. When the iPhone grid comes to rest, `VisibleVideoPreloader` fetches the first 512 KB of
+the fast versions on screen (Wi-Fi only), so tapping one starts at once. `CloudVideoSession` picks the version when a video opens (`VideoQualityPolicy`): with Automatic, always the fast
+version when there is one; the original with the Original Quality setting or when the user switches. With Automatic, a 3 s stall on the original switches to the copy. The
+viewer's quality pill switches either way at the same moment; the user's choice always wins.
 
 ## Platform specifics
 

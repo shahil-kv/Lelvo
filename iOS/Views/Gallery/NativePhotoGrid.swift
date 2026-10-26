@@ -69,12 +69,26 @@ struct NativePhotoGrid: UIViewRepresentable {
         private var viewerCurrentId: String?
         let layout: PinchGridLayout
 
+        private var observers: [NSObjectProtocol] = []
+
         init(_ parent: NativePhotoGrid) {
             self.parent = parent
             appliedColumns = parent.columns
             appliedGrouping = parent.grouping
             layout = PinchGridLayout(columns: parent.columns)
+            super.init()
+            // The grid is on screen again (tab switch, viewer closed): preload the cloud videos it shows.
+            let nc = NotificationCenter.default
+            observers.append(nc.addObserver(forName: .galleryDidAppear, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.preloadVisibleVideos() }
+            })
+            observers.append(nc.addObserver(forName: .viewerWillClose, object: nil, queue: .main) { [weak self] _ in
+                // After the close animation; a cancelled swipe leaves the viewer up and the check below skips it.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { self?.preloadVisibleVideos() } }
+            })
         }
+
+        deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
 
         // MARK: Setup
 
@@ -154,6 +168,7 @@ struct NativePhotoGrid: UIViewRepresentable {
             dataSource?.apply(snapshot, animatingDifferences: false)
             // Same ids with new content (e.g. a backup finished): update visible tiles and headers in place.
             refreshVisible()
+            preloadVisibleVideos()
         }
 
         private func refreshVisible() {
@@ -397,9 +412,24 @@ struct NativePhotoGrid: UIViewRepresentable {
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             finishSettle()
             parent.motion.isScrolling = true
+            VisibleVideoPreloader.shared.cancel()
         }
-        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { parent.motion.isScrolling = false } }
-        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { parent.motion.isScrolling = false }
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            guard !decelerate else { return }
+            parent.motion.isScrolling = false
+            preloadVisibleVideos()
+        }
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            parent.motion.isScrolling = false
+            preloadVisibleVideos()
+        }
+
+        /// The cloud videos on screen start instantly when tapped (`VisibleVideoPreloader`).
+        private func preloadVisibleVideos() {
+            // Not while the viewer (or anything else) is open over the grid.
+            guard let cv = collectionView, cv.window?.rootViewController?.presentedViewController == nil else { return }
+            VisibleVideoPreloader.shared.gridSettled(on: entriesAt(cv.indexPathsForVisibleItems.sorted()))
+        }
 
         // MARK: Prefetching
 
@@ -424,6 +454,12 @@ struct NativePhotoGrid: UIViewRepresentable {
         /// Presents the viewer with the system zoom from the tile (and back into the tile of the item on screen).
         private func openViewer(_ entry: GalleryEntry, from cv: UICollectionView) {
             guard let presenter = cv.window?.rootViewController?.topmostPresented else { return }
+            VisibleVideoPreloader.shared.cancel()
+            // Start fetching a cloud video during the zoom animation instead of after it.
+            if entry.isCloudOnly, let item = entry.item, item.kind == .video, item.isViewableFromCloud {
+                let role = VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item)
+                Task { await AppEnvironment.shared.reader.prefetch(item, role: role, bytes: role == "sp" ? VisibleVideoPreloader.bytes : 2 << 20) }
+            }
             viewerCurrentId = entry.id
             parent.onViewerPage(entry.id)
             var host: UIViewController?

@@ -53,8 +53,8 @@ Read this first when resuming. Scope: the iOS and Mac apps. Android isn't part o
 
 ## iOS: not done / known gaps
 
-- 720p preview copies for instant cloud playback are designed but not built.
-- "Smooth streaming copies" (1080p preview for > 500 MB videos) is not implemented.
+- Switching quality restarts loading at the same moment (no seamless mid-play switching like HLS).
+- Streaming copies of videos no longer on the device download the original from Telegram first (Wi-Fi only).
 - One-time import of 1.0 (Bot API) uploads is not implemented; 1.0 files stay in the old channel.
 - Uploads can't run as iOS background transfers (MTProto); they run in-app, in continued-processing (iOS 26+), overnight while charging, or for ~25 s per Shortcut.
 - No dedicated performance profiling on 50k+ items yet.

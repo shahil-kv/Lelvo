@@ -38,6 +38,8 @@ final class ViewerImageCache {
             if let asset = entry.asset {
                 img = await env.photos.image(for: asset, targetSize: target)
             } else if let item = entry.item, item.kind == .photo, item.isViewableFromCloud {
+                // Not downloaded yet: fetch it ahead of the arrow key (Wi-Fi, not huge files).
+                await env.media.prefetchPhoto(item)
                 let role = item.hasEdit == true && !item.parts("e").isEmpty ? "e" : "o"
                 if let url = env.originalsCache.url(for: CloudMediaService.originalKey(item, role: role)) {
                     img = await MacViewerPage.decode(url, maxPixel: max(target.width, target.height))
@@ -66,6 +68,8 @@ struct MacViewer: View {
     @State private var swipeAccumulated: CGFloat = 0
     @State private var swipeConsumed = false
     @State private var viewerWidth: CGFloat = 0
+    @StateObject private var videos = ViewerVideoSessions()
+    @State private var prefetcher = NeighbourPrefetcher()
     @FocusState private var focused: Bool
 
     struct Hero {
@@ -84,6 +88,7 @@ struct MacViewer: View {
                 Color.black.opacity(expanded ? 1 : 0)
                 if let current {
                     MacViewerPage(entry: current, isCurrent: true, zoomed: $zoomed)
+                        .environmentObject(videos)
                         .id(current.id)
                         .transition(.asymmetric(
                             insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
@@ -141,13 +146,22 @@ struct MacViewer: View {
             focused = true
             installSwipeMonitor()
         }
-        .onDisappear { removeSwipeMonitor() }
+        .onDisappear {
+            removeSwipeMonitor()
+            videos.closeAll()
+        }
     }
 
     // MARK: - Open / close
 
     /// Hero zoom from the tile (like Photos), then the real page fades in underneath.
     private func open(in container: CGRect) {
+        VisibleVideoPreloader.shared.cancel()
+        // Start fetching a cloud video during the zoom animation instead of after it.
+        if let entry = current, entry.isCloudOnly, let item = entry.item, item.kind == .video, item.isViewableFromCloud {
+            let role = VideoPlayback.role(VideoPlayback.initialQuality(for: item), for: item)
+            Task { await AppEnvironment.shared.reader.prefetch(item, role: role, bytes: role == "sp" ? VisibleVideoPreloader.bytes : 2 << 20) }
+        }
         prefetchNeighbours()
         guard let entry = current, let source = TileRegistry.shared.frame(for: entry.id),
               let image = TileRegistry.shared.image(for: entry) else {
@@ -250,17 +264,23 @@ struct MacViewer: View {
         swipeMonitor = nil
     }
 
-    /// Decodes the neighbours' full images and fetches the start of adjacent cloud videos.
+    /// Decodes the neighbours' full images, and fetches the start of adjacent cloud videos once the one on screen
+    /// plays smoothly (so they never slow it down).
     private func prefetchNeighbours() {
-        guard let i = index else { return }
+        guard let i = index else { prefetcher.cancel(); return }
         let screen = NSScreen.main.map { CGSize(width: $0.frame.width * $0.backingScaleFactor * 1.5, height: $0.frame.height * $0.backingScaleFactor * 1.5) }
             ?? CGSize(width: 4096, height: 4096)
-        for j in [i - 1, i + 1, i + 2] where entries.indices.contains(j) {
+        var videoItems: [MediaItem] = []
+        for j in [i + 1, i - 1, i + 2] where entries.indices.contains(j) {
             let e = entries[j]
             ViewerImageCache.shared.preload(e, target: screen)
-            if let item = e.item, e.isCloudOnly, item.kind == .video, item.isViewableFromCloud {
-                AppEnvironment.shared.reader.prefetch(item)
-            }
+            if let item = e.item, e.isCloudOnly, item.kind == .video, item.isViewableFromCloud { videoItems.append(item) }
+        }
+        let current = entries[i]
+        let videos = self.videos
+        prefetcher.schedule(videoItems) {
+            guard current.isCloudOnly, current.isVideo else { return true }
+            return videos.sessions[current.id]?.player.currentItem?.hasPlentyBuffered == true
         }
     }
 }
@@ -285,8 +305,9 @@ struct MacViewerPage: View {
     }
 
     @State private var content: Content
-    /// Keeps the resource loader alive while a cloud video plays.
-    @State private var stream: StreamingAsset?
+    /// A cloud video's player and quality (original or fast version).
+    @State private var session: CloudVideoSession?
+    @EnvironmentObject private var videos: ViewerVideoSessions
     @State private var poster: PlatformImage?
     @State private var videoReady = false
     @State private var liveControl = LiveControl()
@@ -325,9 +346,16 @@ struct MacViewerPage: View {
                             .allowsHitTesting(false)
                         }
                     }
+                    .overlay { if let session { VideoSwitchingOverlay(session: session) } }
+                    .overlay(alignment: .topTrailing) {
+                        if let session { VideoQualityMenu(session: session).padding(16) }
+                    }
                     .onAppear { if isCurrent { player.play() } }
                     .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }
-                    .onDisappear { player.pause() }
+                    .onDisappear {
+                        player.pause()
+                        if session != nil { videos.close(entry.id) }
+                    }
                     .onReceive(NotificationCenter.default.publisher(for: .macViewerTogglePlay)) { note in
                         guard isCurrent else { return }
                         if player.timeControlStatus == .playing { player.pause() } else { player.play() }
@@ -407,10 +435,11 @@ struct MacViewerPage: View {
         do {
             switch item.kind {
             case .video:
-                // Stream byte ranges straight from Telegram; play the edit when there is one, like Photos.
-                let s = StreamingAsset(item: item, role: item.hasEdit == true && !item.parts("e").isEmpty ? "e" : "o", reader: env.reader)
-                stream = s
-                content = .video(AVPlayer(playerItem: AVPlayerItem(asset: s.asset)))
+                // Stream byte ranges straight from Telegram; play the edit when there is one, like Photos, or the
+                // fast version on a slow or metered connection (Settings → Video quality).
+                let s = videos.open(entry.id, item: item, reader: env.reader)
+                session = s
+                content = .video(s.player)
             case .livePhoto:
                 let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) { content = .image(image) }
@@ -419,10 +448,12 @@ struct MacViewerPage: View {
                     content = .live(live, still: nil)
                 }
             case .photo:
+                let opened = Date(), cached = env.media.hasDisplayed(item)
                 let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) {
                     content = .image(image)
                     ViewerImageCache.shared.store(image, for: entry.id)
+                    CloudMediaService.logPhotoTiming(item, opened: opened, wasCached: cached)
                 } else {
                     content = .unavailable("This file format can't be previewed. Use Export to open it in another app.", thumb)
                 }

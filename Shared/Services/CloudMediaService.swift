@@ -46,7 +46,7 @@ final class CloudMediaService: @unchecked Sendable {
     }
 
     /// What the user sees: the edited version when the item was edited in Photos, else the original.
-    func displayed(for item: MediaItem, progress: ((Double) -> Void)? = nil) async throws -> URL {
+    func displayed(for item: MediaItem, progress: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
         try await original(for: item, role: item.hasEdit == true && !item.parts("e").isEmpty ? .edited : .original, progress: progress)
     }
 
@@ -55,7 +55,7 @@ final class CloudMediaService: @unchecked Sendable {
     }
 
     /// Downloads (or returns the cached) full original for photos, sharing and saving.
-    func original(for item: MediaItem, role: UploadRole = .original, progress: ((Double) -> Void)? = nil) async throws -> URL {
+    func original(for item: MediaItem, role: UploadRole = .original, progress: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
         if let demo = DemoMode.fileURL(for: item) { return demo }
         let r = MediaItem.captionRole(role)
         let name = role == .pairedVideo ? (item.pairedVideoFilename ?? "video.mov")
@@ -70,6 +70,30 @@ final class CloudMediaService: @unchecked Sendable {
             try await env.reader.download(item, role: r, to: tmp, progress: progress)
             return try env.originalsCache.store(file: tmp, for: key, ext: ext.isEmpty ? "bin" : ext)
         }
+    }
+
+    /// Neighbouring cloud photos are fetched ahead only up to this size (ProRAW and the like would cost too much data).
+    static let photoPrefetchLimit: Int64 = 15 << 20
+
+    /// The full original of a cloud photo is already on this device (opening it needs no download).
+    func hasDisplayed(_ item: MediaItem) -> Bool {
+        let role = item.hasEdit == true && !item.parts("e").isEmpty ? "e" : "o"
+        return env.originalsCache.url(for: Self.originalKey(item, role: role)) != nil
+    }
+
+    /// Fetches a neighbouring cloud photo's original ahead of the swipe: Wi-Fi only, not huge files.
+    func prefetchPhoto(_ item: MediaItem) async {
+        guard item.kind != .video, item.isViewableFromCloud, item.fileSize <= Self.photoPrefetchLimit,
+              !NetworkStatus.shared.isExpensive, !DemoMode.isActive, !hasDisplayed(item) else { return }
+        _ = try? await displayed(for: item)
+    }
+
+    /// Log line for each cloud photo opened, so slow ones can be told apart: Telegram's speed (size ÷ time ≈ the
+    /// usual ~1 MB/s), or the app (much longer than the size explains).
+    static func logPhotoTiming(_ item: MediaItem, opened: Date, wasCached: Bool) {
+        let took = Date().timeIntervalSince(opened)
+        appLog(String(format: "Photo timing: %@: sharp after %.2f s (%@, %@)", item.filename, took, Format.bytes(item.fileSize),
+                      wasCached ? "already on this device" : String(format: "downloaded at %@/s", Format.bytes(Int64(Double(item.fileSize) / max(took, 0.05))))))
     }
 
     /// Medium-size decode used while the full image loads (progressive: thumbnail → screen-size → full).

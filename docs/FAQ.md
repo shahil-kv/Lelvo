@@ -98,6 +98,27 @@ files at a time on purpose.
 **Backup → Failed** lists every one with the reason and a **Retry** button. Common reasons: no internet, a photo
 still downloading from iCloud Photos, or a file removed from the phone mid-upload.
 
+**What's the "fast version" of a video?**
+A small copy (1080p HEVC, about 2 Mbit/s, sound copied untouched) that your device makes while backing up a video,
+stored next to the original in your Telegram. Telegram sends free accounts roughly 1 MB/s, while iPhone videos need
+15–60 Mbit/s, so originals can't stream smoothly but the fast version opens in under a second and seeks instantly.
+It adds about 10% to the video's size in Telegram. The original is never changed or replaced. Turn it off in
+Settings → Backup options → *Make fast versions of videos*.
+
+**How do I watch the original 4K?**
+Tap the quality button at the top right of a cloud video (**1080p ⌄**) and choose *Play Original Quality*, or set
+Settings → Backup options → *Play cloud videos* → *Original Quality* to always start with it. On a slow connection the
+original may stop to load. Saving, sharing and Download a copy always use the original. Videos still on your device
+always play from it.
+
+**Older cloud videos have no fast version.**
+Fast versions are made while backing up. For a video backed up before, tap the quality button → *Make Fast Version*:
+it downloads the original once, converts it on your device and uploads the small copy.
+
+**Why does saving a cloud video take a while?**
+It downloads the full original (a minute of iPhone 4K is about 170–400 MB). At Telegram's usual ~1 MB/s for free accounts that's a few
+minutes; the bar at the top shows the progress and lets you cancel. Telegram Premium raises the speed.
+
 **Does it upload the same photo twice?**
 No. Each photo is checked by its Photos identifier and its SHA-256 checksum, so copies are recognised even after a
 reinstall or on another device. **Backup → Duplicates** finds anything that was already stored twice and removes only

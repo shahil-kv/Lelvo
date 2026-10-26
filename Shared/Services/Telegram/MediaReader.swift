@@ -13,6 +13,8 @@ final class MediaReader: @unchecked Sendable {
     private var fileIds: [Int64: Int] = [:]
     /// item+role → CGFE header bytes.
     private var headers: [String: Data] = [:]
+    /// item+role → open players (`StreamingAsset`s) reading it.
+    private var openStreams: [String: Int] = [:]
 
     init(td: TDService, library: LibraryService) {
         self.td = td
@@ -68,7 +70,9 @@ final class MediaReader: @unchecked Sendable {
         for seg in layout.segments(for: range) {
             let fileId = try await tdFileId(for: ps[seg.part])
             out.append(streaming
-                       ? try await td.streamRead(fileId: fileId, offset: seg.offset, count: seg.length)
+                       // A fast version arrives about four times faster than it plays: wait for nearby data.
+                       ? try await td.streamRead(fileId: fileId, offset: seg.offset, count: seg.length,
+                                                 ahead: role == "sp" ? 4 << 20 : 2 << 20, smallReads: role != "sp")
                        : try await td.read(fileId: fileId, offset: seg.offset, count: seg.length, priority: priority))
         }
         return out
@@ -121,7 +125,7 @@ final class MediaReader: @unchecked Sendable {
 
     /// Writes the whole plaintext resource to `destination` in 8 MiB steps (photos, share, save to library).
     /// `evict`: drop TDLib's cached copy afterwards (bulk export shouldn't fill the phone).
-    func download(_ item: MediaItem, role: String, to destination: URL, evict: Bool = false, progress: ((Double) -> Void)? = nil) async throws {
+    func download(_ item: MediaItem, role: String, to destination: URL, evict: Bool = false, progress: (@Sendable (Double) -> Void)? = nil) async throws {
         defer {
             if evict {
                 let ps = parts(item, role: role)
@@ -134,7 +138,9 @@ final class MediaReader: @unchecked Sendable {
         // Fast path: a single unencrypted part — let TDLib fetch it in one go and copy it out.
         let ps = parts(item, role: role)
         if !isEncrypted(item), ps.count == 1 {
-            let path = try await td.download(fileId: try await tdFileId(for: ps[0]))
+            // Someone is waiting (saving, sharing): top priority and live progress.
+            let report: (@Sendable (Int64, Int64) -> Void)? = progress.map { p in { @Sendable done, total in p(Double(done) / Double(max(total, 1))) } }
+            let path = try await td.download(fileId: try await tdFileId(for: ps[0]), priority: report != nil ? 32 : 16, progress: report)
             try fm.copyItem(at: path, to: destination)
             progress?(1)
             return
@@ -180,14 +186,53 @@ final class MediaReader: @unchecked Sendable {
         return try Data(contentsOf: path)
     }
 
-    /// Prefetches the start of a video so playback begins instantly when swiped to.
-    func prefetch(_ item: MediaItem, role: String = "o", bytes: Int64 = 2 << 20) {
-        Task.detached(priority: .utility) { [self] in
+    /// Fetches the start of a video, and its index when that sits at the end (iPhone camera videos keep `moov`
+    /// after the media data), so playback begins without waiting when swiped to. Cancelling stops its download
+    /// too, so it never takes bandwidth from the video on screen.
+    func prefetch(_ item: MediaItem, role: String = "o", bytes: Int64 = 2 << 20) async {
+        await withTaskCancellationHandler {
             let size = (try? await plaintextSize(item, role: role)) ?? 0
-            // Same streaming path as the player, so swiping to this video shares the download instead of
-            // waiting behind a separate low-priority one holding the file gate (AVPlayer timed out at 18 s).
-            _ = try? await read(item, role: role, range: 0..<min(size, bytes), streaming: true)
+            // Same streaming path as the player, so opening this video shares the download instead of waiting
+            // behind a separate low-priority one holding the file gate (AVPlayer timed out at 18 s).
+            guard let head = try? await read(item, role: role, range: 0..<min(size, bytes), streaming: true), !Task.isCancelled,
+                  let tail = MovieLayout.trailingIndexRange(prefix: head, totalSize: size), tail.count <= 4 << 20 else { return }
+            _ = try? await read(item, role: role, range: tail, streaming: true)
+        } onCancel: {
+            self.stopDownloadsIfUnused(item, role: role)
         }
+    }
+
+    /// Looks up the resource's Telegram files right away, so the player's first read doesn't wait for it.
+    /// Returns how long the lookup took (for the timing log).
+    func warmUp(_ item: MediaItem, role: String) async -> TimeInterval {
+        let started = Date()
+        for part in parts(item, role: role) { _ = try? await tdFileId(for: part) }
+        return Date().timeIntervalSince(started)
+    }
+
+    // MARK: - Open players
+
+    func streamOpened(_ item: MediaItem, role: String) {
+        lock.withLock { openStreams["\(item.id)/\(role)", default: 0] += 1 }
+    }
+
+    /// The last player of this video closed: stop TDLib downloading the rest of it (the streaming window asks for
+    /// the whole file), so the next video gets the bandwidth.
+    func streamClosed(_ item: MediaItem, role: String) {
+        let key = "\(item.id)/\(role)"
+        lock.withLock {
+            openStreams[key, default: 1] -= 1
+            if openStreams[key] ?? 0 <= 0 { openStreams[key] = nil }
+        }
+        stopDownloadsIfUnused(item, role: role)
+    }
+
+    private func stopDownloadsIfUnused(_ item: MediaItem, role: String) {
+        let ids: [Int] = lock.withLock {
+            guard openStreams["\(item.id)/\(role)"] == nil else { return [] }
+            return parts(item, role: role).compactMap { fileIds[$0.messageId] }
+        }
+        for id in ids { td.cancelDownload(fileId: id) }
     }
 
     func forgetCaches() {

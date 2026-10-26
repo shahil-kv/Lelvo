@@ -63,6 +63,8 @@ struct MacPhotoGrid: NSViewRepresentable {
         scroll.automaticallyAdjustsContentInsets = false
         scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 90, right: 0)
         scroll.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        scroll.contentView.postsBoundsChangedNotifications = true
+        context.coordinator.observeScrolling(scroll.contentView)
         DispatchQueue.main.async { cv.window?.makeFirstResponder(cv) }
         return scroll
     }
@@ -121,6 +123,35 @@ struct MacPhotoGrid: NSViewRepresentable {
 
         func detach() {
             TileRegistry.shared.frameProvider = nil
+            if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+            settleTask?.cancel()
+        }
+
+        private var scrollObserver: NSObjectProtocol?
+        private var settleTask: Task<Void, Never>?
+
+        /// Scrolling cancels any preloading; once the grid has been still for a moment, the cloud videos on screen
+        /// are preloaded (`VisibleVideoPreloader`), so clicking one starts at once.
+        func observeScrolling(_ clip: NSClipView) {
+            scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.scrolled() }
+            }
+        }
+
+        private func scrolled() {
+            VisibleVideoPreloader.shared.cancel()
+            settleTask?.cancel()
+            settleTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                self?.preloadVisibleVideos()
+            }
+        }
+
+        func preloadVisibleVideos() {
+            guard let cv = collectionView, let ds = dataSource else { return }
+            let visible = cv.indexPathsForVisibleItems().sorted().compactMap { ds.itemIdentifier(for: $0) }.compactMap { entries[$0] }
+            VisibleVideoPreloader.shared.gridSettled(on: visible)
         }
 
         func update(_ p: MacPhotoGrid) {
