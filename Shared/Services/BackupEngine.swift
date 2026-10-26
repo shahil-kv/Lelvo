@@ -323,10 +323,17 @@ final class BackupEngine: @unchecked Sendable {
             for lane in 0..<Self.maxConcurrentUploads {
                 group.addTask { [self] in
                     while let item = await queue.next() {
-                        if isCancelled() || deadline.map({ Date() > $0 }) == true { await queue.drain(); break }
-                        if let reason = await blocker() {
+                        if isCancelled() || deadline.map({ Date() > $0 }) == true {
+                            if await queue.drain() {
+                                appLog("Backup stopped: \(isPauseRequested ? "paused" : (deadline.map { Date() > $0 } == true ? "out of time for this run" : "ended by iOS"))")
+                            }
+                            break
+                        }
+                        // A blip (Wi-Fi roaming, a moment of Low Data Mode) used to end the whole run after a few
+                        // items; wait it out, and stop only if it lasts.
+                        if let reason = await waitForConditions(isCancelled: isCancelled) {
                             await publish { $0.message = reason.localizedDescription }
-                            await queue.drain()
+                            if await queue.drain() { appLog("Backup stopped: \(reason.localizedDescription) (for over 2 minutes)") }
                             break
                         }
                         await waitForFloodPause(isCancelled: isCancelled)
@@ -411,6 +418,25 @@ final class BackupEngine: @unchecked Sendable {
         guard let failed = try? env.store.items(status: .failed) else { return }
         // Retrying is an explicit choice: these upload even when the rest of the queue is left alone.
         try? env.store.upsert(failed.map { var i = $0; i.job = JobMachine.reduce(i.job, .retry); i.chosen = true; return i })
+    }
+
+    /// Nil when the backup may go on; waits up to `patience` for a condition (offline, Wi-Fi only, charging only) to
+    /// clear, telling the user what it's waiting for, and returns the reason if it doesn't.
+    private func waitForConditions(isCancelled: () -> Bool, patience: TimeInterval = 120) async -> StopReason? {
+        guard var reason = await blocker() else { return nil }
+        appLog("Backup waiting: \(reason.localizedDescription)")
+        let until = Date().addingTimeInterval(patience)
+        while Date() < until, !isCancelled() {
+            await publish { $0.message = reason.localizedDescription }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let still = await blocker() else {
+                appLog("Backup continuing")
+                await publish { $0.message = nil }
+                return nil
+            }
+            reason = still
+        }
+        return reason
     }
 
     private func waitForFloodPause(isCancelled: () -> Bool) async {
@@ -892,7 +918,12 @@ actor JobQueue {
     var count: Int { items.count }
     private var requeues: [String: Int] = [:]
     func next() -> MediaItem? { items.popLast() }
-    func drain() { items.removeAll() }
+    /// Empties the queue; true for the lane that actually stopped it (so the reason is logged once).
+    @discardableResult
+    func drain() -> Bool {
+        defer { items.removeAll() }
+        return !items.isEmpty
+    }
 
     /// Puts an item back at the end of the queue (at most 5 times per run). Returns false when exhausted.
     func requeue(_ item: MediaItem) -> Bool {
