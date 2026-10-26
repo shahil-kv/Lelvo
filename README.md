@@ -101,7 +101,7 @@ have, encryption you control, and code you can read.
 | | How | Notes |
 |---|---|---|
 | **iPhone / iPad** | Download `Memvo.ipa` from [Releases](https://github.com/shahil-kv/Memvo/releases/latest) and install it with [SideStore](https://sidestore.io), [AltStore](https://altstore.io) or [Sideloadly](https://sideloadly.io) | iOS 17 or later. The App Store version is in preparation. |
-| **Mac** | Download `Memvo-mac.zip` from [Releases](https://github.com/shahil-kv/Memvo/releases/latest), unzip, move to Applications | macOS 15 or later, Apple silicon or Intel. |
+| **Mac** | Download `Memvo.dmg` from [Releases](https://github.com/shahil-kv/Memvo/releases/latest), open it and drag Memvo to Applications | macOS 15 or later, Apple silicon or Intel. |
 
 <details>
 <summary><b>Sideloading on iPhone, step by step</b></summary>
