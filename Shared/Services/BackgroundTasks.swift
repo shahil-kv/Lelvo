@@ -181,16 +181,38 @@ enum ContinuedBackup {
     @available(iOS 26.0, *)
     static func handle(_ task: BGContinuedProcessingTask) {
         let flag = CancelFlag()
-        task.expirationHandler = { flag.cancel() }
+        let started = Date()
+        task.expirationHandler = {
+            flag.cancel()
+            appLog(String(format: "iOS ended the continued-processing backup after %.0f s", Date().timeIntervalSince(started)))
+        }
         task.progress.totalUnitCount = 1
-        Task {
-            let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled }) { done, total in
-                task.progress.totalUnitCount = Int64(max(total, 1))
-                task.progress.completedUnitCount = Int64(done)
-                task.updateTitle("Backing up to Telegram", subtitle: "\(done) of \(total) items")
+        // iOS ends a continued-processing task whose progress stops moving. Counting only finished items left it still
+        // for the whole upload of a big video, and iOS stopped the backup after a few items; report the bytes of the
+        // uploads in flight every second instead.
+        let ticker = Task { @MainActor in
+            while !Task.isCancelled {
+                let a = BackupActivity.shared
+                let inFlight = a.lanes.values.reduce(0.0) { $0 + ($1.total > 0 ? Double($1.sent) / Double($1.total) : 0) }
+                task.progress.totalUnitCount = Int64(max(a.total, 1)) * 100
+                task.progress.completedUnitCount = min(task.progress.totalUnitCount - 1, Int64(a.done) * 100 + Int64(inFlight * 100))
+                if a.total > 0 { task.updateTitle("Backing up to Telegram", subtitle: "\(a.done) of \(a.total) items") }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
+        }
+        Task {
+            let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            ticker.cancel()
             task.updateTitle("Backup finished", subtitle: summary.text)
             task.setTaskCompleted(success: !flag.isCancelled && summary.error == nil)
+            // Ended by iOS while the user is in the app: carry on in the app rather than stopping half-way.
+            if flag.isCancelled, summary.remaining > 0 {
+                await MainActor.run {
+                    guard UIApplication.shared.applicationState == .active else { return }
+                    appLog("Continuing the backup in the app (\(summary.remaining) items left)")
+                    runInForeground()
+                }
+            }
         }
     }
     #endif
