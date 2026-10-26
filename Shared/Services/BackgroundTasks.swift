@@ -254,7 +254,8 @@ enum ContinuedBackup {
             ticker.cancel()
             task.updateTitle(flag.isCancelled ? "Backup paused" : "Backup finished",
                              subtitle: flag.isCancelled ? "Open Memvo to continue" : summary.text)
-            task.setTaskCompleted(success: !flag.isCancelled && summary.error == nil)
+            // Paused by iOS isn't a failure (it resumes when Memvo opens), and iOS shows "failed" for success: false.
+            task.setTaskCompleted(success: summary.error == nil || flag.isCancelled)
             // Ended by iOS half-way: resume as a new system task (with its indicator) as soon as Memvo is open, which
             // iOS requires for starting one. Continuing inside the app had no indicator and stopped ~30 s after leaving.
             if flag.isCancelled, summary.remaining > 0 {
