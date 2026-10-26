@@ -214,6 +214,10 @@ struct BackupDashboardView: View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Big backup? Plug in your \(Device.name) and keep Memvo open.", systemImage: "powerplug")
                 .font(.footnote.weight(.semibold))
+            #if os(iOS)
+            Text("Before a big backup, set **Settings → Display & Brightness → Auto-Lock → Never**, so the iPhone stays awake even while you use other apps. Set it back when the backup is done.")
+                .font(.caption).foregroundStyle(.secondary)
+            #endif
             Text("iOS can pause backups when Memvo is in the background or the \(Device.name) is locked. Memvo continues where it stopped as soon as you open it, and overnight while charging.")
                 .font(.caption).foregroundStyle(.secondary)
             #if os(iOS)
