@@ -2,6 +2,8 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var activity: BackupActivity
+    @AppStorage(Prefs.Key.keepAwakeDuringBackup) private var keepAwake = true
     @StateObject private var gallery = GalleryModel()
 
     var body: some View {
@@ -31,6 +33,10 @@ struct RootView: View {
             }
         }
         .animation(.default, value: model.onboardingComplete)
+        // While a backup runs with Memvo open, the iPhone doesn't auto-lock: on iOS 26, a locked phone that goes to
+        // sleep stops background tasks (an iOS bug Apple has acknowledged), which paused long backups.
+        .onChange(of: activity.isRunning, initial: true) { _, running in UIApplication.shared.isIdleTimerDisabled = running && keepAwake }
+        .onChange(of: keepAwake) { _, on in UIApplication.shared.isIdleTimerDisabled = on && activity.isRunning }
     }
 }
 

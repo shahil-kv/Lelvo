@@ -77,6 +77,7 @@ struct BackupDashboardView: View {
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.backupPaused) private var paused = false
+    @AppStorage(Prefs.Key.keepAwakeDuringBackup) private var keepAwake = true
 
     var body: some View {
         NavigationStack {
@@ -160,8 +161,7 @@ struct BackupDashboardView: View {
                                   systemImage: "slider.horizontal.3")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
-                        Text("Keep Memvo open for big first backups. On iOS 26+, “Back up now” keeps running in the background with progress on the Lock Screen.")
-                            .font(.caption).foregroundStyle(.secondary)
+                        backupTip
                     }
                 }
 
@@ -208,6 +208,21 @@ struct BackupDashboardView: View {
     }
 
     private enum HeaderState { case running, complete, completeWithFailures, pending, notBackedUp }
+
+    /// How big backups go best within what iOS allows in the background.
+    @ViewBuilder private var backupTip: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Big backup? Plug in your \(Device.name) and keep Memvo open.", systemImage: "powerplug")
+                .font(.footnote.weight(.semibold))
+            Text("iOS can pause backups when Memvo is in the background or the \(Device.name) is locked. Memvo continues where it stopped as soon as you open it, and overnight while charging.")
+                .font(.caption).foregroundStyle(.secondary)
+            #if os(iOS)
+            Toggle("Keep iPhone awake while backing up", isOn: $keepAwake)
+                .font(.footnote)
+            #endif
+        }
+        .padding(.vertical, 2)
+    }
 
     private var headerState: HeaderState {
         if activity.isRunning { return .running }
