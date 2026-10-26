@@ -209,23 +209,22 @@ struct BackupDashboardView: View {
 
     private enum HeaderState { case running, complete, completeWithFailures, pending, notBackedUp }
 
-    /// How big backups go best within what iOS allows in the background.
+    /// While a backup runs with Memvo open, the iPhone stays awake on its own (see `RootView`); this says so, with the
+    /// switch to turn it off.
     @ViewBuilder private var backupTip: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Big backup? Plug in your \(Device.name) and keep Memvo open.", systemImage: "powerplug")
-                .font(.footnote.weight(.semibold))
-            #if os(iOS)
-            Text("Before a big backup, set **Settings → Display & Brightness → Auto-Lock → Never**, so the iPhone stays awake even while you use other apps. Set it back when the backup is done.")
-                .font(.caption).foregroundStyle(.secondary)
-            #endif
-            Text("iOS can pause backups when Memvo is in the background or the \(Device.name) is locked. Memvo continues where it stopped as soon as you open it, and overnight while charging.")
-                .font(.caption).foregroundStyle(.secondary)
-            #if os(iOS)
+        #if os(iOS)
+        VStack(alignment: .leading, spacing: 4) {
             Toggle("Keep iPhone awake while backing up", isOn: $keepAwake)
-                .font(.footnote)
-            #endif
+                .font(.footnote.weight(.semibold))
+            Text(keepAwake
+                 ? "With Memvo open, your iPhone won't lock until the backup is done. For a big backup, plug it in."
+                 : "Your iPhone may lock and pause the backup; open Memvo to continue.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
+        #else
+        Text("Big backups go fastest with Memvo open.").font(.caption).foregroundStyle(.secondary)
+        #endif
     }
 
     private var headerState: HeaderState {
