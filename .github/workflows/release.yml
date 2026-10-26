@@ -182,4 +182,4 @@ jobs:
           START=""; [ -n "$LAST" ] && START="--notes-start-tag $LAST"
           gh release create "$TAG" build/Memvo.dmg build/Memvo.dmg.sha256 build/Memvo-mac.zip build/Memvo-mac.zip.sha256 \
             --target "$GITHUB_SHA" $PRE $START --title "Memvo for Mac $VERSION" --generate-notes \
-            --notes "macOS 15 or later, Apple silicon and Intel. Open Memvo.dmg and drag Memvo to Applications (or unzip Memvo-mac.zip), then right-click → Open the first time. Build ${{ needs.plan.outputs.build }}."
+            --notes "macOS 15 or later, Apple silicon and Intel. Open Memvo.dmg and drag Memvo to Applications (or unzip Memvo-mac.zip). The first time, macOS blocks it because it isn't notarized yet: System Settings → Privacy & Security → Open Anyway. Build ${{ needs.plan.outputs.build }}."

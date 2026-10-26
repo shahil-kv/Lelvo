@@ -122,8 +122,9 @@ full reinstall, signing in brings the library back from Telegram.
 <details>
 <summary><b>Opening the Mac app the first time</b></summary>
 
-Until releases are notarized by Apple, macOS may say it "can't check the app for malicious software". Right-click
-Memvo in Applications → **Open** → **Open**. You only do this once.
+Until releases are notarized by Apple, macOS says it "can't check the app for malicious software" and won't open it.
+Click **Done**, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to
+Memvo, then **Open**. You only do this once. (On macOS 15 and later, right-click → Open no longer skips this.)
 </details>
 
 ## First launch
