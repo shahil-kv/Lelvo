@@ -693,8 +693,13 @@ final class BackupEngine: @unchecked Sendable {
 
             // Remove the previous edit first, so a scan never picks the stale one; the original stays safe. The fast
             // version shows the edit too, so it goes as well and is made again from the new edit.
+            // Only forget them once Telegram confirms: stale messages left without a local record would win a later
+            // scan (it keeps the lowest message id). A failure throws, and the edit is checked again next run.
             let old = (item.parts("e") + item.parts("sp")).map(\.messageId)
-            if !old.isEmpty, let chatId = env.library.chatId { try? await env.td.deleteMessages(chatId: chatId, ids: old) }
+            if !old.isEmpty {
+                guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
+                try await env.td.deleteMessages(chatId: chatId, ids: old)
+            }
             item.cloudParts?["e"] = nil
             item.expectedParts?["e"] = nil
             item.cloudParts?["sp"] = nil
