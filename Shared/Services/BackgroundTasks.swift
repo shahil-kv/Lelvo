@@ -128,7 +128,44 @@ final class CancelFlag: @unchecked Sendable {
 
 /// User-started "Back up now". On iOS 26+ it runs as a continued-processing task with progress in the
 /// system UI; earlier versions run while the app is open (uploads still finish in the background).
+#if os(iOS) && !targetEnvironment(macCatalyst)
+/// Thread-safe "Memvo is on screen", kept up to date from the app's lifecycle notifications.
+final class ActiveFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var active = true
+    private var observing = false
+
+    var value: Bool { lock.withLock { active } }
+
+    @MainActor func observe() {
+        guard !lock.withLock({ observing }) else { return }
+        lock.withLock {
+            observing = true
+            active = UIApplication.shared.applicationState == .active
+        }
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in self?.set(true) }
+        nc.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: nil) { [weak self] _ in self?.set(false) }
+    }
+
+    private func set(_ v: Bool) { lock.withLock { active = v } }
+}
+
+/// The UIKit background task that keeps a backup going in the app after iOS ended its continued-processing task.
+final class BackgroundTaskBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var id: UIBackgroundTaskIdentifier?
+    func set(_ v: UIBackgroundTaskIdentifier) { lock.withLock { id = v } }
+    func take() -> UIBackgroundTaskIdentifier? { lock.withLock { defer { id = nil }; return id } }
+}
+#endif
+
 enum ContinuedBackup {
+    #if os(iOS) && !targetEnvironment(macCatalyst)
+    private static let handedToApp = BackgroundTaskBox()
+    /// Whether Memvo is on screen, readable from iOS's background callbacks (which don't run on the main thread).
+    private static let appActive = ActiveFlag()
+    #endif
     @MainActor static var foregroundTask: Task<Void, Never>?
     /// Whether the run started by `start` also queues every photo not yet in the cloud.
     private nonisolated(unsafe) static var includeNew = false
@@ -141,6 +178,7 @@ enum ContinuedBackup {
         #if os(iOS) && !targetEnvironment(macCatalyst)
         if #available(iOS 26.0, *) {
             BackgroundTasks.registerContinuedIfNeeded()
+            appActive.observe()
             let request = BGContinuedProcessingTaskRequest(identifier: BackgroundTasks.continuedId,
                                                            title: "Backing up to Telegram",
                                                            subtitle: "Preparing…")
@@ -183,8 +221,22 @@ enum ContinuedBackup {
         let flag = CancelFlag()
         let started = Date()
         task.expirationHandler = {
-            flag.cancel()
-            appLog(String(format: "iOS ended the continued-processing backup after %.0f s", Date().timeIntervalSince(started)))
+            let p = ProcessInfo.processInfo
+            appLog(String(format: "iOS ended the continued-processing backup after %.0f s (app %@, thermal %d, low power %@)",
+                          Date().timeIntervalSince(started), appActive.value ? "on screen" : "in background",
+                          p.thermalState.rawValue, p.isLowPowerModeEnabled ? "on" : "off"))
+            if appActive.value {
+                // The user is in Memvo: keep going in the app, and say so instead of showing a failure ("!").
+                let begin = { UIApplication.shared.beginBackgroundTask(withName: "Backup") { flag.cancel() } }
+                // iOS doesn't say which thread this runs on; `sync` onto the main thread from the main thread would hang.
+                let bg = Thread.isMainThread ? MainActor.assumeIsolated(begin) : DispatchQueue.main.sync(execute: begin)
+                handedToApp.set(bg)
+                task.updateTitle("Backing up to Telegram", subtitle: "Continuing in Memvo")
+                task.setTaskCompleted(success: true)
+            } else {
+                flag.cancel()
+                task.updateTitle("Backup paused", subtitle: "Open Memvo to continue")
+            }
         }
         task.progress.totalUnitCount = 1
         // iOS ends a continued-processing task whose progress stops moving. Counting only finished items left it still
@@ -203,9 +255,15 @@ enum ContinuedBackup {
         Task {
             let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
             ticker.cancel()
-            task.updateTitle("Backup finished", subtitle: summary.text)
+            if let bg = handedToApp.take() {
+                // Finished in the app after iOS ended the task; the system indicator was already closed.
+                await MainActor.run { UIApplication.shared.endBackgroundTask(bg) }
+                return
+            }
+            task.updateTitle(flag.isCancelled ? "Backup paused" : "Backup finished",
+                             subtitle: flag.isCancelled ? "Open Memvo to continue" : summary.text)
             task.setTaskCompleted(success: !flag.isCancelled && summary.error == nil)
-            // Ended by iOS while the user is in the app: carry on in the app rather than stopping half-way.
+            // Stopped in the background and the user has come back meanwhile: carry on.
             if flag.isCancelled, summary.remaining > 0 {
                 await MainActor.run {
                     guard UIApplication.shared.applicationState == .active else { return }
