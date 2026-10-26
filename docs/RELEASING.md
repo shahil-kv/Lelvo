@@ -27,7 +27,7 @@ Store launch makes it 1.0.0. MINOR for new features, PATCH for fixes only.
 | Build number | the workflow run number (always increases) | same |
 | Tag | `ios-v0.2.0-beta.<run>`, `macos-v0.2.0-beta.<run>` | `ios-v0.2.0`, `macos-v0.2.0` |
 | Release page | pre-release | latest release |
-| Files | `Memvo.ipa` / `Memvo-mac.zip` and `.sha256` | same |
+| Files | `Memvo.ipa` / `Memvo.dmg` and `Memvo-mac.zip`, each with `.sha256` | same |
 | Notes | merged pull requests since the last release of that app, grouped by label (`.github/release.yml`) | same |
 
 It refuses to run off `main`, refuses a malformed version, and refuses a tag that already exists. Ship as many betas

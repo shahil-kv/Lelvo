@@ -101,7 +101,7 @@ have, encryption you control, and code you can read.
 | | How | Notes |
 |---|---|---|
 | **iPhone / iPad** | Download `Memvo.ipa` from [Releases](https://github.com/shahil-kv/Memvo/releases/latest) and install it with [SideStore](https://sidestore.io), [AltStore](https://altstore.io) or [Sideloadly](https://sideloadly.io) | iOS 17 or later. The App Store version is in preparation. |
-| **Mac** | Download `Memvo-mac.zip` from [Releases](https://github.com/shahil-kv/Memvo/releases/latest), unzip, move to Applications | macOS 15 or later, Apple silicon or Intel. |
+| **Mac** | Download `Memvo.dmg` from [Releases](https://github.com/shahil-kv/Memvo/releases/latest), open it and drag Memvo to Applications | macOS 15 or later, Apple silicon or Intel. |
 
 <details>
 <summary><b>Sideloading on iPhone, step by step</b></summary>
@@ -122,8 +122,9 @@ full reinstall, signing in brings the library back from Telegram.
 <details>
 <summary><b>Opening the Mac app the first time</b></summary>
 
-Until releases are notarized by Apple, macOS may say it "can't check the app for malicious software". Right-click
-Memvo in Applications → **Open** → **Open**. You only do this once.
+Until releases are notarized by Apple, macOS says it "can't check the app for malicious software" and won't open it.
+Click **Done**, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to
+Memvo, then **Open**. You only do this once. (On macOS 15 and later, right-click → Open no longer skips this.)
 </details>
 
 ## First launch

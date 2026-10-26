@@ -163,6 +163,15 @@ jobs:
           lipo -archs "$APP/Contents/MacOS/Memvo"
           ditto -c -k --keepParent "$APP" build/Memvo-mac.zip
           shasum -a 256 build/Memvo-mac.zip | tee build/Memvo-mac.zip.sha256
+      - name: Package Memvo.dmg
+        run: |
+          set -euo pipefail
+          # The usual Mac download: open it and drag Memvo onto the Applications shortcut next to it.
+          STAGE=$(mktemp -d)
+          ditto build/DerivedData/Build/Products/Release/Memvo.app "$STAGE/Memvo.app"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname Memvo -srcfolder "$STAGE" -ov -format UDZO build/Memvo.dmg
+          shasum -a 256 build/Memvo.dmg | tee build/Memvo.dmg.sha256
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -171,6 +180,6 @@ jobs:
           PRE=""; [ "${{ needs.plan.outputs.prerelease }}" = true ] && PRE="--prerelease"
           LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[].tagName | select(startswith("macos-v"))][0] // empty')
           START=""; [ -n "$LAST" ] && START="--notes-start-tag $LAST"
-          gh release create "$TAG" build/Memvo-mac.zip build/Memvo-mac.zip.sha256 --target "$GITHUB_SHA" $PRE $START \
-            --title "Memvo for Mac $VERSION" --generate-notes \
-            --notes "macOS 15 or later, Apple silicon and Intel. Unzip, move to Applications, then right-click → Open the first time. Build ${{ needs.plan.outputs.build }}."
+          gh release create "$TAG" build/Memvo.dmg build/Memvo.dmg.sha256 build/Memvo-mac.zip build/Memvo-mac.zip.sha256 \
+            --target "$GITHUB_SHA" $PRE $START --title "Memvo for Mac $VERSION" --generate-notes \
+            --notes "macOS 15 or later, Apple silicon and Intel. Open Memvo.dmg and drag Memvo to Applications (or unzip Memvo-mac.zip). The first time, macOS blocks it because it isn't notarized yet: System Settings → Privacy & Security → Open Anyway. Build ${{ needs.plan.outputs.build }}."
