@@ -399,6 +399,11 @@ struct ViewerPage: View {
                 // would take bandwidth from the video being watched. Their start is prefetched instead.
                 if isCurrent { startCloudVideo(item) }
             case .livePhoto:
+                // The screen copy shows at once; the Live Photo itself needs the original still and its video.
+                if item.hasScreenCopy, let first = try? await env.media.shownFirst(for: item), first.isScreenCopy,
+                   let image = await Self.decode(first.url, maxPixel: max(target.width, target.height)) {
+                    content = .image(image)
+                }
                 let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) { content = .image(image) }
                 if let video = try? await env.media.original(for: item, role: .pairedVideo),
@@ -406,12 +411,12 @@ struct ViewerPage: View {
                     content = .live(live)
                 }
             case .photo:
-                // Progressive: thumbnail → screen-size decode → full detail when zooming.
-                let opened = Date(), cached = env.media.hasDisplayed(item)
-                let url = try await env.media.displayed(for: item)
-                if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) {
+                // Progressive: thumbnail → screen copy or screen-size decode → full detail of the original when zooming.
+                let opened = Date(), cached = env.media.hasDisplayed(item) || env.media.hasCachedScreenCopy(item)
+                let first = try await env.media.shownFirst(for: item)
+                if let image = await Self.decode(first.url, maxPixel: max(target.width, target.height)) {
                     content = .image(image)
-                    CloudMediaService.logPhotoTiming(item, opened: opened, wasCached: cached)
+                    CloudMediaService.logPhotoTiming(item, opened: opened, wasCached: cached, screenCopy: first.isScreenCopy)
                 } else {
                     content = .unavailable("This file format can't be previewed. Use Share to open it in another app.", thumb)
                 }

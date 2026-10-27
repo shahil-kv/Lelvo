@@ -157,6 +157,14 @@ final class PhotoLibraryService: @unchecked Sendable {
         PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil).firstObject
     }
 
+    /// Assets by local identifier, fetched in one go (missing ones are left out).
+    func assets(localIdentifiers ids: [String]) -> [String: PHAsset] {
+        guard !ids.isEmpty else { return [:] }
+        var found: [String: PHAsset] = [:]
+        PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil).enumerateObjects { a, _, _ in found[a.localIdentifier] = a }
+        return found
+    }
+
     func existingIdentifiers(_ ids: [String]) -> Set<String> {
         guard !ids.isEmpty else { return [] }
         var found = Set<String>()
@@ -298,9 +306,10 @@ final class PhotoLibraryService: @unchecked Sendable {
     }
 
     /// Writes one resource (e.g. the edited version) into `directory`.
-    func exportResource(_ resource: PHAssetResource, into directory: URL) async throws -> URL {
+    /// `allowNetwork`: false fails instead of downloading the resource from iCloud Photos.
+    func exportResource(_ resource: PHAssetResource, into directory: URL, allowNetwork: Bool = true) async throws -> URL {
         let url = directory.appendingPathComponent("\(UUID().uuidString)-\(resource.originalFilename.sanitizedFilename)")
-        try await write(resource, to: url)
+        try await write(resource, to: url, allowNetwork: allowNetwork)
         return url
     }
 
@@ -339,10 +348,10 @@ final class PhotoLibraryService: @unchecked Sendable {
         }
     }
 
-    private func write(_ resource: PHAssetResource, to url: URL) async throws {
+    private func write(_ resource: PHAssetResource, to url: URL, allowNetwork: Bool = true) async throws {
         try? FileManager.default.removeItem(at: url)
         let options = PHAssetResourceRequestOptions()
-        options.isNetworkAccessAllowed = true
+        options.isNetworkAccessAllowed = allowNetwork
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             PHAssetResourceManager.default().writeData(for: resource, toFile: url, options: options) { error in
                 if let error { cont.resume(throwing: error) } else { cont.resume() }

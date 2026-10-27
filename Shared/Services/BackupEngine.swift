@@ -367,6 +367,9 @@ final class BackupEngine: @unchecked Sendable {
         gate.withLock { laneTask = lanes }
         if isPauseRequested { lanes.cancel() }
         await lanes.value
+        if !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
+            await makeEarlierScreenCopies(deadline: deadline, isCancelled: isCancelled)
+        }
 
         let counts = await counter.snapshot()
         summary.uploaded = counts.uploaded
@@ -607,6 +610,16 @@ final class BackupEngine: @unchecked Sendable {
                     noteStreamingCopyFailure(error, backedUp)
                 }
             }
+            // A big photo's screen copy, from the file that's already here. Optional, like the fast version.
+            if item.kind != .video, ScreenCopyPolicy.shouldMake(item), !isCancelled() {
+                let backedUp = item
+                do {
+                    _ = try await uploadScreenCopy(backedUp, source: exp.editedURL ?? exp.primaryURL, laneKey: laneKey,
+                                                   thumbnail: thumbData != nil ? (thumbURL, thumbSize.0, thumbSize.1) : nil)
+                } catch {
+                    noteScreenCopyFailure(error, backedUp)
+                }
+            }
             return .uploaded
         } catch {
             return fail(&item, error)
@@ -740,7 +753,7 @@ final class BackupEngine: @unchecked Sendable {
             // version shows the edit too, so it goes as well and is made again from the new edit.
             // Only forget them once Telegram confirms: stale messages left without a local record would win a later
             // scan (it keeps the lowest message id). A failure throws, and the edit is checked again next run.
-            let old = (item.parts("e") + item.parts("sp")).map(\.messageId)
+            let old = (item.parts("e") + item.parts("sp") + item.parts("d")).map(\.messageId)
             if !old.isEmpty {
                 guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
                 try await env.td.deleteMessages(chatId: chatId, ids: old)
@@ -750,6 +763,9 @@ final class BackupEngine: @unchecked Sendable {
             item.cloudParts?["sp"] = nil
             item.expectedParts?["sp"] = nil
             item.streamingCopySkipped = nil
+            item.cloudParts?["d"] = nil
+            item.expectedParts?["d"] = nil
+            item.screenCopySkipped = nil
             item.hasEdit = true
             item.editedFilename = resource.originalFilename
             item.editedSize = try CloudUploader.size(of: url)
@@ -774,6 +790,11 @@ final class BackupEngine: @unchecked Sendable {
             hashes["e"] = hash
             item.roleHashes = hashes
             appLog("Uploaded the new edit of \(item.filename)")
+            if ScreenCopyPolicy.shouldMake(item) {
+                save(item)
+                do { _ = try await uploadScreenCopy(item, source: url, laneKey: laneKey, thumbnail: nil) } catch { noteScreenCopyFailure(error, item) }
+                item = (try? store.item(id: itemId)) ?? item
+            }
             return finish(.uploaded)
         } catch {
             AppLog.shared.error("Uploading the new edit of \(item.filename) failed: \(error.localizedDescription)")
@@ -858,6 +879,112 @@ final class BackupEngine: @unchecked Sendable {
         }
         appLog("Uploaded the fast version of \(item.filename): \(Format.bytes(size)) for a \(Format.bytes(item.fileSize)) original")
         return true
+    }
+
+    // MARK: - Screen copies (role `d`)
+
+    /// Photos backed up before screen copies existed get one a few at a time at the end of a run, made from a file that
+    /// is already on this device: the photo in the library, or the original downloaded for viewing. Nothing is downloaded
+    /// just for this, and nothing about the photo changes if it can't be made.
+    private func makeEarlierScreenCopies(deadline: Date?, isCancelled: @escaping @Sendable () -> Bool, limit: Int = 20) async {
+        guard !DemoMode.isActive, env.library.chatId != nil else { return }
+        let candidates = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.cloudParts != nil && ScreenCopyPolicy.shouldMake($0) }
+        guard !candidates.isEmpty else { return }
+        let assets = env.photos.assets(localIdentifiers: candidates.compactMap(\.localIdentifier))
+        var made = 0
+        for item in candidates where made < limit {
+            if isCancelled() || deadline.map({ Date() > $0 }) == true { break }
+            if await blocker() != nil { break }
+            await waitForFloodPause(isCancelled: isCancelled)
+            var exported: URL?
+            defer { if let exported { try? FileManager.default.removeItem(at: exported) } }
+            let source: URL
+            if let cached = env.media.cachedDisplayed(item) {
+                source = cached
+            } else if let id = item.localIdentifier, let asset = assets[id],
+                      let resource = env.photos.editedResource(for: asset) ?? env.photos.originalResources(for: asset)?.primary,
+                      // Only what's on the phone already: never download from iCloud Photos just for a screen copy.
+                      let url = try? await env.photos.exportResource(resource, into: rawDirectory, allowNetwork: false) {
+                exported = url
+                source = url
+            } else {
+                continue
+            }
+            await paceUploadStart()
+            do {
+                if try await uploadScreenCopy(item, source: source, laneKey: "copy", thumbnail: nil) { made += 1 }
+            } catch {
+                noteScreenCopyFailure(error, item)
+                if case .floodWait? = (error as? TDServiceError)?.kind { break }
+            }
+        }
+        if made > 0 { appLog("Made screen copies for \(made) earlier photo\(made == 1 ? "" : "s")") }
+    }
+
+    /// Makes the screen copy of `item` from `source` (what the viewer shows: the edit, else the original) and uploads it
+    /// as role `d`. Returns false (and never tries that photo again) when it wouldn't be much smaller.
+    private func uploadScreenCopy(_ item: MediaItem, source: URL, laneKey: String, thumbnail: (URL, Int, Int)?) async throws -> Bool {
+        let store = env.store
+        guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
+        let itemId = item.id
+        let shown = ScreenCopyPolicy.shown(item)
+        let name = "\((shown.name as NSString).deletingPathExtension)-screen.jpg"
+        let label = "\(item.filename) (screen copy)"
+        await publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: 0, total: 0) }
+        let url = rawDirectory.appendingPathComponent("\(itemId)-screen.jpg")
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            Task { await self.publish { $0.lanes[laneKey] = nil } }
+        }
+        // Parts of an earlier, interrupted copy: a new encode isn't byte-identical, so start over.
+        let stale = item.parts("d").map(\.messageId)
+        if !stale.isEmpty {
+            try await env.td.deleteMessages(chatId: chatId, ids: stale)
+            _ = try store.update(id: itemId) { $0.cloudParts?["d"] = nil; $0.expectedParts?["d"] = nil }
+        }
+        let copy = try ScreenCopyEncoder.encode(source, to: url)
+        let size = try CloudUploader.size(of: copy.url)
+        guard ScreenCopyPolicy.isWorthKeeping(copyBytes: size, originalBytes: shown.size) else {
+            _ = try? store.update(id: itemId) { $0.screenCopySkipped = true }
+            appLog("No screen copy for \(item.filename): \(Format.bytes(size)) isn't much smaller than \(Format.bytes(shown.size))")
+            return false
+        }
+        let hash = try Deduplicator.sha256(of: copy.url)
+        var meta = captionMeta(item, role: .screenCopy, hash: hash, name: name, size: size)
+        meta.wh = [copy.width, copy.height]
+        meta.m = "image/jpeg"
+        let parts = try await env.uploader.upload(
+            itemId: itemId, resource: PreparedResource(role: "d", fileURL: copy.url, meta: meta),
+            encrypted: item.encrypted, thumbnail: thumbnail, existing: [],
+            checkpoint: { parts, expected in try store.update(id: itemId) { $0.setParts(parts, role: "d", expected: expected) } },
+            progress: { [weak self] sent, total in
+                Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
+            })
+        _ = try store.update(id: itemId) {
+            $0.setParts(parts, role: "d", expected: parts.count)
+            $0.screenCopySkipped = nil
+            var hashes = $0.roleHashes ?? [:]
+            hashes["d"] = hash
+            $0.roleHashes = hashes
+        }
+        appLog("Uploaded the screen copy of \(item.filename): \(Format.bytes(size)) for a \(Format.bytes(shown.size)) photo")
+        return true
+    }
+
+    /// A screen copy is optional: a failure never touches the item. Only a photo that can't be decoded is left alone from
+    /// then on; anything else (network, disk full, the app suspended) is tried again later.
+    private func noteScreenCopyFailure(_ error: Error, _ item: MediaItem) {
+        if error is CancellationError { return }
+        if let td = error as? TDServiceError {
+            if case .cancelled = td { return }
+            if case .floodWait(let s) = td.kind {
+                gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+            }
+            AppLog.shared.warn("Screen copy of \(item.filename) will be retried: \(error.localizedDescription)")
+            return
+        }
+        if error is ScreenCopyError { _ = try? env.store.update(id: item.id) { $0.screenCopySkipped = true } }
+        AppLog.shared.warn("No screen copy for \(item.filename)\(error is ScreenCopyError ? "" : " yet"): \(error.localizedDescription)")
     }
 
     private static let unconvertibleAVErrors: Set<AVError.Code> = [.fileFormatNotRecognized, .decoderNotFound, .encoderNotFound, .decodeFailed]
