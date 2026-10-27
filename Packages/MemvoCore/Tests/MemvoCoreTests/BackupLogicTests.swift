@@ -383,3 +383,37 @@ import MemvoCore
         #expect(decoded.trashedAt == Date(timeIntervalSince1970: 5))
     }
 }
+
+@Suite struct HashReuseTests {
+    let date = Date(timeIntervalSince1970: 1_790_000_000)
+
+    func tried(edited: Bool = false) -> MediaItem {
+        var item = MediaItem(localIdentifier: "A", sha256: "h", filename: "IMG_1.MOV", kind: .video, creationDate: date, fileSize: 3_000, status: .queued)
+        item.assetModifiedAt = date
+        item.roleHashes = ["o": "h"]
+        if edited {
+            item.editedSize = 2_000
+            item.roleHashes?["e"] = "e"
+        }
+        return item
+    }
+
+    @Test func unchangedPhotoReusesItsHashes() {
+        #expect(Deduplicator.canReuseHashes(of: tried(), modified: date, sizes: (3_000, nil, nil)))
+        #expect(Deduplicator.canReuseHashes(of: tried(edited: true), modified: date, sizes: (3_000, nil, 2_000)))
+    }
+
+    @Test func anyChangeHashesAgain() {
+        #expect(!Deduplicator.canReuseHashes(of: tried(), modified: date.addingTimeInterval(1), sizes: (3_000, nil, nil)))
+        #expect(!Deduplicator.canReuseHashes(of: tried(), modified: nil, sizes: (3_000, nil, nil)))
+        #expect(!Deduplicator.canReuseHashes(of: tried(), modified: date, sizes: (3_001, nil, nil)))
+        // Edited since the last try: an edit appeared that has no stored hash.
+        #expect(!Deduplicator.canReuseHashes(of: tried(), modified: date, sizes: (3_000, nil, 2_000)))
+        var never = tried()
+        never.sha256 = ""
+        #expect(!Deduplicator.canReuseHashes(of: never, modified: date, sizes: (3_000, nil, nil)))
+        var noDate = tried()
+        noDate.assetModifiedAt = nil
+        #expect(!Deduplicator.canReuseHashes(of: noDate, modified: nil, sizes: (3_000, nil, nil)))
+    }
+}

@@ -54,6 +54,18 @@ public struct Deduplicator {
         return twin.roleHashes?["e"] == editHash
     }
 
+    /// The hashes saved on a queued item when it was last tried still describe its files, so a retry (network error,
+    /// Telegram's pause, the app killed) can skip hashing a big video again. True only when the photo hasn't changed
+    /// since (same modification date, which Photos moves on every edit) and each exported file still has the size it
+    /// had; anything else hashes again, so the caption always carries the hash of the bytes uploaded.
+    public static func canReuseHashes(of item: MediaItem, modified: Date?, sizes: (primary: Int64, paired: Int64?, edited: Int64?)) -> Bool {
+        guard !item.sha256.isEmpty, let hashedAt = item.assetModifiedAt, hashedAt == modified else { return false }
+        guard sizes.primary == item.fileSize, sizes.paired == item.pairedVideoSize, sizes.edited == item.editedSize else { return false }
+        if sizes.paired != nil, item.roleHashes?["pv"] == nil { return false }
+        if sizes.edited != nil, item.roleHashes?["e"] == nil { return false }
+        return true
+    }
+
     /// Streaming SHA-256 of a file.
     public static func sha256(of url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)

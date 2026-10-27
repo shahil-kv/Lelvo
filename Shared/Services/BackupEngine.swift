@@ -515,13 +515,32 @@ final class BackupEngine: @unchecked Sendable {
             Task { await self.publish { $0.lanes[laneKey] = nil } }
         }
         do {
+            // Tried before and unchanged since: the duplicate check can use the stored hash before anything is exported
+            // (a duplicate then never touches the file, which may have to come from iCloud Photos).
+            if item.cloudParts == nil, !item.sha256.isEmpty, item.assetModifiedAt != nil, item.assetModifiedAt == asset.modificationDate,
+               item.hasEdit != true || item.roleHashes?["e"] != nil,
+               let twin = try env.store.items(sha256: item.sha256).first(where: {
+                   $0.id != item.id && $0.status == .backedUp && Deduplicator.isSamePhoto(editHash: item.roleHashes?["e"], as: $0)
+               }) {
+                let missing = twin.localIdentifier.map { env.photos.asset(localIdentifier: $0) == nil } ?? true
+                try env.store.delete(id: item.id)
+                try Deduplicator(store: env.store).link(localIdentifier: localId, to: twin, existingAssetIsMissing: missing)
+                appLog("\(item.filename) is already backed up (stored hash, not exported again)")
+                return .duplicate
+            }
             let exp = try await env.photos.exportOriginal(of: asset, into: rawDirectory, extras: true)
             exported = exp
 
-            // Content hash and de-duplication against everything already in the cloud.
-            let primaryHash = try Deduplicator.sha256(of: exp.primaryURL)
-            let pairedHash = try exp.pairedVideoURL.map { try Deduplicator.sha256(of: $0) }
-            let editedHash = try exp.editedURL.map { try Deduplicator.sha256(of: $0) }
+            // Content hash and de-duplication against everything already in the cloud. A retry of an unchanged photo
+            // reuses the hashes from its last try: hashing a 3 GB video again took minutes of battery.
+            let sizes = (primary: try CloudUploader.size(of: exp.primaryURL),
+                         paired: try exp.pairedVideoURL.map { try CloudUploader.size(of: $0) },
+                         edited: try exp.editedURL.map { try CloudUploader.size(of: $0) })
+            let reuse = Deduplicator.canReuseHashes(of: item, modified: asset.modificationDate, sizes: sizes)
+            if reuse { appLog("Reusing the stored hash of \(exp.primaryFilename) (unchanged since the last try)") }
+            let primaryHash = reuse ? item.sha256 : try Deduplicator.sha256(of: exp.primaryURL)
+            let pairedHash = reuse ? item.roleHashes?["pv"] : try exp.pairedVideoURL.map { try Deduplicator.sha256(of: $0) }
+            let editedHash = reuse ? item.roleHashes?["e"] : try exp.editedURL.map { try Deduplicator.sha256(of: $0) }
             let twins = try env.store.items(sha256: primaryHash).filter { $0.id != item.id && $0.status == .backedUp }
             if item.cloudParts == nil, !twins.isEmpty, !twins.contains(where: { Deduplicator.isSamePhoto(editHash: editedHash, as: $0) }) {
                 appLog("\(exp.primaryFilename) has the same original as a backed-up photo but a different edit: backing it up as its own photo")
@@ -536,12 +555,18 @@ final class BackupEngine: @unchecked Sendable {
             item.filename = exp.primaryFilename
             item.kind = exp.kind
             item.uti = exp.primaryUTI
-            item.fileSize = try CloudUploader.size(of: exp.primaryURL)
+            item.fileSize = sizes.primary
             item.pairedVideoFilename = exp.pairedVideoFilename
-            item.pairedVideoSize = try exp.pairedVideoURL.map { try CloudUploader.size(of: $0) }
+            item.pairedVideoSize = sizes.paired
             item.hasEdit = exp.editedURL != nil ? true : nil
             item.editedFilename = exp.editedFilename
-            item.editedSize = try exp.editedURL.map { try CloudUploader.size(of: $0) }
+            item.editedSize = sizes.edited
+            // Saved before the upload starts with the date they belong to (`assetModifiedAt` below), for a retry.
+            var knownHashes = item.roleHashes ?? [:]
+            knownHashes["o"] = primaryHash
+            knownHashes["pv"] = pairedHash
+            knownHashes["e"] = editedHash
+            item.roleHashes = knownHashes
             item.encrypted = env.library.isEncrypted
             item.mimeType = exp.primaryFilename.mimeTypeForFilename
             if let video = await VideoInfo.inspect(asset: asset) {
