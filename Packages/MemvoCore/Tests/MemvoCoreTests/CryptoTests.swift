@@ -168,3 +168,58 @@ import MemvoCore
         }
     }
 }
+
+@Suite struct DecryptedChunkCacheTests {
+    let master = SymmetricKey(size: .bits256)
+    let chunk = 4096
+
+    func encrypted(_ size: Int) throws -> (plain: Data, cipher: Data) {
+        let plain = Data((0..<size).map { UInt8(truncatingIfNeeded: $0 &* 7) })
+        let dir = FileManager.default.temporaryDirectory
+        let input = dir.appendingPathComponent(UUID().uuidString), output = dir.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: input); try? FileManager.default.removeItem(at: output) }
+        try plain.write(to: input)
+        try FileCrypto.encrypt(input: input, output: output, masterKey: master, chunkSize: chunk)
+        return (plain, try Data(contentsOf: output))
+    }
+
+    /// Player-sized pieces read through the cache equal the plaintext, at chunk boundaries and the short last chunk,
+    /// and each chunk is fetched (and decrypted) once.
+    @Test func cachedReadsMatchFreshOnesAndFetchEachChunkOnce() async throws {
+        let (plain, cipher) = try encrypted(chunk * 5 + 123)
+        let reader = try CGFERandomReader(header: cipher.prefix(25), cipherSize: Int64(cipher.count), master: master)
+        let cache = DecryptedChunkCache(limit: 64 << 10)
+        var fetched: [Range<Int64>] = []
+        let fetch: (Range<Int64>) async throws -> Data = { range in
+            fetched.append(range)
+            return cipher.subdata(in: Int(range.lowerBound)..<Int(range.upperBound))
+        }
+        let c = Int64(chunk), total = Int64(plain.count)
+        for start in stride(from: Int64(0), to: total, by: 1000) {
+            let range = start ..< min(total, start + 1000)
+            let data = try await reader.read(range, cache: cache, file: "a/o", fetch: fetch)
+            #expect(data == plain.subdata(in: Int(range.lowerBound)..<Int(range.upperBound)))
+        }
+        #expect(fetched.count == Int(reader.layout.chunkCount))
+        for range in [c - 10 ..< c + 10, 0 ..< total, total - 5 ..< total + 50] as [Range<Int64>] {
+            let data = try await reader.read(range, cache: cache, file: "a/o", fetch: fetch)
+            #expect(data == plain.subdata(in: Int(range.lowerBound)..<Int(min(range.upperBound, total))))
+        }
+        #expect(fetched.count == Int(reader.layout.chunkCount))
+    }
+
+    @Test func staysWithinItsLimitAndForgetsAFile() {
+        let cache = DecryptedChunkCache(limit: 10)
+        cache.store("a", 0, Data(count: 4))
+        cache.store("a", 1, Data(count: 4))
+        #expect(cache.chunk("a", 0) != nil) // now the most recently used
+        cache.store("b", 0, Data(count: 4))
+        #expect(cache.totalBytes == 8)
+        #expect(cache.chunk("a", 1) == nil)
+        #expect(cache.chunk("a", 0) != nil)
+        cache.remove(file: "a")
+        #expect(cache.chunk("a", 0) == nil)
+        #expect(cache.chunk("b", 0) != nil)
+        #expect(cache.totalBytes == 4)
+    }
+}

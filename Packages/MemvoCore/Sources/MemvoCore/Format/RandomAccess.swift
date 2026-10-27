@@ -84,6 +84,105 @@ public struct CGFERandomReader: Sendable {
         }
         return out
     }
+
+    /// Like `read`, keeping decrypted chunks in `cache` under `file`. The player asks for 64–256 KB pieces of 1 MiB
+    /// chunks, and each piece decrypted its whole chunk again (chunk 0 sixteen times as a video started); now only the
+    /// chunks not in the cache are fetched, as one range, and decrypted.
+    public func read(_ range: Range<Int64>, cache: DecryptedChunkCache, file: String,
+                     fetch: (Range<Int64>) async throws -> Data) async throws -> Data {
+        let clamped = max(0, range.lowerBound) ..< min(layout.plaintextSize, range.upperBound)
+        guard !clamped.isEmpty else { return Data() }
+        let needed = layout.chunks(coveringPlaintext: clamped)
+        var plain: [Int64: Data] = [:]
+        for i in needed { plain[i] = cache.chunk(file, i) }
+        let missing = needed.filter { plain[$0] == nil }
+        if let first = missing.first, let last = missing.last {
+            let cipherRange = layout.cipherRange(ofChunk: first).lowerBound ..< layout.cipherRange(ofChunk: last).upperBound
+            let cipher = try await fetch(cipherRange)
+            guard Int64(cipher.count) >= Int64(cipherRange.count) else { throw CryptoError.truncated }
+            for i in first ... last where plain[i] == nil {
+                let cr = layout.cipherRange(ofChunk: i)
+                let from = cipher.startIndex + Int(cr.lowerBound - cipherRange.lowerBound)
+                let chunk = try decryptChunk(i, sealed: cipher.subdata(in: from ..< from + Int(cr.count)))
+                cache.store(file, i, chunk)
+                plain[i] = chunk
+            }
+        }
+        var out = Data()
+        for i in needed {
+            guard let chunk = plain[i] else { continue }
+            let chunkStart = i * Int64(layout.chunkSize)
+            let from = max(clamped.lowerBound, chunkStart) - chunkStart
+            let to = min(clamped.upperBound, chunkStart + Int64(chunk.count)) - chunkStart
+            if to > from { out.append(chunk[chunk.startIndex + Int(from) ..< chunk.startIndex + Int(to)]) }
+        }
+        return out
+    }
+}
+
+/// The last few decrypted CGFE chunks, least recently used dropped first. Small on purpose (a few MiB): it only has
+/// to cover the pieces a player asks for around its playhead.
+public final class DecryptedChunkCache: @unchecked Sendable {
+    private struct Key: Hashable {
+        let file: String
+        let index: Int64
+    }
+
+    private let lock = NSLock()
+    private let limit: Int
+    private var chunks: [Key: Data] = [:]
+    /// Least recently used first.
+    private var order: [Key] = []
+    private var bytes = 0
+
+    public init(limit: Int = 4 << 20) {
+        self.limit = limit
+    }
+
+    public var totalBytes: Int { lock.withLock { bytes } }
+
+    public func chunk(_ file: String, _ index: Int64) -> Data? {
+        lock.withLock {
+            let key = Key(file: file, index: index)
+            guard let data = chunks[key] else { return nil }
+            order.removeAll { $0 == key }
+            order.append(key)
+            return data
+        }
+    }
+
+    public func store(_ file: String, _ index: Int64, _ data: Data) {
+        guard data.count <= limit else { return }
+        lock.withLock {
+            let key = Key(file: file, index: index)
+            if let old = chunks.updateValue(data, forKey: key) {
+                bytes -= old.count
+                order.removeAll { $0 == key }
+            }
+            order.append(key)
+            bytes += data.count
+            while bytes > limit, !order.isEmpty {
+                let dropped = order.removeFirst()
+                bytes -= chunks.removeValue(forKey: dropped)?.count ?? 0
+            }
+        }
+    }
+
+    /// Drops every chunk of one file (its player closed).
+    public func remove(file: String) {
+        lock.withLock {
+            for key in order where key.file == file { bytes -= chunks.removeValue(forKey: key)?.count ?? 0 }
+            order.removeAll { $0.file == file }
+        }
+    }
+
+    public func removeAll() {
+        lock.withLock {
+            chunks.removeAll()
+            order.removeAll()
+            bytes = 0
+        }
+    }
 }
 
 /// Maps a continuous stream onto fixed-size parts (docs/CLOUD_FORMAT.md §5).

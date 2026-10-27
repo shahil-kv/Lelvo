@@ -15,6 +15,8 @@ final class MediaReader: @unchecked Sendable {
     private var headers: [String: Data] = [:]
     /// item+role → open players (`StreamingAsset`s) reading it.
     private var openStreams: [String: Int] = [:]
+    /// Decrypted chunks of E2E resources, keyed by item+role.
+    private let chunks = DecryptedChunkCache()
 
     init(td: TDService, library: LibraryService) {
         self.td = td
@@ -105,22 +107,9 @@ final class MediaReader: @unchecked Sendable {
     func read(_ item: MediaItem, role: String, range: Range<Int64>, priority: Int = 32, streaming: Bool = false) async throws -> Data {
         guard isEncrypted(item) else { return try await readStream(item, role: role, range: range, priority: priority, streaming: streaming) }
         let r = try await reader(item, role: role)
-        let clamped = max(0, range.lowerBound) ..< min(r.layout.plaintextSize, range.upperBound)
-        guard !clamped.isEmpty else { return Data() }
-        let chunks = r.layout.chunks(coveringPlaintext: clamped)
-        let cipherRange = r.layout.cipherRange(ofChunk: chunks.lowerBound).lowerBound ..< r.layout.cipherRange(ofChunk: chunks.upperBound).upperBound
-        let cipher = try await readStream(item, role: role, range: cipherRange, priority: priority, streaming: streaming)
-        var out = Data()
-        for i in chunks {
-            let cr = r.layout.cipherRange(ofChunk: i)
-            let local = Int(cr.lowerBound - cipherRange.lowerBound) ..< Int(cr.upperBound - cipherRange.lowerBound)
-            let plain = try r.decryptChunk(i, sealed: cipher.subdata(in: local))
-            let chunkStart = i * Int64(r.layout.chunkSize)
-            let from = max(clamped.lowerBound, chunkStart) - chunkStart
-            let to = min(clamped.upperBound, chunkStart + Int64(plain.count)) - chunkStart
-            if to > from { out.append(plain.subdata(in: Int(from)..<Int(to))) }
+        return try await r.read(range, cache: chunks, file: "\(item.id)/\(role)") { cipherRange in
+            try await readStream(item, role: role, range: cipherRange, priority: priority, streaming: streaming)
         }
-        return out
     }
 
     /// Writes the whole plaintext resource to `destination` in 8 MiB steps (photos, share, save to library).
@@ -238,6 +227,7 @@ final class MediaReader: @unchecked Sendable {
             openStreams[key, default: 1] -= 1
             if openStreams[key] ?? 0 <= 0 { openStreams[key] = nil }
         }
+        if lock.withLock({ openStreams[key] == nil }) { chunks.remove(file: key) }
         stopDownloadsIfUnused(item, role: role)
     }
 
@@ -257,5 +247,6 @@ final class MediaReader: @unchecked Sendable {
             fileIds.removeAll()
             headers.removeAll()
         }
+        chunks.removeAll()
     }
 }
