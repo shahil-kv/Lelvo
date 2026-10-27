@@ -247,8 +247,10 @@ final class TDService: @unchecked Sendable {
         case .updateFile(let u):
             lock.lock()
             let observer = uploadObservers[u.file.id]
+            let waiters = fileWaiters.removeValue(forKey: u.file.id)
             lock.unlock()
             observer?(u.file.remote.uploadedSize, u.file.size)
+            waiters?.values.forEach { $0.resume() }
         case .updateSpeedLimitNotification(let u):
             // Telegram slows transfers for accounts without Premium and tells clients so; logged (at most every few
             // minutes) because it explains slow cloud playback that no setting in the app can fix.
@@ -614,7 +616,7 @@ final class TDService: @unchecked Sendable {
             // rather than moving it straight back, unless this one has already waited a while.
             let movedRecently = lock.withLock { lastWindowMove[fileId].map { Foundation.Date().timeIntervalSince($0) < 1 } ?? false }
             if !covered && !smallReads && movedRecently && myWindow == nil && Foundation.Date().timeIntervalSince(started) < 1.5 {
-                try await Task.sleep(nanoseconds: 40_000_000)
+                await fileUpdate(fileId, timeout: 0.25)
                 continue
             }
             // Move the window when it doesn't cover us: immediately if a small read stopped it,
@@ -637,7 +639,10 @@ final class TDService: @unchecked Sendable {
                 lastIssue = Foundation.Date()
                 moves += 1
             }
-            try await Task.sleep(nanoseconds: 40_000_000)
+            // TDLib reports every piece it downloads with `updateFile`, as Telegram's own players wait for it; polling every
+            // 40 ms made dozens of TDLib calls a second while a video played. The timeout keeps the time-based steps
+            // above (moving the window, the stuck report) running when no update comes.
+            await fileUpdate(fileId, timeout: 0.25)
         }
         let waited = Foundation.Date().timeIntervalSince(started)
         if waited > 1 {
@@ -754,6 +759,35 @@ final class TDService: @unchecked Sendable {
             guard let entry = fileGates[id], entry.gate === gate else { return }
             fileGates[id] = entry.users > 1 ? (gate, entry.users - 1) : nil
         }
+    }
+
+    /// Callers waiting for TDLib's next `updateFile` about a file (see `fileUpdate`).
+    private var fileWaiters: [Int: [UUID: CheckedContinuation<Void, Never>]] = [:]
+
+    /// Returns at the next `updateFile` for `fileId`, after `timeout`, or when the task is cancelled, whichever is first.
+    private func fileUpdate(_ fileId: Int, timeout: TimeInterval) async {
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                lock.withLock { fileWaiters[fileId, default: [:]][id] = c }
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    self?.wakeFileWaiter(fileId, id)
+                }
+            }
+        } onCancel: {
+            wakeFileWaiter(fileId, id)
+        }
+    }
+
+    /// Resumes one waiter if it is still there; whoever removes it resumes it, so it is resumed exactly once.
+    private func wakeFileWaiter(_ fileId: Int, _ id: UUID) {
+        let waiter: CheckedContinuation<Void, Never>? = lock.withLock {
+            let w = fileWaiters[fileId]?.removeValue(forKey: id)
+            if fileWaiters[fileId]?.isEmpty == true { fileWaiters[fileId] = nil }
+            return w
+        }
+        waiter?.resume()
     }
 
     /// The last player of this file closed: forget where its streaming download was.
