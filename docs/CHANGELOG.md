@@ -46,6 +46,16 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   already on your iPhone or Mac. Sharing, saving and exporting always use the original.
 - **Smoother timeline during a backup** in large libraries: only the photos that changed are updated, instead of
   the whole library being read again every second or two.
+- **Your other device's changes show at once:** while Memvo is open, photos backed up or deleted on your iPhone or Mac
+  appear on the other one within seconds, instead of at the next scan.
+- **Faster, lighter backups:** new photos are found from Photos' list of changes instead of reading the whole library
+  each time, a photo is no longer exported and checked again when its upload is retried, and big videos in an
+  end-to-end encrypted library no longer need a full encrypted copy on disk. When space runs out, the item says how
+  much to free up.
+- **Fixed:** resuming an interrupted upload of a very large video in an end-to-end encrypted library could store a copy
+  that couldn't be opened. Such uploads now start that file again.
+- **Smoother cloud videos** with less battery: playback waits for Telegram's progress instead of asking every 40 ms,
+  and encrypted videos decrypt each piece once.
 
 ## Before this repository
 
