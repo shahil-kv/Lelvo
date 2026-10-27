@@ -342,11 +342,23 @@ actor TimelineSource {
         let env = AppEnvironment.shared
         if changes.everything || !loaded {
             loadAssets()
-            items = OrderedItems((try? env.store.allItems()) ?? [])
-            loaded = true
+            // A failed read must not stick: the next refresh reads everything again.
+            if let all = try? env.store.allItems() {
+                items = OrderedItems(all)
+                loaded = true
+            } else {
+                loaded = false
+            }
         } else {
-            if !changes.itemIds.isEmpty, let fresh = try? env.store.items(ids: changes.itemIds) {
-                items.update(ids: changes.itemIds, fresh: fresh)
+            // Access taken away in Settings: stop showing the photos read while it was allowed.
+            if fetch != nil, !PhotoLibraryService.hasAccess { loadAssets() }
+            if !changes.itemIds.isEmpty {
+                // The changed ids are used up by this refresh; if they can't be read, only a full read can recover them.
+                if let fresh = try? env.store.items(ids: changes.itemIds) {
+                    items.update(ids: changes.itemIds, fresh: fresh)
+                } else {
+                    loaded = false
+                }
             }
             for change in changes.photoChanges { apply(change) }
         }
