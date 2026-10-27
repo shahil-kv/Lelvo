@@ -25,15 +25,15 @@ public struct E2EKeys: Sendable {
 
     public var masterData: Data { master.withUnsafeBytes { Data($0) } }
 
-    static func sealCaption(_ json: Data, key: SymmetricKey, nonce: AES.GCM.Nonce = AES.GCM.Nonce()) throws -> Data {
-        let box = try AES.GCM.seal(json, using: key, nonce: nonce, authenticating: Data("CG1E".utf8))
+    static func sealCaption(_ json: Data, key: SymmetricKey, nonce: AES.GCM.Nonce = AES.GCM.Nonce(), aad: String = "CG1E") throws -> Data {
+        let box = try AES.GCM.seal(json, using: key, nonce: nonce, authenticating: Data(aad.utf8))
         guard let combined = box.combined else { throw CryptoError.badFormat }
         return combined
     }
 
-    static func openCaption(_ blob: Data, key: SymmetricKey) throws -> Data {
+    static func openCaption(_ blob: Data, key: SymmetricKey, aad: String = "CG1E") throws -> Data {
         let box = try AES.GCM.SealedBox(combined: blob)
-        return try AES.GCM.open(box, using: key, authenticating: Data("CG1E".utf8))
+        return try AES.GCM.open(box, using: key, authenticating: Data(aad.utf8))
     }
 
     /// Deterministic-nonce variant, only for generating test vectors.

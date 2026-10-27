@@ -370,6 +370,7 @@ final class BackupEngine: @unchecked Sendable {
         if !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
             await completeEarlierBackups(deadline: deadline, isCancelled: isCancelled)
             await makeEarlierScreenCopies(deadline: deadline, isCancelled: isCancelled)
+            await env.library.writeSnapshotIfDue()
         }
 
         let counts = await counter.snapshot()
@@ -507,8 +508,12 @@ final class BackupEngine: @unchecked Sendable {
             // Content hash and de-duplication against everything already in the cloud.
             let primaryHash = try Deduplicator.sha256(of: exp.primaryURL)
             let pairedHash = try exp.pairedVideoURL.map { try Deduplicator.sha256(of: $0) }
-            if item.cloudParts == nil,
-               let twin = try env.store.items(sha256: primaryHash).first(where: { $0.id != item.id && $0.status == .backedUp }) {
+            let editedHash = try exp.editedURL.map { try Deduplicator.sha256(of: $0) }
+            let twins = try env.store.items(sha256: primaryHash).filter { $0.id != item.id && $0.status == .backedUp }
+            if item.cloudParts == nil, !twins.isEmpty, !twins.contains(where: { Deduplicator.isSamePhoto(editHash: editedHash, as: $0) }) {
+                appLog("\(exp.primaryFilename) has the same original as a backed-up photo but a different edit: backing it up as its own photo")
+            }
+            if item.cloudParts == nil, let twin = twins.first(where: { Deduplicator.isSamePhoto(editHash: editedHash, as: $0) }) {
                 let missing = twin.localIdentifier.map { env.photos.asset(localIdentifier: $0) == nil } ?? true
                 try env.store.delete(id: item.id)
                 try Deduplicator(store: env.store).link(localIdentifier: localId, to: twin, existingAssetIsMissing: missing)
@@ -521,7 +526,6 @@ final class BackupEngine: @unchecked Sendable {
             item.fileSize = try CloudUploader.size(of: exp.primaryURL)
             item.pairedVideoFilename = exp.pairedVideoFilename
             item.pairedVideoSize = try exp.pairedVideoURL.map { try CloudUploader.size(of: $0) }
-            let editedHash = try exp.editedURL.map { try Deduplicator.sha256(of: $0) }
             item.hasEdit = exp.editedURL != nil ? true : nil
             item.editedFilename = exp.editedFilename
             item.editedSize = try exp.editedURL.map { try CloudUploader.size(of: $0) }
@@ -732,18 +736,39 @@ final class BackupEngine: @unchecked Sendable {
     func requeueEditedSinceBackup() -> Int {
         guard PhotoLibraryService.hasAccess else { return 0 }
         let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.cloudParts != nil && $0.localIdentifier != nil }
+        let assets = env.photos.assets(localIdentifiers: items.compactMap(\.localIdentifier))
         var queued: [MediaItem] = []
+        var unknownDate = 0
         for var item in items {
-            guard let id = item.localIdentifier, let asset = env.photos.asset(localIdentifier: id),
-                  let modified = asset.modificationDate,
-                  let since = item.assetModifiedAt ?? item.uploadedAt, modified > since.addingTimeInterval(1),
-                  env.photos.editedResource(for: asset) != nil else { continue }
+            guard let id = item.localIdentifier, let asset = assets[id] else { continue }
+            let since = item.assetModifiedAt ?? item.uploadedAt
+            // A newer date first: looking up the edit is the slow part, and most photos aren't edited.
+            if let since, let modified = asset.modificationDate, modified <= since.addingTimeInterval(1) { continue }
+            guard EditCheck.needsUpload(phoneHasEdit: env.photos.editedResource(for: asset) != nil,
+                                        modified: asset.modificationDate, backedUpAt: since) else { continue }
+            if since == nil { unknownDate += 1 }
             item.status = .queued
             item.editCheck = true
             queued.append(item)
         }
+        // Copies linked to a backed-up photo as duplicates, edited while the cloud has no edit: taken for duplicates
+        // before edits counted, they're backed up as their own photos.
+        var editedCopies = 0
+        let byId = Dictionary(((try? env.store.items(status: .backedUp)) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let aliases = (try? env.store.aliases()) ?? []
+        let aliasAssets = env.photos.assets(localIdentifiers: aliases.map(\.localIdentifier))
+        for alias in aliases {
+            guard let asset = aliasAssets[alias.localIdentifier], let twin = byId[alias.itemId], twin.hasEdit != true,
+                  env.photos.editedResource(for: asset) != nil else { continue }
+            try? env.store.removeAlias(localIdentifier: alias.localIdentifier)
+            queued.append(makeItem(asset))
+            editedCopies += 1
+        }
         try? env.store.upsert(queued)
-        if !queued.isEmpty { appLog("\(queued.count) backed-up items were edited since their backup; checking their edits") }
+        if editedCopies > 0 { appLog("\(editedCopies) edited copies of backed-up photos will be backed up as their own photos") }
+        if !queued.isEmpty {
+            appLog("\(queued.count) backed-up items may have a newer edit on this device (\(unknownDate) without a known backup date); checking their edits")
+        }
         return queued.count
     }
 

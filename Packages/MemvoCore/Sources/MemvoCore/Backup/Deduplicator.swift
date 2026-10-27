@@ -46,6 +46,14 @@ public struct Deduplicator {
         return false
     }
 
+    /// Whether a photo with the same original bytes as `twin` is really the same photo. Its edit counts too: a cropped
+    /// copy of an already backed-up photo was taken for a duplicate, its crop was never uploaded, and deleting it lost
+    /// the crop. `editHash` is the SHA-256 of the photo's rendered edit, nil when it isn't edited.
+    public static func isSamePhoto(editHash: String?, as twin: MediaItem) -> Bool {
+        guard let editHash else { return true }
+        return twin.roleHashes?["e"] == editHash
+    }
+
     /// Streaming SHA-256 of a file.
     public static func sha256(of url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)

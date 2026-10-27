@@ -489,9 +489,9 @@ final class PhotoLibraryService: @unchecked Sendable {
     func restore(_ item: MediaItem, plan: RestorePlan, files: [String: URL], albums: [String]) async throws -> String? {
         guard let original = files[plan.original] else { throw PhotoLibraryError.noOriginalResource }
         var attempts: [RestoredEdit] = [.none]
-        if plan.edit != nil, files["e"] != nil {
-            attempts = (files["ad"] != nil ? [.photosAdjustments] : []) + [.revertible, .asShown]
-        }
+        // Edited photos come back as they looked, the way earlier versions restored them. Restoring them as an undoable
+        // edit (`.photosAdjustments`, `.revertible`) isn't verified on a device yet (#45).
+        if plan.edit != nil, files["e"] != nil { attempts = [.asShown] }
         let existingAlbums = albumCollections(titled: albums)
         var lastError: Error = PhotoLibraryError.noOriginalResource
         for edit in attempts {
