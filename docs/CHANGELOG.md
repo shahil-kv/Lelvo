@@ -28,6 +28,14 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - **Saving a cloud video** shows its progress and can be cancelled.
 - **Recently Deleted for your backup:** deleting from the cloud keeps the item for 30 days, so you can recover it.
 - Versions restart at **0.1.0** for both apps in this repository, released with a one-button Release workflow. Compiler warnings fixed on both platforms.
+- **Backups keep everything Photos keeps**, and **Save to Photos puts photos back as they were:** the original with
+  its edit (Revert in Photos still works), the RAW of RAW + JPEG photos, Live Photos, favourites, hidden photos and
+  the same albums. Photos backed up earlier get the missing pieces from your iPhone or Mac at the next backup.
+- **Include hidden photos** in the backup (off by default). Memvo never shows them, and they come back hidden.
+- **Share Original** (touch and hold Share on iPhone) and **Export Unmodified Original** on the Mac.
+- **Big photos open at once from the cloud:** RAW photos and photos over 3 MB get a small screen copy when backed up,
+  shown immediately while the original loads when you zoom in. Photos backed up earlier get one gradually, from files
+  already on your iPhone or Mac. Sharing, saving and exporting always use the original.
 - **Smoother timeline during a backup** in large libraries: only the photos that changed are updated, instead of
   the whole library being read again every second or two.
 

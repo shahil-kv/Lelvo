@@ -243,7 +243,8 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         // Cloud-only: confirmed uploads whose asset is not on this phone (deleted, restored, other device).
         // `items` is newest first already (`OrderedItems`), so this list needs no sorting.
         let cloud = items.items
-            .filter { ($0.status == .backedUp) && ($0.localIdentifier.map { !present.contains($0) } ?? true) }
+            // Hidden in Photos: never shown here (they're in the backup and come back hidden).
+            .filter { ($0.status == .backedUp) && $0.hidden != true && ($0.localIdentifier.map { !present.contains($0) } ?? true) }
             .map { GalleryEntry(id: "cloud-\($0.id)", date: $0.creationDate, asset: nil, item: $0) }
 
         // Both lists are newest-first; merge them.

@@ -85,6 +85,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var tzOffsetMinutes: Int?
     public var albums: [String]?
     public var favorite: Bool?
+    /// Hidden in Photos when it was backed up: never shown in the timeline, restored hidden.
+    public var hidden: Bool?
     public var mimeType: String?
     /// Job queue: earliest time to retry (FLOOD_WAIT / backoff).
     public var notBefore: Date?
@@ -105,6 +107,14 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var editCheck: Bool?
     /// No 1080p copy will be made: it wouldn't be smaller, or making it failed for good. Local only.
     public var streamingCopySkipped: Bool?
+    /// No screen copy will be made: it wouldn't be much smaller, or the photo can't be decoded. Local only.
+    public var screenCopySkipped: Bool?
+    /// Backed up with everything Photos keeps (edit recipe, RAW, edited Live Photo video), or checked since that
+    /// nothing is missing. Earlier backups are checked once, from the phone. Local only.
+    public var extrasChecked: Bool?
+    /// File names of the extra roles (`ad`, `ad2`, `ra`, `epv`, `md`), from their captions: a restore needs a RAW's
+    /// real extension.
+    public var roleNames: [String: String]?
     /// When the user deleted it from the cloud (status `trashed`); its messages go 30 days later.
     public var trashedAt: Date?
 

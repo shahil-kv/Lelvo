@@ -441,6 +441,11 @@ struct MacViewerPage: View {
                 session = s
                 content = .video(s.player)
             case .livePhoto:
+                // The screen copy shows at once; the Live Photo itself needs the original still and its video.
+                if item.hasScreenCopy, let first = try? await env.media.shownFirst(for: item), first.isScreenCopy,
+                   let image = await Self.decode(first.url, maxPixel: max(target.width, target.height)) {
+                    content = .image(image)
+                }
                 let url = try await env.media.displayed(for: item)
                 if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) { content = .image(image) }
                 if let video = try? await env.media.original(for: item, role: .pairedVideo),
@@ -448,12 +453,20 @@ struct MacViewerPage: View {
                     content = .live(live, still: nil)
                 }
             case .photo:
-                let opened = Date(), cached = env.media.hasDisplayed(item)
-                let url = try await env.media.displayed(for: item)
-                if let image = await Self.decode(url, maxPixel: max(target.width, target.height)) {
+                let opened = Date(), cached = env.media.hasDisplayed(item) || env.media.hasCachedScreenCopy(item)
+                let first = try await env.media.shownFirst(for: item)
+                if let image = await Self.decode(first.url, maxPixel: max(target.width, target.height)) {
                     content = .image(image)
-                    ViewerImageCache.shared.store(image, for: entry.id)
-                    CloudMediaService.logPhotoTiming(item, opened: opened, wasCached: cached)
+                    CloudMediaService.logPhotoTiming(item, opened: opened, wasCached: cached, screenCopy: first.isScreenCopy)
+                    // Showing the screen copy: the original follows in the background, so zooming in on a Mac stays sharp.
+                    if first.isScreenCopy {
+                        let url = try await env.media.displayed(for: item)
+                        guard !Task.isCancelled, let full = await Self.decode(url, maxPixel: max(target.width, target.height)) else { return }
+                        content = .image(full)
+                        ViewerImageCache.shared.store(full, for: entry.id)
+                    } else {
+                        ViewerImageCache.shared.store(image, for: entry.id)
+                    }
                 } else {
                     content = .unavailable("This file format can't be previewed. Use Export to open it in another app.", thumb)
                 }

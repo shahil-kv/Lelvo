@@ -3,7 +3,15 @@ import CryptoKit
 
 /// Format-1 caption metadata (docs/CLOUD_FORMAT.md §3.1). Field names are the wire keys.
 public struct CaptionMeta: Codable, Equatable, Sendable {
-    public enum Role: String, Codable, Sendable { case original = "o", pairedVideo = "pv", thumbnail = "t", smoothPreview = "sp", edited = "e" }
+    public enum Role: String, Codable, Sendable {
+        case original = "o", pairedVideo = "pv", thumbnail = "t", smoothPreview = "sp", edited = "e"
+        /// Screen copy of a big photo (docs/CLOUD_FORMAT.md §2). Versions before it skip these messages as unreadable.
+        case screenCopy = "d"
+        /// The edit's adjustment data as Photos keeps it (`Adjustments.plist`) and its secondary data.
+        case adjustment = "ad", adjustmentSecondary = "ad2"
+        /// The RAW of a RAW + JPEG pair; the edited video of an edited Live Photo; metadata that doesn't fit the caption.
+        case rawAlternate = "ra", editedPairedVideo = "epv", metadata = "md"
+    }
     public enum Kind: String, Codable, Sendable { case photo = "p", video = "v", live = "l" }
 
     public var v: Int = 1
@@ -31,6 +39,8 @@ public struct CaptionMeta: Codable, Equatable, Sendable {
     public var l: String?
     /// On the original: 1 when the item also has an edited version (role `e`), so a restore can tell it's missing.
     public var ed: Int?
+    /// 1 when the item was hidden in Photos: not shown in the timeline, restored hidden.
+    public var hid: Int?
 
     public init(id: String, role: Role, kind: Kind, sha256: String, name: String, size: Int64) {
         self.id = id.lowercased()
@@ -80,6 +90,13 @@ public enum CaptionCodec {
     }()
 
     public static func json(_ meta: CaptionMeta) throws -> Data { try encoder.encode(meta) }
+
+    /// Whether the caption keeps all of `meta.a` (the album names). When it doesn't, the writer stores them in an `md`
+    /// resource (`ExtraMetadata`) instead of letting `encode` drop them.
+    public static func keepsAlbums(_ meta: CaptionMeta, captionKey: SymmetricKey? = nil) throws -> Bool {
+        guard meta.a != nil else { return true }
+        return try render(meta, captionKey: captionKey).count <= maxLength
+    }
 
     /// Builds the caption, dropping optional fields until it fits in `maxLength` characters (§3.1).
     public static func encode(_ meta: CaptionMeta, captionKey: SymmetricKey? = nil) throws -> String {

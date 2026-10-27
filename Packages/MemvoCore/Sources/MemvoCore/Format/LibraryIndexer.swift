@@ -40,7 +40,7 @@ public enum LibraryIndexer {
             case "o": (name, size) = (item.filename, item.fileSize)
             case "pv": (name, size) = (item.pairedVideoFilename ?? item.filename, item.pairedVideoSize ?? 0)
             case "e": (name, size) = (item.editedFilename ?? item.filename, item.editedSize ?? 0)
-            default: (name, size) = (item.filename, parts.reduce(0) { $0 + $1.size })
+            default: (name, size) = (item.roleNames?[role] ?? item.filename, parts.reduce(0) { $0 + $1.size })
             }
             let hash = item.roleHashes?[role] ?? (role == "o" ? item.sha256 : String(repeating: "0", count: 64))
             var meta = CaptionMeta(id: item.id, role: r, kind: kind, sha256: hash, name: name, size: size)
@@ -54,6 +54,7 @@ public enum LibraryIndexer {
             meta.hdr = item.hdr
             meta.a = item.albums
             meta.fav = item.favorite == true ? 1 : nil
+            meta.hid = item.hidden == true ? 1 : nil
             meta.l = item.sourceLocalIdentifier
             meta.ed = role == "o" && item.hasEdit == true ? 1 : nil
             meta.e = item.encrypted ? 1 : nil
@@ -66,6 +67,9 @@ public enum LibraryIndexer {
         }
         return out
     }
+
+    /// Roles that only accompany an original; on their own they are leftovers.
+    static let optionalOnlyRoles: Set<String> = ["d", "sp", "t", "ad", "ad2", "ra", "epv", "md"]
 
     public static func build(_ messages: [CloudMessage]) -> Result {
         var orphans: [Int64] = []
@@ -83,6 +87,12 @@ public enum LibraryIndexer {
         var items: [MediaItem] = []
         for (id, roles) in grouped {
             guard let anyMeta = roles.values.first?.values.first?.meta else { continue }
+            // Only copies left (a screen copy, fast version or encrypted thumbnail) and no original: an older version
+            // deleted the item and didn't know these roles. Nothing to show; offer them for removal with the duplicates.
+            if roles["o"] == nil, Set(roles.keys).isSubset(of: optionalOnlyRoles) {
+                orphans += roles.values.flatMap { $0.values.map(\.messageId) }
+                continue
+            }
             let primary = roles["o"]?.values.min(by: { $0.messageId < $1.messageId })?.meta ?? anyMeta
             let kind: MediaKind = primary.k == .live ? .livePhoto : (primary.k == .video ? .video : .photo)
             var item = MediaItem(id: id, localIdentifier: nil, sha256: roles["o"] != nil ? primary.h : "",
@@ -97,6 +107,7 @@ public enum LibraryIndexer {
             item.tzOffsetMinutes = primary.tz
             item.albums = primary.a
             item.favorite = primary.fav == 1 ? true : nil
+            item.hidden = primary.hid == 1 ? true : nil
             item.sourceLocalIdentifier = primary.l
             item.hasEdit = (primary.ed == 1 || roles["e"] != nil) ? true : nil
             var hashes: [String: String] = [:]
@@ -115,6 +126,11 @@ public enum LibraryIndexer {
                 if role == "pv", let m = ordered.first?.meta {
                     item.pairedVideoFilename = m.n
                     item.pairedVideoSize = m.s
+                }
+                if ["ad", "ad2", "ra", "epv", "md"].contains(role), let m = ordered.first?.meta {
+                    var names = item.roleNames ?? [:]
+                    names[role] = m.n
+                    item.roleNames = names
                 }
             }
             item.roleHashes = hashes

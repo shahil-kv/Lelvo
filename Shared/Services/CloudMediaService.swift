@@ -76,6 +76,56 @@ final class CloudMediaService: @unchecked Sendable {
         }
     }
 
+    /// One stored file of an item, by caption role, as a temporary file named like the original file (Photos reads the
+    /// type from the extension). The caller deletes its folder. Originals and edits come from the viewing cache.
+    func restoreFile(for item: MediaItem, role: String, progress: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
+        let name: String
+        let cached: URL
+        switch role {
+        case "o": cached = try await original(for: item, role: .original, progress: progress); name = item.filename
+        case "pv": cached = try await original(for: item, role: .pairedVideo); name = item.pairedVideoFilename ?? "video.mov"
+        case "e": cached = try await original(for: item, role: .edited); name = item.editedFilename ?? item.filename
+        default:
+            try await env.td.waitUntilReady(timeout: 30)
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try await env.reader.download(item, role: role, to: tmp, evict: true)
+            name = item.roleNames?[role] ?? "\(role).bin"
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            return try shareableCopy(of: tmp, filename: name)
+        }
+        return try shareableCopy(of: cached, filename: name)
+    }
+
+    /// The screen copy of a big photo (role `d`), downloaded once and cached like originals.
+    func screenCopy(for item: MediaItem) async throws -> URL {
+        let key = Self.originalKey(item, role: "d")
+        return try await inflight.run(key) { [self] in
+            if let cached = env.originalsCache.url(for: key) { return cached }
+            try await env.td.waitUntilReady(timeout: 30)
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try await env.reader.download(item, role: "d", to: tmp)
+            return try env.originalsCache.store(file: tmp, for: key, ext: "jpg")
+        }
+    }
+
+    /// What a viewer shows first: the original when it's already here, else the screen copy when there is one (a
+    /// few hundred KB instead of up to 40 MB), else the original. Zooming in, sharing and saving use the original.
+    func shownFirst(for item: MediaItem) async throws -> (url: URL, isScreenCopy: Bool) {
+        if item.hasScreenCopy, !hasDisplayed(item), let copy = try? await screenCopy(for: item) { return (copy, true) }
+        return (try await displayed(for: item), false)
+    }
+
+    func hasCachedScreenCopy(_ item: MediaItem) -> Bool {
+        env.originalsCache.url(for: Self.originalKey(item, role: "d")) != nil
+    }
+
+    /// The original (or edit) of a cloud photo if it's already in the viewing cache, for making a screen copy without
+    /// downloading anything.
+    func cachedDisplayed(_ item: MediaItem) -> URL? {
+        let role = item.hasEdit == true && !item.parts("e").isEmpty ? "e" : "o"
+        return env.originalsCache.url(for: Self.originalKey(item, role: role))
+    }
+
     /// Neighbouring cloud photos are fetched ahead only up to this size (ProRAW and the like would cost too much data).
     static let photoPrefetchLimit: Int64 = 15 << 20
 
@@ -87,17 +137,22 @@ final class CloudMediaService: @unchecked Sendable {
 
     /// Fetches a neighbouring cloud photo's original ahead of the swipe: Wi-Fi only, not huge files.
     func prefetchPhoto(_ item: MediaItem) async {
-        guard item.kind != .video, item.isViewableFromCloud, item.fileSize <= Self.photoPrefetchLimit,
-              !NetworkStatus.shared.isExpensive, !DemoMode.isActive, !hasDisplayed(item) else { return }
+        guard item.kind != .video, item.isViewableFromCloud, !NetworkStatus.shared.isExpensive, !DemoMode.isActive,
+              !hasDisplayed(item) else { return }
+        // The screen copy is what the swipe shows first, and small whatever the original's size.
+        if item.hasScreenCopy { _ = try? await screenCopy(for: item); return }
+        guard item.fileSize <= Self.photoPrefetchLimit else { return }
         _ = try? await displayed(for: item)
     }
 
     /// Log line for each cloud photo opened, so slow ones can be told apart: Telegram's speed (size ÷ time ≈ the
     /// usual ~1 MB/s), or the app (much longer than the size explains).
-    static func logPhotoTiming(_ item: MediaItem, opened: Date, wasCached: Bool) {
+    static func logPhotoTiming(_ item: MediaItem, opened: Date, wasCached: Bool, screenCopy: Bool = false) {
         let took = Date().timeIntervalSince(opened)
-        appLog(String(format: "Photo timing: %@: sharp after %.2f s (%@, %@)", item.filename, took, Format.bytes(item.fileSize),
-                      wasCached ? "already on this device" : String(format: "downloaded at %@/s", Format.bytes(Int64(Double(item.fileSize) / max(took, 0.05))))))
+        let bytes = screenCopy ? item.parts("d").reduce(0) { $0 + $1.size } : item.fileSize
+        appLog(String(format: "Photo timing: %@: %@ after %.2f s (%@, %@)", item.filename, screenCopy ? "screen copy" : "sharp", took,
+                      Format.bytes(bytes),
+                      wasCached ? "already on this device" : String(format: "downloaded at %@/s", Format.bytes(Int64(Double(bytes) / max(took, 0.05))))))
     }
 
     /// Medium-size decode used while the full image loads (progressive: thumbnail → screen-size → full).
