@@ -496,12 +496,7 @@ final class LibraryService: @unchecked Sendable {
         let existing = Dictionary(uniqueKeysWithValues: try store.allItems().map { ($0.id, $0) })
         for var item in result.items {
             if let local = existing[item.id] {
-                item.localIdentifier = local.localIdentifier
-                item.verifiedAt = local.verifiedAt
-                item.chosen = local.chosen
-                item.streamingCopySkipped = local.streamingCopySkipped
-                item.screenCopySkipped = local.screenCopySkipped
-                item.extrasChecked = local.extrasChecked
+                item = item.keepingLocalState(from: local)
                 if local.status == .trashed, item.status == .backedUp {
                     // In Recently Deleted on this device: the messages are still there on purpose.
                     item.status = .trashed

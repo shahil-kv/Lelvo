@@ -733,18 +733,25 @@ final class BackupEngine: @unchecked Sendable {
     func requeueEditedSinceBackup() -> Int {
         guard PhotoLibraryService.hasAccess else { return 0 }
         let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.cloudParts != nil && $0.localIdentifier != nil }
+        let assets = env.photos.assets(localIdentifiers: items.compactMap(\.localIdentifier))
         var queued: [MediaItem] = []
+        var unknownDate = 0
         for var item in items {
-            guard let id = item.localIdentifier, let asset = env.photos.asset(localIdentifier: id),
-                  let modified = asset.modificationDate,
-                  let since = item.assetModifiedAt ?? item.uploadedAt, modified > since.addingTimeInterval(1),
-                  env.photos.editedResource(for: asset) != nil else { continue }
+            guard let id = item.localIdentifier, let asset = assets[id] else { continue }
+            let since = item.assetModifiedAt ?? item.uploadedAt
+            // A newer date first: looking up the edit is the slow part, and most photos aren't edited.
+            if let since, let modified = asset.modificationDate, modified <= since.addingTimeInterval(1) { continue }
+            guard EditCheck.needsUpload(phoneHasEdit: env.photos.editedResource(for: asset) != nil,
+                                        modified: asset.modificationDate, backedUpAt: since) else { continue }
+            if since == nil { unknownDate += 1 }
             item.status = .queued
             item.editCheck = true
             queued.append(item)
         }
         try? env.store.upsert(queued)
-        if !queued.isEmpty { appLog("\(queued.count) backed-up items were edited since their backup; checking their edits") }
+        if !queued.isEmpty {
+            appLog("\(queued.count) backed-up items may have a newer edit on this device (\(unknownDate) without a known backup date); checking their edits")
+        }
         return queued.count
     }
 
