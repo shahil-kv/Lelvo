@@ -31,23 +31,20 @@ import MemvoCore
         MediaItem(localIdentifier: nil, sha256: name, filename: name, kind: .photo, creationDate: Date(), fileSize: 1, status: .backedUp)
     }
 
-    /// The next `didChange` from `store` (posted asynchronously on the main queue).
-    @MainActor func nextChange(of store: LibraryStore, _ body: () throws -> Void) async throws -> Notification {
-        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Notification, Error>) in
-            var token: NSObjectProtocol?
-            token = NotificationCenter.default.addObserver(forName: LibraryStore.didChange, object: store, queue: .main) { note in
-                if let token { NotificationCenter.default.removeObserver(token) }
-                c.resume(returning: note)
-            }
-            do { try body() } catch { c.resume(throwing: error) }
-        }
+    /// The changed ids of the next `didChange` from `store` (posted asynchronously on the main queue, so the stream is
+    /// listening before it arrives).
+    @MainActor func nextChange(of store: LibraryStore, _ body: () throws -> Void) async throws -> Set<String>?? {
+        let changes = NotificationCenter.default.notifications(named: LibraryStore.didChange, object: store)
+        try body()
+        for await note in changes { return .some(LibraryStore.changedIds(note)) }
+        return nil
     }
 
     @Test @MainActor func upsertReportsTheChangedIds() async throws {
         let store = try LibraryStore(url: nil)
         let a = item("a"), b = item("b")
-        let note = try await nextChange(of: store) { try store.upsert([a, b]) }
-        #expect(LibraryStore.changedIds(note) == [a.id, b.id])
+        let ids = try await nextChange(of: store) { try store.upsert([a, b]) }
+        #expect(ids == .some([a.id, b.id]))
     }
 
     @Test @MainActor func deleteReportsItsIdAndDeleteAllReportsEverything() async throws {
@@ -55,9 +52,9 @@ import MemvoCore
         let a = item("a")
         _ = try await nextChange(of: store) { try store.upsert(a) }
         let deleted = try await nextChange(of: store) { try store.delete(id: a.id) }
-        #expect(LibraryStore.changedIds(deleted) == [a.id])
+        #expect(deleted == .some([a.id]))
         let cleared = try await nextChange(of: store) { try store.deleteAll() }
-        #expect(LibraryStore.changedIds(cleared) == nil)
+        #expect(cleared == .some(nil))
     }
 
     @Test func itemsByIdsReturnsOnlyExistingItems() throws {
