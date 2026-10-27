@@ -56,3 +56,15 @@
 - name: skip-changelog
   color: "ededed"
   description: Leave out of the release notes
+- name: "priority: high"
+  color: "d93f0b"
+  description: Fix first; affects reliability or large libraries
+- name: "priority: medium"
+  color: "fbca04"
+  description: Worth doing soon; clear benefit, no urgency
+- name: "priority: low"
+  color: "c2e0c6"
+  description: Nice to have; small or rare benefit
+- name: performance
+  color: "bfd4f2"
+  description: Speed, memory, battery or disk use
