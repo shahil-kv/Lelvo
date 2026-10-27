@@ -89,6 +89,13 @@ iOS's background transfer service. Memvo uploads while it's open; on iOS 26 and 
 continues in the background with progress on the Lock Screen; it also runs overnight while charging, and for about
 25 seconds per Shortcuts run. Everything is saved as it goes, so each run continues where the last stopped.
 
+**How do I make a big backup go through in one go?**
+Plug in your iPhone, and before you start set **Settings → Display & Brightness → Auto-Lock → Never** (set it back
+afterwards). On iOS 26, a locked iPhone that goes to sleep stops background work, a known iOS issue, so keeping it
+awake keeps the backup running, even while you use other apps. Memvo also keeps the screen on by itself while a backup
+runs with the app open (Backup tab → *Keep iPhone awake while backing up*). If iOS pauses it anyway, open Memvo and it
+continues where it stopped.
+
 **It says "Telegram asked to slow down".**
 Telegram limits how fast any account may send. When it asks Memvo to wait, the app waits exactly as long as
 asked, then continues on its own. That's normal and protects your account. Memvo also uploads at most two

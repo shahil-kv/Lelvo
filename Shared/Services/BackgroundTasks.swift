@@ -128,8 +128,52 @@ final class CancelFlag: @unchecked Sendable {
 
 /// User-started "Back up now". On iOS 26+ it runs as a continued-processing task with progress in the
 /// system UI; earlier versions run while the app is open (uploads still finish in the background).
+#if os(iOS) && !targetEnvironment(macCatalyst)
+/// Thread-safe "Memvo is on screen", kept up to date from the app's lifecycle notifications.
+final class ActiveFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var active = true
+    private var observing = false
+
+    var value: Bool { lock.withLock { active } }
+
+    @MainActor func observe() {
+        guard !lock.withLock({ observing }) else { return }
+        lock.withLock {
+            observing = true
+            active = UIApplication.shared.applicationState == .active
+        }
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in self?.set(true) }
+        nc.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: nil) { [weak self] _ in self?.set(false) }
+    }
+
+    private func set(_ v: Bool) { lock.withLock { active = v } }
+}
+
+#endif
+
 enum ContinuedBackup {
+    #if os(iOS) && !targetEnvironment(macCatalyst)
+    /// Whether Memvo is on screen, readable from iOS's background callbacks (which don't run on the main thread).
+    private static let appActive = ActiveFlag()
+    #endif
     @MainActor static var foregroundTask: Task<Void, Never>?
+    /// A user-started backup that iOS ended before it finished; resumed when Memvo is next on screen.
+    @MainActor private static var resumePending = false
+
+    /// Called when Memvo comes to the front (and after iOS ends a backup): starts the unfinished one again.
+    @MainActor
+    static func resumeIfPending() {
+        #if os(iOS)
+        guard resumePending, UIApplication.shared.applicationState == .active else { return }
+        #else
+        guard resumePending else { return }
+        #endif
+        resumePending = false
+        appLog("Resuming the backup that iOS paused")
+        start(everything: includeNew)
+    }
     /// Whether the run started by `start` also queues every photo not yet in the cloud.
     private nonisolated(unsafe) static var includeNew = false
 
@@ -141,6 +185,7 @@ enum ContinuedBackup {
         #if os(iOS) && !targetEnvironment(macCatalyst)
         if #available(iOS 26.0, *) {
             BackgroundTasks.registerContinuedIfNeeded()
+            appActive.observe()
             let request = BGContinuedProcessingTaskRequest(identifier: BackgroundTasks.continuedId,
                                                            title: "Backing up to Telegram",
                                                            subtitle: "Preparing…")
@@ -181,16 +226,44 @@ enum ContinuedBackup {
     @available(iOS 26.0, *)
     static func handle(_ task: BGContinuedProcessingTask) {
         let flag = CancelFlag()
-        task.expirationHandler = { flag.cancel() }
+        let started = Date()
+        task.expirationHandler = {
+            let p = ProcessInfo.processInfo
+            appLog(String(format: "iOS ended the continued-processing backup after %.0f s (app %@, thermal %d, low power %@)",
+                          Date().timeIntervalSince(started), appActive.value ? "on screen" : "in background",
+                          p.thermalState.rawValue, p.isLowPowerModeEnabled ? "on" : "off"))
+            flag.cancel()
+            task.updateTitle("Backup paused", subtitle: "Open Memvo to continue")
+        }
         task.progress.totalUnitCount = 1
-        Task {
-            let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled }) { done, total in
-                task.progress.totalUnitCount = Int64(max(total, 1))
-                task.progress.completedUnitCount = Int64(done)
-                task.updateTitle("Backing up to Telegram", subtitle: "\(done) of \(total) items")
+        // iOS ends a continued-processing task whose progress stops moving. Counting only finished items left it still
+        // for the whole upload of a big video, and iOS stopped the backup after a few items; report the bytes of the
+        // uploads in flight every second instead.
+        let ticker = Task { @MainActor in
+            while !Task.isCancelled {
+                let a = BackupActivity.shared
+                let inFlight = a.lanes.values.reduce(0.0) { $0 + ($1.total > 0 ? Double($1.sent) / Double($1.total) : 0) }
+                task.progress.totalUnitCount = Int64(max(a.total, 1)) * 100
+                task.progress.completedUnitCount = min(task.progress.totalUnitCount - 1, Int64(a.done) * 100 + Int64(inFlight * 100))
+                if a.total > 0 { task.updateTitle("Backing up to Telegram", subtitle: "\(a.done) of \(a.total) items") }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
-            task.updateTitle("Backup finished", subtitle: summary.text)
-            task.setTaskCompleted(success: !flag.isCancelled && summary.error == nil)
+        }
+        Task {
+            let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            ticker.cancel()
+            task.updateTitle(flag.isCancelled ? "Backup paused" : "Backup finished",
+                             subtitle: flag.isCancelled ? "Open Memvo to continue" : summary.text)
+            // Paused by iOS isn't a failure (it resumes when Memvo opens), and iOS shows "failed" for success: false.
+            task.setTaskCompleted(success: summary.error == nil || flag.isCancelled)
+            // Ended by iOS half-way: resume as a new system task (with its indicator) as soon as Memvo is open, which
+            // iOS requires for starting one. Continuing inside the app had no indicator and stopped ~30 s after leaving.
+            if flag.isCancelled, summary.remaining > 0 {
+                await MainActor.run {
+                    resumePending = true
+                    resumeIfPending()
+                }
+            }
         }
     }
     #endif

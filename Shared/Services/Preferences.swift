@@ -27,6 +27,7 @@ enum Prefs {
         static let autoBackup = "autoBackup"
         static let streamingCopies = "streamingCopies"
         static let videoQuality = "videoQuality"
+        static let keepAwakeDuringBackup = "keepAwakeDuringBackup"
     }
 
     enum AlbumMode: String, CaseIterable, Identifiable {
@@ -71,6 +72,7 @@ enum Prefs {
             Key.gridColumns: 4,
             Key.autoBackup: false,
             Key.streamingCopies: true,
+            Key.keepAwakeDuringBackup: true,
             Key.videoQuality: VideoQualityPreference.automatic.rawValue,
             Key.onboardingComplete: false
         ])

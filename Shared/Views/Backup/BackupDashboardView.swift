@@ -77,6 +77,7 @@ struct BackupDashboardView: View {
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.backupPaused) private var paused = false
+    @AppStorage(Prefs.Key.keepAwakeDuringBackup) private var keepAwake = true
 
     var body: some View {
         NavigationStack {
@@ -160,10 +161,19 @@ struct BackupDashboardView: View {
                                   systemImage: "slider.horizontal.3")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
-                        Text("Keep Memvo open for big first backups. On iOS 26+, “Back up now” keeps running in the background with progress on the Lock Screen.")
-                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
+
+                #if os(iOS)
+                // Its own row, like a switch in Settings (squeezed into the status card it overflowed the card).
+                Section {
+                    Toggle("Keep iPhone awake while backing up", isOn: $keepAwake)
+                } footer: {
+                    Text(keepAwake
+                         ? "While a backup runs and Memvo is open, your iPhone won't lock. It locks as usual once the backup is done.\n\nTip: for a big backup, start it at night with your iPhone charging and Memvo open. It locks on its own when the backup is done."
+                         : "Your iPhone may lock and pause a backup; open Memvo to continue.")
+                }
+                #endif
 
                 if PhotoLibraryService.authorizationStatus == .limited {
                     Section {

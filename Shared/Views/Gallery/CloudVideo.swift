@@ -324,8 +324,15 @@ final class VisibleVideoPreloader {
     /// Enough for a fast version to start: its index and first seconds.
     static let bytes: Int64 = 512 << 10
     private var task: Task<Void, Never>?
+    /// The last screenful handled: the grid refreshes every second or two during a backup, which re-triggers this.
+    private var lastIds: [String] = []
+    private var lastAt = Date.distantPast
 
     func gridSettled(on entries: [GalleryEntry]) {
+        let ids = entries.map(\.id)
+        if ids == lastIds, Date().timeIntervalSince(lastAt) < 60, task != nil { return }
+        lastIds = ids
+        lastAt = Date()
         task?.cancel()
         let items = entries.compactMap { e -> MediaItem? in
             // No memory of what was preloaded: the cache can be cleared or trimmed at any time, and fetching a start
@@ -344,7 +351,9 @@ final class VisibleVideoPreloader {
                 await AppEnvironment.shared.reader.prefetch(item, role: "sp", bytes: Self.bytes)
                 if !Task.isCancelled { done += 1 }
             }
-            if done > 0 { appLog(String(format: "Preloaded the start of %d cloud videos on screen in %.1f s", done, Date().timeIntervalSince(started))) }
+            let took = Date().timeIntervalSince(started)
+            // Already on the device returns at once; only real downloads are worth a log line.
+            if done > 0, took > 0.2 { appLog(String(format: "Preloaded the start of %d cloud videos on screen in %.1f s", done, took)) }
         }
     }
 
