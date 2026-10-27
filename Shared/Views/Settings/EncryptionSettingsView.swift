@@ -79,6 +79,8 @@ struct EncryptionSettingsView: View {
             }
         }
         .navigationTitle("Passphrase and recovery key")
+        // What Telegram has now, not a copy saved earlier: decides between "Add" and "New Recovery Key".
+        .task { if (try? await library.refreshHeader()) != nil { needsUpgrade = library.needsHeaderUpgrade } }
         .sheet(item: $sheet) { s in
             NavigationStack { content(for: s) }
                 .interactiveDismissDisabled(busy || { if case .show = s { return true }; return false }())
