@@ -14,8 +14,31 @@ Browse it all in one fast timeline on iPhone and Mac.**
 
 **Website: [memvo.mshahilkv.workers.dev](https://memvo.mshahilkv.workers.dev)**
 
-Free, open source, and staying that way. No servers, no accounts of our own, no analytics, no ads.
+It's not about free storage. It's about ownership: your photos live in a channel you own, in an account you
+already have, and you can open them without Memvo. No servers, no accounts of our own, no analytics, no ads.
 Your photos go straight from your device to your Telegram account, and nowhere else.
+
+<p align="center">
+  <img src="website/img/timeline.webp" width="200" alt="Memvo's photo timeline, grouped by day, with a cloud mark on each backed-up photo">
+  <img src="website/img/viewer.webp" width="200" alt="A photo open full screen in Memvo's viewer">
+  <img src="website/img/albums.webp" width="200" alt="The Albums tab with Videos, Live Photos, Favorites, Only in the cloud and Not backed up">
+  <img src="website/img/backup.webp" width="200" alt="The Backup tab showing items not in the cloud and a Back up now button">
+</p>
+<!-- Mac screenshot: add docs/images/mac.png and uncomment.
+<p align="center"><img src="docs/images/mac.png" width="820" alt="Memvo on a Mac, with a sidebar like Photos"></p>
+-->
+
+### What Telegram sees in an end-to-end encrypted library
+
+<img src="docs/images/e2e-telegram.jpg" width="340" align="right" alt="The library channel in Telegram: every file is an unreadable .cge blob with an encrypted caption">
+
+This is the library channel opened in the normal Telegram app. Every photo is a `.cge` file with a random name,
+and its caption (date, original file name, size) is ciphertext. Both are encrypted on your device with AES-256-GCM,
+using a key made from your passphrase (PBKDF2, 600,000 rounds), before anything is uploaded. Telegram stores them and can't read them. Neither can we.
+
+Open the same channel in Memvo, enter your passphrase, and it's your photo library again.
+
+<br clear="right">
 
 > [!NOTE]
 > Memvo uses the Telegram API. It is an independent app, not made, endorsed or supported by Telegram.
