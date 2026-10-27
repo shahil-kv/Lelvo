@@ -36,7 +36,7 @@ Optional resources:
 - `t`: encrypted thumbnail (E2E libraries only, §4)
 - `sp`: smooth-streaming copy, a 1080p HEVC preview of a large or high-bitrate video, with its `moov` box first (always optional; the original is never replaced; it never counts towards an item being complete). Its caption describes the copy itself: `h`, `s`, `n`, `wh` and `c` are the copy's.
 - `d`: screen copy of a photo (`k` `p` or `l`): a JPEG of what Photos shows (the edit, if any), at most 2048 px on the long side, made only for big or RAW photos so viewers can show it before the original has downloaded (always optional; the original is never replaced; it never counts towards an item being complete). Its caption describes the copy itself: `h`, `s`, `n`, `wh` and `m` are the copy's. Readers that don't know the role skip the message.
-- `ad`: the edit's adjustment data as Photos stores it (`Adjustments.plist`, then `AdjustmentsSecondary.data` when present, one message each, in that order as parts `0` and `1` of the role), when the item was edited. Lets a restore keep the edit in Photos.
+- `ad`: the edit's adjustment data as Photos stores it (`Adjustments.plist`), when the item was edited; `ad2`: its secondary data (`AdjustmentsSecondary.data`) when Photos has one. Lets a restore keep the edit in Photos.
 - `ra`: the RAW of a RAW + JPEG pair (the JPEG is `o`).
 - `epv`: the edited paired video of an edited Live Photo.
 - `md`: metadata that doesn't fit the caption, as compact JSON (`{"a":["Album", …]}` today). Readers merge its fields into the original's caption metadata; a field in `md` wins over the same field in the caption.
@@ -65,7 +65,7 @@ Each resource (or each part of a split resource, §5) is **one message** in the 
 |---|---|---|---|
 | `v` | int | ✓ | Format version. Always `1`. |
 | `id` | string | ✓ | Item UUID, shared by every resource and part of the item. |
-| `r` | string | ✓ | Resource role: `o`, `pv`, `t`, `sp`, `e`, `d`, `ad`, `ra`, `epv`, `md`. |
+| `r` | string | ✓ | Resource role: `o`, `pv`, `t`, `sp`, `e`, `d`, `ad`, `ad2`, `ra`, `epv`, `md`. |
 | `k` | string | ✓ | Item kind: `p`, `v`, `l`. |
 | `h` | string | ✓ | SHA-256 (lowercase hex) of this resource's **original plaintext** bytes. The same on every part. |
 | `n` | string | ✓ | Original file name. |
@@ -141,7 +141,7 @@ file    = header | chunk_0 | chunk_1 | … | chunk_last
 
 1. Resolve the channel and read the header (§1). For E2E, ask for the passphrase and verify `kc`.
 2. Page through **all** history with `getChatHistory` (newest to oldest, 100 per page) and parse each document message with a CG caption.
-3. Group by `id`, then `r`, then part index. If the same `(id, r, part)` appears more than once, keep the message with the **lowest message ID**; the others are orphans. An `id` with only optional copies (`d`, `sp`, `t`) and no `o` is left over from a delete by an older reader: its messages are orphans too, not an item.
+3. Group by `id`, then `r`, then part index. If the same `(id, r, part)` appears more than once, keep the message with the **lowest message ID**; the others are orphans. An `id` with only optional resources (`d`, `sp`, `t`, `ad`, `ad2`, `ra`, `epv`, `md`) and no `o` is left over from a delete by an older reader: its messages are orphans too, not an item.
 4. An item is **complete** when every required resource (§2) is present and, for split resources, parts `0..count−1` all exist with matching `h`. Incomplete items are shown as "incomplete in cloud" and never offered for Free Up Space.
 5. The local database is only a cache of this. Deleting it never loses data.
 

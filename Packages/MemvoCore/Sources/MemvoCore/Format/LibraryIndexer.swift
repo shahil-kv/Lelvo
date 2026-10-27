@@ -54,6 +54,7 @@ public enum LibraryIndexer {
             meta.hdr = item.hdr
             meta.a = item.albums
             meta.fav = item.favorite == true ? 1 : nil
+            meta.hid = item.hidden == true ? 1 : nil
             meta.l = item.sourceLocalIdentifier
             meta.ed = role == "o" && item.hasEdit == true ? 1 : nil
             meta.e = item.encrypted ? 1 : nil
@@ -68,7 +69,7 @@ public enum LibraryIndexer {
     }
 
     /// Roles that only accompany an original; on their own they are leftovers.
-    static let optionalOnlyRoles: Set<String> = ["d", "sp", "t"]
+    static let optionalOnlyRoles: Set<String> = ["d", "sp", "t", "ad", "ad2", "ra", "epv", "md"]
 
     public static func build(_ messages: [CloudMessage]) -> Result {
         var orphans: [Int64] = []
@@ -106,6 +107,7 @@ public enum LibraryIndexer {
             item.tzOffsetMinutes = primary.tz
             item.albums = primary.a
             item.favorite = primary.fav == 1 ? true : nil
+            item.hidden = primary.hid == 1 ? true : nil
             item.sourceLocalIdentifier = primary.l
             item.hasEdit = (primary.ed == 1 || roles["e"] != nil) ? true : nil
             var hashes: [String: String] = [:]

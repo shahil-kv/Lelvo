@@ -85,6 +85,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var tzOffsetMinutes: Int?
     public var albums: [String]?
     public var favorite: Bool?
+    /// Hidden in Photos when it was backed up: never shown in the timeline, restored hidden.
+    public var hidden: Bool?
     public var mimeType: String?
     /// Job queue: earliest time to retry (FLOOD_WAIT / backoff).
     public var notBefore: Date?
