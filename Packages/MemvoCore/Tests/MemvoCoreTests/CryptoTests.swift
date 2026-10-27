@@ -223,3 +223,36 @@ import MemvoCore
         #expect(cache.totalBytes == 4)
     }
 }
+
+@Suite struct StreamingEncryptorTests {
+    let master = SymmetricKey(size: .bits256)
+
+    /// Reading the ciphertext in pieces of any size (as split parts do) gives exactly the whole-file output for the same
+    /// salt and nonces, at chunk boundaries, for an empty file and for exactly one chunk.
+    @Test(arguments: [0, 1, 999, 1000, 1001, 2000, 5432])
+    func piecesEqualTheWholeFile(size: Int) throws {
+        let chunk = 1000
+        let plain = Data((0..<size).map { UInt8(truncatingIfNeeded: $0 &* 13) })
+        let salt = Data(repeating: 7, count: 16)
+        let count = max(1, (size + chunk - 1) / chunk)
+        let nonces = (0..<count).map { i in Data((0..<12).map { UInt8(truncatingIfNeeded: $0 + i * 12) }) }
+        let whole = try FileCrypto.encryptForTesting(data: plain, masterKey: master, chunkSize: chunk, fileSalt: salt, nonces: nonces)
+        #expect(try FileCrypto.decrypt(data: whole, masterKey: master) == plain)
+
+        let input = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: input) }
+        try plain.write(to: input)
+        for piece in [1, 25, 999, 1028, 4096] {
+            let encryptor = try FileCrypto.Encryptor.forTesting(input: input, masterKey: master, chunkSize: chunk, fileSalt: salt, nonces: nonces)
+            #expect(encryptor.cipherSize == Int64(whole.count))
+            var joined = Data()
+            while true {
+                let bytes = try encryptor.read(upToCount: piece)
+                if bytes.isEmpty { break }
+                #expect(bytes.count <= piece)
+                joined.append(bytes)
+            }
+            #expect(joined == whole)
+        }
+    }
+}

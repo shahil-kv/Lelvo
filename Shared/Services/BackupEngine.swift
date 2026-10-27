@@ -1236,7 +1236,8 @@ final class BackupEngine: @unchecked Sendable {
         }
         let kind: TelegramErrorKind
         if let td = error as? TDServiceError { kind = td.kind }
-        else if error is CryptoError || error is PhotoLibraryError || error is LibraryError { kind = .permanent }
+        // Not enough space: retrying in this run would export the file again and fail the same way.
+        else if error is CryptoError || error is PhotoLibraryError || error is LibraryError || error is NotEnoughSpaceError { kind = .permanent }
         else { kind = .transient }
         switch kind {
         case .floodWait(let s):

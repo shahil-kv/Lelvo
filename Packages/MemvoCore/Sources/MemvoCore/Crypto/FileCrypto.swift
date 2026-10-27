@@ -47,31 +47,92 @@ public enum FileCrypto {
         let fm = FileManager.default
         if fm.fileExists(atPath: output.path) { try fm.removeItem(at: output) }
         fm.createFile(atPath: output.path, contents: nil)
-        let reader = try FileHandle(forReadingFrom: input)
-        defer { try? reader.close() }
         let writer = try FileHandle(forWritingTo: output)
         defer { try? writer.close() }
-
-        let salt = fileSalt
-        var header = magic
-        header.append(version)
-        header.append(contentsOf: withUnsafeBytes(of: UInt32(chunkSize).bigEndian) { Array($0) })
-        header.append(salt)
-        try writer.write(contentsOf: header)
-        let key = fileKey(master: masterKey, salt: salt)
-
-        var index: UInt64 = 0
-        var current = try reader.read(upToCount: chunkSize) ?? Data()
+        let encryptor = try Encryptor(input: input, masterKey: masterKey, chunkSize: chunkSize, fileSalt: fileSalt, nonces: nonces)
         while true {
-            let next = current.count == chunkSize ? (try reader.read(upToCount: chunkSize) ?? Data()) : Data()
+            let bytes = try encryptor.read(upToCount: 8 << 20)
+            if bytes.isEmpty { break }
+            try writer.write(contentsOf: bytes)
+        }
+    }
+
+    /// The CGFE ciphertext of a file, produced in order as it's read, so a caller can write it straight into split parts
+    /// (one part on disk at a time) instead of encrypting a whole copy first: a 4 GB video in an encrypted library needed
+    /// about 10 GB free. The bytes are exactly those `encrypt(input:output:…)` writes.
+    public final class Encryptor {
+        private let reader: FileHandle
+        private let header: Data
+        private let key: SymmetricKey
+        private let chunkSize: Int
+        private let nonces: [Data]?
+        private var index: UInt64 = 0
+        /// Sealed bytes not handed out yet, from `pendingStart`.
+        private var pending: Data
+        private var pendingStart = 0
+        private var current: Data?
+        private var finished = false
+
+        /// Size of the whole ciphertext.
+        public let cipherSize: Int64
+
+        public convenience init(input: URL, masterKey: SymmetricKey, chunkSize: Int = defaultChunkSize) throws {
+            try self.init(input: input, masterKey: masterKey, chunkSize: chunkSize, fileSalt: KeyDerivation.randomSalt(), nonces: nil)
+        }
+
+        init(input: URL, masterKey: SymmetricKey, chunkSize: Int, fileSalt: Data, nonces: [Data]?) throws {
+            reader = try FileHandle(forReadingFrom: input)
+            let size = Int64(try reader.seekToEnd())
+            try reader.seek(toOffset: 0)
+            cipherSize = FileCrypto.encryptedSize(plaintextSize: size, chunkSize: chunkSize)
+            var header = magic
+            header.append(version)
+            header.append(contentsOf: withUnsafeBytes(of: UInt32(chunkSize).bigEndian) { Array($0) })
+            header.append(fileSalt)
+            self.header = header
+            self.key = fileKey(master: masterKey, salt: fileSalt)
+            self.chunkSize = chunkSize
+            self.nonces = nonces
+            pending = header
+        }
+
+        /// Fixed salt and nonces, for tests only.
+        public static func forTesting(input: URL, masterKey: SymmetricKey, chunkSize: Int, fileSalt: Data, nonces: [Data]) throws -> Encryptor {
+            try Encryptor(input: input, masterKey: masterKey, chunkSize: chunkSize, fileSalt: fileSalt, nonces: nonces)
+        }
+
+        deinit { try? reader.close() }
+
+        /// Up to `count` more ciphertext bytes; empty once everything was read.
+        public func read(upToCount count: Int) throws -> Data {
+            var out = Data()
+            while out.count < count {
+                if pendingStart == pending.count {
+                    guard try sealNext() else { break }
+                }
+                let n = min(count - out.count, pending.count - pendingStart)
+                out.append(pending[pending.startIndex + pendingStart ..< pending.startIndex + pendingStart + n])
+                pendingStart += n
+            }
+            return out
+        }
+
+        /// Seals the next chunk into `pending`; false at the end. A chunk is final when nothing follows it, which is only
+        /// known after reading ahead, as in `encrypt`.
+        private func sealNext() throws -> Bool {
+            guard !finished else { return false }
+            let chunk = try current ?? (reader.read(upToCount: chunkSize) ?? Data())
+            let next = chunk.count == chunkSize ? (try reader.read(upToCount: chunkSize) ?? Data()) : Data()
             let isFinal = next.isEmpty
             let nonce = try nonces.map { try AES.GCM.Nonce(data: $0[Int(index)]) } ?? AES.GCM.Nonce()
-            let box = try AES.GCM.seal(current, using: key, nonce: nonce, authenticating: aad(header: header, index: index, final: isFinal))
+            let box = try AES.GCM.seal(chunk, using: key, nonce: nonce, authenticating: aad(header: header, index: index, final: isFinal))
             guard let combined = box.combined else { throw CryptoError.badFormat }
-            try writer.write(contentsOf: combined)
-            if isFinal { break }
+            pending = combined
+            pendingStart = 0
             current = next
             index += 1
+            finished = isFinal
+            return true
         }
     }
 
