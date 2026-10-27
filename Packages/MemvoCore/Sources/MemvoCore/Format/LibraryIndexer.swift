@@ -40,7 +40,7 @@ public enum LibraryIndexer {
             case "o": (name, size) = (item.filename, item.fileSize)
             case "pv": (name, size) = (item.pairedVideoFilename ?? item.filename, item.pairedVideoSize ?? 0)
             case "e": (name, size) = (item.editedFilename ?? item.filename, item.editedSize ?? 0)
-            default: (name, size) = (item.filename, parts.reduce(0) { $0 + $1.size })
+            default: (name, size) = (item.roleNames?[role] ?? item.filename, parts.reduce(0) { $0 + $1.size })
             }
             let hash = item.roleHashes?[role] ?? (role == "o" ? item.sha256 : String(repeating: "0", count: 64))
             var meta = CaptionMeta(id: item.id, role: r, kind: kind, sha256: hash, name: name, size: size)
@@ -126,6 +126,11 @@ public enum LibraryIndexer {
                 if role == "pv", let m = ordered.first?.meta {
                     item.pairedVideoFilename = m.n
                     item.pairedVideoSize = m.s
+                }
+                if ["ad", "ad2", "ra", "epv", "md"].contains(role), let m = ordered.first?.meta {
+                    var names = item.roleNames ?? [:]
+                    names[role] = m.n
+                    item.roleNames = names
                 }
             }
             item.roleHashes = hashes

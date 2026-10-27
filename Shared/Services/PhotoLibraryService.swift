@@ -465,32 +465,121 @@ final class PhotoLibraryService: @unchecked Sendable {
     }
 
     /// Saves a downloaded original back into Photos, restoring date and location. Returns the new local identifier.
-    func saveToPhotos(item: MediaItem, primary: URL, pairedVideo: URL?) async throws -> String? {
+    /// How an edit comes back. Photos keeps an edit as the original plus the rendered result plus a description of the
+    /// edit; a restore can only create a new asset, and Apple's way to give it an edit is a content editing output made
+    /// from the new asset's placeholder in the same change (adding the edit files as plain resources made Photos crash
+    /// on the next edit, developer forums 771373 and 79204).
+    enum RestoredEdit: String {
+        /// The edit with Photos' own adjustment data: Photos can reopen the edit where it was.
+        case photosAdjustments = "with Photos' edit data"
+        /// The edit with Memvo's marker as adjustment data: shown, and Revert gives the original.
+        case revertible = "revertible"
+        /// What the user saw, saved as the photo itself (how earlier versions restored edits).
+        case asShown = "as shown"
+        case none = "no edit"
+    }
+
+    /// Restores `item` as a new asset from the downloaded `files` (by caption role, `RestorePlan`), trying the most
+    /// complete form first: Photos can refuse an edit it can't rebuild, and then a simpler form is tried. Returns the
+    /// new asset's local identifier.
+    func restore(_ item: MediaItem, plan: RestorePlan, files: [String: URL], albums: [String]) async throws -> String? {
+        guard let original = files[plan.original] else { throw PhotoLibraryError.noOriginalResource }
+        var attempts: [RestoredEdit] = [.none]
+        if plan.edit != nil, files["e"] != nil {
+            attempts = (files["ad"] != nil ? [.photosAdjustments] : []) + [.revertible, .asShown]
+        }
+        let existingAlbums = albumCollections(titled: albums)
+        var lastError: Error = PhotoLibraryError.noOriginalResource
+        for edit in attempts {
+            do {
+                let id = try await create(item, original: original, plan: plan, files: files, edit: edit,
+                                          albums: albums, existingAlbums: existingAlbums)
+                appLog("Saved \(item.filename) to Photos (edit: \(edit.rawValue), \(albums.count) album\(albums.count == 1 ? "" : "s")\(plan.hidden ? ", hidden" : ""))")
+                return id
+            } catch {
+                lastError = error
+                AppLog.shared.warn("Photos refused \(item.filename) with edit \(edit.rawValue): \(error.localizedDescription)")
+            }
+        }
+        throw lastError
+    }
+
+    private func create(_ item: MediaItem, original: URL, plan: RestorePlan, files: [String: URL], edit: RestoredEdit,
+                        albums: [String], existingAlbums: [String: PHAssetCollection]) async throws -> String? {
+        let adjustment: PHAdjustmentData? = switch edit {
+        case .photosAdjustments: files["ad"].flatMap(Self.photosAdjustmentData)
+        case .revertible: PHAdjustmentData(formatIdentifier: "com.shahil-kv.memvo.restore", formatVersion: "1", data: Data("restored".utf8))
+        case .asShown, .none: nil
+        }
+        if edit == .photosAdjustments, adjustment == nil { throw PhotoLibraryError.noOriginalResource }
         var placeholderId: String?
         try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetCreationRequest.forAsset()
-            let options = PHAssetResourceCreationOptions()
-            options.originalFilename = item.filename
+            func add(_ type: PHAssetResourceType, _ url: URL, _ name: String?) {
+                let options = PHAssetResourceCreationOptions()
+                options.originalFilename = name
+                request.addResource(with: type, fileURL: url, options: options)
+            }
+            // `asShown`: the edited file stands in for the original, as earlier versions restored it.
+            let primary = edit == .asShown ? (files["e"] ?? original) : original
+            let primaryName = edit == .asShown ? (item.editedFilename ?? item.filename) : item.filename
             switch item.kind {
             case .video:
-                request.addResource(with: .video, fileURL: primary, options: options)
+                add(.video, primary, primaryName)
             case .photo:
-                request.addResource(with: .photo, fileURL: primary, options: options)
+                add(.photo, primary, primaryName)
+                if let raw = plan.rawAlternate.flatMap({ files[$0] }) { add(.alternatePhoto, raw, item.roleNames?["ra"]) }
             case .livePhoto:
-                request.addResource(with: .photo, fileURL: primary, options: options)
-                if let pairedVideo {
-                    let videoOptions = PHAssetResourceCreationOptions()
-                    videoOptions.originalFilename = item.pairedVideoFilename
-                    request.addResource(with: .pairedVideo, fileURL: pairedVideo, options: videoOptions)
-                }
+                add(.photo, primary, primaryName)
+                let video = edit == .asShown ? (plan.edit?.pairedVideo.flatMap { files[$0] } ?? files["pv"]) : files["pv"]
+                if let video { add(.pairedVideo, video, item.pairedVideoFilename) }
+            }
+            if let adjustment, let rendered = files["e"], let placeholder = request.placeholderForCreatedAsset {
+                let output = PHContentEditingOutput(placeholderForCreatedAsset: placeholder)
+                output.adjustmentData = adjustment
+                let type = UTType(filenameExtension: rendered.pathExtension) ?? (item.kind == .video ? .quickTimeMovie : .jpeg)
+                let target = item.kind == .video ? output.renderedContentURL : ((try? output.renderedContentURL(for: type)) ?? output.renderedContentURL)
+                try? FileManager.default.removeItem(at: target)
+                try? FileManager.default.copyItem(at: rendered, to: target)
+                request.contentEditingOutput = output
             }
             request.creationDate = item.creationDate
-            if let lat = item.latitude, let lon = item.longitude {
-                request.location = CLLocation(latitude: lat, longitude: lon)
+            if let lat = item.latitude, let lon = item.longitude { request.location = CLLocation(latitude: lat, longitude: lon) }
+            request.isFavorite = plan.favorite
+            request.isHidden = plan.hidden
+            if let placeholder = request.placeholderForCreatedAsset {
+                for title in albums {
+                    if let album = existingAlbums[title] {
+                        PHAssetCollectionChangeRequest(for: album)?.addAssets([placeholder] as NSArray)
+                    } else {
+                        PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: title).addAssets([placeholder] as NSArray)
+                    }
+                }
             }
             placeholderId = request.placeholderForCreatedAsset?.localIdentifier
         }
         return placeholderId
+    }
+
+    /// The user's albums with these titles (the first of each title), fetched before a change so it can add to them.
+    private func albumCollections(titled titles: [String]) -> [String: PHAssetCollection] {
+        guard !titles.isEmpty else { return [:] }
+        let wanted = Set(titles)
+        var found: [String: PHAssetCollection] = [:]
+        PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil).enumerateObjects { c, _, _ in
+            if let t = c.localizedTitle, wanted.contains(t), found[t] == nil { found[t] = c }
+        }
+        return found
+    }
+
+    /// Photos' adjustment data from a backed-up `Adjustments.plist` (its format identifier, version and data).
+    static func photosAdjustmentData(_ url: URL) -> PHAdjustmentData? {
+        guard let data = try? Data(contentsOf: url),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let format = plist["adjustmentFormatIdentifier"] as? String,
+              let version = plist["adjustmentFormatVersion"] as? String,
+              let payload = plist["adjustmentData"] as? Data else { return nil }
+        return PHAdjustmentData(formatIdentifier: format, formatVersion: version, data: payload)
     }
 }
 

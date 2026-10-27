@@ -605,6 +605,9 @@ final class BackupEngine: @unchecked Sendable {
                     })
                 item = (try store.item(id: itemId)) ?? item
                 item.setParts(parts, role: resource.role, expected: parts.count)
+                if !["o", "pv", "e", "t"].contains(resource.role) {
+                    item.roleNames = (item.roleNames ?? [:]).merging([resource.role: resource.meta.n]) { $1 }
+                }
                 sentBefore += (try? CloudUploader.size(of: resource.fileURL)) ?? 0
             }
 
@@ -613,6 +616,7 @@ final class BackupEngine: @unchecked Sendable {
             var hashes = ["o": primaryHash]
             if let pairedHash { hashes["pv"] = pairedHash }
             if let editedHash { hashes["e"] = editedHash }
+            for r in resources where !["o", "pv", "e", "t"].contains(r.role) { hashes[r.role] = r.meta.h }
             item.roleHashes = hashes
             save(item)
             guard item.status == .backedUp else { return .failed }
@@ -973,12 +977,10 @@ final class BackupEngine: @unchecked Sendable {
             progress: { [weak self] sent, total in
                 Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
             })
-        var hashes: [String: String] = [:]
         _ = try store.update(id: itemId) {
             $0.setParts(parts, role: resource.role, expected: parts.count)
-            hashes = $0.roleHashes ?? [:]
-            hashes[resource.role] = resource.meta.h
-            $0.roleHashes = hashes
+            $0.roleHashes = ($0.roleHashes ?? [:]).merging([resource.role: resource.meta.h]) { $1 }
+            $0.roleNames = ($0.roleNames ?? [:]).merging([resource.role: resource.meta.n]) { $1 }
         }
     }
 

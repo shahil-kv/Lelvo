@@ -112,6 +112,9 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     /// Backed up with everything Photos keeps (edit recipe, RAW, edited Live Photo video), or checked since that
     /// nothing is missing. Earlier backups are checked once, from the phone. Local only.
     public var extrasChecked: Bool?
+    /// File names of the extra roles (`ad`, `ad2`, `ra`, `epv`, `md`), from their captions: a restore needs a RAW's
+    /// real extension.
+    public var roleNames: [String: String]?
     /// When the user deleted it from the cloud (status `trashed`); its messages go 30 days later.
     public var trashedAt: Date?
 

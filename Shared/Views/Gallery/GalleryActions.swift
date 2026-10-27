@@ -24,29 +24,31 @@ enum GalleryActions {
         return try env.media.shareableCopy(of: cached, filename: CloudMediaService.displayedFilename(item))
     }
 
-    /// Downloads a cloud item into Photos and links it so it is not uploaded again.
-    /// `progress` (0…1) follows the download of the original, the slow part.
+    /// Puts a cloud item back into Photos as it was (`RestorePlan`): the untouched original with its edit shown and
+    /// revertible, the RAW of a RAW + JPEG pair, the Live Photo's video, favourite, hidden, date, place and albums. Then
+    /// links it so it isn't uploaded again. `progress` (0…1) follows the download of the original, the slow part.
     static func saveToPhotos(_ item: MediaItem, progress: (@Sendable (Double) -> Void)? = nil) async throws {
         let env = AppEnvironment.shared
         let started = Date()
         let status = PhotoLibraryService.authorizationStatus
         guard status == .authorized || status == .limited else { throw PhotoLibraryError.notAuthorized }
-        // Saves what the user sees (the edit, if any); the untouched original stays in the cloud.
-        let primary = try env.media.shareableCopy(of: try await env.media.displayed(for: item, progress: progress),
-                                                  filename: CloudMediaService.displayedFilename(item))
+        let plan = RestorePlan.make(for: item)
+        var files: [String: URL] = [:]
+        defer { for url in files.values { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) } }
+        for role in plan.downloads {
+            do {
+                files[role] = try await env.media.restoreFile(for: item, role: role, progress: role == "o" ? progress : nil)
+            } catch where role != "o" && role != "pv" {
+                // An extra that can't be read only makes the restore less complete; the photo itself still comes back.
+                AppLog.shared.warn("Restoring \(item.filename) without its \(role): \(error.localizedDescription)")
+            }
+        }
+        var albums = plan.albums
+        if let md = files["md"], let extra = try? ExtraMetadata.decode(Data(contentsOf: md)), let all = extra.a { albums = all }
         let took = Date().timeIntervalSince(started)
         appLog(String(format: "Downloaded %@ to save: %@ in %.0f s (%@/s)", item.filename, Format.bytes(item.fileSize), took,
                       Format.bytes(Int64(Double(item.fileSize) / max(took, 0.1)))))
-        var paired: URL?
-        if item.kind == .livePhoto, !item.parts("pv").isEmpty || item.pairedVideo != nil {
-            paired = try env.media.shareableCopy(of: try await env.media.original(for: item, role: .pairedVideo),
-                                                 filename: item.pairedVideoFilename ?? "video.mov")
-        }
-        defer {
-            try? FileManager.default.removeItem(at: primary.deletingLastPathComponent())
-            if let paired { try? FileManager.default.removeItem(at: paired.deletingLastPathComponent()) }
-        }
-        if let newId = try await env.photos.saveToPhotos(item: item, primary: primary, pairedVideo: paired) {
+        if let newId = try await env.photos.restore(item, plan: plan, files: files, albums: albums) {
             try env.store.update(id: item.id) { $0.localIdentifier = newId }
         }
     }
