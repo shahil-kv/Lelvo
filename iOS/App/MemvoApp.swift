@@ -99,6 +99,13 @@ enum CloudReadCheck {
                     let head = try await env.reader.read(item, role: "o", range: 0..<min(size, 65536), streaming: true)
                     let tail = try await env.reader.read(item, role: "o", range: max(0, size - 65536)..<size, streaming: true)
                     if head.isEmpty || tail.isEmpty { throw MediaReader.ReadError.missing }
+                    if item.hasStreamingCopy {
+                        // What the preloader fetches for a fast version, timed (new ones use 256 KiB chunks).
+                        let t = Date()
+                        let start = try await env.reader.read(item, role: "sp", range: 0..<(512 << 10), streaming: true)
+                        if start.isEmpty { throw MediaReader.ReadError.missing }
+                        appLog(String(format: "Cloud read check: %@ fast version start in %.2f s", item.filename, Date().timeIntervalSince(t)))
+                    }
                     if args.contains("-verifyCloudReadsFull") {
                         // Sequential 1 MB reads like the player, timing the slow ones.
                         let started = Date()
