@@ -124,8 +124,15 @@ struct ViewerView: View {
 
     private var bottomBar: some View {
         HStack {
-            Button { Task { await shareCurrent() } } label: { Image(systemName: "square.and.arrow.up") }
-                .accessibilityLabel("Share")
+            // Tap shares what's shown (the edit, like Photos); touch and hold offers the untouched original.
+            Menu {
+                Button("Share Original", systemImage: "doc.on.doc") { Task { await shareCurrent(original: true) } }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            } primaryAction: {
+                Task { await shareCurrent() }
+            }
+            .accessibilityLabel("Share")
             Spacer()
             if let current, current.isCloudOnly, current.item?.isViewableFromCloud == true {
                 Button { saveTask = Task { await saveCurrent() } } label: { Image(systemName: "square.and.arrow.down") }
@@ -184,11 +191,11 @@ struct ViewerView: View {
         }
     }
 
-    private func shareCurrent() async {
+    private func shareCurrent(original: Bool = false) async {
         guard let current else { return }
         busy = true
         defer { busy = false }
-        do { share = ShareItems(urls: [try await GalleryActions.shareableFile(for: current)]) }
+        do { share = ShareItems(urls: [try await GalleryActions.shareableFile(for: current, original: original)]) }
         catch { message = GalleryAlert(title: "Can't share", message: error.localizedDescription) }
     }
 

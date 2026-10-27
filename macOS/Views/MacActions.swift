@@ -90,12 +90,12 @@ enum MacActions {
     }
 
     /// Prepares originals (downloading cloud items) with progress in the toast; returns the files that worked.
-    static func prepareFiles(_ entries: [GalleryEntry], toast: ToastCenter, verb: String) async -> [URL] {
+    static func prepareFiles(_ entries: [GalleryEntry], toast: ToastCenter, verb: String, originals: Bool = false) async -> [URL] {
         var urls: [URL] = []
         var failures = 0
         for (i, entry) in entries.enumerated() {
             toast.progress("\(verb) \(i + 1) of \(entries.count)…", fraction: Double(i) / Double(max(entries.count, 1)))
-            do { urls.append(try await GalleryActions.shareableFile(for: entry)) } catch { failures += 1 }
+            do { urls.append(try await GalleryActions.shareableFile(for: entry, original: originals)) } catch { failures += 1 }
         }
         if failures > 0 {
             toast.show(.failure, "\(failures) item\(failures == 1 ? "" : "s") couldn't be downloaded", detail: "Check your connection and try again.")
@@ -111,9 +111,10 @@ enum MacActions {
     }
 
     /// Exports originals (with their real names and dates) into a folder the user picks.
-    static func export(_ entries: [GalleryEntry], toast: ToastCenter) async {
+    /// `originals`: the untouched originals instead of what Photos shows, like "Export Unmodified Original" in Photos.
+    static func export(_ entries: [GalleryEntry], toast: ToastCenter, originals: Bool = false) async {
         guard !entries.isEmpty, let folder = chooseFolder(message: "Choose where to export \(entries.count) item\(entries.count == 1 ? "" : "s").") else { return }
-        let files = await prepareFiles(entries, toast: toast, verb: "Exporting")
+        let files = await prepareFiles(entries, toast: toast, verb: "Exporting", originals: originals)
         let fm = FileManager.default
         var moved = 0
         for file in files {

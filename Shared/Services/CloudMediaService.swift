@@ -76,6 +76,26 @@ final class CloudMediaService: @unchecked Sendable {
         }
     }
 
+    /// One stored file of an item, by caption role, as a temporary file named like the original file (Photos reads the
+    /// type from the extension). The caller deletes its folder. Originals and edits come from the viewing cache.
+    func restoreFile(for item: MediaItem, role: String, progress: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
+        let name: String
+        let cached: URL
+        switch role {
+        case "o": cached = try await original(for: item, role: .original, progress: progress); name = item.filename
+        case "pv": cached = try await original(for: item, role: .pairedVideo); name = item.pairedVideoFilename ?? "video.mov"
+        case "e": cached = try await original(for: item, role: .edited); name = item.editedFilename ?? item.filename
+        default:
+            try await env.td.waitUntilReady(timeout: 30)
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try await env.reader.download(item, role: role, to: tmp, evict: true)
+            name = item.roleNames?[role] ?? "\(role).bin"
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            return try shareableCopy(of: tmp, filename: name)
+        }
+        return try shareableCopy(of: cached, filename: name)
+    }
+
     /// The screen copy of a big photo (role `d`), downloaded once and cached like originals.
     func screenCopy(for item: MediaItem) async throws -> URL {
         let key = Self.originalKey(item, role: "d")

@@ -8,6 +8,7 @@ enum Prefs {
         static let wifiOnly = "wifiOnly"
         static let backupVideos = "backupVideos"
         static let includeScreenshots = "includeScreenshots"
+        static let includeHidden = "includeHidden"
         static let albumMode = "albumMode"
         static let albumIds = "albumIds"
         static let encryptionEnabled = "encryptionEnabled"
@@ -61,6 +62,7 @@ enum Prefs {
             Key.wifiOnly: true,
             Key.backupVideos: true,
             Key.includeScreenshots: true,
+            Key.includeHidden: false,
             Key.albumMode: AlbumMode.all.rawValue,
             Key.encryptionEnabled: false,
             Key.cacheCapMB: 1000,
@@ -82,6 +84,8 @@ enum Prefs {
     static var wifiOnly: Bool { defaults.bool(forKey: Key.wifiOnly) }
     static var backupVideos: Bool { defaults.bool(forKey: Key.backupVideos) }
     static var includeScreenshots: Bool { defaults.bool(forKey: Key.includeScreenshots) }
+    /// Back up photos hidden in Photos too. They're never shown in Memvo and come back hidden.
+    static var includeHidden: Bool { defaults.bool(forKey: Key.includeHidden) }
     static var encryptionEnabled: Bool { defaults.bool(forKey: Key.encryptionEnabled) }
     static var allowFreeUpSpace: Bool { defaults.bool(forKey: Key.allowFreeUpSpace) }
     /// Viewed full-size media and video segments (default 1 GB).

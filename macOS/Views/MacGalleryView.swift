@@ -316,6 +316,7 @@ struct MacGalleryView: View {
                 }
                 Menu {
                     Button("Export…", systemImage: "square.and.arrow.down.on.square") { Task { await MacActions.export(targets, toast: toast) } }
+                    Button("Export Unmodified Original…", systemImage: "doc.on.doc") { Task { await MacActions.export(targets, toast: toast, originals: true) } }
                     Divider()
                     deleteButtons(actions)
                 } label: { Label("More", systemImage: "ellipsis.circle") }
@@ -367,6 +368,9 @@ struct MacGalleryView: View {
         items.append(GridMenuItem(title: "Share…", symbol: "square.and.arrow.up") { Task { await MacActions.share(group, toast: toast) } })
         items.append(GridMenuItem(title: group.count == 1 ? "Export to Folder…" : "Export \(group.count) Items to Folder…",
                                   symbol: "square.and.arrow.down.on.square") { Task { await MacActions.export(group, toast: toast) } })
+        items.append(GridMenuItem(title: "Export Unmodified Original…", symbol: "doc.on.doc") {
+            Task { await MacActions.export(group, toast: toast, originals: true) }
+        })
         if !actions.downloadable.isEmpty {
             items.append(GridMenuItem(title: "Save to Photos", symbol: "photo.badge.plus") {
                 Task { await MacActions.saveToPhotos(actions.downloadable, toast: toast) }
