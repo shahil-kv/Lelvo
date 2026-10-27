@@ -11,6 +11,10 @@ final class DemoModeTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestReset"]
         app.launch()
+        // A Photos prompt that came too late for an earlier attempt still covers the screen: answer it first.
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let leftover = springboard.buttons["Don’t Allow"]
+        if leftover.waitForExistence(timeout: 2) { leftover.tap() }
 
         let start = app.buttons["Continue with Telegram"]
         XCTAssertTrue(start.waitForExistence(timeout: 20))
@@ -37,10 +41,12 @@ final class DemoModeTests: XCTestCase {
         XCTAssertTrue(allow.waitForExistence(timeout: 10) || begin.exists)
         if allow.exists {
             allow.tap()
-            let dontAllow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Don’t Allow"]
-            if dontAllow.waitForExistence(timeout: 5) { dontAllow.tap() }
+            // On a fresh CI simulator the system prompt took over 15 s to appear: the test gave up at 5 s, the app was
+            // still waiting for the answer, and the late prompt then covered the retry.
+            let dontAllow = springboard.buttons["Don’t Allow"]
+            if dontAllow.waitForExistence(timeout: 30) { dontAllow.tap() }
         }
-        XCTAssertTrue(begin.waitForExistence(timeout: 10))
+        XCTAssertTrue(begin.waitForExistence(timeout: 15))
         begin.tap()
 
         // The sample library, clearly marked as a demo.
