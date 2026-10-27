@@ -195,6 +195,7 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         let grouping = self.grouping
         let old = loaded ? (entries: self.entries, sections: self.sections) : nil
         let source = self.source
+        let started = Date()
         let result = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection])? in
             let merged = await source.entries(applying: changes)
             // Nothing visible changed (e.g. an upload checkpoint): keep the grid as it is, no re-render.
@@ -202,6 +203,12 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             let sections = old.flatMap { Self.sections($0.sections, refilledFrom: $0.entries, with: merged) }
             return (merged, sections ?? Self.group(merged, grouping: grouping))
         }.value
+        // Slow refreshes are what made the timeline stutter during backups in large libraries (#25).
+        let took = Date().timeIntervalSince(started)
+        if changes.everything || took > 0.1 {
+            appLog(String(format: "Timeline refresh (%@) took %.0f ms for %d entries", changes.everything ? "full" : "changes",
+                          took * 1000, result?.0.count ?? self.entries.count))
+        }
         guard let (entries, sections) = result else { return }
         self.entries = entries
         self.sections = sections
