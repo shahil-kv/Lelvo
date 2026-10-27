@@ -501,7 +501,7 @@ final class BackupEngine: @unchecked Sendable {
             Task { await self.publish { $0.lanes[laneKey] = nil } }
         }
         do {
-            let exp = try await env.photos.exportOriginal(of: asset, into: rawDirectory)
+            let exp = try await env.photos.exportOriginal(of: asset, into: rawDirectory, extras: true)
             exported = exp
 
             // Content hash and de-duplication against everything already in the cloud.

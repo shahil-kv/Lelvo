@@ -271,7 +271,9 @@ final class PhotoLibraryService: @unchecked Sendable {
     }
 
     /// Exports original bytes (downloading from iCloud Photos if needed) into `directory`.
-    func exportOriginal(of asset: PHAsset, into directory: URL) async throws -> ExportedAsset {
+    /// `extras`: also the edit recipe, RAW of a RAW + JPEG pair and edited Live Photo video (for the backup; sharing
+    /// doesn't need them).
+    func exportOriginal(of asset: PHAsset, into directory: URL, extras: Bool = false) async throws -> ExportedAsset {
         guard let res = originalResources(for: asset) else { throw PhotoLibraryError.noOriginalResource }
         let base = UUID().uuidString
         var primaryURL = directory.appendingPathComponent("\(base)-\(res.primary.originalFilename.sanitizedFilename)")
@@ -316,11 +318,13 @@ final class PhotoLibraryService: @unchecked Sendable {
                 AppLog.shared.warn("Couldn't export the edited version of \(primaryFilename): \(error.localizedDescription)")
             }
         }
-        do {
-            exported.extras = try await exportExtras(of: asset, into: directory, edit: exported.editedURL != nil)
-        } catch {
-            exported.cleanup()
-            throw error
+        if extras {
+            do {
+                exported.extras = try await exportExtras(of: asset, into: directory, edit: exported.editedURL != nil)
+            } catch {
+                exported.cleanup()
+                throw error
+            }
         }
         return exported
     }

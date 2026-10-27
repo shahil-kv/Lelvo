@@ -4,8 +4,9 @@ import MemvoCore
 
 /// Batch and single-item actions shared by the grid and the viewer.
 enum GalleryActions {
-    /// A file with the item's real name, ready for the share sheet.
-    static func shareableFile(for entry: GalleryEntry) async throws -> URL {
+    /// A file with the item's real name, ready for the share sheet: what Photos shows (the edit, if any), like Photos;
+    /// `original`: the untouched original instead, like "Export Unmodified Original" in Photos for Mac.
+    static func shareableFile(for entry: GalleryEntry, original: Bool = false) async throws -> URL {
         let env = AppEnvironment.shared
         if let asset = entry.asset {
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Share-\(UUID().uuidString)", isDirectory: true)
@@ -13,13 +14,16 @@ enum GalleryActions {
             let exported = try await env.photos.exportOriginal(of: asset, into: dir)
             if let paired = exported.pairedVideoURL { try? FileManager.default.removeItem(at: paired) }
             // Share what the user sees: the edit when there is one, like Photos.
-            let source = exported.editedURL ?? exported.primaryURL
-            let named = dir.appendingPathComponent((exported.editedURL != nil ? exported.editedFilename : nil)?.sanitizedFilename
+            let edit = original ? nil : exported.editedURL
+            if let other = original ? exported.editedURL : nil { try? FileManager.default.removeItem(at: other) }
+            let source = edit ?? exported.primaryURL
+            let named = dir.appendingPathComponent((edit != nil ? exported.editedFilename : nil)?.sanitizedFilename
                                                    ?? exported.primaryFilename.sanitizedFilename)
             try FileManager.default.moveItem(at: source, to: named)
             return named
         }
         guard let item = entry.item else { throw PhotoLibraryError.assetMissing }
+        if original { return try env.media.shareableCopy(of: try await env.media.original(for: item), filename: item.filename) }
         let cached = try await env.media.displayed(for: item)
         return try env.media.shareableCopy(of: cached, filename: CloudMediaService.displayedFilename(item))
     }
