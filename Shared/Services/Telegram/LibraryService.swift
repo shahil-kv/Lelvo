@@ -218,10 +218,23 @@ final class LibraryService: @unchecked Sendable {
     /// Header format 1: no recovery key, and the passphrase can't change until the header is upgraded.
     var needsHeaderUpgrade: Bool { isEncrypted && header?.version == 1 }
 
+    /// Reads the header from Telegram and keeps it, so passphrase and recovery key changes act on the channel's
+    /// current header. A copy saved earlier can be stale (another device upgraded the library, or settings left by an
+    /// older install), and acting on it would replace a header that already has a recovery key with a new one.
+    @discardableResult
+    func refreshHeader() async throws -> LibraryHeader {
+        guard let chatId else { throw LibraryError.noLibrary }
+        guard let current = await readHeader(chatId: chatId) else { throw LibraryError.notALibrary }
+        if current.isNewerVersion { throw LibraryError.newerVersion }
+        if current != header { save(chatId: chatId, header: current) }
+        return current
+    }
+
     /// Upgrades a format 1 library: locks the master key it already has with `passphrase` and a new recovery key.
     /// Files and captions don't change. Returns the recovery key to show.
     func upgradeHeader(passphrase: String) async throws -> RecoveryKey {
-        guard let header, header.encrypted, header.version == 1 else { throw LibraryError.notALibrary }
+        let header = try await refreshHeader()
+        guard header.encrypted, header.version == 1 else { throw LibraryError.notALibrary }
         let (upgraded, recovery) = try await Task.detached(priority: .userInitiated) { () throws -> (LibraryHeader, RecoveryKey) in
             guard let keys = try header.unlock(passphrase: passphrase) else { throw LibraryError.wrongPassphrase }
             return try LibraryHeader.locking(keys, passphrase: passphrase)
@@ -233,7 +246,8 @@ final class LibraryService: @unchecked Sendable {
 
     /// A new passphrase. A format 1 library is upgraded on the way and gets a recovery key, which is returned to show.
     func changePassphrase(current: String, to new: String) async throws -> RecoveryKey? {
-        guard let header, header.encrypted else { throw LibraryError.notALibrary }
+        let header = try await refreshHeader()
+        guard header.encrypted else { throw LibraryError.notALibrary }
         let (changed, recovery) = try await Task.detached(priority: .userInitiated) { () throws -> (LibraryHeader, RecoveryKey?) in
             guard let keys = try header.unlock(passphrase: current) else { throw LibraryError.wrongPassphrase }
             if header.version == 1 {
@@ -249,7 +263,8 @@ final class LibraryService: @unchecked Sendable {
 
     /// A new recovery key; the old one stops working. The passphrase confirms it's the owner asking.
     func newRecoveryKey(passphrase: String) async throws -> RecoveryKey {
-        guard let header, header.encrypted else { throw LibraryError.notALibrary }
+        let header = try await refreshHeader()
+        guard header.encrypted else { throw LibraryError.notALibrary }
         if header.version == 1 { return try await upgradeHeader(passphrase: passphrase) }
         let (replaced, recovery) = try await Task.detached(priority: .userInitiated) { () throws -> (LibraryHeader, RecoveryKey) in
             guard let keys = try header.unlock(passphrase: passphrase) else { throw LibraryError.wrongPassphrase }
