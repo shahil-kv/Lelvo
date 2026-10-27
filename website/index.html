@@ -45,6 +45,21 @@
       <div class="hero-text">
         <h1>Stop paying for photo storage.</h1>
         <p class="lede">Memvo backs up every photo and video on your iPhone and Mac, in original quality, to a private channel in your own Telegram account. Telegram keeps it for free.</p>
+        <!-- Shown by app.js once `action` is a deployed Apps Script URL (Scripts/waitlist.gs explains the setup). -->
+        <form class="waitlist" action="https://script.google.com/macros/s/PASTE_DEPLOYMENT_ID/exec" method="post" hidden>
+          <label for="waitlist-email">Join the waiting list for TestFlight and the App Store</label>
+          <div class="waitlist-row">
+            <input id="waitlist-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+            <select name="platform" aria-label="Device">
+              <option value="iPhone">iPhone</option>
+              <option value="Mac">Mac</option>
+              <option value="Both">Both</option>
+            </select>
+            <button class="button" type="submit">Join</button>
+          </div>
+          <input class="waitlist-trap" name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <p class="waitlist-note" role="status">One email when it's ready. Nothing else. <a href="privacy">Privacy</a></p>
+        </form>
         <div class="actions">
           <a class="button" href="https://github.com/shahil-kv/Memvo/releases">Download for iPhone and Mac</a>
           <a class="button quiet" href="#features">See how it works</a>
