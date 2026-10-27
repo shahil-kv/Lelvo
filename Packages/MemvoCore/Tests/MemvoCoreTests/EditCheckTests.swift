@@ -45,3 +45,23 @@ import MemvoCore
         #expect(merged.extrasChecked == true)
     }
 }
+
+@Suite struct EditedDuplicateTests {
+    func twin(edit: String?) -> MediaItem {
+        var m = MediaItem(localIdentifier: "A", sha256: "orig", filename: "a.jpg", kind: .photo, creationDate: nil, fileSize: 1, status: .backedUp)
+        if let edit { m.hasEdit = true; m.roleHashes = ["o": "orig", "e": edit] }
+        return m
+    }
+
+    @Test func anUneditedCopyIsADuplicate() {
+        #expect(Deduplicator.isSamePhoto(editHash: nil, as: twin(edit: nil)))
+        #expect(Deduplicator.isSamePhoto(editHash: nil, as: twin(edit: "crop")))
+    }
+
+    /// The case that lost a crop: same original, but this copy is cropped and the cloud has no crop.
+    @Test func anEditedCopyIsItsOwnPhotoUnlessTheCloudHasThatEdit() {
+        #expect(!Deduplicator.isSamePhoto(editHash: "crop", as: twin(edit: nil)))
+        #expect(!Deduplicator.isSamePhoto(editHash: "crop", as: twin(edit: "other crop")))
+        #expect(Deduplicator.isSamePhoto(editHash: "crop", as: twin(edit: "crop")))
+    }
+}
