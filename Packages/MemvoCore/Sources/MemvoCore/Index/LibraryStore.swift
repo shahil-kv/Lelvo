@@ -21,6 +21,13 @@ public final class LibraryStore: @unchecked Sendable {
 
     /// Posted (on an arbitrary thread) whenever items change.
     public static let didChange = Notification.Name("LibraryStoreDidChange")
+    private static let changedIdsKey = "ids"
+
+    /// The ids of the items a `didChange` notification is about, or nil when anything may have changed.
+    /// Lets the timeline reload just those items instead of decoding the whole store during a backup.
+    public static func changedIds(_ note: Notification) -> Set<String>? {
+        note.userInfo?[changedIdsKey] as? Set<String>
+    }
 
     /// Pass `nil` for an in-memory database (tests).
     public init(url: URL?) throws {
@@ -145,7 +152,7 @@ public final class LibraryStore: @unchecked Sendable {
             try? exec("ROLLBACK;")
             throw error
         }
-        notifyChanged()
+        notifyChanged(ids: Set(items.map(\.id)))
     }
 
     private func insert(_ item: MediaItem) throws {
@@ -164,8 +171,9 @@ public final class LibraryStore: @unchecked Sendable {
 
     /// Posted asynchronously: observers run on the main queue, and a synchronous post from a writer that
     /// still holds `lock` (e.g. inside `update`) deadlocks against any main-thread read.
-    private func notifyChanged() {
-        DispatchQueue.main.async { [weak self] in NotificationCenter.default.post(name: Self.didChange, object: self) }
+    private func notifyChanged(ids: Set<String>?) {
+        let info = ids.map { [Self.changedIdsKey: $0] }
+        DispatchQueue.main.async { [weak self] in NotificationCenter.default.post(name: Self.didChange, object: self, userInfo: info) }
     }
 
     /// Atomically reads, modifies and writes one item.
@@ -212,6 +220,21 @@ public final class LibraryStore: @unchecked Sendable {
                           bind: { bindText($0, 1, localIdentifier); bindText($0, 2, itemId) }) { _ = sqlite3_step($0) }
     }
 
+    /// The items with these ids that exist (in no particular order).
+    public func items(ids: some Collection<String>) throws -> [MediaItem] {
+        var result: [MediaItem] = []
+        let all = Array(ids)
+        // SQLite allows 999 bound parameters in older builds.
+        for start in stride(from: 0, to: all.count, by: 500) {
+            let batch = all[start..<min(start + 500, all.count)]
+            let marks = Array(repeating: "?", count: batch.count).joined(separator: ",")
+            result += try withStatement("SELECT json FROM items WHERE id IN (\(marks));", bind: { s in
+                for (i, id) in batch.enumerated() { bindText(s, Int32(i + 1), id) }
+            }, readItems)
+        }
+        return result
+    }
+
     public func items(sha256: String) throws -> [MediaItem] {
         try withStatement("SELECT json FROM items WHERE sha256 = ?;", bind: { bindText($0, 1, sha256) }, readItems)
     }
@@ -250,13 +273,13 @@ public final class LibraryStore: @unchecked Sendable {
     public func delete(id: String) throws {
         try withStatement("DELETE FROM items WHERE id = ?;", bind: { bindText($0, 1, id) }) { _ = sqlite3_step($0) }
         try withStatement("DELETE FROM aliases WHERE item_id = ?;", bind: { bindText($0, 1, id) }) { _ = sqlite3_step($0) }
-        notifyChanged()
+        notifyChanged(ids: [id])
     }
 
     public func deleteAll() throws {
         lock.lock(); defer { lock.unlock() }
         try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases;")
-        notifyChanged()
+        notifyChanged(ids: nil)
     }
 
     // MARK: - Meta

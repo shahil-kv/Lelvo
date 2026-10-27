@@ -28,6 +28,8 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - **Saving a cloud video** shows its progress and can be cancelled.
 - **Recently Deleted for your backup:** deleting from the cloud keeps the item for 30 days, so you can recover it.
 - Versions restart at **0.1.0** for both apps in this repository, released with a one-button Release workflow. Compiler warnings fixed on both platforms.
+- **Smoother timeline during a backup** in large libraries: only the photos that changed are updated, instead of
+  the whole library being read again every second or two.
 
 ## Before this repository
 
