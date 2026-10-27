@@ -15,6 +15,8 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
     private let queue = DispatchQueue(label: "memvo.streaming")
     private let lock = NSLock()
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// AVPlayer's requests not answered yet: where each starts and when it came, for the "not playing" log line.
+    private var pending: [ObjectIdentifier: (offset: Int64, since: Date)] = [:]
     private var plaintextSize: Int64?
     private let opened = Date()
     private var firstDataLogged = false
@@ -59,6 +61,15 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
         reader.streamClosed(item, role: role)
     }
 
+    /// "2 requests open, oldest at 1048629 for 12.3 s", or "no requests open" (the player isn't asking for data).
+    var pendingSummary: String {
+        lock.withLock {
+            guard let oldest = pending.values.min(by: { $0.since < $1.since }) else { return "no requests open" }
+            return String(format: "%d request%@ open, oldest at %lld for %.1f s", pending.count, pending.count == 1 ? "" : "s",
+                          oldest.offset, Date().timeIntervalSince(oldest.since))
+        }
+    }
+
     /// Stops every request in flight now (they'd otherwise finish downloading before the asset goes away).
     func cancel() {
         lock.withLock { tasks.values.forEach { $0.cancel() } }
@@ -72,6 +83,8 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
                         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
         let key = ObjectIdentifier(loadingRequest)
+        let offset = loadingRequest.dataRequest?.requestedOffset ?? -1
+        lock.withLock { pending[key] = (offset, Date()) }
         let task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -84,14 +97,20 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
                 }
                 if !Task.isCancelled { loadingRequest.finishLoading(with: error) }
             }
-            _ = self.lock.withLock { self.tasks.removeValue(forKey: key) }
+            self.lock.withLock {
+                _ = self.tasks.removeValue(forKey: key)
+                _ = self.pending.removeValue(forKey: key)
+            }
         }
         lock.withLock { tasks[key] = task }
         return true
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
-        let task = lock.withLock { tasks.removeValue(forKey: ObjectIdentifier(loadingRequest)) }
+        let task: Task<Void, Never>? = lock.withLock {
+            pending[ObjectIdentifier(loadingRequest)] = nil
+            return tasks.removeValue(forKey: ObjectIdentifier(loadingRequest))
+        }
         task?.cancel()
     }
 
