@@ -35,6 +35,9 @@ final class LibraryService: @unchecked Sendable {
     private static let lastScanKey = "libraryLastScannedMessageId"
     private static let duplicatesKey = "libraryDuplicateMessageIds"
     private static let repairedKey = "fastVersionScanRepaired"
+    /// The library the stored E2E key was saved for in this install. A key in the Keychain counts only for that library:
+    /// one left by an earlier install (which a reset can't always delete on a Mac) must not unlock silently.
+    private static let keysChatKey = "libraryKeysChatId"
 
     /// Extra copies of already-stored parts found by the last full scan (safe to delete; the first copy stays).
     var duplicateMessageIds: [Int64] {
@@ -49,6 +52,12 @@ final class LibraryService: @unchecked Sendable {
     init(td: TDService, store: LibraryStore) {
         self.td = td
         self.store = store
+        // Installs set up before keys were tied to their library keep the key they use: the app was set up, so the key
+        // in the Keychain is the one it stored for this library.
+        if UserDefaults.standard.object(forKey: Self.keysChatKey) == nil, let chatId, Prefs.onboardingComplete,
+           KeychainStore.data(for: .e2eMasterKey) != nil {
+            UserDefaults.standard.set(NSNumber(value: chatId), forKey: Self.keysChatKey)
+        }
     }
 
     // MARK: - State
@@ -70,7 +79,8 @@ final class LibraryService: @unchecked Sendable {
     var keys: E2EKeys? {
         lock.lock(); defer { lock.unlock() }
         if let cachedKeys { return cachedKeys }
-        guard let raw = KeychainStore.data(for: .e2eMasterKey), raw.count == 32 else { return nil }
+        guard let chatId, (UserDefaults.standard.object(forKey: Self.keysChatKey) as? NSNumber)?.int64Value == chatId,
+              let raw = KeychainStore.data(for: .e2eMasterKey), raw.count == 32 else { return nil }
         cachedKeys = E2EKeys(master: SymmetricKey(data: raw))
         return cachedKeys
     }
@@ -87,6 +97,7 @@ final class LibraryService: @unchecked Sendable {
         UserDefaults.standard.removeObject(forKey: Self.headerKey)
         UserDefaults.standard.removeObject(forKey: Self.lastScanKey)
         UserDefaults.standard.removeObject(forKey: Self.duplicatesKey) // ids of the old library's channel
+        UserDefaults.standard.removeObject(forKey: Self.keysChatKey)
         KeychainStore.set(nil as Data?, for: .e2eMasterKey)
         lock.withLock { cachedKeys = nil }
     }
@@ -164,8 +175,8 @@ final class LibraryService: @unchecked Sendable {
         } catch {
             AppLog.shared.warn("Pinning the library header failed: \(error.asTD.localizedDescription)")
         }
-        if let keys { storeKeys(keys) }
         save(chatId: chat.id, header: header)
+        if let keys { storeKeys(keys) }
         appLog("Created library channel (\(header.encrypted ? "E2E, header format \(header.version)" : "plain"))")
         return (chat.id, recovery)
     }
@@ -303,6 +314,7 @@ final class LibraryService: @unchecked Sendable {
 
     private func storeKeys(_ keys: E2EKeys) {
         KeychainStore.set(keys.masterData, for: .e2eMasterKey)
+        if let chatId { UserDefaults.standard.set(NSNumber(value: chatId), forKey: Self.keysChatKey) }
         lock.withLock { cachedKeys = keys }
     }
 
