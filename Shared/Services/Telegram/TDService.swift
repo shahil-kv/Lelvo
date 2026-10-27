@@ -254,10 +254,20 @@ final class TDService: @unchecked Sendable {
         case .updateFile(let u):
             lock.lock()
             let observer = uploadObservers[u.file.id]
-            let waiters = fileWaiters.removeValue(forKey: u.file.id)
+            // Wake the reads whose bytes are now there, and all of them when the download stopped (they move it).
+            let local = u.file.local
+            let stopped = !local.isDownloadingActive || local.isDownloadingCompleted
+            var waiters: [CheckedContinuation<Void, Never>] = []
+            if var all = fileWaiters[u.file.id] {
+                for (id, w) in all where stopped || (local.downloadOffset <= w.offset && local.downloadOffset + local.downloadedPrefixSize >= w.offset + w.count) {
+                    waiters.append(w.continuation)
+                    all[id] = nil
+                }
+                fileWaiters[u.file.id] = all.isEmpty ? nil : all
+            }
             lock.unlock()
             observer?(u.file.remote.uploadedSize, u.file.size)
-            waiters?.values.forEach { $0.resume() }
+            waiters.forEach { $0.resume() }
         case .updateNewMessage(let u):
             // Documents this device is still sending have a sending state; the upload path records those itself.
             guard u.message.sendingState == nil, case .messageDocument = u.message.content else { return }
@@ -647,7 +657,7 @@ final class TDService: @unchecked Sendable {
             // rather than moving it straight back, unless this one has already waited a while.
             let movedRecently = lock.withLock { lastWindowMove[fileId].map { Foundation.Date().timeIntervalSince($0) < 1 } ?? false }
             if !covered && !smallReads && movedRecently && myWindow == nil && Foundation.Date().timeIntervalSince(started) < 1.5 {
-                await fileUpdate(fileId, timeout: 0.25)
+                await fileUpdate(fileId, offset: offset, count: count, timeout: 0.25)
                 continue
             }
             // Move the window when it doesn't cover us: immediately if a small read stopped it,
@@ -673,7 +683,7 @@ final class TDService: @unchecked Sendable {
             // TDLib reports every piece it downloads with `updateFile`, as Telegram's own players wait for it; polling every
             // 40 ms made dozens of TDLib calls a second while a video played. The timeout keeps the time-based steps
             // above (moving the window, the stuck report) running when no update comes.
-            await fileUpdate(fileId, timeout: 0.25)
+            await fileUpdate(fileId, offset: offset, count: count, timeout: 0.25)
         }
         let waited = Foundation.Date().timeIntervalSince(started)
         if waited > 1 {
@@ -792,15 +802,16 @@ final class TDService: @unchecked Sendable {
         }
     }
 
-    /// Callers waiting for TDLib's next `updateFile` about a file (see `fileUpdate`).
-    private var fileWaiters: [Int: [UUID: CheckedContinuation<Void, Never>]] = [:]
+    /// Streaming reads waiting for TDLib to download their range of a file (see `fileUpdate`).
+    private var fileWaiters: [Int: [UUID: (offset: Int64, count: Int64, continuation: CheckedContinuation<Void, Never>)]] = [:]
 
-    /// Returns at the next `updateFile` for `fileId`, after `timeout`, or when the task is cancelled, whichever is first.
-    private func fileUpdate(_ fileId: Int, timeout: TimeInterval) async {
+    /// Returns once an `updateFile` shows `count` bytes at `offset` downloaded or the file's download stopped, after
+    /// `timeout`, or when the task is cancelled, whichever is first.
+    private func fileUpdate(_ fileId: Int, offset: Int64, count: Int64, timeout: TimeInterval) async {
         let id = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
-                lock.withLock { fileWaiters[fileId, default: [:]][id] = c }
+                lock.withLock { fileWaiters[fileId, default: [:]][id] = (offset, count, c) }
                 Task { [weak self] in
                     try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                     self?.wakeFileWaiter(fileId, id)
@@ -816,7 +827,7 @@ final class TDService: @unchecked Sendable {
         let waiter: CheckedContinuation<Void, Never>? = lock.withLock {
             let w = fileWaiters[fileId]?.removeValue(forKey: id)
             if fileWaiters[fileId]?.isEmpty == true { fileWaiters[fileId] = nil }
-            return w
+            return w?.continuation
         }
         waiter?.resume()
     }
