@@ -168,6 +168,10 @@ final class MediaReader: @unchecked Sendable {
     func thumbnailData(_ item: MediaItem) async throws -> Data {
         if isEncrypted(item) || item.cloudParts == nil {
             if isEncrypted(item) {
+                // One download by the file's stored id, decrypted here. Going through `read` looked up the message,
+                // then fetched the 25-byte header and then the rest: three trips to Telegram per tile, which left
+                // a zoomed-out grid empty for a long time.
+                if let data = try? await wholeEncryptedThumbnail(item) { return data }
                 let size = try await plaintextSize(item, role: "t")
                 return try await read(item, role: "t", range: 0..<size, priority: 8)
             }
@@ -184,6 +188,16 @@ final class MediaReader: @unchecked Sendable {
         library.thumbnails.record([first.messageId: thumb.file.remote.id], chatId: chatId)
         let path = try await td.download(fileId: thumb.file.id, priority: 8)
         return try Data(contentsOf: path)
+    }
+
+    /// The encrypted thumbnail (role `t`, one small file) downloaded whole by its stored remote id, then decrypted.
+    /// Throws when the remote id can't be used (e.g. an expired file reference); the caller then reads it the long way.
+    private func wholeEncryptedThumbnail(_ item: MediaItem) async throws -> Data {
+        guard let master = library.keys?.master else { throw ReadError.locked }
+        guard let part = parts(item, role: "t").first, parts(item, role: "t").count == 1, !part.fileId.isEmpty else { throw ReadError.missing }
+        let cipher = try Data(contentsOf: try await td.download(remoteId: part.fileId, priority: 8))
+        let reader = try CGFERandomReader(header: cipher.prefix(CGFELayout.headerLength), cipherSize: Int64(cipher.count), master: master)
+        return try reader.read(0..<reader.layout.plaintextSize) { cipher.subdata(in: Int($0.lowerBound)..<Int($0.upperBound)) }
     }
 
     /// Fetches the start of a video, and its index when that sits at the end (iPhone camera videos keep `moov`
