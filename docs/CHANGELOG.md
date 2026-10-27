@@ -33,6 +33,8 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   the same albums. Photos backed up earlier get the missing pieces from your iPhone or Mac at the next backup.
 - **Include hidden photos** in the backup (off by default). Memvo never shows them, and they come back hidden.
 - **Share Original** (touch and hold Share on iPhone) and **Export Unmodified Original** on the Mac.
+- **Save all to Photos** (Backup → Tools): everything that's only in your Telegram library back to Photos in one go,
+  with a space check first, progress and Stop. If it stops, run it again and it continues.
 - **Your library comes back faster on a new device:** Memvo keeps a compact index of your library in your Telegram
   library, so a new iPhone or Mac shows everything after reading only the latest changes, then checks the rest in the
   background.
