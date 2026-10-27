@@ -556,6 +556,20 @@ final class TDService: @unchecked Sendable {
     /// the end of the file). Off for fast versions (index first): like Unigram's TDLib player, one download follows
     /// playback, since TDLib runs one download per file and separate small ones kept cancelling it (8 s waits).
     func streamRead(fileId: Int, offset: Int64, count: Int64, ahead: Int64 = 2 << 20, smallReads: Bool = true) async throws -> Data {
+        // The loop below gives up after 30 s, but only between its steps: a step that waits for another download of
+        // the same file (the file gate) or for a synchronous download never came back to check, and playback hung for
+        // minutes ("Stream stuck 116 s").
+        do {
+            return try await withDeadline(seconds: 30) { [self] in
+                try await streamReadSteps(fileId: fileId, offset: offset, count: count, ahead: ahead, smallReads: smallReads)
+            }
+        } catch is DeadlineExceeded {
+            AppLog.shared.warn("Stream gave up after 30 s: file \(fileId) want \(count) at \(offset)")
+            throw TDServiceError.sendFailed("Telegram didn't deliver this video's data for 30 s")
+        }
+    }
+
+    private func streamReadSteps(fileId: Int, offset: Int64, count: Int64, ahead: Int64, smallReads: Bool) async throws -> Data {
         let client = try requireClient()
         let started = Foundation.Date()
         var myWindow: Int64?
@@ -635,43 +649,64 @@ final class TDService: @unchecked Sendable {
     /// upload's temporary copy as their "downloaded" location; TDLib refuses to read outside its cache
     /// ("File is not inside the cache") and keeps that location after the copy is deleted or the app
     /// container moves on reinstall ("Failed to read the file"), so the video never streams.
+    /// `deleteLocalCopy` after an upload doesn't clear that location (TDLib doesn't delete files it didn't create), so
+    /// such files are recognised from their path up front instead of by a failed read each time.
     private func readPart(_ client: TDLibClient, fileId: Int, offset: Int64, count: Int64) async throws -> Data {
+        if !lock.withLock({ cacheFiles.contains(fileId) }), let f = try? await client.getFile(fileId: fileId) {
+            let path = f.local.path
+            if !path.isEmpty, !path.hasPrefix(filesDirectory.path), f.local.isDownloadingCompleted {
+                if let data = Self.readDirectly(path, offset: offset, count: count) { return data }
+                return try await refetch(client, fileId: fileId, offset: offset, count: count, because: nil)
+            }
+            lock.withLock { _ = cacheFiles.insert(fileId) }
+        }
         do {
             return try await client.readFilePart(count: count, fileId: fileId, offset: offset).data
         } catch {
             let first = error.asTD
             guard let f = try? await client.getFile(fileId: fileId) else { throw first }
-            let path = f.local.path
-            if f.local.isDownloadingCompleted, !path.isEmpty, FileManager.default.isReadableFile(atPath: path),
-               let handle = FileHandle(forReadingAtPath: path) {
-                // The exact bytes that were uploaded are still here: read them directly.
-                defer { try? handle.close() }
-                try handle.seek(toOffset: UInt64(offset))
-                return try handle.read(upToCount: Int(count)) ?? Data()
-            }
-            // The copy is gone: a download makes TDLib check the location, drop it and fetch from Telegram.
-            AppLog.shared.warn("Re-downloading file \(fileId): local copy unusable (\(first.localizedDescription))")
-            lock.withLock { streamWindows[fileId] = nil }
-            var lastError: Swift.Error = first
-            for _ in 0..<5 {
-                do {
-                    _ = try await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: 32, synchronous: true)
-                    return try await client.readFilePart(count: count, fileId: fileId, offset: offset).data
-                } catch {
-                    lastError = error.asTD
-                    // The player's own download for this file replaced ours ("Canceled by another downloadFile
-                    // request"): it fetches the same bytes, so read them once they're there instead of failing.
-                    guard "\(error)".contains("Canceled by another") else { break }
-                    try await Task.sleep(nanoseconds: 200_000_000)
-                    if let data = try? await client.readFilePart(count: count, fileId: fileId, offset: offset).data, data.count == Int(count) {
-                        return data
-                    }
-                }
-            }
-            throw lastError
+            if f.local.isDownloadingCompleted, let data = Self.readDirectly(f.local.path, offset: offset, count: count) { return data }
+            return try await refetch(client, fileId: fileId, offset: offset, count: count, because: first)
         }
     }
 
+    /// The exact bytes that were uploaded, when the upload's copy is still on disk.
+    private static func readDirectly(_ path: String, offset: Int64, count: Int64) -> Data? {
+        guard !path.isEmpty, FileManager.default.isReadableFile(atPath: path), let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard (try? handle.seek(toOffset: UInt64(offset))) != nil else { return nil }
+        return try? handle.read(upToCount: Int(count)) ?? Data()
+    }
+
+    /// The local copy is gone: a download makes TDLib check the location, drop it and fetch from Telegram.
+    /// `because` is the failed read that led here (nil when the stale upload copy was recognised up front).
+    private func refetch(_ client: TDLibClient, fileId: Int, offset: Int64, count: Int64, because: Swift.Error?) async throws -> Data {
+        if let because { AppLog.shared.warn("Re-downloading file \(fileId): local copy unusable (\(because.localizedDescription))") }
+        lock.withLock {
+            streamWindows[fileId] = nil
+            _ = cacheFiles.remove(fileId)
+        }
+        var lastError: Swift.Error = because ?? TDServiceError.notReady
+        for _ in 0..<5 {
+            do {
+                _ = try await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: 32, synchronous: true)
+                return try await client.readFilePart(count: count, fileId: fileId, offset: offset).data
+            } catch {
+                lastError = error.asTD
+                // The player's own download for this file replaced ours ("Canceled by another downloadFile
+                // request"): it fetches the same bytes, so read them once they're there instead of failing.
+                guard "\(error)".contains("Canceled by another") else { break }
+                try await Task.sleep(nanoseconds: 200_000_000)
+                if let data = try? await client.readFilePart(count: count, fileId: fileId, offset: offset).data, data.count == Int(count) {
+                    return data
+                }
+            }
+        }
+        throw lastError
+    }
+
+    /// Files whose local copy is inside TDLib's own cache (checked once per session; see `readPart`).
+    private var cacheFiles = Set<Int>()
     private var fileGates: [Int: AsyncGate] = [:]
     private var lastSpeedLimitLog = Foundation.Date.distantPast
     /// When each file's streaming download last moved (see `streamRead`).
@@ -812,7 +847,7 @@ final class TDService: @unchecked Sendable {
                 try? fm.removeItem(at: file)
             }
         }
-        lock.withLock { streamWindows.removeAll() }
+        lock.withLock { streamWindows.removeAll(); cacheFiles.removeAll() }
     }
 
     func storageUsage() -> Int64 {

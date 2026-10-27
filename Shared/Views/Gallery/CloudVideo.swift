@@ -22,6 +22,7 @@ final class CloudVideoSession: ObservableObject {
     private var stallTask: Task<Void, Never>?
     private var startTask: Task<Void, Never>?
     private var statusObservation: NSKeyValueObservation?
+    private var watchdog: Task<Void, Never>?
     private let opened = Date()
     private var playingLogged = false
 
@@ -40,6 +41,30 @@ final class CloudVideoSession: ObservableObject {
         if item.hasStreamingCopy { appLog("Video quality: \(item.filename) opens \(Self.name(quality))") }
         statusObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in self?.timeControlChanged() }
+        }
+        watchStart()
+    }
+
+    /// A video that shows its first frame and then never plays left no trace in the log: no download was waiting, so
+    /// nothing else wrote a line. Says what the player is waiting for, 5 and 20 s after opening, until it plays.
+    private func watchStart() {
+        watchdog = Task { [weak self] in
+            for delay in [5.0, 15.0] {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard let self, !Task.isCancelled, !self.playingLogged else { return }
+                let p = self.player
+                let status: String
+                switch p.timeControlStatus {
+                case .paused: status = "paused"
+                case .waitingToPlayAtSpecifiedRate: status = "waiting (\(p.reasonForWaitingToPlay?.rawValue ?? "no reason"))"
+                case .playing: status = "playing"
+                @unknown default: status = "unknown"
+                }
+                let itemStatus = p.currentItem.map { ["unknown", "ready", "failed"][min($0.status.rawValue, 2)] } ?? "no item"
+                AppLog.shared.warn(String(format: "Video not playing after %.0f s: %@ [%@]: player %@, item %@, %.1f s buffered, %@",
+                                          Date().timeIntervalSince(self.opened), self.item.filename, VideoPlayback.role(self.quality, for: self.item),
+                                          status, itemStatus, p.currentItem?.bufferedAhead ?? 0, self.stream?.pendingSummary ?? "no stream"))
+            }
         }
     }
 
@@ -83,11 +108,15 @@ final class CloudVideoSession: ObservableObject {
 
     /// Leaving the video: stop playing and let go of its stream, which also stops its download.
     func stop() {
+        if !playingLogged {
+            appLog(String(format: "Video closed before it played: %@ after %.1f s", item.filename, Date().timeIntervalSince(opened)))
+        }
         if let speed = StreamingThroughput.shared.bytesPerSecond, stream != nil {
             appLog("Video speed: Telegram delivered about \(Format.bytes(Int64(speed)))/s while \(item.filename) played")
         }
         stallTask?.cancel()
         startTask?.cancel()
+        watchdog?.cancel()
         player.pause()
         stream?.cancel()
         player.replaceCurrentItem(with: nil)

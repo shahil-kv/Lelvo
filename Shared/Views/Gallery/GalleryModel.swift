@@ -86,7 +86,12 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     @Published var authorization = PhotoLibraryService.authorizationStatus
 
     private let env = AppEnvironment.shared
+    private let source = TimelineSource()
     private var reloadTask: Task<Void, Never>?
+    /// Changes waiting for the next throttled refresh (see `scheduleReload`).
+    private var pending = TimelineSource.Changes()
+    /// One refresh at a time: each compares against what the one before it showed.
+    private var refreshing = false, refreshAgain = false
     private var observer: NSObjectProtocol?
     private var grouping: Grouping = .day
 
@@ -101,8 +106,13 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
     override init() {
         super.init()
-        observer = NotificationCenter.default.addObserver(forName: LibraryStore.didChange, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.scheduleReload() }
+        observer = NotificationCenter.default.addObserver(forName: LibraryStore.didChange, object: nil, queue: .main) { [weak self] note in
+            let ids = LibraryStore.changedIds(note)
+            Task { @MainActor in
+                guard let self else { return }
+                if let ids { self.pending.itemIds.formUnion(ids) } else { self.pending.everything = true }
+                self.scheduleReload()
+            }
         }
         // Photos answering (or not) changes what the timeline can show.
         availabilityObserver = NotificationCenter.default.addObserver(forName: PhotoAvailability.didChange, object: nil, queue: .main) { [weak self] _ in
@@ -121,7 +131,10 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     }
 
     nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
-        Task { @MainActor in self.scheduleReload() }
+        Task { @MainActor in
+            pending.photoChanges.append(changeInstance)
+            scheduleReload()
+        }
     }
 
     /// Regroups off the main thread (a pinch must not stall the first scroll after it).
@@ -148,26 +161,54 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             reloadTask = nil
             guard !Task.isCancelled else { return }
-            await reload()
+            await refresh()
         }
     }
 
     private var lastReload = Date.distantPast
 
+    /// Reads the whole photo library and store again (first load, photo access changed, pull to refresh).
     func reload() async {
+        pending.everything = true
+        await refresh()
+    }
+
+    /// Applies the pending changes. During a backup these are a few item ids each time, so only those items are read
+    /// from the store, and the photo list is patched from Photos' change details instead of being read again.
+    private func refresh() async {
+        refreshAgain = true
+        guard !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
+        while refreshAgain {
+            refreshAgain = false
+            await refreshOnce()
+        }
+    }
+
+    private func refreshOnce() async {
         lastReload = Date()
         authorization = PhotoLibraryService.authorizationStatus
-        let env = self.env
+        var changes = pending
+        pending = TimelineSource.Changes()
+        if !loaded { changes.everything = true }
         let grouping = self.grouping
-        let old = loaded ? self.entries : nil
+        let old = loaded ? (entries: self.entries, sections: self.sections) : nil
+        let source = self.source
+        let started = Date()
         let result = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection])? in
-            let assets: PHFetchResult<PHAsset>? = PhotoLibraryService.hasAccess ? env.photos.fetchAllAssets() : nil
-            let items = (try? env.store.allItems()) ?? []
-            let merged = Self.merge(assets: assets, items: items)
+            let merged = await source.entries(applying: changes)
             // Nothing visible changed (e.g. an upload checkpoint): keep the grid as it is, no re-render.
-            if let old, old == merged { return nil }
-            return (merged, Self.group(merged, grouping: grouping))
+            if let old, old.entries == merged { return nil }
+            let sections = old.flatMap { Self.sections($0.sections, refilledFrom: $0.entries, with: merged) }
+            return (merged, sections ?? Self.group(merged, grouping: grouping))
         }.value
+        // Slow refreshes are what made the timeline stutter during backups in large libraries (#25).
+        let took = Date().timeIntervalSince(started)
+        if changes.everything || took > 0.1 {
+            appLog(String(format: "Timeline refresh (%@) took %.0f ms for %d entries", changes.everything ? "full" : "changes",
+                          took * 1000, result?.0.count ?? self.entries.count))
+        }
         guard let (entries, sections) = result else { return }
         self.entries = entries
         self.sections = sections
@@ -176,22 +217,34 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         loaded = true
     }
 
-    nonisolated static func merge(assets: PHFetchResult<PHAsset>?, items: [MediaItem]) -> [GalleryEntry] {
-        var byLocal: [String: MediaItem] = [:]
-        for item in items { if let id = item.localIdentifier, byLocal[id] == nil { byLocal[id] = item } }
+    /// The same sections with updated entries, when only the entries' contents changed (an upload finished, a badge
+    /// changed): same ids in the same order with the same dates, so every section boundary stays where it is.
+    /// Nil when anything moved, appeared or went; the caller then groups from scratch.
+    nonisolated static func sections(_ sections: [GallerySection], refilledFrom old: [GalleryEntry],
+                                     with new: [GalleryEntry]) -> [GallerySection]? {
+        guard old.count == new.count, sections.reduce(0, { $0 + $1.entries.count }) == new.count else { return nil }
+        for (a, b) in zip(old, new) where a.id != b.id || a.date != b.date { return nil }
+        var start = 0
+        return sections.map { s in
+            defer { start += s.entries.count }
+            return GallerySection(id: s.id, title: s.title, entries: Array(new[start..<start + s.entries.count]))
+        }
+    }
 
+    nonisolated static func merge(assets: [PHAsset], items: OrderedItems) -> [GalleryEntry] {
         var local: [GalleryEntry] = []
+        local.reserveCapacity(assets.count)
         var present = Set<String>()
-        assets?.enumerateObjects { asset, _, _ in
+        for asset in assets {
             present.insert(asset.localIdentifier)
             local.append(GalleryEntry(id: asset.localIdentifier, date: asset.creationDate, asset: asset,
-                                      item: byLocal[asset.localIdentifier]))
+                                      item: items.item(localIdentifier: asset.localIdentifier)))
         }
         // Cloud-only: confirmed uploads whose asset is not on this phone (deleted, restored, other device).
-        let cloud = items
+        // `items` is newest first already (`OrderedItems`), so this list needs no sorting.
+        let cloud = items.items
             .filter { ($0.status == .backedUp) && ($0.localIdentifier.map { !present.contains($0) } ?? true) }
             .map { GalleryEntry(id: "cloud-\($0.id)", date: $0.creationDate, asset: nil, item: $0) }
-            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
 
         // Both lists are newest-first; merge them.
         var out: [GalleryEntry] = []
@@ -268,5 +321,71 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         guard !registered, PhotoLibraryService.hasAccess else { return }
         registered = true
         Task.detached(priority: .utility) { PHPhotoLibrary.shared().register(self) }
+    }
+}
+
+/// The timeline's copy of the photo list and the store, kept between refreshes so a change costs only what changed.
+actor TimelineSource {
+    struct Changes {
+        /// Read everything again.
+        var everything = false
+        var itemIds = Set<String>()
+        var photoChanges: [PHChange] = []
+    }
+
+    private var fetch: PHFetchResult<PHAsset>?
+    private var assets: [PHAsset] = []
+    private var items = OrderedItems([])
+    private var loaded = false
+
+    func entries(applying changes: Changes) -> [GalleryEntry] {
+        let env = AppEnvironment.shared
+        if changes.everything || !loaded {
+            loadAssets()
+            // A failed read must not stick: the next refresh reads everything again.
+            if let all = try? env.store.allItems() {
+                items = OrderedItems(all)
+                loaded = true
+            } else {
+                loaded = false
+            }
+        } else {
+            // Access taken away in Settings: stop showing the photos read while it was allowed.
+            if fetch != nil, !PhotoLibraryService.hasAccess { loadAssets() }
+            if !changes.itemIds.isEmpty {
+                // The changed ids are used up by this refresh; if they can't be read, only a full read can recover them.
+                if let fresh = try? env.store.items(ids: changes.itemIds) {
+                    items.update(ids: changes.itemIds, fresh: fresh)
+                } else {
+                    loaded = false
+                }
+            }
+            for change in changes.photoChanges { apply(change) }
+        }
+        // Newest first, like the store, so the item kept for a photo with two items is always the same one.
+        return GalleryModel.merge(assets: assets, items: items)
+    }
+
+    private func loadAssets() {
+        guard PhotoLibraryService.hasAccess else { fetch = nil; assets = []; return }
+        let result = AppEnvironment.shared.photos.fetchAllAssets()
+        var list: [PHAsset] = []
+        list.reserveCapacity(result.count)
+        result.enumerateObjects { asset, _, _ in list.append(asset) }
+        fetch = result
+        assets = list
+    }
+
+    private func apply(_ change: PHChange) {
+        guard let fetch else { return loadAssets() }
+        guard let details = change.changeDetails(for: fetch) else { return }
+        guard details.hasIncrementalChanges, !details.hasMoves else { return loadAssets() }
+        let after = details.fetchResultAfterChanges
+        let inserted = zip(details.insertedIndexes ?? [], details.insertedObjects).map { (index: $0, element: $1) }
+        let changed = zip(details.changedIndexes ?? [], details.changedObjects).map { (index: $0, element: $1) }
+        guard let patched = ArrayChanges.apply(to: assets, removed: details.removedIndexes ?? [], inserted: inserted, changed: changed),
+              patched.count == after.count else { return loadAssets() }
+        self.fetch = after
+        assets = patched
     }
 }

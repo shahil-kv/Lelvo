@@ -220,6 +220,21 @@ final class LibraryService: @unchecked Sendable {
     /// `full == false` only reads messages newer than the last scan (cheap; used before resuming uploads).
     @discardableResult
     func scan(full requestedFull: Bool, progress: ((Int) -> Void)? = nil) async throws -> ScanSummary {
+        // One scan at a time. Launch, the backup, Settings and a library switch can each start one; two at once read the
+        // whole channel twice and wrote into the index together. A full scan of this library that finished while this
+        // request waited has already done its work (a full scan covers a recent one too).
+        let asked = Foundation.Date()
+        await scanGate.acquire()
+        defer { Task { await scanGate.release() } }
+        if let last = lock.withLock({ lastFullScan }), last.chatId == chatId, last.finished > asked { return last.summary }
+        return try await scanChannel(full: requestedFull, progress: progress)
+    }
+
+    private let scanGate = AsyncGate()
+    /// The last full scan: which library, when it finished, and what it found.
+    private var lastFullScan: (chatId: Int64, finished: Foundation.Date, summary: ScanSummary)?
+
+    private func scanChannel(full requestedFull: Bool, progress: ((Int) -> Void)?) async throws -> ScanSummary {
         guard let chatId else { throw LibraryError.noLibrary }
         // Recent scans in test builds before this fix could copy a fast version's name, size and hash onto its item;
         // one full scan rebuilds every item from its own captions.
@@ -272,7 +287,11 @@ final class LibraryService: @unchecked Sendable {
         try merge(cloud: cloud, full: full, summary: &summary)
         if full { UserDefaults.standard.set(summary.orphans.map { NSNumber(value: $0) }, forKey: Self.duplicatesKey) }
         if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
-        if full { store.setMeta(Self.repairedKey, "1") }
+        if full {
+            store.setMeta(Self.repairedKey, "1")
+            let found = summary
+            lock.withLock { lastFullScan = (chatId, Foundation.Date(), found) }
+        }
         appLog("Library scan (\(full ? "full" : "recent")): \(summary.messages) messages, \(summary.items) items, \(summary.incomplete) incomplete, \(summary.orphans.count) duplicates")
         return summary
     }

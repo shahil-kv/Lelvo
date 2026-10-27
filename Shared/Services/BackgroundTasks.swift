@@ -126,6 +126,26 @@ final class CancelFlag: @unchecked Sendable {
     func cancel() { lock.lock(); cancelled = true; lock.unlock() }
 }
 
+/// What a continued-processing backup last reported, for the log line when iOS ends it: iOS ends these tasks when their
+/// progress stands still, and some ended after only ~30 s.
+final class ProgressNote: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Int64 = -1
+    private var movedAt = Date()
+    private var doing = "starting"
+
+    func report(_ completed: Int64, doing now: String) {
+        lock.withLock {
+            if completed != value { value = completed; movedAt = Date() }
+            doing = now
+        }
+    }
+
+    var summary: String {
+        lock.withLock { String(format: "progress last moved %.0f s before, %@", Date().timeIntervalSince(movedAt), doing) }
+    }
+}
+
 /// User-started "Back up now". On iOS 26+ it runs as a continued-processing task with progress in the
 /// system UI; earlier versions run while the app is open (uploads still finish in the background).
 #if os(iOS) && !targetEnvironment(macCatalyst)
@@ -227,11 +247,12 @@ enum ContinuedBackup {
     static func handle(_ task: BGContinuedProcessingTask) {
         let flag = CancelFlag()
         let started = Date()
+        let note = ProgressNote()
         task.expirationHandler = {
             let p = ProcessInfo.processInfo
-            appLog(String(format: "iOS ended the continued-processing backup after %.0f s (app %@, thermal %d, low power %@)",
+            appLog(String(format: "iOS ended the continued-processing backup after %.0f s (app %@, thermal %d, low power %@; %@)",
                           Date().timeIntervalSince(started), appActive.value ? "on screen" : "in background",
-                          p.thermalState.rawValue, p.isLowPowerModeEnabled ? "on" : "off"))
+                          p.thermalState.rawValue, p.isLowPowerModeEnabled ? "on" : "off", note.summary))
             flag.cancel()
             task.updateTitle("Backup paused", subtitle: "Open Memvo to continue")
         }
@@ -245,6 +266,10 @@ enum ContinuedBackup {
                 let inFlight = a.lanes.values.reduce(0.0) { $0 + ($1.total > 0 ? Double($1.sent) / Double($1.total) : 0) }
                 task.progress.totalUnitCount = Int64(max(a.total, 1)) * 100
                 task.progress.completedUnitCount = min(task.progress.totalUnitCount - 1, Int64(a.done) * 100 + Int64(inFlight * 100))
+                // A lane at 0 bytes is still exporting, hashing or encrypting its file; nothing is sent until that ends.
+                let doing = a.lanes.isEmpty ? (a.message ?? "no upload running")
+                    : a.lanes.values.map { $0.sent > 0 ? "uploading" : "preparing a file" }.sorted().joined(separator: " + ")
+                note.report(task.progress.completedUnitCount, doing: doing)
                 if a.total > 0 { task.updateTitle("Backing up to Telegram", subtitle: "\(a.done) of \(a.total) items") }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
