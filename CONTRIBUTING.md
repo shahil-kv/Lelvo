@@ -30,6 +30,8 @@ the issue is approved. Docs-only changes (`*.md`, `docs/`, `website/`) skip this
 |---|---|
 | `bug`, `enhancement`, `question`, `documentation` | What the issue is about |
 | `platform: ios`, `platform: macos`, `area: backup`, `area: telegram`, `area: ui` | Where it is |
+| `priority: high`, `priority: medium`, `priority: low` | How soon it should be done (set by a maintainer) |
+| `performance` | Speed, memory, battery or disk use |
 | `needs-info` | Waiting for the reporter; closed after 14 days without a reply |
 | `approved` | Agreed: a pull request may link it |
 | `good first issue`, `help wanted` | Approved and a good place to start |
