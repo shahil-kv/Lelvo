@@ -79,7 +79,7 @@ final class AppEnvironment: @unchecked Sendable {
             header = try await library.useExisting(chatId: chatId)
             if header.encrypted {
                 guard let passphrase, !passphrase.isEmpty else { throw LibraryError.locked }
-                try library.unlock(passphrase: passphrase)
+                try await library.unlock(secret: passphrase)
             }
         } catch {
             // Wrong passphrase or unreachable: stay on the library we were on.
@@ -109,18 +109,21 @@ final class AppEnvironment: @unchecked Sendable {
 
     /// Creates a new, empty library and makes it the current one (the local index of the old one is cleared;
     /// both libraries stay in Telegram).
-    func createLibraryAndSwitch(title: String, passphrase: String?) async throws {
+    /// Returns the new library's recovery key (encrypted libraries), to show once.
+    func createLibraryAndSwitch(title: String, passphrase: String?) async throws -> RecoveryKey? {
         engine.pause()
         for _ in 0..<40 where engine.isRunning { try? await Task.sleep(nanoseconds: 250_000_000) }
         try store.deleteAll()
         reader.forgetCaches()
         library.forget()
-        _ = try await library.createLibrary(title: title, passphrase: passphrase)
+        let created = try await library.createLibrary(title: title, passphrase: passphrase)
         appLog("Created and switched to a new library")
+        return created.recoveryKey
     }
 
     /// Wipes local state (sign out / reset). The Telegram channel is not touched.
     func resetEverything() async {
+        appLog("Reset this \(Device.name): signing out and removing Memvo's local data")
         DemoMode.exit()
         await td.logOut()
         await td.destroyLocalData()
@@ -131,10 +134,15 @@ final class AppEnvironment: @unchecked Sendable {
         reader.forgetCaches()
         try? FileManager.default.removeItem(at: stagingDirectory)
         try? FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
-        KeychainStore.wipe()
+        let kept = KeychainStore.wipe()
         LibrarySnapshots.removeAll()
-        for key in [Prefs.Key.onboardingComplete, Prefs.Key.lastBackupAt] {
-            UserDefaults.standard.removeObject(forKey: key)
+        // Every setting, not a list of them: anything left made the next start skip sign-in steps.
+        if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
+        if kept.isEmpty {
+            appLog("Reset finished")
+        } else {
+            // Stored by another build of the app; they're no longer used (see LibraryService.keys).
+            AppLog.shared.warn("Reset finished; the Keychain didn't let go of: \(kept.map(\.rawValue).joined(separator: ", "))")
         }
     }
 }

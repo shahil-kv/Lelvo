@@ -1,0 +1,14 @@
+{
+  "argon2idIterations" : 2,
+  "argon2idMemoryKiB" : 19456,
+  "argon2idParallelism" : 1,
+  "header" : "cg:2;e2e:1;a2:2,19456,1;s:AAECAwQFBgcICQoLDA0ODw==;wk:ERERERERERERERER2ki0dbn2oF3HoGrtAp2yOD10076Yl54CKhnliZEvOY5INmMym+Vo8hKC90kKDPs9;rk:IiIiIiIiIiIiIiIi9+PhGJh9hONu0K4DjcZJcr88sDImDai9dQFmikKlzv7n0UC9BRpVlH/I9mi0Ippw",
+  "masterHex" : "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+  "passphrase" : "correct horse battery staple",
+  "passphraseKeyHex" : "818259b6310026a8e0dbac5d2e6927abcfdb07b32258fac4f61b18b80f929085",
+  "passphraseNonceHex" : "111111111111111111111111",
+  "recoveryKey" : "KBIV-EU2U-KVLF-OWCZ-LJNV-YXK6-L5QG-CYTD-MRSW-MZ3I-NFVG-W3DN-NZXQ",
+  "recoveryLockKeyHex" : "ad86111dfc4b5b67b386d6ff90035c21f4e6aa75c09a22ef2807d3806688e6ef",
+  "recoveryNonceHex" : "222222222222222222222222",
+  "saltHex" : "000102030405060708090a0b0c0d0e0f"
+}

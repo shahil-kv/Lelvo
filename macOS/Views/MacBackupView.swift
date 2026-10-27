@@ -52,6 +52,7 @@ struct MacBackupView: View {
 
             Section("Tools") {
                 NavigationLink { FreeUpSpaceView() } label: { iconLabel("Free Up Space", "internaldrive.fill", .blue) }
+                NavigationLink { SaveAllToPhotosView() } label: { iconLabel("Save All to Photos", "square.and.arrow.down.on.square.fill", .indigo) }
                 NavigationLink { DuplicatesView() } label: { iconLabel("Duplicates", "square.on.square.fill", .purple) }
                 Button { rescan() } label: {
                     HStack {

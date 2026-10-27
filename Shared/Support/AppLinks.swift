@@ -11,7 +11,7 @@ enum AppLinks {
 
 /// Third-party code shipped inside the app, with the license each one is under.
 enum Acknowledgement: CaseIterable, Identifiable {
-    case tdlib, tdlibKit, tdlibFramework, openssl
+    case tdlib, tdlibKit, tdlibFramework, openssl, argon2
 
     var id: Self { self }
 
@@ -21,6 +21,7 @@ enum Acknowledgement: CaseIterable, Identifiable {
         case .tdlibKit: return "TDLibKit"
         case .tdlibFramework: return "TDLibFramework"
         case .openssl: return "OpenSSL"
+        case .argon2: return "Argon2"
         }
     }
 
@@ -30,6 +31,7 @@ enum Acknowledgement: CaseIterable, Identifiable {
         case .tdlibKit: return "Swift bindings for TDLib, © 2021 Sergey Akentev. MIT License."
         case .tdlibFramework: return "TDLib packaged for Apple platforms, © 2024 Sergey Akentev. MIT License."
         case .openssl: return "Cryptography used by TDLib, © The OpenSSL Project Authors. Apache License 2.0."
+        case .argon2: return "Passphrase key derivation, © 2015 Daniel Dinu, Dmitry Khovratovich, Jean-Philippe Aumasson and Samuel Neves. CC0 1.0 or Apache License 2.0."
         }
     }
 
@@ -39,6 +41,7 @@ enum Acknowledgement: CaseIterable, Identifiable {
         case .tdlibKit: return .literal("https://github.com/Swiftgram/TDLibKit/blob/main/LICENSE")
         case .tdlibFramework: return .literal("https://github.com/Swiftgram/TDLibFramework/blob/main/LICENSE")
         case .openssl: return .literal("https://www.openssl.org/source/license.html")
+        case .argon2: return .literal("https://github.com/P-H-C/phc-winner-argon2/blob/master/LICENSE")
         }
     }
 }

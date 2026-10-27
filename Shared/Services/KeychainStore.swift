@@ -17,14 +17,28 @@ enum KeychainStore {
          kSecAttrAccount as String: key.rawValue]
     }
 
+    /// Stores `data`, or removes the item for nil. On a Mac, an item stored by another build of the app (each local
+    /// build signs differently) can be read but not deleted; then it's overwritten instead, and a failure is logged
+    /// (the key name and status only) rather than ignored.
     @discardableResult
     static func set(_ data: Data?, for key: Key) -> Bool {
-        SecItemDelete(query(key) as CFDictionary)
-        guard let data else { return true }
+        let deleted = SecItemDelete(query(key) as CFDictionary)
+        guard let data else {
+            if deleted == errSecSuccess || deleted == errSecItemNotFound { return true }
+            AppLog.shared.warn("Keychain: couldn't remove \(key.rawValue) (status \(deleted))")
+            return false
+        }
         var attrs = query(key)
         attrs[kSecValueData as String] = data
         attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        return SecItemAdd(attrs as CFDictionary, nil) == errSecSuccess
+        let added = SecItemAdd(attrs as CFDictionary, nil)
+        if added == errSecDuplicateItem {
+            let updated = SecItemUpdate(query(key) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            if updated != errSecSuccess { AppLog.shared.warn("Keychain: couldn't replace \(key.rawValue) (status \(updated))") }
+            return updated == errSecSuccess
+        }
+        if added != errSecSuccess { AppLog.shared.warn("Keychain: couldn't store \(key.rawValue) (status \(added))") }
+        return added == errSecSuccess
     }
 
     static func data(for key: Key) -> Data? {
@@ -45,7 +59,9 @@ enum KeychainStore {
         data(for: key).map { String(decoding: $0, as: UTF8.self) }
     }
 
-    static func wipe() {
-        Key.allCases.forEach { set(nil as Data?, for: $0) }
+    /// Removes every item; returns the keys that couldn't be removed.
+    @discardableResult
+    static func wipe() -> [Key] {
+        Key.allCases.filter { !set(nil as Data?, for: $0) }
     }
 }

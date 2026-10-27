@@ -61,7 +61,7 @@ public enum LibraryIndexer {
             let count = item.expectedParts?[role] ?? parts.count
             for (i, f) in parts.enumerated() where !scanned.contains(f.messageId) {
                 var m = meta
-                m.p = count > 1 ? [Int64(i), Int64(count), 0] : nil
+                m.p = count > 1 ? [Int64(i), Int64(count), parts.first?.size ?? 0] : nil
                 out.append(CloudMessage(messageId: f.messageId, meta: m, fileId: f.fileId, uniqueId: f.fileUniqueId, size: f.size))
             }
         }

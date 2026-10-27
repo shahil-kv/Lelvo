@@ -18,6 +18,8 @@ public struct OrderedItems: Sendable {
         for item in self.items { if let local = item.localIdentifier { byLocal[local, default: []].append(item) } }
     }
 
+    public func item(id: String) -> MediaItem? { byId[id] }
+
     /// The item shown for a photo: the first in order when more than one points at it.
     public func item(localIdentifier: String) -> MediaItem? {
         byLocal[localIdentifier]?.first

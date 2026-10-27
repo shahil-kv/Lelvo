@@ -10,6 +10,7 @@ Settings → About → Acknowledgements.
 | [TDLibFramework](https://github.com/Swiftgram/TDLibFramework) | TDLib built for Apple platforms | [MIT](https://github.com/Swiftgram/TDLibFramework/blob/main/LICENSE) |
 | [TDLibKit](https://github.com/Swiftgram/TDLibKit) | Swift API for TDLib | [MIT](https://github.com/Swiftgram/TDLibKit/blob/main/LICENSE) |
 | [OpenSSL](https://www.openssl.org) 3.x | Cryptography inside TDLib | [Apache License 2.0](https://www.openssl.org/source/license.html) |
+| [Argon2](https://github.com/P-H-C/phc-winner-argon2) reference implementation | Passphrase key derivation (Argon2id), included unchanged in [Packages/MemvoCore/Sources/CArgon2](Packages/MemvoCore/Sources/CArgon2) | [CC0 1.0 or Apache License 2.0](https://github.com/P-H-C/phc-winner-argon2/blob/master/LICENSE) |
 
 The website ([website/](website/)) uses the fonts [Bricolage Grotesque](https://github.com/ateliertriay/bricolage) and
 [Source Serif 4](https://github.com/adobe-fonts/source-serif), both under the [SIL Open Font License 1.1](https://openfontlicense.org).

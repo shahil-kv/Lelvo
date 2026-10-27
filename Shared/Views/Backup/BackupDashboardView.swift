@@ -197,6 +197,7 @@ struct BackupDashboardView: View {
 
                 Section("Tools") {
                     NavigationLink { FreeUpSpaceView() } label: { Label("Free up space", systemImage: "internaldrive") }
+                    NavigationLink { SaveAllToPhotosView() } label: { Label("Save all to Photos", systemImage: "square.and.arrow.down.on.square") }
                     NavigationLink { DuplicatesView() } label: { Label("Duplicates", systemImage: "square.on.square") }
                     #if os(iOS)
                     NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }

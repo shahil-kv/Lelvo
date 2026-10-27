@@ -8,13 +8,17 @@ enum LibraryError: LocalizedError {
     case notALibrary
     case locked
     case wrongPassphrase
+    case newerVersion
+    case headerNotSaved
 
     var errorDescription: String? {
         switch self {
         case .noLibrary: return "Choose or create your Memvo library first."
         case .notALibrary: return "That channel isn't a Memvo library. Pick another channel or create a new library."
         case .locked: return "This library is end-to-end encrypted. Enter your passphrase to unlock it."
-        case .wrongPassphrase: return "Wrong passphrase for this library."
+        case .wrongPassphrase: return "That passphrase or recovery key doesn't open this library."
+        case .newerVersion: return "This library was set up by a newer version of Memvo. Update Memvo to open it."
+        case .headerNotSaved: return "Telegram didn't save the change. Check your connection and try again; your library still opens as before."
         }
     }
 }
@@ -31,6 +35,9 @@ final class LibraryService: @unchecked Sendable {
     private static let lastScanKey = "libraryLastScannedMessageId"
     private static let duplicatesKey = "libraryDuplicateMessageIds"
     private static let repairedKey = "fastVersionScanRepaired"
+    /// The library the stored E2E key was saved for in this install. A key in the Keychain counts only for that library:
+    /// one left by an earlier install (which a reset can't always delete on a Mac) must not unlock silently.
+    private static let keysChatKey = "libraryKeysChatId"
 
     /// Extra copies of already-stored parts found by the last full scan (safe to delete; the first copy stays).
     var duplicateMessageIds: [Int64] {
@@ -45,6 +52,12 @@ final class LibraryService: @unchecked Sendable {
     init(td: TDService, store: LibraryStore) {
         self.td = td
         self.store = store
+        // Installs set up before keys were tied to their library keep the key they use: the app was set up, so the key
+        // in the Keychain is the one it stored for this library.
+        if UserDefaults.standard.object(forKey: Self.keysChatKey) == nil, let chatId, Prefs.onboardingComplete,
+           KeychainStore.data(for: .e2eMasterKey) != nil {
+            UserDefaults.standard.set(NSNumber(value: chatId), forKey: Self.keysChatKey)
+        }
     }
 
     // MARK: - State
@@ -66,7 +79,8 @@ final class LibraryService: @unchecked Sendable {
     var keys: E2EKeys? {
         lock.lock(); defer { lock.unlock() }
         if let cachedKeys { return cachedKeys }
-        guard let raw = KeychainStore.data(for: .e2eMasterKey), raw.count == 32 else { return nil }
+        guard let chatId, (UserDefaults.standard.object(forKey: Self.keysChatKey) as? NSNumber)?.int64Value == chatId,
+              let raw = KeychainStore.data(for: .e2eMasterKey), raw.count == 32 else { return nil }
         cachedKeys = E2EKeys(master: SymmetricKey(data: raw))
         return cachedKeys
     }
@@ -83,6 +97,7 @@ final class LibraryService: @unchecked Sendable {
         UserDefaults.standard.removeObject(forKey: Self.headerKey)
         UserDefaults.standard.removeObject(forKey: Self.lastScanKey)
         UserDefaults.standard.removeObject(forKey: Self.duplicatesKey) // ids of the old library's channel
+        UserDefaults.standard.removeObject(forKey: Self.keysChatKey)
         KeychainStore.set(nil as Data?, for: .e2eMasterKey)
         lock.withLock { cachedKeys = nil }
     }
@@ -136,13 +151,15 @@ final class LibraryService: @unchecked Sendable {
     }
 
     /// Creates a private channel with the format-1 header (pinned message + description).
+    /// Returns the recovery key of an encrypted library, to show once; nothing stores it.
     @discardableResult
-    func createLibrary(title: String = titleDefault, passphrase: String?) async throws -> Int64 {
+    func createLibrary(title: String = titleDefault, passphrase: String?) async throws -> (chatId: Int64, recoveryKey: RecoveryKey?) {
         let api = try td.api()
         let header: LibraryHeader
         var keys: E2EKeys?
+        var recovery: RecoveryKey?
         if let passphrase {
-            (header, keys) = try LibraryHeader.newEncrypted(passphrase: passphrase)
+            (header, keys, recovery) = try LibraryHeader.newLibrary(passphrase: passphrase)
         } else {
             header = .plain
         }
@@ -158,10 +175,10 @@ final class LibraryService: @unchecked Sendable {
         } catch {
             AppLog.shared.warn("Pinning the library header failed: \(error.asTD.localizedDescription)")
         }
-        if let keys { storeKeys(keys) }
         save(chatId: chat.id, header: header)
-        appLog("Created library channel (\(header.encrypted ? "E2E" : "plain"))")
-        return chat.id
+        if let keys { storeKeys(keys) }
+        appLog("Created library channel (\(header.encrypted ? "E2E, header format \(header.version)" : "plain"))")
+        return (chat.id, recovery)
     }
 
     /// Reads the header of an existing channel (pinned header message first, then the description).
@@ -182,6 +199,9 @@ final class LibraryService: @unchecked Sendable {
     /// Uses an existing channel. Channels without a header are turned into a plain library (header added).
     func useExisting(chatId: Int64) async throws -> LibraryHeader {
         if let header = await readHeader(chatId: chatId) {
+            // Never store it or "repair" it with a header of our own: that would put a plain header on a library this
+            // version doesn't understand.
+            if header.isNewerVersion { throw LibraryError.newerVersion }
             save(chatId: chatId, header: header)
             if header.encrypted { KeychainStore.set(nil as Data?, for: .e2eMasterKey); lock.withLock { cachedKeys = nil } }
             return header
@@ -192,14 +212,111 @@ final class LibraryService: @unchecked Sendable {
         return .plain
     }
 
-    func unlock(passphrase: String) throws {
+    /// Opens the library with its passphrase, or with its recovery key (format 2) when that's what was typed.
+    /// Argon2id takes a large amount of memory and up to a second, so this always runs off the main thread.
+    func unlock(secret: String) async throws {
         guard let header, header.encrypted else { return }
-        guard let keys = try header.unlock(passphrase: passphrase) else { throw LibraryError.wrongPassphrase }
+        let keys = try await Task.detached(priority: .userInitiated) { () throws -> E2EKeys? in
+            // Something shaped like a recovery key is tried as one first: that's instant, while trying it as a
+            // passphrase first meant a full Argon2id run (seconds) before the recovery key was even tried.
+            if let recovery = RecoveryKey(text: secret), let keys = header.unlock(recoveryKey: recovery) { return keys }
+            return try header.unlock(passphrase: secret)
+        }.value
+        guard let keys else { throw LibraryError.wrongPassphrase }
         storeKeys(keys)
+    }
+
+    // MARK: - Passphrase and recovery key (header format 2, docs/CLOUD_FORMAT.md §6.1)
+
+    /// Header format 1: no recovery key, and the passphrase can't change until the header is upgraded.
+    var needsHeaderUpgrade: Bool { isEncrypted && header?.version == 1 }
+
+    /// Reads the header from Telegram and keeps it, so passphrase and recovery key changes act on the channel's
+    /// current header. A copy saved earlier can be stale (another device upgraded the library, or settings left by an
+    /// older install), and acting on it would replace a header that already has a recovery key with a new one.
+    @discardableResult
+    func refreshHeader() async throws -> LibraryHeader {
+        guard let chatId else { throw LibraryError.noLibrary }
+        guard let current = await readHeader(chatId: chatId) else { throw LibraryError.notALibrary }
+        if current.isNewerVersion { throw LibraryError.newerVersion }
+        if current != header { save(chatId: chatId, header: current) }
+        return current
+    }
+
+    /// Upgrades a format 1 library: locks the master key it already has with `passphrase` and a new recovery key.
+    /// Files and captions don't change. Returns the recovery key to show.
+    func upgradeHeader(passphrase: String) async throws -> RecoveryKey {
+        let header = try await refreshHeader()
+        guard header.encrypted, header.version == 1 else { throw LibraryError.notALibrary }
+        let (upgraded, recovery) = try await Task.detached(priority: .userInitiated) { () throws -> (LibraryHeader, RecoveryKey) in
+            guard let keys = try header.unlock(passphrase: passphrase) else { throw LibraryError.wrongPassphrase }
+            return try LibraryHeader.locking(keys, passphrase: passphrase)
+        }.value
+        try await replaceHeader(with: upgraded)
+        appLog("Upgraded the library header to format 2 (recovery key added)")
+        return recovery
+    }
+
+    /// A new passphrase. A format 1 library is upgraded on the way and gets a recovery key, which is returned to show.
+    func changePassphrase(current: String, to new: String) async throws -> RecoveryKey? {
+        let header = try await refreshHeader()
+        guard header.encrypted else { throw LibraryError.notALibrary }
+        let (changed, recovery) = try await Task.detached(priority: .userInitiated) { () throws -> (LibraryHeader, RecoveryKey?) in
+            guard let keys = try header.unlock(passphrase: current) else { throw LibraryError.wrongPassphrase }
+            if header.version == 1 {
+                let (upgraded, recovery) = try LibraryHeader.locking(keys, passphrase: new)
+                return (upgraded, recovery)
+            }
+            return (try header.changingPassphrase(keys, to: new), nil)
+        }.value
+        try await replaceHeader(with: changed)
+        appLog("Changed the library passphrase")
+        return recovery
+    }
+
+    /// A new recovery key; the old one stops working. The passphrase confirms it's the owner asking.
+    func newRecoveryKey(passphrase: String) async throws -> RecoveryKey {
+        let header = try await refreshHeader()
+        guard header.encrypted else { throw LibraryError.notALibrary }
+        if header.version == 1 { return try await upgradeHeader(passphrase: passphrase) }
+        let (replaced, recovery) = try await Task.detached(priority: .userInitiated) { () throws -> (LibraryHeader, RecoveryKey) in
+            guard let keys = try header.unlock(passphrase: passphrase) else { throw LibraryError.wrongPassphrase }
+            return try header.replacingRecoveryKey(keys)
+        }.value
+        try await replaceHeader(with: replaced)
+        appLog("Replaced the library recovery key")
+        return recovery
+    }
+
+    /// Writes `new` to both places, the description first, then the pinned message edited in place, so the old header
+    /// doesn't stay readable in the channel. Either partial state still opens with the same master key. Saved locally
+    /// only once Telegram returns exactly this header.
+    private func replaceHeader(with new: LibraryHeader) async throws {
+        guard let chatId else { throw LibraryError.noLibrary }
+        let api = try td.api()
+        await td.ensureChat(chatId)
+        do {
+            _ = try await api.setChatDescription(chatId: chatId, description: "Memvo Library · do not edit\n" + new.line)
+            let text = InputMessageContent.inputMessageText(InputMessageText(
+                clearDraft: false, linkPreviewOptions: nil, text: FormattedText(entities: [], text: new.messageText)))
+            if let pinned = try? await api.getChatPinnedMessage(chatId: chatId), case .messageText(let t) = pinned.content,
+               LibraryHeader.parse(t.text.text) != nil {
+                _ = try await api.editMessageText(chatId: chatId, inputMessageContent: text, messageId: pinned.id, replyMarkup: nil)
+            } else {
+                let message = try await td.sendText(chatId: chatId, text: new.messageText)
+                _ = try await api.pinChatMessage(chatId: chatId, disableNotification: true, messageId: message.id, onlyForSelf: false)
+            }
+        } catch {
+            AppLog.shared.error("Writing the library header failed: \(error.asTD.localizedDescription)")
+            throw LibraryError.headerNotSaved
+        }
+        guard await readHeader(chatId: chatId) == new else { throw LibraryError.headerNotSaved }
+        save(chatId: chatId, header: new)
     }
 
     private func storeKeys(_ keys: E2EKeys) {
         KeychainStore.set(keys.masterData, for: .e2eMasterKey)
+        if let chatId { UserDefaults.standard.set(NSNumber(value: chatId), forKey: Self.keysChatKey) }
         lock.withLock { cachedKeys = keys }
     }
 
@@ -243,6 +360,9 @@ final class LibraryService: @unchecked Sendable {
         let api = try td.api()
         await td.ensureChat(chatId)
         let stopAt: Int64 = full ? 0 : Int64(UserDefaults.standard.integer(forKey: Self.lastScanKey))
+        // A device with an empty index (new phone, reinstall) can take everything older than the newest snapshot from it.
+        let allowSnapshot = full && !((try? store.allItems()) ?? []).contains { $0.cloudParts != nil }
+        var fromSnapshot: IndexSnapshot.Body?
         var summary = ScanSummary()
         var cloud: [CloudMessage] = []
         var thumbnailIds: [Int64: String] = [:]
@@ -267,6 +387,11 @@ final class LibraryService: @unchecked Sendable {
                 summary.messages += 1
                 guard case .messageDocument(let doc) = message.content else { continue }
                 let caption = doc.caption.text
+                if allowSnapshot, IndexSnapshot.isSnapshot(caption),
+                   let snapshot = await readSnapshot(caption: caption, file: doc.document.document) {
+                    fromSnapshot = snapshot
+                    break scanLoop
+                }
                 guard CaptionCodec.isMemvo(caption) else { continue }
                 do {
                     let meta = try CaptionCodec.decode(caption, captionKey: captionKey)
@@ -284,6 +409,17 @@ final class LibraryService: @unchecked Sendable {
         }
 
         thumbnails.record(thumbnailIds, chatId: chatId)
+        if let fromSnapshot {
+            // Newer messages read above win over the snapshot's copy of the same message.
+            let read = Set(cloud.map(\.messageId))
+            cloud += fromSnapshot.messages.map(\.message).filter { !read.contains($0.messageId) }
+            try merge(cloud: cloud, full: false, summary: &summary)
+            if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
+            appLog("Library restored from the index snapshot up to message \(fromSnapshot.upto): \(summary.items) items, \(summary.messages) newer messages read; checking the whole channel next")
+            // The channel is the truth: a full scan in the background catches anything deleted since the snapshot.
+            Task.detached(priority: .utility) { [self] in _ = try? await self.scan(full: true) }
+            return summary
+        }
         try merge(cloud: cloud, full: full, summary: &summary)
         if full { UserDefaults.standard.set(summary.orphans.map { NSNumber(value: $0) }, forKey: Self.duplicatesKey) }
         if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
@@ -294,6 +430,79 @@ final class LibraryService: @unchecked Sendable {
         }
         appLog("Library scan (\(full ? "full" : "recent")): \(summary.messages) messages, \(summary.items) items, \(summary.incomplete) incomplete, \(summary.orphans.count) duplicates")
         return summary
+    }
+
+    // MARK: - Index snapshots (docs/CLOUD_FORMAT.md §7.1)
+
+    private static let snapshotMessageKey = "indexSnapshotMessageId"
+    private static let snapshotUptoKey = "indexSnapshotUpto"
+    /// A new snapshot after this many Memvo messages not in the last one (or the first once a library is this big).
+    static let snapshotEvery = 500
+
+    /// Downloads and checks a snapshot; nil (and a full scan instead) when anything about it is off.
+    private func readSnapshot(caption: String, file: File) async -> IndexSnapshot.Body? {
+        guard let info = IndexSnapshot.parseCaption(caption, captionKey: captionKey) else { return nil }
+        do {
+            let path = try await td.download(fileId: file.id, priority: 32)
+            var data = try Data(contentsOf: path)
+            if isEncrypted {
+                guard let master = keys?.master else { return nil }
+                data = try FileCrypto.decrypt(data: data, masterKey: master)
+            }
+            guard IndexCodec.sha256Hex(data) == info.h else {
+                AppLog.shared.warn("Index snapshot doesn't match its checksum; reading the whole channel instead")
+                return nil
+            }
+            let body = try IndexSnapshot.decode(data)
+            guard body.upto == info.upto, body.messages.count == info.n else { return nil }
+            return body
+        } catch {
+            AppLog.shared.warn("Couldn't read the index snapshot (\(error.localizedDescription)); reading the whole channel instead")
+            return nil
+        }
+    }
+
+    /// After a backup run: uploads a new snapshot when enough has changed since the last one, then deletes the previous
+    /// one. Optional: a failure only means a new device reads more of the channel.
+    func writeSnapshotIfDue() async {
+        guard let chatId, isUnlocked, !DemoMode.isActive else { return }
+        let items = (try? store.allItems()) ?? []
+        let known = items.flatMap { ($0.cloudParts ?? [:]).values.flatMap { $0.map(\.messageId) } }
+        guard let upto = known.max() else { return }
+        let lastUpto = Int64(store.meta(Self.snapshotUptoKey) ?? "") ?? 0
+        let newer = known.filter { $0 > lastUpto }.count
+        guard newer >= Self.snapshotEvery else { return }
+        let started = Date()
+        let body = IndexSnapshot.body(items: items, upto: upto)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("snapshot-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let plain = try IndexSnapshot.encode(body)
+            let caption = try IndexSnapshot.caption(.init(upto: upto, n: body.messages.count, h: IndexCodec.sha256Hex(plain)), captionKey: captionKey)
+            let url = dir.appendingPathComponent(isEncrypted ? "library-index.cge" : "library-index.json.deflate")
+            if isEncrypted {
+                guard let master = keys?.master else { return }
+                try FileCrypto.encrypt(data: plain, masterKey: master).write(to: url)
+            } else {
+                try plain.write(to: url)
+            }
+            let size = try CloudUploader.size(of: url)
+            let message = try await td.sendDocument(chatId: chatId, fileURL: url, caption: caption, thumbnail: nil)
+            guard case .messageDocument(let doc) = message.content, doc.document.document.size == size else {
+                try? await td.deleteMessages(chatId: chatId, ids: [message.id])
+                return
+            }
+            let previous = Int64(store.meta(Self.snapshotMessageKey) ?? "")
+            store.setMeta(Self.snapshotMessageKey, String(message.id))
+            store.setMeta(Self.snapshotUptoKey, String(upto))
+            if let previous { try? await td.deleteMessages(chatId: chatId, ids: [previous]) }
+            await td.deleteLocalCopy(fileId: doc.document.document.id)
+            appLog(String(format: "Uploaded the index snapshot: %d messages up to %lld, %@, in %.1f s",
+                          body.messages.count, upto, Format.bytes(size), Date().timeIntervalSince(started)))
+        } catch {
+            AppLog.shared.warn("Index snapshot not uploaded: \(error.localizedDescription)")
+        }
     }
 
     /// Merges scanned items into the store, keeping local links (asset identifiers) and pending work.
@@ -316,12 +525,7 @@ final class LibraryService: @unchecked Sendable {
         let existing = Dictionary(uniqueKeysWithValues: try store.allItems().map { ($0.id, $0) })
         for var item in result.items {
             if let local = existing[item.id] {
-                item.localIdentifier = local.localIdentifier
-                item.verifiedAt = local.verifiedAt
-                item.chosen = local.chosen
-                item.streamingCopySkipped = local.streamingCopySkipped
-                item.screenCopySkipped = local.screenCopySkipped
-                item.extrasChecked = local.extrasChecked
+                item = item.keepingLocalState(from: local)
                 if local.status == .trashed, item.status == .backedUp {
                     // In Recently Deleted on this device: the messages are still there on purpose.
                     item.status = .trashed

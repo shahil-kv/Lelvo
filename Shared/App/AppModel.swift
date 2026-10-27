@@ -20,7 +20,14 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 // Re-read the current state: the startup "no client yet" state must not flash sign-in.
                 let step = TDService.shared.auth
-                let signedOut = step == .waitPhone || (step == .needsCredentials && TDCredentials.load() == nil)
+                // Every step of signing in counts, not only the phone number: after the number, Telegram waits for the
+                // code (and maybe the 2-step password), and treating that as signed in hid the sign-in screen.
+                let signedOut: Bool
+                switch step {
+                case .waitPhone, .waitCode, .waitPassword, .waitEmail, .waitOtherDevice, .waitRegistration: signedOut = true
+                case .needsCredentials: signedOut = TDCredentials.load() == nil
+                case .starting, .ready, .loggingOut, .closed: signedOut = false
+                }
                 AppModel.shared.needsSignIn = signedOut && AppModel.shared.onboardingComplete && !UITestSupport.isDemo && !DemoMode.isActive
             }
         }
