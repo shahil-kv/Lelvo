@@ -42,7 +42,8 @@ final class CloudUploader: @unchecked Sendable {
         if encrypted {
             guard let keys = library.keys else { throw LibraryError.locked }
             let out = workDir.appendingPathComponent("stream.cge")
-            try FileCrypto.encrypt(input: resource.fileURL, output: out, masterKey: keys.master)
+            let chunk = resource.role == "sp" ? FileCrypto.fastVersionChunkSize : FileCrypto.defaultChunkSize
+            try FileCrypto.encrypt(input: resource.fileURL, output: out, masterKey: keys.master, chunkSize: chunk)
             stream = out
             captionKey = SymmetricKeyBox(keys.captionKey)
         }

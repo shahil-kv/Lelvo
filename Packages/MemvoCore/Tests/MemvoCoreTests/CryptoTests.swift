@@ -143,3 +143,28 @@ import MemvoCore
         #expect(throws: CryptoError.self) { try FileCrypto.decrypt(data: cipher, masterKey: SymmetricKey(size: .bits256)) }
     }
 }
+
+@Suite struct FastVersionChunkTests {
+    /// Fast versions are written with 256 KiB chunks; random reads (what the player does) must still return the exact
+    /// plaintext, across chunk boundaries and at the short last chunk.
+    @Test func smallChunksDecryptAnyRange() throws {
+        let master = SymmetricKey(size: .bits256)
+        let plain = Data((0..<(FileCrypto.fastVersionChunkSize * 3 + 1234)).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+        let dir = FileManager.default.temporaryDirectory
+        let input = dir.appendingPathComponent(UUID().uuidString), output = dir.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: input); try? FileManager.default.removeItem(at: output) }
+        try plain.write(to: input)
+        try FileCrypto.encrypt(input: input, output: output, masterKey: master, chunkSize: FileCrypto.fastVersionChunkSize)
+        let cipher = try Data(contentsOf: output)
+        #expect(Int64(cipher.count) == FileCrypto.encryptedSize(plaintextSize: Int64(plain.count), chunkSize: FileCrypto.fastVersionChunkSize))
+
+        let reader = try CGFERandomReader(header: cipher.prefix(25), cipherSize: Int64(cipher.count), master: master)
+        #expect(reader.layout.chunkSize == FileCrypto.fastVersionChunkSize)
+        #expect(reader.layout.plaintextSize == Int64(plain.count))
+        let fetch: (Range<Int64>) throws -> Data = { cipher.subdata(in: Int($0.lowerBound)..<Int($0.upperBound)) }
+        let k = Int64(FileCrypto.fastVersionChunkSize)
+        for range in [0..<512 << 10, k - 10..<k + 10, 2 * k..<3 * k, Int64(plain.count) - 100..<Int64(plain.count)] as [Range<Int64>] {
+            #expect(try reader.read(range, fetch: fetch) == plain.subdata(in: Int(range.lowerBound)..<Int(range.upperBound)))
+        }
+    }
+}

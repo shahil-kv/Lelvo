@@ -117,7 +117,9 @@ chunk_i = nonce (12, random) | ciphertext (chunkSize bytes, or fewer for the las
 file    = header | chunk_0 | chunk_1 | … | chunk_last
 ```
 
-- `chunkSize` is 1,048,576 (1 MiB) for new files; readers accept 4 KiB … 64 MiB.
+- `chunkSize` is 1,048,576 (1 MiB) for new files, and 262,144 (256 KiB) for fast versions (`r: "sp"`), which are
+  streamed and can start playing after a smaller first chunk. Readers take the size from the header and accept any
+  value from 4 KiB to 64 MiB.
 - Per-file key: `fk = HKDF-SHA256(ikm = master, salt = fileSalt, info = UTF-8("CloudGallery file v1"), L = 32)`.
 - Additional authenticated data for chunk `i`: `header (25 bytes) | i (UInt64 BE) | final (1 byte: 0x01 if last chunk, else 0x00)`.
 - An empty plaintext produces exactly one final chunk with empty ciphertext.

@@ -11,6 +11,10 @@ public enum FileCrypto {
     public static let magic = Data("CGFE".utf8)
     public static let version: UInt8 = 1
     public static let defaultChunkSize = 1 << 20
+    /// Fast versions (role `sp`) are streamed: the player can't show anything until the first whole chunk has arrived
+    /// and been checked, which took 1.5–3.5 s for 1 MiB at Telegram's speed for accounts without Premium. 256 KiB
+    /// starts four times sooner for 28 bytes more per chunk. Readers take the size from each file's header.
+    public static let fastVersionChunkSize = 256 << 10
     static let headerLength = 4 + 1 + 4 + 16
     static let overheadPerChunk = 12 + 16
 
