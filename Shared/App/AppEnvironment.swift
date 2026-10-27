@@ -123,6 +123,7 @@ final class AppEnvironment: @unchecked Sendable {
 
     /// Wipes local state (sign out / reset). The Telegram channel is not touched.
     func resetEverything() async {
+        appLog("Reset this \(Device.name): signing out and removing Memvo's local data")
         DemoMode.exit()
         await td.logOut()
         await td.destroyLocalData()
@@ -133,10 +134,15 @@ final class AppEnvironment: @unchecked Sendable {
         reader.forgetCaches()
         try? FileManager.default.removeItem(at: stagingDirectory)
         try? FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
-        KeychainStore.wipe()
+        let kept = KeychainStore.wipe()
         LibrarySnapshots.removeAll()
-        for key in [Prefs.Key.onboardingComplete, Prefs.Key.lastBackupAt] {
-            UserDefaults.standard.removeObject(forKey: key)
+        // Every setting, not a list of them: anything left made the next start skip sign-in steps.
+        if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
+        if kept.isEmpty {
+            appLog("Reset finished")
+        } else {
+            // Stored by another build of the app; they're no longer used (see LibraryService.keys).
+            AppLog.shared.warn("Reset finished; the Keychain didn't let go of: \(kept.map(\.rawValue).joined(separator: ", "))")
         }
     }
 }
