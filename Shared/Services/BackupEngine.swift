@@ -70,6 +70,17 @@ final class NetworkStatus: @unchecked Sendable {
     var isOnline: Bool { lock.withLock { path.map { $0.status == .satisfied } ?? true } }
     /// Cellular, personal hotspot or Low Data Mode.
     var isExpensive: Bool { lock.withLock { (path?.isExpensive ?? false) || (path?.isConstrained ?? false) } }
+
+    /// Why the network counts as expensive, for the log ("Wi-Fi only" waits while on Wi-Fi need explaining).
+    var expenseDetail: String {
+        lock.withLock {
+            guard let p = path else { return "network unknown" }
+            var parts = [Self.kind(of: p).rawValue]
+            if p.isExpensive { parts.append("expensive (cellular or hotspot)") }
+            if p.isConstrained { parts.append("Low Data Mode") }
+            return parts.joined(separator: ", ")
+        }
+    }
 }
 
 /// Runs the persistent upload queue: pending → uploading → verified | failed(reason).
@@ -128,6 +139,8 @@ final class BackupEngine: @unchecked Sendable {
     private let relinkLock = NSLock()
     private var running = false
     private var pausedUntil = Date.distantPast
+    /// Upload lanes currently waiting in `waitForConditions`.
+    private var waitingLanes = 0
     private var pauseRequested = false
     private var laneTask: Task<Void, Never>?
     private var isPauseRequested: Bool { gate.withLock { pauseRequested } }
@@ -424,13 +437,19 @@ final class BackupEngine: @unchecked Sendable {
     /// clear, telling the user what it's waiting for, and returns the reason if it doesn't.
     private func waitForConditions(isCancelled: () -> Bool, patience: TimeInterval = 120) async -> StopReason? {
         guard var reason = await blocker() else { return nil }
-        appLog("Backup waiting: \(reason.localizedDescription)")
+        // Both lanes wait for the same thing; one log line for it.
+        let first = gate.withLock { waitingLanes += 1; return waitingLanes == 1 }
+        defer { gate.withLock { waitingLanes -= 1 } }
+        if first {
+            let detail = reason == .waitingForWiFi ? " (\(NetworkStatus.shared.expenseDetail))" : ""
+            appLog("Backup waiting: \(reason.localizedDescription)\(detail)")
+        }
         let until = Date().addingTimeInterval(patience)
         while Date() < until, !isCancelled() {
             await publish { $0.message = reason.localizedDescription }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard let still = await blocker() else {
-                appLog("Backup continuing")
+                if first { appLog("Backup continuing") }
                 await publish { $0.message = nil }
                 return nil
             }
