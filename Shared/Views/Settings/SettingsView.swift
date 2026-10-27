@@ -647,6 +647,7 @@ struct BackupOptionsView: View {
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.mediaFilter) private var mediaFilter = Prefs.MediaFilter.all.rawValue
     @AppStorage(Prefs.Key.includeScreenshots) private var includeScreenshots = true
+    @AppStorage(Prefs.Key.includeHidden) private var includeHidden = false
     @AppStorage(Prefs.Key.dateFromEnabled) private var dateFromEnabled = false
     @AppStorage(Prefs.Key.dateFrom) private var dateFrom: Double = Date().addingTimeInterval(-365 * 86400).timeIntervalSince1970
     @AppStorage(Prefs.Key.streamingCopies) private var streamingCopies = true
@@ -659,6 +660,7 @@ struct BackupOptionsView: View {
                     ForEach(Prefs.MediaFilter.allCases) { Text($0.title).tag($0.rawValue) }
                 }
                 Toggle("Include screenshots", isOn: $includeScreenshots)
+                Toggle("Include hidden photos", isOn: $includeHidden)
                 NavigationLink("Albums") { AlbumPickerView() }
                 Toggle("Only photos taken after a date", isOn: $dateFromEnabled)
                 if dateFromEnabled {
@@ -666,7 +668,9 @@ struct BackupOptionsView: View {
                                                           set: { dateFrom = $0.timeIntervalSince1970 }),
                                displayedComponents: .date)
                 }
-            } header: { Text("What Back up now includes") }
+            } header: { Text("What Back up now includes") } footer: {
+                Text("Hidden photos are never shown in Memvo. If you save them back to Photos, they stay hidden.")
+            }
 
             Section {
                 Toggle("Wi-Fi only", isOn: $wifiOnly)

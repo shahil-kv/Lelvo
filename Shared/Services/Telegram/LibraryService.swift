@@ -321,6 +321,7 @@ final class LibraryService: @unchecked Sendable {
                 item.chosen = local.chosen
                 item.streamingCopySkipped = local.streamingCopySkipped
                 item.screenCopySkipped = local.screenCopySkipped
+                item.extrasChecked = local.extrasChecked
                 if local.status == .trashed, item.status == .backedUp {
                     // In Recently Deleted on this device: the messages are still there on purpose.
                     item.status = .trashed

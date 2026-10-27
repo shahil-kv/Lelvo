@@ -368,6 +368,7 @@ final class BackupEngine: @unchecked Sendable {
         if isPauseRequested { lanes.cancel() }
         await lanes.value
         if !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
+            await completeEarlierBackups(deadline: deadline, isCancelled: isCancelled)
             await makeEarlierScreenCopies(deadline: deadline, isCancelled: isCancelled)
         }
 
@@ -533,6 +534,8 @@ final class BackupEngine: @unchecked Sendable {
             item.tzOffsetMinutes = TimeZone.current.secondsFromGMT(for: asset.creationDate ?? Date()) / 60
             item.assetModifiedAt = asset.modificationDate
             item.albums = env.photos.albumNames(for: asset)
+            item.hidden = asset.isHidden ? true : nil
+            item.extrasChecked = true
             save(item)
 
             // Thumbnail: attached to the document (plain) or uploaded encrypted as role "t" (E2E).
@@ -546,8 +549,15 @@ final class BackupEngine: @unchecked Sendable {
             }
             defer { try? FileManager.default.removeItem(at: thumbURL) }
 
-            var resources = [PreparedResource(role: "o", fileURL: exp.primaryURL,
-                                              meta: captionMeta(item, role: .original, hash: primaryHash, name: item.filename, size: item.fileSize))]
+            var originalMeta = captionMeta(item, role: .original, hash: primaryHash, name: item.filename, size: item.fileSize)
+            // Albums that don't fit the caption go in a small md file instead of being dropped.
+            var metadataFile: (url: URL, data: Data)?
+            if try !CaptionCodec.keepsAlbums(originalMeta, captionKey: env.library.keys?.captionKey), let albums = originalMeta.a {
+                let data = try ExtraMetadata(a: albums).encoded()
+                metadataFile = (rawDirectory.appendingPathComponent("\(item.id)-md.json"), data)
+                originalMeta.a = nil
+            }
+            var resources = [PreparedResource(role: "o", fileURL: exp.primaryURL, meta: originalMeta)]
             if let paired = exp.pairedVideoURL, let pairedHash {
                 resources.append(PreparedResource(role: "pv", fileURL: paired,
                                                   meta: captionMeta(item, role: .pairedVideo, hash: pairedHash,
@@ -563,6 +573,16 @@ final class BackupEngine: @unchecked Sendable {
                                                   meta: captionMeta(item, role: .thumbnail, hash: IndexCodec.sha256Hex(thumbData),
                                                                     name: "thumb.jpg", size: Int64(thumbData.count))))
             }
+            // The rest of what Photos keeps: edit recipe, RAW of a RAW + JPEG pair, edited Live Photo video.
+            for extra in exp.extras {
+                resources.append(try extraResource(item, extra))
+            }
+            if let metadataFile {
+                try metadataFile.data.write(to: metadataFile.url)
+                resources.append(PreparedResource(role: "md", fileURL: metadataFile.url,
+                                                  meta: metadataMeta(item, hash: IndexCodec.sha256Hex(metadataFile.data), size: Int64(metadataFile.data.count))))
+            }
+            defer { if let metadataFile { try? FileManager.default.removeItem(at: metadataFile.url) } }
 
             let streamTotal = resources.reduce(Int64(0)) { $0 + ((try? CloudUploader.size(of: $1.fileURL)) ?? 0) }
             var sentBefore: Int64 = 0
@@ -753,7 +773,7 @@ final class BackupEngine: @unchecked Sendable {
             // version shows the edit too, so it goes as well and is made again from the new edit.
             // Only forget them once Telegram confirms: stale messages left without a local record would win a later
             // scan (it keeps the lowest message id). A failure throws, and the edit is checked again next run.
-            let old = (item.parts("e") + item.parts("sp") + item.parts("d")).map(\.messageId)
+            let old = (item.parts("e") + item.parts("sp") + item.parts("d") + item.parts("ad") + item.parts("ad2") + item.parts("epv")).map(\.messageId)
             if !old.isEmpty {
                 guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
                 try await env.td.deleteMessages(chatId: chatId, ids: old)
@@ -766,6 +786,10 @@ final class BackupEngine: @unchecked Sendable {
             item.cloudParts?["d"] = nil
             item.expectedParts?["d"] = nil
             item.screenCopySkipped = nil
+            for role in ["ad", "ad2", "epv"] {
+                item.cloudParts?[role] = nil
+                item.expectedParts?[role] = nil
+            }
             item.hasEdit = true
             item.editedFilename = resource.originalFilename
             item.editedSize = try CloudUploader.size(of: url)
@@ -790,6 +814,13 @@ final class BackupEngine: @unchecked Sendable {
             hashes["e"] = hash
             item.roleHashes = hashes
             appLog("Uploaded the new edit of \(item.filename)")
+            // The new edit's recipe and Live Photo video, so a restore shows this edit, revertible.
+            let extras = (try? await env.photos.exportExtras(of: asset, into: rawDirectory, edit: true, skip: [.rawAlternate])) ?? []
+            defer { for e in extras { try? FileManager.default.removeItem(at: e.url) } }
+            for extra in extras {
+                try await uploadExtra(item, extra, laneKey: laneKey)
+                item = (try store.item(id: itemId)) ?? item
+            }
             if ScreenCopyPolicy.shouldMake(item) {
                 save(item)
                 do { _ = try await uploadScreenCopy(item, source: url, laneKey: laneKey, thumbnail: nil) } catch { noteScreenCopyFailure(error, item) }
@@ -879,6 +910,76 @@ final class BackupEngine: @unchecked Sendable {
         }
         appLog("Uploaded the fast version of \(item.filename): \(Format.bytes(size)) for a \(Format.bytes(item.fileSize)) original")
         return true
+    }
+
+    // MARK: - Everything Photos keeps (roles `ad`, `ad2`, `ra`, `epv`)
+
+    /// Items backed up before the edit recipe, RAW alternates and edited Live Photo videos were stored get them now, a
+    /// few at a time at the end of a run, from the photo still on this device (never from iCloud Photos). Each item is
+    /// checked once; one whose photo is gone has nothing left to add.
+    private func completeEarlierBackups(deadline: Date?, isCancelled: @escaping @Sendable () -> Bool, limit: Int = 50) async {
+        guard !DemoMode.isActive, env.library.chatId != nil else { return }
+        let candidates = ((try? env.store.items(status: .backedUp)) ?? [])
+            .filter { $0.cloudParts != nil && $0.extrasChecked != true && $0.localIdentifier != nil && $0.kind != .video }
+            .prefix(limit)
+        guard !candidates.isEmpty else { return }
+        let assets = env.photos.assets(localIdentifiers: candidates.compactMap(\.localIdentifier))
+        var completed = 0
+        for item in candidates {
+            if isCancelled() || deadline.map({ Date() > $0 }) == true { break }
+            if await blocker() != nil { break }
+            guard let id = item.localIdentifier, let asset = assets[id] else {
+                _ = try? env.store.update(id: item.id) { $0.extrasChecked = true }
+                continue
+            }
+            var skip: Set<CaptionMeta.Role> = []
+            if !item.parts("ra").isEmpty { skip.insert(.rawAlternate) }
+            if !item.parts("ad").isEmpty { skip.formUnion([.adjustment, .adjustmentSecondary]) }
+            if !item.parts("epv").isEmpty { skip.insert(.editedPairedVideo) }
+            let edited = item.hasEdit == true && !item.parts("e").isEmpty
+            do {
+                let extras = try await env.photos.exportExtras(of: asset, into: rawDirectory, edit: edited, allowNetwork: false, skip: skip)
+                defer { for e in extras { try? FileManager.default.removeItem(at: e.url) } }
+                for extra in extras {
+                    await waitForFloodPause(isCancelled: isCancelled)
+                    await paceUploadStart()
+                    try await uploadExtra(item, extra, laneKey: "copy")
+                }
+                _ = try? env.store.update(id: item.id) { $0.extrasChecked = true }
+                if !extras.isEmpty { completed += 1 }
+            } catch {
+                // Not on the device (only in iCloud Photos) or a network error: checked again on a later run.
+                AppLog.shared.warn("Couldn't complete the backup of \(item.filename) yet: \(error.localizedDescription)")
+                if case .floodWait(let s)? = (error as? TDServiceError)?.kind {
+                    gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+                    break
+                }
+            }
+        }
+        if completed > 0 { appLog("Added what Photos keeps (edits, RAW) to \(completed) earlier backup\(completed == 1 ? "" : "s")") }
+    }
+
+    /// Uploads one extra file of an already backed-up item under its role.
+    private func uploadExtra(_ item: MediaItem, _ extra: ExportedExtra, laneKey: String) async throws {
+        let store = env.store
+        let itemId = item.id
+        let resource = try extraResource(item, extra)
+        let label = "\(item.filename) (\(extra.filename))"
+        await publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: 0, total: 0) }
+        defer { Task { await self.publish { $0.lanes[laneKey] = nil } } }
+        let parts = try await env.uploader.upload(
+            itemId: itemId, resource: resource, encrypted: item.encrypted, thumbnail: nil, existing: item.parts(resource.role),
+            checkpoint: { parts, expected in try store.update(id: itemId) { $0.setParts(parts, role: resource.role, expected: expected) } },
+            progress: { [weak self] sent, total in
+                Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
+            })
+        var hashes: [String: String] = [:]
+        _ = try store.update(id: itemId) {
+            $0.setParts(parts, role: resource.role, expected: parts.count)
+            hashes = $0.roleHashes ?? [:]
+            hashes[resource.role] = resource.meta.h
+            $0.roleHashes = hashes
+        }
     }
 
     // MARK: - Screen copies (role `d`)
@@ -1038,6 +1139,23 @@ final class BackupEngine: @unchecked Sendable {
         return .retryLater
     }
 
+    /// Caption for an extra file (`ad`, `ad2`, `ra`, `epv`): describes the file itself.
+    private func extraResource(_ item: MediaItem, _ extra: ExportedExtra) throws -> PreparedResource {
+        var meta = captionMeta(item, role: extra.role, hash: try Deduplicator.sha256(of: extra.url), name: extra.filename,
+                               size: try CloudUploader.size(of: extra.url))
+        meta.a = nil
+        if extra.role != .rawAlternate { meta.wh = nil }
+        return PreparedResource(role: extra.role.rawValue, fileURL: extra.url, meta: meta)
+    }
+
+    private func metadataMeta(_ item: MediaItem, hash: String, size: Int64) -> CaptionMeta {
+        var meta = captionMeta(item, role: .metadata, hash: hash, name: "metadata.json", size: size)
+        meta.m = "application/json"
+        meta.a = nil
+        meta.wh = nil
+        return meta
+    }
+
     private func captionMeta(_ item: MediaItem, role: CaptionMeta.Role, hash: String, name: String, size: Int64) -> CaptionMeta {
         let kind: CaptionMeta.Kind = item.kind == .livePhoto ? .live : (item.kind == .video ? .video : .photo)
         var m = CaptionMeta(id: item.id, role: role, kind: kind, sha256: hash, name: name, size: size)
@@ -1053,6 +1171,7 @@ final class BackupEngine: @unchecked Sendable {
         m.fav = item.favorite == true ? 1 : nil
         m.l = item.localIdentifier
         m.ed = (role == .original && item.hasEdit == true) ? 1 : nil
+        m.hid = item.hidden == true ? 1 : nil
         return m
     }
 }

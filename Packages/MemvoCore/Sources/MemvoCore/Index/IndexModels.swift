@@ -109,6 +109,9 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var streamingCopySkipped: Bool?
     /// No screen copy will be made: it wouldn't be much smaller, or the photo can't be decoded. Local only.
     public var screenCopySkipped: Bool?
+    /// Backed up with everything Photos keeps (edit recipe, RAW, edited Live Photo video), or checked since that
+    /// nothing is missing. Earlier backups are checked once, from the phone. Local only.
+    public var extrasChecked: Bool?
     /// When the user deleted it from the cloud (status `trashed`); its messages go 30 days later.
     public var trashedAt: Date?
 

@@ -25,12 +25,23 @@ struct ExportedAsset {
     /// The rendered edit (crop, filter, trim…) when the item was edited in Photos.
     var editedURL: URL? = nil
     var editedFilename: String? = nil
+    /// The rest of what Photos keeps for this item (edit recipe, RAW of a RAW + JPEG pair, edited Live Photo video).
+    var extras: [ExportedExtra] = []
 
     func cleanup() {
         try? FileManager.default.removeItem(at: primaryURL)
         if let pairedVideoURL { try? FileManager.default.removeItem(at: pairedVideoURL) }
         if let editedURL { try? FileManager.default.removeItem(at: editedURL) }
+        for e in extras { try? FileManager.default.removeItem(at: e.url) }
     }
+}
+
+/// One more file of an asset, stored under its own caption role (docs/CLOUD_FORMAT.md §2).
+struct ExportedExtra {
+    /// `ad`, `ad2`, `ra` or `epv`.
+    let role: CaptionMeta.Role
+    let url: URL
+    let filename: String
 }
 
 /// On a Mac where the Photos library isn't set up (or is still being opened), every PhotoKit call waits about
@@ -145,11 +156,14 @@ final class PhotoLibraryService: @unchecked Sendable {
     // MARK: - Fetching
 
     /// Every photo and video, newest first (used by the gallery).
-    func fetchAllAssets() -> PHFetchResult<PHAsset> {
+    /// `includeHidden`: PhotoKit leaves hidden photos out unless asked; only the backup (with Include hidden photos on)
+    /// asks. The timeline never shows them.
+    func fetchAllAssets(includeHidden: Bool = false) -> PHFetchResult<PHAsset> {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         options.predicate = NSPredicate(format: "mediaType == %d OR mediaType == %d",
                                         PHAssetMediaType.image.rawValue, PHAssetMediaType.video.rawValue)
+        options.includeHiddenAssets = includeHidden
         return PHAsset.fetchAssets(with: options)
     }
 
@@ -207,7 +221,7 @@ final class PhotoLibraryService: @unchecked Sendable {
         let excluded: Set<String> = (mode == .exclude) ? albumMembers(albumIds) : []
 
         var out: [PHAsset] = []
-        fetchAllAssets().enumerateObjects { a, _, _ in
+        fetchAllAssets(includeHidden: Prefs.includeHidden).enumerateObjects { a, _, _ in
             if a.mediaType == .video && filter == .photos { return }
             if a.mediaType == .image && filter == .videos { return }
             if let since, (a.creationDate ?? .distantPast) < since { return }
@@ -302,7 +316,52 @@ final class PhotoLibraryService: @unchecked Sendable {
                 AppLog.shared.warn("Couldn't export the edited version of \(primaryFilename): \(error.localizedDescription)")
             }
         }
+        do {
+            exported.extras = try await exportExtras(of: asset, into: directory, edit: exported.editedURL != nil)
+        } catch {
+            exported.cleanup()
+            throw error
+        }
         return exported
+    }
+
+    /// Everything else Photos keeps for `asset` that a restore needs: the RAW of a RAW + JPEG pair (`ra`), and for an
+    /// edited asset its adjustment data (`ad`, `ad2`) and an edited Live Photo's video (`epv`). The RAW is part of the
+    /// photo, so failing to read it fails the export; the edit's extras only refine a restore and are skipped with a
+    /// warning. `allowNetwork: false` uses only what's on the device (never iCloud Photos).
+    func exportExtras(of asset: PHAsset, into directory: URL, edit: Bool, allowNetwork: Bool = true,
+                      skip: Set<CaptionMeta.Role> = []) async throws -> [ExportedExtra] {
+        let resources = PHAssetResource.assetResources(for: asset)
+        let base = UUID().uuidString
+        var out: [ExportedExtra] = []
+        func export(_ r: PHAssetResource, role: CaptionMeta.Role) async throws {
+            let url = directory.appendingPathComponent("\(base)-\(role.rawValue)-\(r.originalFilename.sanitizedFilename)")
+            try await write(r, to: url, allowNetwork: allowNetwork)
+            out.append(ExportedExtra(role: role, url: url, filename: r.originalFilename))
+        }
+        do {
+            if asset.mediaType == .image, !skip.contains(.rawAlternate), resources.contains(where: { $0.type == .photo }),
+               let raw = resources.first(where: { $0.type == .alternatePhoto }) {
+                try await export(raw, role: .rawAlternate)
+            }
+        } catch {
+            for e in out { try? FileManager.default.removeItem(at: e.url) }
+            throw error
+        }
+        guard edit else { return out }
+        // Photos names them Adjustments.plist and AdjustmentsSecondary.data.
+        let adjustments = resources.filter { $0.type == .adjustmentData }
+        let main = adjustments.first { $0.originalFilename.lowercased().hasSuffix(".plist") } ?? adjustments.first
+        let secondary = adjustments.first { $0 !== main }
+        let editedVideo = asset.mediaSubtypes.contains(.photoLive) ? resources.first { $0.type == .fullSizePairedVideo } : nil
+        let edits: [(PHAssetResource?, CaptionMeta.Role)] = [(main, .adjustment), (secondary, .adjustmentSecondary), (editedVideo, .editedPairedVideo)]
+        for (resource, role) in edits {
+            guard let resource, !skip.contains(role) else { continue }
+            do { try await export(resource, role: role) } catch {
+                AppLog.shared.warn("Couldn't export \(role.rawValue) of \(asset.localIdentifier.prefix(8)): \(error.localizedDescription)")
+            }
+        }
+        return out
     }
 
     /// Writes one resource (e.g. the edited version) into `directory`.
