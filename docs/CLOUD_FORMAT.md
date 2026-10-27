@@ -14,12 +14,21 @@ All integers are unsigned and big-endian unless noted otherwise. "UTF-8" always 
 - A library is one **private Telegram channel** owned by the user. The default title is `Memvo Library`; the user can pick any existing channel instead.
 - The library is identified by a **header** string:
   - plain library: `cg:1`
-  - end-to-end encrypted library: `cg:1;e2e:1;it:<iterations>;s:<salt-b64>;kc:<keycheck-b64>`
+  - end-to-end encrypted library, header format 2 (all new libraries): `cg:2;e2e:1;a2:<t>,<m>,<p>;s:<salt-b64>;wk:<locked-b64>;rk:<locked-b64>`
+    (§6.1). `a2` is the Argon2id cost: passes, memory in KiB, lanes.
+  - end-to-end encrypted library, header format 1: `cg:1;e2e:1;it:<iterations>;s:<salt-b64>;kc:<keycheck-b64>`.
+    `s` is the 16-byte PBKDF2 salt and `kc` the 16-byte key-check value (§6.1).
 
-  `s` is the 16-byte PBKDF2 salt and `kc` the 16-byte key-check value (§6.1), both standard Base64 with padding.
+  Binary values are standard Base64 with padding. Header format 2 changes only the header: files and captions are
+  the same in both.
 - The header is written in two places. Readers check them in this order:
-  1. a pinned **text message** whose text starts with `#cloudgallery-library ` followed by the header;
-  2. the channel **description** (one line beginning with `cg:1`).
+  1. a pinned **text message** with one or more lines, each `#cloudgallery-library ` followed by a header;
+  2. the channel **description** (a line beginning with `cg:`).
+- Of several header lines, readers use the newest format they support. A format 2 pinned message also carries a
+  format 1 line with random `s` and `kc`: readers from before format 2 read that line and find every passphrase
+  wrong, instead of treating the channel as one without a header. The description holds only the format 2 line.
+- A header line from a **newer format than the reader supports** means the library was set up by a newer app. Readers
+  then don't read, write or repair the channel and ask the user to update. Never treat it as a missing header.
 - Library flags never change after creation. Switching encryption on or off means creating a new library.
 
 ## 2. Items and resources
@@ -110,10 +119,31 @@ CG1:{"v":1,"id":"0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10","r":"o","k":"v","h":"9f86
 
 ### 6.1 Master key
 
+**Header format 2** (new libraries; format 1 libraries are upgraded to it):
+- The master key is 32 random bytes (an upgraded library keeps the master key it had). It is stored only locked:
+  - `pk = Argon2id(password = NFC-UTF-8(passphrase), salt = s, t, m, p, tagLength = 32)` (RFC 9106, version 0x13).
+    New libraries use `t = 3`, `m = 262144` (256 MiB), `p = 1` and a random 16-byte salt. Readers refuse `m < 19456`.
+  - `wk = nonce(12) ‖ AES-256-GCM(pk, nonce, master, aad = UTF-8("Memvo master key v2 passphrase")) ‖ tag(16)`.
+  - Recovery key: 32 random bytes, shown to the user as RFC 4648 base32 without padding in 13 groups of 4 joined by
+    `-` (52 characters). Readers accept any case, spaces or dashes, and read `0`, `1`, `8` as `O`, `I`, `B`.
+    `rkk = HKDF-SHA256(ikm = recovery key, salt = 32 zero bytes, info = UTF-8("Memvo recovery key v2"), L = 32)`,
+    `rk = nonce(12) ‖ AES-256-GCM(rkk, nonce, master, aad = UTF-8("Memvo master key v2 recovery")) ‖ tag(16)`.
+- A wrong passphrase or recovery key fails to open `wk` / `rk` (the GCM tag). There is no key-check value.
+- Changing the passphrase writes a new `s` and `wk`; a new recovery key writes a new `rk`. Nothing else changes.
+- Upgrading a format 1 library: unlock it with the passphrase, lock its master key as above, then replace the header in
+  both places (edit the pinned message in place, so the format 1 salt and key check don't stay readable in the channel).
+- Changing the passphrase protects the library from now on. Whoever already had both the old passphrase (or a format 1
+  header, which allows guessing it) and access to the channel can still open the master key they learned. For that
+  case, create a new library.
+- Test vector: [`docs/test-vectors/format2-header.json`](test-vectors/format2-header.json).
+
+**Header format 1:**
 - `master = PBKDF2-HMAC-SHA256(password = NFC-UTF-8(passphrase), salt = s, iterations = it, dkLen = 32)`.
-- New libraries use `it = 600000` and a random 16-byte salt. Readers accept any `it ≥ 100000`.
+- Libraries used `it = 600000` and a random 16-byte salt. Readers accept any `it ≥ 100000`.
 - Key check: `kc = HMAC-SHA256(master, UTF-8("CloudGallery key check v1"))[0..<16]`. A wrong passphrase is detected by comparing `kc` before any decryption.
-- The master key is stored only in the platform's secure storage (the Keychain on Apple platforms). A lost passphrase means lost data; apps must say so plainly at library creation.
+
+**Both:** the master key is stored only in the platform's secure storage (the Keychain on Apple platforms). Without
+the passphrase and the recovery key, the data can't be opened; apps must say so plainly at library creation.
 
 ### 6.2 File content: CGFE (chunked AES-256-GCM)
 
