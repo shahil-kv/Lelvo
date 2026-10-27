@@ -36,6 +36,9 @@ public final class LibraryStore: @unchecked Sendable {
         guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
             throw StoreError.sqlite("open failed")
         }
+        // Wait for a moment instead of failing with "database is locked" when another connection is busy, e.g. the
+        // last one to close still checkpointing the write-ahead log.
+        sqlite3_busy_timeout(db, 5000)
         try exec("PRAGMA journal_mode=WAL;")
         try exec("""
         CREATE TABLE IF NOT EXISTS items (
