@@ -4,7 +4,7 @@ import MemvoCore
 
 @MainActor
 final class OnboardingModel: ObservableObject {
-    enum Step: Equatable { case welcome, credentials, phone, code, password, otherDevice, noAccount, library, unlock, scanning, photos }
+    enum Step: Equatable { case welcome, credentials, phone, code, password, otherDevice, noAccount, library, unlock, recoveryKey, scanning, photos }
 
     @Published var step: Step = .welcome
     @Published var apiId = ""
@@ -26,6 +26,8 @@ final class OnboardingModel: ObservableObject {
     @Published var passphrase = ""
     @Published var newLibraryName = LibraryService.titleDefault
     @Published var passphraseConfirm = ""
+    /// A new encrypted library's recovery key, shown once on its own step.
+    @Published var recoveryKey: RecoveryKey?
     @Published var acknowledgedRisk = false
     @Published var scanned = 0
     @Published var busy = false
@@ -236,10 +238,15 @@ final class OnboardingModel: ObservableObject {
     func createLibrary() {
         run {
             let name = self.newLibraryName.trimmingCharacters(in: .whitespacesAndNewlines)
-            try await self.env.library.createLibrary(title: name.isEmpty ? LibraryService.titleDefault : String(name.prefix(128)),
-                                                     passphrase: self.newLibraryEncrypted ? self.passphrase : nil)
+            let created = try await self.env.library.createLibrary(title: name.isEmpty ? LibraryService.titleDefault : String(name.prefix(128)),
+                                                                   passphrase: self.newLibraryEncrypted ? self.passphrase : nil)
             Haptics.success()
-            self.step = .photos
+            if let key = created.recoveryKey {
+                self.recoveryKey = key
+                self.step = .recoveryKey
+            } else {
+                self.step = .photos
+            }
         }
     }
 
@@ -252,7 +259,7 @@ final class OnboardingModel: ObservableObject {
 
     func unlock() {
         run {
-            try self.env.library.unlock(passphrase: self.passphrase)
+            try await self.env.library.unlock(secret: self.passphrase)
             self.step = .scanning
             self.scan()
         }
@@ -313,6 +320,13 @@ struct OnboardingView: View {
                 case .noAccount: noAccount
                 case .library: library
                 case .unlock: unlock
+                case .recoveryKey:
+                    if let key = m.recoveryKey {
+                        RecoveryKeyView(key: key) {
+                            m.recoveryKey = nil
+                            m.step = .photos
+                        }
+                    }
                 case .scanning: scanning
                 case .photos: photos
                 }
@@ -385,9 +399,9 @@ struct OnboardingView: View {
 
     private var unlock: some View {
         OnboardingPage(icon: "lock.shield.fill", title: "Unlock your library",
-                       subtitle: "This library is end-to-end encrypted. Enter its passphrase.",
+                       subtitle: "This library is end-to-end encrypted. Enter its passphrase, or its recovery key if you forgot the passphrase.",
                        m: m, button: .init(title: "Unlock", enabled: !m.passphrase.isEmpty) { m.unlock() }) {
-            OnboardingField(placeholder: "Passphrase", text: $m.passphrase, secure: true, content: .password, autofocus: true) {
+            OnboardingField(placeholder: "Passphrase or recovery key", text: $m.passphrase, secure: true, content: .password, autofocus: true) {
                 if !m.passphrase.isEmpty { m.unlock() }
             }
         }
@@ -670,7 +684,7 @@ struct EncryptionChoice: View {
         guard encrypted else { return nil }
         if passphrase.count < 10 { return "Use at least 10 characters. A few random words work well." }
         if passphrase != confirm { return "The passphrases don't match." }
-        if !acknowledged { return "Confirm you understand a lost passphrase means lost photos." }
+        if !acknowledged { return "Confirm you understand that losing both the passphrase and the recovery key means losing your photos." }
         return nil
     }
 
@@ -685,7 +699,7 @@ struct EncryptionChoice: View {
                     OnboardingField(placeholder: "Passphrase (10+ characters)", text: $passphrase, secure: true, content: .newPassword)
                     OnboardingField(placeholder: "Repeat passphrase", text: $confirm, secure: true, content: .newPassword)
                     Toggle(isOn: $acknowledged) {
-                        Text("I understand that if I lose this passphrase, nobody can recover my photos.")
+                        Text("I understand that if I lose both this passphrase and the recovery key I'll get next, nobody can recover my photos.")
                             .font(.footnote).foregroundStyle(.orange)
                     }
                     if let p = Self.problem(encrypted: encrypted, passphrase: passphrase, confirm: confirm, acknowledged: acknowledged),

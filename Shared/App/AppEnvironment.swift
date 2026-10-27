@@ -79,7 +79,7 @@ final class AppEnvironment: @unchecked Sendable {
             header = try await library.useExisting(chatId: chatId)
             if header.encrypted {
                 guard let passphrase, !passphrase.isEmpty else { throw LibraryError.locked }
-                try library.unlock(passphrase: passphrase)
+                try await library.unlock(secret: passphrase)
             }
         } catch {
             // Wrong passphrase or unreachable: stay on the library we were on.
@@ -109,14 +109,16 @@ final class AppEnvironment: @unchecked Sendable {
 
     /// Creates a new, empty library and makes it the current one (the local index of the old one is cleared;
     /// both libraries stay in Telegram).
-    func createLibraryAndSwitch(title: String, passphrase: String?) async throws {
+    /// Returns the new library's recovery key (encrypted libraries), to show once.
+    func createLibraryAndSwitch(title: String, passphrase: String?) async throws -> RecoveryKey? {
         engine.pause()
         for _ in 0..<40 where engine.isRunning { try? await Task.sleep(nanoseconds: 250_000_000) }
         try store.deleteAll()
         reader.forgetCaches()
         library.forget()
-        _ = try await library.createLibrary(title: title, passphrase: passphrase)
+        let created = try await library.createLibrary(title: title, passphrase: passphrase)
         appLog("Created and switched to a new library")
+        return created.recoveryKey
     }
 
     /// Wipes local state (sign out / reset). The Telegram channel is not touched.

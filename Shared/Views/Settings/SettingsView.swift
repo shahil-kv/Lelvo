@@ -308,6 +308,7 @@ struct LibrarySettingsView: View {
     @State private var newPassphrase = ""
     @State private var newConfirm = ""
     @State private var newAcknowledged = false
+    @State private var newRecoveryKey: RecoveryKey?
     private var env: AppEnvironment { AppEnvironment.shared }
 
     private var libraries: [LibraryService.ChannelChoice] {
@@ -345,6 +346,12 @@ struct LibrarySettingsView: View {
                         .font(.subheadline)
                 }
                 .padding(.top, 4)
+                if env.library.isEncrypted {
+                    NavigationLink { EncryptionSettingsView() } label: {
+                        Label(env.library.needsHeaderUpgrade ? "Add a recovery key" : "Passphrase and recovery key", systemImage: "key.horizontal")
+                            .font(.subheadline)
+                    }
+                }
                 Button {
                     newName = ""; newEncrypted = false; newPassphrase = ""; newConfirm = ""; newAcknowledged = false
                     creating = true
@@ -366,6 +373,10 @@ struct LibrarySettingsView: View {
             }
         }
         .task { await load() }
+        .sheet(item: Binding(get: { newRecoveryKey.map { IdentifiedKey(key: $0) } }, set: { newRecoveryKey = $0?.key })) { k in
+            NavigationStack { RecoveryKeyView(key: k.key) { newRecoveryKey = nil }.navigationTitle("Recovery key").inlineNavigationTitle() }
+                .interactiveDismissDisabled()
+        }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
         .alert("Rename library", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $renameText)
@@ -477,7 +488,7 @@ struct LibrarySettingsView: View {
             busy = "Creating “\(title)”…"
             defer { busy = nil }
             do {
-                try await env.createLibraryAndSwitch(title: title, passphrase: passphrase)
+                newRecoveryKey = try await env.createLibraryAndSwitch(title: title, passphrase: passphrase)
                 Haptics.success()
                 await load()
             } catch {

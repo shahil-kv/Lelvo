@@ -8,13 +8,17 @@ enum LibraryError: LocalizedError {
     case notALibrary
     case locked
     case wrongPassphrase
+    case newerVersion
+    case headerNotSaved
 
     var errorDescription: String? {
         switch self {
         case .noLibrary: return "Choose or create your Memvo library first."
         case .notALibrary: return "That channel isn't a Memvo library. Pick another channel or create a new library."
         case .locked: return "This library is end-to-end encrypted. Enter your passphrase to unlock it."
-        case .wrongPassphrase: return "Wrong passphrase for this library."
+        case .wrongPassphrase: return "That passphrase or recovery key doesn't open this library."
+        case .newerVersion: return "This library was set up by a newer version of Memvo. Update Memvo to open it."
+        case .headerNotSaved: return "Telegram didn't save the change. Check your connection and try again; your library still opens as before."
         }
     }
 }
@@ -136,13 +140,15 @@ final class LibraryService: @unchecked Sendable {
     }
 
     /// Creates a private channel with the format-1 header (pinned message + description).
+    /// Returns the recovery key of an encrypted library, to show once; nothing stores it.
     @discardableResult
-    func createLibrary(title: String = titleDefault, passphrase: String?) async throws -> Int64 {
+    func createLibrary(title: String = titleDefault, passphrase: String?) async throws -> (chatId: Int64, recoveryKey: RecoveryKey?) {
         let api = try td.api()
         let header: LibraryHeader
         var keys: E2EKeys?
+        var recovery: RecoveryKey?
         if let passphrase {
-            (header, keys) = try LibraryHeader.newEncrypted(passphrase: passphrase)
+            (header, keys, recovery) = try LibraryHeader.newLibrary(passphrase: passphrase)
         } else {
             header = .plain
         }
@@ -160,8 +166,8 @@ final class LibraryService: @unchecked Sendable {
         }
         if let keys { storeKeys(keys) }
         save(chatId: chat.id, header: header)
-        appLog("Created library channel (\(header.encrypted ? "E2E" : "plain"))")
-        return chat.id
+        appLog("Created library channel (\(header.encrypted ? "E2E, header format \(header.version)" : "plain"))")
+        return (chat.id, recovery)
     }
 
     /// Reads the header of an existing channel (pinned header message first, then the description).
@@ -182,6 +188,9 @@ final class LibraryService: @unchecked Sendable {
     /// Uses an existing channel. Channels without a header are turned into a plain library (header added).
     func useExisting(chatId: Int64) async throws -> LibraryHeader {
         if let header = await readHeader(chatId: chatId) {
+            // Never store it or "repair" it with a header of our own: that would put a plain header on a library this
+            // version doesn't understand.
+            if header.isNewerVersion { throw LibraryError.newerVersion }
             save(chatId: chatId, header: header)
             if header.encrypted { KeychainStore.set(nil as Data?, for: .e2eMasterKey); lock.withLock { cachedKeys = nil } }
             return header
@@ -192,10 +201,89 @@ final class LibraryService: @unchecked Sendable {
         return .plain
     }
 
-    func unlock(passphrase: String) throws {
+    /// Opens the library with its passphrase, or with its recovery key (format 2) when that's what was typed.
+    /// Argon2id takes a large amount of memory and up to a second, so this always runs off the main thread.
+    func unlock(secret: String) async throws {
         guard let header, header.encrypted else { return }
-        guard let keys = try header.unlock(passphrase: passphrase) else { throw LibraryError.wrongPassphrase }
+        let keys = try await Task.detached(priority: .userInitiated) { () throws -> E2EKeys? in
+            if let keys = try header.unlock(passphrase: secret) { return keys }
+            return RecoveryKey(text: secret).flatMap { header.unlock(recoveryKey: $0) }
+        }.value
+        guard let keys else { throw LibraryError.wrongPassphrase }
         storeKeys(keys)
+    }
+
+    // MARK: - Passphrase and recovery key (header format 2, docs/CLOUD_FORMAT.md §6.1)
+
+    /// Header format 1: no recovery key, and the passphrase can't change until the header is upgraded.
+    var needsHeaderUpgrade: Bool { isEncrypted && header?.version == 1 }
+
+    /// Upgrades a format 1 library: locks the master key it already has with `passphrase` and a new recovery key.
+    /// Files and captions don't change. Returns the recovery key to show.
+    func upgradeHeader(passphrase: String) async throws -> RecoveryKey {
+        guard let header, header.encrypted, header.version == 1 else { throw LibraryError.notALibrary }
+        let (upgraded, recovery) = try await Task.detached(priority: .userInitiated) { () throws -> (LibraryHeader, RecoveryKey) in
+            guard let keys = try header.unlock(passphrase: passphrase) else { throw LibraryError.wrongPassphrase }
+            return try LibraryHeader.locking(keys, passphrase: passphrase)
+        }.value
+        try await replaceHeader(with: upgraded)
+        appLog("Upgraded the library header to format 2 (recovery key added)")
+        return recovery
+    }
+
+    /// A new passphrase. A format 1 library is upgraded on the way and gets a recovery key, which is returned to show.
+    func changePassphrase(current: String, to new: String) async throws -> RecoveryKey? {
+        guard let header, header.encrypted else { throw LibraryError.notALibrary }
+        let (changed, recovery) = try await Task.detached(priority: .userInitiated) { () throws -> (LibraryHeader, RecoveryKey?) in
+            guard let keys = try header.unlock(passphrase: current) else { throw LibraryError.wrongPassphrase }
+            if header.version == 1 {
+                let (upgraded, recovery) = try LibraryHeader.locking(keys, passphrase: new)
+                return (upgraded, recovery)
+            }
+            return (try header.changingPassphrase(keys, to: new), nil)
+        }.value
+        try await replaceHeader(with: changed)
+        appLog("Changed the library passphrase")
+        return recovery
+    }
+
+    /// A new recovery key; the old one stops working. The passphrase confirms it's the owner asking.
+    func newRecoveryKey(passphrase: String) async throws -> RecoveryKey {
+        guard let header, header.encrypted else { throw LibraryError.notALibrary }
+        if header.version == 1 { return try await upgradeHeader(passphrase: passphrase) }
+        let (replaced, recovery) = try await Task.detached(priority: .userInitiated) { () throws -> (LibraryHeader, RecoveryKey) in
+            guard let keys = try header.unlock(passphrase: passphrase) else { throw LibraryError.wrongPassphrase }
+            return try header.replacingRecoveryKey(keys)
+        }.value
+        try await replaceHeader(with: replaced)
+        appLog("Replaced the library recovery key")
+        return recovery
+    }
+
+    /// Writes `new` to both places, the description first, then the pinned message edited in place, so the old header
+    /// doesn't stay readable in the channel. Either partial state still opens with the same master key. Saved locally
+    /// only once Telegram returns exactly this header.
+    private func replaceHeader(with new: LibraryHeader) async throws {
+        guard let chatId else { throw LibraryError.noLibrary }
+        let api = try td.api()
+        await td.ensureChat(chatId)
+        do {
+            _ = try await api.setChatDescription(chatId: chatId, description: "Memvo Library · do not edit\n" + new.line)
+            let text = InputMessageContent.inputMessageText(InputMessageText(
+                clearDraft: false, linkPreviewOptions: nil, text: FormattedText(entities: [], text: new.messageText)))
+            if let pinned = try? await api.getChatPinnedMessage(chatId: chatId), case .messageText(let t) = pinned.content,
+               LibraryHeader.parse(t.text.text) != nil {
+                _ = try await api.editMessageText(chatId: chatId, inputMessageContent: text, messageId: pinned.id, replyMarkup: nil)
+            } else {
+                let message = try await td.sendText(chatId: chatId, text: new.messageText)
+                _ = try await api.pinChatMessage(chatId: chatId, disableNotification: true, messageId: message.id, onlyForSelf: false)
+            }
+        } catch {
+            AppLog.shared.error("Writing the library header failed: \(error.asTD.localizedDescription)")
+            throw LibraryError.headerNotSaved
+        }
+        guard await readHeader(chatId: chatId) == new else { throw LibraryError.headerNotSaved }
+        save(chatId: chatId, header: new)
     }
 
     private func storeKeys(_ keys: E2EKeys) {
