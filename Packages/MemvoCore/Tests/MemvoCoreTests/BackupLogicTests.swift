@@ -417,3 +417,24 @@ import MemvoCore
         #expect(!Deduplicator.canReuseHashes(of: noDate, modified: nil, sizes: (3_000, nil, nil)))
     }
 }
+
+@Suite struct PhotoChangeScanTests {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test func usesTheHistoryOnlyWhenNothingElseChanged() {
+        #expect(PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: "a", selection: "a", lastFullScan: now.addingTimeInterval(-3600), now: now))
+    }
+
+    @Test func readsEverythingOtherwise() {
+        // First search, or the token was removed.
+        #expect(!PhotoChangeScan.canUseChanges(hasToken: false, savedSelection: "a", selection: "a", lastFullScan: now, now: now))
+        // Albums, media type or dates changed: photos that didn't change may now belong to the backup.
+        #expect(!PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: "a", selection: "b", lastFullScan: now, now: now))
+        #expect(!PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: nil, selection: "a", lastFullScan: now, now: now))
+        // Too long since the whole library was read, never read, or a clock that went backwards.
+        #expect(!PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: "a", selection: "a",
+                                               lastFullScan: now.addingTimeInterval(-PhotoChangeScan.fullScanEvery - 1), now: now))
+        #expect(!PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: "a", selection: "a", lastFullScan: nil, now: now))
+        #expect(!PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: "a", selection: "a", lastFullScan: now.addingTimeInterval(60), now: now))
+    }
+}

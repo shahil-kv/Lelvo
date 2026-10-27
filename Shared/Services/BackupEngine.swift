@@ -184,14 +184,54 @@ final class BackupEngine: @unchecked Sendable {
     // MARK: - Queue
 
     /// Adds phone assets that match the backup selection and aren't known yet as pending jobs.
+    /// `among`: only these assets (Photos' change history), nil for the whole library.
     @discardableResult
-    func enqueueNewAssets(force: Bool = false) -> Int {
+    func enqueueNewAssets(force: Bool = false, among ids: Set<String>? = nil) -> Int {
         guard force || Prefs.autoBackup else { return 0 }
         let known = (try? env.store.knownLocalIdentifiers()) ?? []
-        let fresh = env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }
+        let fresh = env.photos.backupCandidates(among: ids).filter { !known.contains($0.localIdentifier) }
         let items = fresh.map(makeItem)
         try? env.store.upsert(items)
         return items.count
+    }
+
+    // MARK: - Photos' change history (#31)
+
+    private static let changeTokenKey = "photosChangeToken"
+    private static let changeSelectionKey = "photosChangeSelection"
+    private static let lastFullPhotoScanKey = "photosLastFullScan"
+
+    /// One search for new and edited photos: the token to save once it's done, and the changes since the last search
+    /// (nil when the whole library has to be read, see `PhotoChangeScan`).
+    struct PhotoSearch {
+        let token: Data?
+        let changes: (inserted: Set<String>, updated: Set<String>)?
+    }
+
+    /// Everything that decides which photos are backed up; a change means photos that didn't change may now belong in.
+    private var selectionFingerprint: String {
+        [Prefs.mediaFilter.rawValue, Prefs.dateFrom.map { String(Int64($0.timeIntervalSince1970)) } ?? "-",
+         String(Prefs.includeScreenshots), String(Prefs.includeHidden), Prefs.albumMode.rawValue,
+         Prefs.albumIds.sorted().joined(separator: ",")].joined(separator: "|")
+    }
+
+    /// The token is taken before reading anything, so a photo taken during the search is found by the next one.
+    private func beginPhotoSearch() -> PhotoSearch {
+        let token = env.photos.changeToken()
+        let saved = env.store.meta(Self.changeTokenKey).flatMap { Data(base64Encoded: $0) }
+        let lastFull = env.store.meta(Self.lastFullPhotoScanKey).flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
+        guard let saved, PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: env.store.meta(Self.changeSelectionKey),
+                                                       selection: selectionFingerprint, lastFullScan: lastFull, now: Date()) else {
+            return PhotoSearch(token: token, changes: nil)
+        }
+        return PhotoSearch(token: token, changes: env.photos.changedAssets(since: saved))
+    }
+
+    private func finishPhotoSearch(_ search: PhotoSearch) {
+        guard let token = search.token else { return }
+        env.store.setMeta(Self.changeTokenKey, token.base64EncodedString())
+        env.store.setMeta(Self.changeSelectionKey, selectionFingerprint)
+        if search.changes == nil { env.store.setMeta(Self.lastFullPhotoScanKey, String(Date().timeIntervalSince1970)) }
     }
 
     /// After a reinstall the restored cloud items aren't linked to this iPhone's photos (the link lived only in
@@ -322,9 +362,15 @@ final class BackupEngine: @unchecked Sendable {
         // Reconcile anything sent before an interruption so it isn't uploaded twice.
         _ = try? await env.library.scan(full: false)
         relinkRestoredItems()
-        enqueueNewAssets(force: includeNew)
-
-        if includeNew || Prefs.autoBackup { requeueEditedSinceBackup() }
+        if includeNew || Prefs.autoBackup {
+            let started = Date()
+            let search = beginPhotoSearch()
+            let queued = enqueueNewAssets(force: true, among: search.changes.map { $0.inserted.union($0.updated) })
+            let edited = requeueEditedSinceBackup(among: search.changes?.updated)
+            finishPhotoSearch(search)
+            let how = search.changes.map { "\($0.inserted.count) new and \($0.updated.count) changed photos from Photos' history" } ?? "the whole library"
+            appLog(String(format: "Looked for new photos in %@: %d queued, %d edits to check, in %.1f s", how, queued, edited, Date().timeIntervalSince(started)))
+        }
 
         // Items left "uploading" by a killed process go back to pending.
         if let stale = try? env.store.items(status: .uploading) {
@@ -772,10 +818,14 @@ final class BackupEngine: @unchecked Sendable {
 
     /// Backed-up photos edited (again) in Photos since their backup: queue them so this run uploads the new
     /// edited version. Runs only for "Back up now" (or automatic backup). Returns how many were queued.
+    /// `among`: only these photos (changed ones from Photos' history), nil for every backed-up photo.
     @discardableResult
-    func requeueEditedSinceBackup() -> Int {
+    func requeueEditedSinceBackup(among changed: Set<String>? = nil) -> Int {
         guard PhotoLibraryService.hasAccess else { return 0 }
-        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.cloudParts != nil && $0.localIdentifier != nil }
+        if let changed, changed.isEmpty { return 0 }
+        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter {
+            $0.cloudParts != nil && $0.localIdentifier.map { changed?.contains($0) ?? true } == true
+        }
         let assets = env.photos.assets(localIdentifiers: items.compactMap(\.localIdentifier))
         var queued: [MediaItem] = []
         var unknownDate = 0
@@ -795,7 +845,7 @@ final class BackupEngine: @unchecked Sendable {
         // before edits counted, they're backed up as their own photos.
         var editedCopies = 0
         let byId = Dictionary(((try? env.store.items(status: .backedUp)) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        let aliases = (try? env.store.aliases()) ?? []
+        let aliases = ((try? env.store.aliases()) ?? []).filter { changed?.contains($0.localIdentifier) ?? true }
         let aliasAssets = env.photos.assets(localIdentifiers: aliases.map(\.localIdentifier))
         for alias in aliases {
             guard let asset = aliasAssets[alias.localIdentifier], let twin = byId[alias.itemId], twin.hasEdit != true,

@@ -201,18 +201,27 @@ final class PhotoLibraryService: @unchecked Sendable {
     }
 
     /// Assets that match the backup selection (media type, screenshots, date range, albums), newest first.
-    func backupCandidates() -> [PHAsset] {
+    /// `among`: only these assets (new and changed ones from Photos' change history) instead of the whole library.
+    func backupCandidates(among ids: Set<String>? = nil) -> [PHAsset] {
+        if let ids, ids.isEmpty { return [] }
         let filter = Prefs.mediaFilter
         let since = Prefs.dateFrom
         let includeScreenshots = Prefs.includeScreenshots
         let mode = Prefs.albumMode
         let albumIds = Prefs.albumIds
 
-        func albumMembers(_ ids: Set<String>) -> Set<String> {
+        // Only the members among `ids` when given, so a few new photos don't read every member of a big album.
+        let memberOptions: PHFetchOptions? = ids.map { ids in
+            let o = PHFetchOptions()
+            o.predicate = NSPredicate(format: "localIdentifier IN %@", Array(ids))
+            o.includeHiddenAssets = Prefs.includeHidden
+            return o
+        }
+        func albumMembers(_ albums: Set<String>) -> Set<String> {
             var members = Set<String>()
-            let collections = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: Array(ids), options: nil)
+            let collections = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: Array(albums), options: nil)
             collections.enumerateObjects { c, _, _ in
-                PHAsset.fetchAssets(in: c, options: nil).enumerateObjects { a, _, _ in members.insert(a.localIdentifier) }
+                PHAsset.fetchAssets(in: c, options: memberOptions).enumerateObjects { a, _, _ in members.insert(a.localIdentifier) }
             }
             return members
         }
@@ -221,7 +230,17 @@ final class PhotoLibraryService: @unchecked Sendable {
         let excluded: Set<String> = (mode == .exclude) ? albumMembers(albumIds) : []
 
         var out: [PHAsset] = []
-        fetchAllAssets(includeHidden: Prefs.includeHidden).enumerateObjects { a, _, _ in
+        let source: PHFetchResult<PHAsset>
+        if let ids {
+            let options = PHFetchOptions()
+            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            options.includeHiddenAssets = Prefs.includeHidden
+            source = PHAsset.fetchAssets(withLocalIdentifiers: Array(ids), options: options)
+        } else {
+            source = fetchAllAssets(includeHidden: Prefs.includeHidden)
+        }
+        source.enumerateObjects { a, _, _ in
+            if a.mediaType != .image && a.mediaType != .video { return }
             if a.mediaType == .video && filter == .photos { return }
             if a.mediaType == .image && filter == .videos { return }
             if let since, (a.creationDate ?? .distantPast) < since { return }
@@ -231,6 +250,31 @@ final class PhotoLibraryService: @unchecked Sendable {
             out.append(a)
         }
         return out
+    }
+
+    // MARK: - Change history
+
+    /// Photos' current change token, archived for the store.
+    func changeToken() -> Data? {
+        try? NSKeyedArchiver.archivedData(withRootObject: PHPhotoLibrary.shared().currentChangeToken, requiringSecureCoding: true)
+    }
+
+    /// Assets added and changed since `token` (from `changeToken`), or nil when Photos can't say: an unreadable token, or
+    /// history that no longer goes back that far. The caller then reads the whole library.
+    func changedAssets(since token: Data) -> (inserted: Set<String>, updated: Set<String>)? {
+        guard let since = try? NSKeyedUnarchiver.unarchivedObject(ofClass: PHPersistentChangeToken.self, from: token) else { return nil }
+        do {
+            var inserted = Set<String>(), updated = Set<String>()
+            for change in try PHPhotoLibrary.shared().fetchPersistentChanges(since: since) {
+                let details = try change.changeDetails(for: .asset)
+                inserted.formUnion(details.insertedLocalIdentifiers)
+                updated.formUnion(details.updatedLocalIdentifiers)
+            }
+            return (inserted, updated.subtracting(inserted))
+        } catch {
+            AppLog.shared.warn("Photos' change history isn't available (\(error.localizedDescription)); reading the whole library")
+            return nil
+        }
     }
 
     /// Names of the user albums containing `asset` (stored in the caption so albums survive restore).
