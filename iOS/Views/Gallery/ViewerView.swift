@@ -383,6 +383,10 @@ struct ViewerPage: View {
         guard let item = entry.item else { return }
         let thumb = try? await env.media.thumbnail(for: item)
         poster = thumb
+        // Swiped to while the thumbnail loaded (slow after Clear caches): the video already started from the `isCurrent`
+        // change, and this load still sees the page as off screen. Putting the placeholder back closed that player and
+        // left a still frame that never played.
+        if session != nil { return }
         content = .loading(thumb)
         guard item.isViewableFromCloud else {
             content = .unavailable("This item isn't fully in your Telegram library yet.", thumb)
@@ -417,8 +421,6 @@ struct ViewerPage: View {
         }
     }
 
-    /// Streams a cloud video from Telegram (no full download): the fast version when the connection can't carry the
-    /// original (Settings → Video quality), and the edit rather than the original when it was edited in Photos.
     /// iOS restarts its media services now and then (after a while in the background, under memory pressure), and every
     /// player made before that fails with -11819 ("Cannot Complete Action"): the video on screen stayed black until the
     /// viewer was closed. Make a new player for it.
@@ -438,6 +440,8 @@ struct ViewerPage: View {
         }
     }
 
+    /// Streams a cloud video from Telegram (no full download): the fast version when the connection can't carry the
+    /// original (Settings → Video quality), and the edit rather than the original when it was edited in Photos.
     private func startCloudVideo(_ item: MediaItem) {
         let s = videos.open(entry.id, item: item, reader: AppEnvironment.shared.reader)
         session = s
