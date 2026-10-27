@@ -208,13 +208,26 @@ final class BackupEngine: @unchecked Sendable {
         let unlinked = all.filter { $0.status == .backedUp && $0.localIdentifier == nil }
         guard !unlinked.isEmpty else { return 0 }
         let linked = Set(all.filter { $0.status == .backedUp }.compactMap(\.localIdentifier))
+        let filter = RestoreLinker.Prefilter(unlinked: unlinked)
         var assets: [AssetKey] = []
+        var namesLookedUp = 0
+        let started = Date()
         env.photos.fetchAllAssets().enumerateObjects { asset, _, _ in
-            guard !linked.contains(asset.localIdentifier),
-                  let name = self.env.photos.originalResources(for: asset)?.primary.originalFilename else { return }
+            guard !linked.contains(asset.localIdentifier) else { return }
+            let name: String
+            if filter.linksById(asset.localIdentifier) {
+                name = ""
+            } else if filter.needsFilename(creationDate: asset.creationDate, pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight),
+                      let found = self.env.photos.originalResources(for: asset)?.primary.originalFilename {
+                name = found
+                namesLookedUp += 1
+            } else {
+                return
+            }
             assets.append(AssetKey(localIdentifier: asset.localIdentifier, filename: name, creationDate: asset.creationDate,
                                    pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight))
         }
+        appLog(String(format: "Relink: %d candidate photos, %d file names looked up, in %.1f s", assets.count, namesLookedUp, Date().timeIntervalSince(started)))
         let links = RestoreLinker.match(unlinked: unlinked, assets: assets)
         guard !links.isEmpty else { return 0 }
         let linkedAssets = Set(links.values)
@@ -711,9 +724,11 @@ final class BackupEngine: @unchecked Sendable {
         let aliases = (try? env.store.aliases()) ?? []
         let present = env.photos.existingIdentifiers(aliases.map(\.localIdentifier))
         let byItem = Dictionary(grouping: aliases.filter { present.contains($0.localIdentifier) }, by: \.itemId)
+        let items = Dictionary(((try? env.store.items(ids: byItem.keys)) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let originals = env.photos.existingIdentifiers(items.values.compactMap(\.localIdentifier))
         return byItem.compactMap { itemId, rows in
-            guard let item = try? env.store.item(id: itemId) else { return nil }
-            let original = item.localIdentifier.flatMap { env.photos.asset(localIdentifier: $0) != nil ? $0 : nil }
+            guard let item = items[itemId] else { return nil }
+            let original = item.localIdentifier.flatMap { originals.contains($0) ? $0 : nil }
             return PhoneDuplicateGroup(item: item, original: original, copies: rows.map(\.localIdentifier))
         }
         .sorted { ($0.item.creationDate ?? .distantPast) > ($1.item.creationDate ?? .distantPast) }

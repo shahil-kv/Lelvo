@@ -49,6 +49,36 @@ public enum RestoreLinker {
     /// Seconds truncated exactly like the caption `t` field.
     private static func key(_ name: String, _ date: Date?, _ w: Int, _ h: Int) -> String? {
         guard let date, !name.isEmpty, w > 0, h > 0 else { return nil }
-        return "\(name.lowercased())|\(Int64(date.timeIntervalSince1970))|\(w)x\(h)"
+        return "\(name.lowercased())|\(shape(date, w, h))"
+    }
+
+    private static func shape(_ date: Date, _ w: Int, _ h: Int) -> String {
+        "\(Int64(date.timeIntervalSince1970))|\(w)x\(h)"
+    }
+
+    /// Which photos can link to any of `unlinked` at all: by the asset id in a caption, or by capture second and pixel
+    /// size, which a `PHAsset` knows. Looking up a photo's file name loads its resource records, slow over a whole
+    /// library (many seconds for 50k photos), so it's only done for photos with a matching capture second and size.
+    /// `match` then links exactly as it would with every file name known.
+    public struct Prefilter: Sendable {
+        let ids: Set<String>
+        let shapes: Set<String>
+
+        public init(unlinked: [MediaItem]) {
+            ids = Set(unlinked.compactMap(\.sourceLocalIdentifier))
+            shapes = Set(unlinked.compactMap { item in
+                guard let date = item.creationDate, !item.filename.isEmpty, item.pixelWidth > 0, item.pixelHeight > 0 else { return nil }
+                return shape(date, item.pixelWidth, item.pixelHeight)
+            })
+        }
+
+        /// A caption names this photo: it links by id, so its file name isn't needed.
+        public func linksById(_ localIdentifier: String) -> Bool { ids.contains(localIdentifier) }
+
+        /// The photo's file name is needed (it may link by name, capture second and size).
+        public func needsFilename(creationDate: Date?, pixelWidth: Int, pixelHeight: Int) -> Bool {
+            guard let creationDate, pixelWidth > 0, pixelHeight > 0 else { return false }
+            return shapes.contains(shape(creationDate, pixelWidth, pixelHeight))
+        }
     }
 }

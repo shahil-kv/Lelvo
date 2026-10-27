@@ -281,6 +281,41 @@ import MemvoCore
         #expect(Set(links.values) == ["F"])
     }
 
+    /// Looking up file names only for photos the prefilter passes links exactly the same pairs as knowing every name,
+    /// with name collisions, same-second bursts and photos linked by id.
+    @Test func prefilterLinksTheSamePairs() {
+        let items = [
+            cloud("IMG_1.HEIC", at: date, source: "A"),
+            cloud("IMG_2.HEIC", at: date),
+            cloud("IMG_2.HEIC", at: date.addingTimeInterval(5)),
+            cloud("IMG_3.HEIC", at: date, 3024, 4032),
+            cloud("IMG_4.HEIC", at: nil),
+        ]
+        let all = [
+            AssetKey(localIdentifier: "A", filename: "renamed.HEIC", creationDate: date, pixelWidth: 1, pixelHeight: 1),
+            AssetKey(localIdentifier: "B1", filename: "IMG_2.HEIC", creationDate: date, pixelWidth: 4032, pixelHeight: 3024),
+            AssetKey(localIdentifier: "B2", filename: "IMG_9.HEIC", creationDate: date, pixelWidth: 4032, pixelHeight: 3024),
+            AssetKey(localIdentifier: "C", filename: "IMG_2.HEIC", creationDate: date.addingTimeInterval(5.7), pixelWidth: 4032, pixelHeight: 3024),
+            AssetKey(localIdentifier: "D", filename: "IMG_3.HEIC", creationDate: date, pixelWidth: 4032, pixelHeight: 3024),
+            AssetKey(localIdentifier: "E", filename: "IMG_3.HEIC", creationDate: date, pixelWidth: 3024, pixelHeight: 4032),
+            AssetKey(localIdentifier: "F", filename: "IMG_4.HEIC", creationDate: nil, pixelWidth: 4032, pixelHeight: 3024),
+            AssetKey(localIdentifier: "G", filename: "IMG_7.HEIC", creationDate: date.addingTimeInterval(99), pixelWidth: 10, pixelHeight: 10),
+        ]
+        let filter = RestoreLinker.Prefilter(unlinked: items)
+        var lookedUp: [String] = []
+        let filtered: [AssetKey] = all.compactMap { a in
+            if filter.linksById(a.localIdentifier) {
+                return AssetKey(localIdentifier: a.localIdentifier, filename: "", creationDate: a.creationDate, pixelWidth: a.pixelWidth, pixelHeight: a.pixelHeight)
+            }
+            guard filter.needsFilename(creationDate: a.creationDate, pixelWidth: a.pixelWidth, pixelHeight: a.pixelHeight) else { return nil }
+            lookedUp.append(a.localIdentifier)
+            return a
+        }
+        #expect(RestoreLinker.match(unlinked: items, assets: filtered) == RestoreLinker.match(unlinked: items, assets: all))
+        #expect(RestoreLinker.match(unlinked: items, assets: all).count == 4)
+        #expect(Set(lookedUp) == ["B1", "B2", "C", "D", "E"])
+    }
+
     @Test func captionCarriesTheAssetId() throws {
         var m = CaptionMeta(id: UUID().uuidString, role: .original, kind: .photo, sha256: String(repeating: "a", count: 64), name: "x.jpg", size: 1)
         m.l = "A/L0/001"
