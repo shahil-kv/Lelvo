@@ -70,3 +70,107 @@ import MemvoCore
         #expect(try store.items(ids: [String]()).isEmpty)
     }
 }
+
+@Suite struct OrderedItemsTests {
+    func item(_ id: String, minute: Int?) -> MediaItem {
+        var m = MediaItem(localIdentifier: nil, sha256: id, filename: id, kind: .photo,
+                          creationDate: minute.map { Date(timeIntervalSince1970: Double($0 * 60)) }, fileSize: 1, status: .backedUp)
+        m.id = id
+        return m
+    }
+
+    @Test func startsNewestFirstWithUndatedLastAndTiesById() {
+        let ordered = OrderedItems([item("b", minute: 5), item("x", minute: nil), item("a", minute: 5), item("c", minute: 9)])
+        #expect(ordered.items.map(\.id) == ["c", "a", "b", "x"])
+    }
+
+    @Test func updateMovesChangedItemsAndDropsDeletedOnes() {
+        var ordered = OrderedItems([item("a", minute: 1), item("b", minute: 2), item("c", minute: 3)])
+        ordered.update(ids: ["a", "c", "d"], fresh: [item("a", minute: 10), item("d", minute: 2)])
+        #expect(ordered.items.map(\.id) == ["a", "b", "d"])
+    }
+
+    @Test func statusChangeKeepsThePlace() {
+        var ordered = OrderedItems([item("a", minute: 1), item("b", minute: 2)])
+        var b = item("b", minute: 2)
+        b.status = .failed
+        ordered.update(ids: ["b"], fresh: [b])
+        #expect(ordered.items.map(\.id) == ["b", "a"])
+        #expect(ordered.items[0].status == .failed)
+    }
+
+    /// Any sequence of updates leaves the same order as sorting everything from scratch.
+    @Test func matchesAFullSortAfterManyRandomUpdates() {
+        var rng = SystemRandomNumberGenerator()
+        var truth: [String: MediaItem] = [:]
+        for i in 0..<300 { truth["i\(i)"] = item("i\(i)", minute: Int.random(in: 0..<50, using: &rng)) }
+        var ordered = OrderedItems(Array(truth.values))
+        for _ in 0..<500 {
+            let ids = Set((0..<Int.random(in: 1...5, using: &rng)).map { _ in "i\(Int.random(in: 0..<350, using: &rng))" })
+            var fresh: [MediaItem] = []
+            for id in ids {
+                if Bool.random(using: &rng) {
+                    let minute: Int? = Int.random(in: 0..<10, using: &rng) == 0 ? nil : Int.random(in: 0..<50, using: &rng)
+                    let new = item(id, minute: minute)
+                    truth[id] = new
+                    fresh.append(new)
+                } else {
+                    truth[id] = nil
+                }
+            }
+            ordered.update(ids: ids, fresh: fresh)
+        }
+        #expect(ordered.items.map(\.id) == truth.values.sorted(by: OrderedItems.precedes).map(\.id))
+    }
+}
+
+@Suite struct OrderedItemsLocalTests {
+    func item(_ id: String, local: String?, minute: Int) -> MediaItem {
+        var m = MediaItem(localIdentifier: local, sha256: id, filename: id, kind: .photo,
+                          creationDate: Date(timeIntervalSince1970: Double(minute * 60)), fileSize: 1, status: .backedUp)
+        m.id = id
+        return m
+    }
+
+    @Test func aPhotoWithTwoItemsShowsTheFirstInOrder() {
+        var ordered = OrderedItems([item("old", local: "P", minute: 1), item("new", local: "P", minute: 5)])
+        #expect(ordered.item(localIdentifier: "P")?.id == "new")
+        ordered.update(ids: ["new"], fresh: [])
+        #expect(ordered.item(localIdentifier: "P")?.id == "old")
+        ordered.update(ids: ["old"], fresh: [])
+        #expect(ordered.item(localIdentifier: "P") == nil)
+    }
+
+    @Test func linkingAndUnlinkingAPhotoFollowsTheItem() {
+        var ordered = OrderedItems([item("a", local: nil, minute: 1)])
+        ordered.update(ids: ["a"], fresh: [item("a", local: "P", minute: 1)])
+        #expect(ordered.item(localIdentifier: "P")?.id == "a")
+        ordered.update(ids: ["a"], fresh: [item("a", local: "Q", minute: 1)])
+        #expect(ordered.item(localIdentifier: "P") == nil)
+        #expect(ordered.item(localIdentifier: "Q")?.id == "a")
+    }
+
+    /// The lookup always agrees with "first item in order with this photo", whatever the updates.
+    @Test func lookupMatchesAFullScanAfterManyRandomUpdates() {
+        var rng = SystemRandomNumberGenerator()
+        var truth: [String: MediaItem] = [:]
+        func random(_ id: String) -> MediaItem {
+            item(id, local: Bool.random(using: &rng) ? "P\(Int.random(in: 0..<20, using: &rng))" : nil, minute: Int.random(in: 0..<30, using: &rng))
+        }
+        for i in 0..<100 { truth["i\(i)"] = random("i\(i)") }
+        var ordered = OrderedItems(Array(truth.values))
+        for _ in 0..<500 {
+            let ids = Set((0..<Int.random(in: 1...4, using: &rng)).map { _ in "i\(Int.random(in: 0..<120, using: &rng))" })
+            var fresh: [MediaItem] = []
+            for id in ids {
+                if Int.random(in: 0..<4, using: &rng) == 0 { truth[id] = nil } else { let n = random(id); truth[id] = n; fresh.append(n) }
+            }
+            ordered.update(ids: ids, fresh: fresh)
+        }
+        let sorted = truth.values.sorted(by: OrderedItems.precedes)
+        for p in 0..<20 {
+            #expect(ordered.item(localIdentifier: "P\(p)")?.id == sorted.first { $0.localIdentifier == "P\(p)" }?.id)
+        }
+        #expect(ordered.items.map(\.id) == sorted.map(\.id))
+    }
+}

@@ -224,23 +224,20 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         }
     }
 
-    nonisolated static func merge(assets: [PHAsset], items: [MediaItem]) -> [GalleryEntry] {
-        var byLocal: [String: MediaItem] = [:]
-        for item in items { if let id = item.localIdentifier, byLocal[id] == nil { byLocal[id] = item } }
-
+    nonisolated static func merge(assets: [PHAsset], items: OrderedItems) -> [GalleryEntry] {
         var local: [GalleryEntry] = []
         local.reserveCapacity(assets.count)
         var present = Set<String>()
         for asset in assets {
             present.insert(asset.localIdentifier)
             local.append(GalleryEntry(id: asset.localIdentifier, date: asset.creationDate, asset: asset,
-                                      item: byLocal[asset.localIdentifier]))
+                                      item: items.item(localIdentifier: asset.localIdentifier)))
         }
         // Cloud-only: confirmed uploads whose asset is not on this phone (deleted, restored, other device).
-        let cloud = items
+        // `items` is newest first already (`OrderedItems`), so this list needs no sorting.
+        let cloud = items.items
             .filter { ($0.status == .backedUp) && ($0.localIdentifier.map { !present.contains($0) } ?? true) }
             .map { GalleryEntry(id: "cloud-\($0.id)", date: $0.creationDate, asset: nil, item: $0) }
-            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
 
         // Both lists are newest-first; merge them.
         var out: [GalleryEntry] = []
@@ -331,28 +328,23 @@ actor TimelineSource {
 
     private var fetch: PHFetchResult<PHAsset>?
     private var assets: [PHAsset] = []
-    private var items: [String: MediaItem] = [:]
+    private var items = OrderedItems([])
     private var loaded = false
 
     func entries(applying changes: Changes) -> [GalleryEntry] {
         let env = AppEnvironment.shared
         if changes.everything || !loaded {
             loadAssets()
-            items = Dictionary(((try? env.store.allItems()) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            items = OrderedItems((try? env.store.allItems()) ?? [])
             loaded = true
         } else {
             if !changes.itemIds.isEmpty, let fresh = try? env.store.items(ids: changes.itemIds) {
-                for id in changes.itemIds { items[id] = nil }
-                for item in fresh { items[item.id] = item }
+                items.update(ids: changes.itemIds, fresh: fresh)
             }
             for change in changes.photoChanges { apply(change) }
         }
-        // The store's order (newest first), so the item kept for a photo with two items is always the same one.
-        let ordered = items.values.sorted { a, b in
-            let da = a.creationDate ?? .distantPast, db = b.creationDate ?? .distantPast
-            return da != db ? da > db : a.id < b.id
-        }
-        return GalleryModel.merge(assets: assets, items: ordered)
+        // Newest first, like the store, so the item kept for a photo with two items is always the same one.
+        return GalleryModel.merge(assets: assets, items: items)
     }
 
     private func loadAssets() {
