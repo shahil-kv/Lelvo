@@ -68,6 +68,44 @@ public enum LibraryIndexer {
         return out
     }
 
+    public enum DeleteOutcome: Equatable {
+        case unchanged
+        case update(MediaItem)
+        case remove
+    }
+
+    /// What a full scan would make of `item` once the messages `deleted` are gone from the channel (another device
+    /// deleted them): rebuilt from the messages left, or handled like an item that vanished. Phone-linked items are never
+    /// removed; they become "not found" so they upload again.
+    public static func afterDeleting(_ deleted: Set<Int64>, from item: MediaItem) -> DeleteOutcome {
+        let owned = (item.cloudParts ?? [:]).values.flatMap { $0.map(\.messageId) }
+        guard owned.contains(where: deleted.contains) else { return .unchanged }
+        // Being uploaded by this device: the upload path owns its parts and checks them itself.
+        guard item.status != .uploading, item.status != .queued else { return .unchanged }
+        if var rebuilt = build(knownMessages(of: item, excluding: deleted)).items.first(where: { $0.id == item.id }) {
+            rebuilt = rebuilt.keepingLocalState(from: item)
+            if item.status == .trashed, rebuilt.status == .backedUp {
+                rebuilt.status = .trashed
+                rebuilt.trashedAt = item.trashedAt
+            }
+            return .update(rebuilt)
+        }
+        switch item.status {
+        case .trashed:
+            return .remove
+        case .backedUp where item.localIdentifier == nil:
+            return .remove
+        case .backedUp:
+            var missing = item
+            missing.status = .failed
+            missing.cloudParts = nil
+            missing.lastError = "Not found in the Telegram channel any more. Tap Retry to upload it again."
+            return .update(missing)
+        default:
+            return .unchanged
+        }
+    }
+
     /// Roles that only accompany an original; on their own they are leftovers.
     static let optionalOnlyRoles: Set<String> = ["d", "sp", "t", "ad", "ad2", "ra", "epv", "md"]
 

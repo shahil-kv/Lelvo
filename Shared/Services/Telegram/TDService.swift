@@ -103,6 +103,13 @@ final class TDService: @unchecked Sendable {
     private var finishedSends: [Int64: (result: Result<Message, Swift.Error>, at: Foundation.Date)] = [:]
     private var uploadObservers: [Int: (Int64, Int64) -> Void] = [:]
     private var readyWaiters: [CheckedContinuation<Void, Never>] = []
+    private var channelObserver: ((ChannelEvent) -> Void)?
+
+    /// Changes to a channel's documents made elsewhere (the user's other device), as TDLib pushes them.
+    enum ChannelEvent {
+        case added(chatId: Int64)
+        case deleted(chatId: Int64, messageIds: [Int64])
+    }
 
     let databaseDirectory: URL
     let filesDirectory: URL
@@ -251,6 +258,20 @@ final class TDService: @unchecked Sendable {
             lock.unlock()
             observer?(u.file.remote.uploadedSize, u.file.size)
             waiters?.values.forEach { $0.resume() }
+        case .updateNewMessage(let u):
+            // Documents this device is still sending have a sending state; the upload path records those itself.
+            guard u.message.sendingState == nil, case .messageDocument = u.message.content else { return }
+            let observer = lock.withLock { channelObserver }
+            observer?(.added(chatId: u.message.chatId))
+        case .updateDeleteMessages(let u):
+            // Not permanent or from the cache: TDLib only dropped them from memory; they are still in the channel.
+            guard u.isPermanent, !u.fromCache else { return }
+            let (observer, others): (((ChannelEvent) -> Void)?, [Int64]) = lock.withLock {
+                let others = u.messageIds.filter { !ownDeletes.contains($0) }
+                ownDeletes.subtract(u.messageIds)
+                return (channelObserver, others)
+            }
+            if !others.isEmpty { observer?(.deleted(chatId: u.chatId, messageIds: others)) }
         case .updateSpeedLimitNotification(let u):
             // Telegram slows transfers for accounts without Premium and tells clients so; logged (at most every few
             // minutes) because it explains slow cloud playback that no setting in the app can fix.
@@ -406,6 +427,16 @@ final class TDService: @unchecked Sendable {
     // MARK: - Chats
 
     func api() throws -> TDLibClient { try requireClient() }
+
+    func observeChannels(_ handler: @escaping (ChannelEvent) -> Void) {
+        lock.withLock { channelObserver = handler }
+    }
+
+    /// TDLib only receives a channel's new and deleted messages while the chat is open.
+    func openChat(_ chatId: Int64) async {
+        await ensureChat(chatId)
+        _ = try? await requireClient().openChat(chatId: chatId)
+    }
 
     func chat(_ id: Int64) async throws -> Chat {
         do { return try await requireClient().getChat(chatId: id) } catch { throw error.asTD }
@@ -875,10 +906,18 @@ final class TDService: @unchecked Sendable {
         } catch { throw error.asTD }
     }
 
+    /// Messages this device is deleting: their `updateDeleteMessages` isn't a change from another device. Callers update
+    /// the index themselves, sometimes minutes later (a replaced edit is forgotten once its new upload is confirmed).
+    private var ownDeletes = Set<Int64>()
+
     func deleteMessages(chatId: Int64, ids: [Int64]) async throws {
         await ensureChat(chatId)
         guard !ids.isEmpty else { return }
-        do { _ = try await requireClient().deleteMessages(chatId: chatId, messageIds: ids, revoke: true) } catch { throw error.asTD }
+        lock.withLock { ownDeletes.formUnion(ids) }
+        do { _ = try await requireClient().deleteMessages(chatId: chatId, messageIds: ids, revoke: true) } catch {
+            lock.withLock { ownDeletes.subtract(ids) }
+            throw error.asTD
+        }
     }
 
     /// Keeps TDLib's own file cache within `maxBytes`.
