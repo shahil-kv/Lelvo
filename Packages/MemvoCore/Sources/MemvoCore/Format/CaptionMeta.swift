@@ -3,7 +3,11 @@ import CryptoKit
 
 /// Format-1 caption metadata (docs/CLOUD_FORMAT.md §3.1). Field names are the wire keys.
 public struct CaptionMeta: Codable, Equatable, Sendable {
-    public enum Role: String, Codable, Sendable { case original = "o", pairedVideo = "pv", thumbnail = "t", smoothPreview = "sp", edited = "e" }
+    public enum Role: String, Codable, Sendable {
+        case original = "o", pairedVideo = "pv", thumbnail = "t", smoothPreview = "sp", edited = "e"
+        /// Screen copy of a big photo (docs/CLOUD_FORMAT.md §2). Versions before it skip these messages as unreadable.
+        case screenCopy = "d"
+    }
     public enum Kind: String, Codable, Sendable { case photo = "p", video = "v", live = "l" }
 
     public var v: Int = 1

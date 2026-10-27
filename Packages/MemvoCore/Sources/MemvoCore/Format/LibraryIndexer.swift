@@ -67,6 +67,9 @@ public enum LibraryIndexer {
         return out
     }
 
+    /// Roles that only accompany an original; on their own they are leftovers.
+    static let optionalOnlyRoles: Set<String> = ["d", "sp", "t"]
+
     public static func build(_ messages: [CloudMessage]) -> Result {
         var orphans: [Int64] = []
         // id → role → part index → message (lowest message id wins).
@@ -83,6 +86,12 @@ public enum LibraryIndexer {
         var items: [MediaItem] = []
         for (id, roles) in grouped {
             guard let anyMeta = roles.values.first?.values.first?.meta else { continue }
+            // Only copies left (a screen copy, fast version or encrypted thumbnail) and no original: an older version
+            // deleted the item and didn't know these roles. Nothing to show; offer them for removal with the duplicates.
+            if roles["o"] == nil, Set(roles.keys).isSubset(of: optionalOnlyRoles) {
+                orphans += roles.values.flatMap { $0.values.map(\.messageId) }
+                continue
+            }
             let primary = roles["o"]?.values.min(by: { $0.messageId < $1.messageId })?.meta ?? anyMeta
             let kind: MediaKind = primary.k == .live ? .livePhoto : (primary.k == .video ? .video : .photo)
             var item = MediaItem(id: id, localIdentifier: nil, sha256: roles["o"] != nil ? primary.h : "",

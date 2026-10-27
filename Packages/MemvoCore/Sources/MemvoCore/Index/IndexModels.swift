@@ -105,6 +105,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var editCheck: Bool?
     /// No 1080p copy will be made: it wouldn't be smaller, or making it failed for good. Local only.
     public var streamingCopySkipped: Bool?
+    /// No screen copy will be made: it wouldn't be much smaller, or the photo can't be decoded. Local only.
+    public var screenCopySkipped: Bool?
     /// When the user deleted it from the cloud (status `trashed`); its messages go 30 days later.
     public var trashedAt: Date?
 
