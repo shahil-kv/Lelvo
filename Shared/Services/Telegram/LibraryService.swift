@@ -217,8 +217,10 @@ final class LibraryService: @unchecked Sendable {
     func unlock(secret: String) async throws {
         guard let header, header.encrypted else { return }
         let keys = try await Task.detached(priority: .userInitiated) { () throws -> E2EKeys? in
-            if let keys = try header.unlock(passphrase: secret) { return keys }
-            return RecoveryKey(text: secret).flatMap { header.unlock(recoveryKey: $0) }
+            // Something shaped like a recovery key is tried as one first: that's instant, while trying it as a
+            // passphrase first meant a full Argon2id run (seconds) before the recovery key was even tried.
+            if let recovery = RecoveryKey(text: secret), let keys = header.unlock(recoveryKey: recovery) { return keys }
+            return try header.unlock(passphrase: secret)
         }.value
         guard let keys else { throw LibraryError.wrongPassphrase }
         storeKeys(keys)
