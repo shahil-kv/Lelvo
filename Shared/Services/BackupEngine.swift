@@ -924,7 +924,7 @@ final class BackupEngine: @unchecked Sendable {
     private func completeEarlierBackups(deadline: Date?, isCancelled: @escaping @Sendable () -> Bool, limit: Int = 50) async {
         guard !DemoMode.isActive, env.library.chatId != nil else { return }
         let candidates = ((try? env.store.items(status: .backedUp)) ?? [])
-            .filter { $0.cloudParts != nil && $0.extrasChecked != true && $0.localIdentifier != nil && $0.kind != .video }
+            .filter { $0.cloudParts != nil && $0.extrasChecked != true && $0.localIdentifier != nil }
             .prefix(limit)
         guard !candidates.isEmpty else { return }
         let assets = env.photos.assets(localIdentifiers: candidates.compactMap(\.localIdentifier))
