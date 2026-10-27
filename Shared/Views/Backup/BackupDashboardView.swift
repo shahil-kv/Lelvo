@@ -161,9 +161,19 @@ struct BackupDashboardView: View {
                                   systemImage: "slider.horizontal.3")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
-                        backupTip
                     }
                 }
+
+                #if os(iOS)
+                // Its own row, like a switch in Settings (squeezed into the status card it overflowed the card).
+                Section {
+                    Toggle("Keep iPhone awake while backing up", isOn: $keepAwake)
+                } footer: {
+                    Text(keepAwake
+                         ? "While a backup runs and Memvo is open, your iPhone won't lock. It locks as usual once the backup is done.\n\nTip: for a big backup, start it at night with your iPhone charging and Memvo open. It locks on its own when the backup is done."
+                         : "Your iPhone may lock and pause a backup; open Memvo to continue.")
+                }
+                #endif
 
                 if PhotoLibraryService.authorizationStatus == .limited {
                     Section {
@@ -208,24 +218,6 @@ struct BackupDashboardView: View {
     }
 
     private enum HeaderState { case running, complete, completeWithFailures, pending, notBackedUp }
-
-    /// While a backup runs with Memvo open, the iPhone stays awake on its own (see `RootView`); this says so, with the
-    /// switch to turn it off.
-    @ViewBuilder private var backupTip: some View {
-        #if os(iOS)
-        VStack(alignment: .leading, spacing: 4) {
-            Toggle("Keep iPhone awake while backing up", isOn: $keepAwake)
-                .font(.footnote.weight(.semibold))
-            Text(keepAwake
-                 ? "With Memvo open, your iPhone won't lock until the backup is done. For a big backup, plug it in."
-                 : "Your iPhone may lock and pause the backup; open Memvo to continue.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 2)
-        #else
-        Text("Big backups go fastest with Memvo open.").font(.caption).foregroundStyle(.secondary)
-        #endif
-    }
 
     private var headerState: HeaderState {
         if activity.isRunning { return .running }
