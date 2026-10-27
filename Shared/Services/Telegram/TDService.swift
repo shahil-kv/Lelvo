@@ -556,6 +556,20 @@ final class TDService: @unchecked Sendable {
     /// the end of the file). Off for fast versions (index first): like Unigram's TDLib player, one download follows
     /// playback, since TDLib runs one download per file and separate small ones kept cancelling it (8 s waits).
     func streamRead(fileId: Int, offset: Int64, count: Int64, ahead: Int64 = 2 << 20, smallReads: Bool = true) async throws -> Data {
+        // The loop below gives up after 30 s, but only between its steps: a step that waits for another download of
+        // the same file (the file gate) or for a synchronous download never came back to check, and playback hung for
+        // minutes ("Stream stuck 116 s").
+        do {
+            return try await withDeadline(seconds: 30) { [self] in
+                try await streamReadSteps(fileId: fileId, offset: offset, count: count, ahead: ahead, smallReads: smallReads)
+            }
+        } catch is DeadlineExceeded {
+            AppLog.shared.warn("Stream gave up after 30 s: file \(fileId) want \(count) at \(offset)")
+            throw TDServiceError.sendFailed("Telegram didn't deliver this video's data for 30 s")
+        }
+    }
+
+    private func streamReadSteps(fileId: Int, offset: Int64, count: Int64, ahead: Int64, smallReads: Bool) async throws -> Data {
         let client = try requireClient()
         let started = Foundation.Date()
         var myWindow: Int64?
