@@ -35,6 +35,7 @@ jobs:
               - '!.github/ISSUE_TEMPLATE/**'
               - '!website/**'
               - '!wrangler.jsonc'
+              - '!Scripts/waitlist.gs'
           predicate-quantifier: every
       - name: Website pages match their Markdown
         run: |

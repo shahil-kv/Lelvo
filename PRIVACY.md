@@ -1,6 +1,6 @@
 # Privacy policy
 
-Effective 24 October 2026. Applies to the Memvo apps for iPhone, iPad and Mac.
+Effective 27 October 2026. Applies to the Memvo apps for iPhone, iPad and Mac.
 
 **In one sentence:** Memvo sends your photos from your device to your own Telegram account and nowhere else;
 the people who make it never receive any of your data.
@@ -15,6 +15,14 @@ Contact: [mshahilkv@gmail.com](mailto:mshahilkv@gmail.com), or an issue at
 
 **Nothing.** Memvo has no servers. It contains no analytics, advertising, tracking or crash-reporting code, and
 it doesn't share data with anyone. We can't see who uses the app, your photos, your Telegram account or your library.
+
+## The website's waiting list
+
+If you join the waiting list on the website, your email address and the device you chose are stored in a Google
+Sheet that only the maintainer can open, with the date you joined. They are used once, to tell you when Memvo is on
+TestFlight and the App Store, and never shared or sold. To be removed, email
+[mshahilkv@gmail.com](mailto:mshahilkv@gmail.com). Google's [privacy policy](https://policies.google.com/privacy)
+applies to the Sheet. The apps never collect your email.
 
 ## Where your data goes
 

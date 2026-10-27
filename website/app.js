@@ -199,4 +199,26 @@
       }
     });
   });
+
+  // Waiting list: posts to a Google Apps Script that adds a row to a Sheet (Scripts/waitlist.gs).
+  // Apps Script answers through a redirect without CORS headers, so the reply can't be read: a request that
+  // reaches Google counts as joined, and the script itself ignores duplicates.
+  const waitlist = document.querySelector(".waitlist");
+  if (waitlist && !waitlist.action.includes("PASTE_")) {
+    waitlist.hidden = false;
+    const note = waitlist.querySelector(".waitlist-note");
+    const button = waitlist.querySelector("button");
+    waitlist.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      button.disabled = true;
+      try {
+        await fetch(waitlist.action, { method: "POST", mode: "no-cors", body: new URLSearchParams(new FormData(waitlist)) });
+        waitlist.classList.add("is-done");
+        note.textContent = "You're on the list. We'll email you once, when Memvo is on TestFlight.";
+      } catch {
+        note.textContent = "That didn't go through. Check your connection and try again.";
+        button.disabled = false;
+      }
+    });
+  }
 })();
