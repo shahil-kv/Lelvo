@@ -109,7 +109,7 @@ final class ThumbnailPipeline: @unchecked Sendable {
             let running = prefetching[entry.id] != nil
             if !running {
                 prefetching[entry.id] = Task.detached(priority: .utility) { [self] in
-                    if let img = try? await env.media.thumbnail(for: item) { store(img, pixels: Int.max, for: entry.id) }
+                    if let img = try? await env.media.thumbnail(for: item, urgent: false) { store(img, pixels: Int.max, for: entry.id) }
                     _ = lock.withLock { prefetching.removeValue(forKey: entry.id) }
                 }
             }

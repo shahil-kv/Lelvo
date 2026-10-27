@@ -9,7 +9,8 @@ final class CloudMediaService: @unchecked Sendable {
     private unowned let env: AppEnvironment
     private let memory = NSCache<NSString, PlatformImage>()
     /// Thumbnails are small; more in parallel fills the grid faster without starving full-size downloads.
-    private let gate = DownloadGate(limit: 8)
+    /// Thumbnails being downloaded: 8 at a time, tiles on screen first (`PriorityGate`).
+    private let gate = PriorityGate(limit: 8)
     private let inflight = InflightRegistry()
 
     init(environment: AppEnvironment) {
@@ -25,7 +26,8 @@ final class CloudMediaService: @unchecked Sendable {
         memory.object(forKey: item.id as NSString)
     }
 
-    func thumbnail(for item: MediaItem) async throws -> PlatformImage {
+    /// `urgent`: a tile or screen is waiting for it; false for loading ahead of the scroll.
+    func thumbnail(for item: MediaItem, urgent: Bool = true) async throws -> PlatformImage {
         if let img = memory.object(forKey: item.id as NSString) { return img }
         if let demo = DemoMode.fileURL(for: item) {
             guard let image = await Self.demoImage(demo) else { throw MediaReader.ReadError.missing }
@@ -33,11 +35,13 @@ final class CloudMediaService: @unchecked Sendable {
             return image
         }
         let key = Self.thumbnailKey(item)
+        // Already waiting as a prefetch: this request joins it below, so move it to the front.
+        if urgent { await gate.promote(key) }
         let url = try await inflight.run(key) { [self] in
             if let cached = env.thumbnailCache.url(for: key) { return cached }
             // Cold start: wait for the Telegram session instead of failing the tile.
             try await env.td.waitUntilReady(timeout: 30)
-            let data = try await gate.run { try await self.env.reader.thumbnailData(item) }
+            let data = try await gate.run(key: key, urgent: urgent) { try await self.env.reader.thumbnailData(item) }
             return try env.thumbnailCache.store(data: data, for: key, ext: "jpg")
         }
         guard let image = Self.downsampled(url, maxPixel: 400) else { throw MediaReader.ReadError.missing }
@@ -151,25 +155,6 @@ final class CloudMediaService: @unchecked Sendable {
     }
 
     func trimMemory() { memory.removeAllObjects() }
-}
-
-/// Limits concurrent downloads.
-actor DownloadGate {
-    private let limit: Int
-    private var active = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    init(limit: Int) { self.limit = limit }
-
-    func run<T>(_ body: @Sendable () async throws -> T) async throws -> T {
-        if active >= limit { await withCheckedContinuation { waiters.append($0) } } else { active += 1 }
-        defer { release() }
-        return try await body()
-    }
-
-    private func release() {
-        if waiters.isEmpty { active -= 1 } else { waiters.removeFirst().resume() }
-    }
 }
 
 /// Coalesces concurrent requests for the same key into one download.
