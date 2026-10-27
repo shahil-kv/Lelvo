@@ -246,7 +246,10 @@ final class MediaReader: @unchecked Sendable {
             guard openStreams["\(item.id)/\(role)"] == nil else { return [] }
             return parts(item, role: role).compactMap { fileIds[$0.messageId] }
         }
-        for id in ids { td.cancelDownload(fileId: id) }
+        for id in ids {
+            td.cancelDownload(fileId: id)
+            td.forgetStream(fileId: id)
+        }
     }
 
     func forgetCaches() {

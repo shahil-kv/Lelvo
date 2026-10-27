@@ -99,7 +99,8 @@ final class TDService: @unchecked Sendable {
     private var _auth: AuthStep = .needsCredentials
     private var authObservers: [UUID: (AuthStep) -> Void] = [:]
     private var sendWaiters: [Int64: CheckedContinuation<Message, Swift.Error>] = [:]
-    private var finishedSends: [Int64: Result<Message, Swift.Error>] = [:]
+    /// Send results that arrived before anyone awaited them, with when they arrived (see `finishSend`).
+    private var finishedSends: [Int64: (result: Result<Message, Swift.Error>, at: Foundation.Date)] = [:]
     private var uploadObservers: [Int: (Int64, Int64) -> Void] = [:]
     private var readyWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -416,7 +417,7 @@ final class TDService: @unchecked Sendable {
 
     private func awaitSend(_ id: Int64, _ c: CheckedContinuation<Message, Swift.Error>) {
         let done: Result<Message, Swift.Error>? = lock.withLock {
-            if let r = finishedSends.removeValue(forKey: id) { return r }
+            if let r = finishedSends.removeValue(forKey: id) { return r.result }
             sendWaiters[id] = c
             return nil
         }
@@ -429,7 +430,11 @@ final class TDService: @unchecked Sendable {
             lock.unlock()
             waiter.resume(with: result)
         } else {
-            finishedSends[oldId] = result
+            // Kept for an `awaitSend` that hasn't started yet. A result for a send nobody waits for any more (cancelled,
+            // or the app gave up on it) would stay for the life of the process, so old ones are dropped here.
+            let now = Foundation.Date()
+            finishedSends = finishedSends.filter { now.timeIntervalSince($0.value.at) < 300 }
+            finishedSends[oldId] = (result, now)
             lock.unlock()
         }
     }
@@ -513,9 +518,8 @@ final class TDService: @unchecked Sendable {
     /// ranges already on disk are served without touching the network.
     func read(fileId: Int, offset: Int64, count: Int64, priority: Int = 32) async throws -> Data {
         let client = try requireClient()
-        let gate = fileGate(fileId)
-        await gate.acquire()
-        defer { Task { await gate.release() } }
+        let gate = await acquireFileGate(fileId)
+        defer { Task { await releaseFileGate(fileId, gate) } }
         var lastError: Swift.Error = TDServiceError.notReady
         for attempt in 0..<3 {
             do {
@@ -599,9 +603,8 @@ final class TDService: @unchecked Sendable {
             let covered = file.local.isDownloadingActive && begin <= offset && offset <= end + ahead
             if !covered && smallReads && count <= 512 << 10 {
                 // Small read outside the window: fetch just this range; the gate holds the window back meanwhile.
-                let gate = fileGate(fileId)
-                await gate.acquire()
-                defer { Task { await gate.release() } }
+                let gate = await acquireFileGate(fileId)
+                defer { Task { await releaseFileGate(fileId, gate) } }
                 lock.withLock { streamWindows[fileId] = nil }
                 _ = try? await client.downloadFile(fileId: fileId, limit: count, offset: offset, priority: 32, synchronous: true)
                 usedSmallRead = true
@@ -618,8 +621,7 @@ final class TDService: @unchecked Sendable {
             // otherwise only after a fresh download has had a moment to report as active.
             let movedByOthers = myWindow != nil && window == nil
             if !covered && (lastIssue == nil || movedByOthers || Foundation.Date().timeIntervalSince(lastIssue ?? .distantPast) > 2) {
-                let gate = fileGate(fileId)
-                await gate.acquire()
+                let gate = await acquireFileGate(fileId)
                 do {
                     _ = try await client.downloadFile(fileId: fileId, limit: 0, offset: offset, priority: 32, synchronous: false)
                     lock.withLock {
@@ -627,10 +629,10 @@ final class TDService: @unchecked Sendable {
                         lastWindowMove[fileId] = Foundation.Date()
                     }
                 } catch {
-                    await gate.release()
+                    await releaseFileGate(fileId, gate)
                     throw error.asTD
                 }
-                await gate.release()
+                await releaseFileGate(fileId, gate)
                 myWindow = offset
                 lastIssue = Foundation.Date()
                 moves += 1
@@ -707,7 +709,9 @@ final class TDService: @unchecked Sendable {
 
     /// Files whose local copy is inside TDLib's own cache (checked once per session; see `readPart`).
     private var cacheFiles = Set<Int>()
-    private var fileGates: [Int: AsyncGate] = [:]
+    /// One gate per file being read, with how many callers hold it or wait for it; dropped when that reaches zero, so
+    /// a long session that browses thousands of files doesn't keep a gate for each.
+    private var fileGates: [Int: (gate: AsyncGate, users: Int)] = [:]
     private var lastSpeedLimitLog = Foundation.Date.distantPast
     /// When each file's streaming download last moved (see `streamRead`).
     private var lastWindowMove: [Int: Foundation.Date] = [:]
@@ -732,12 +736,31 @@ final class TDService: @unchecked Sendable {
         else { AppLog.shared.warn("Couldn't load the library channel") }
     }
 
-    private func fileGate(_ id: Int) -> AsyncGate {
-        lock.withLock {
-            if let g = fileGates[id] { return g }
-            let g = AsyncGate()
-            fileGates[id] = g
+    /// The count changes under `lock`, so a gate is only dropped when nobody holds it or is about to wait on it: two
+    /// gates for one file would let two downloads run on it, and TDLib cancels one of them.
+    private func acquireFileGate(_ id: Int) async -> AsyncGate {
+        let gate: AsyncGate = lock.withLock {
+            let g = fileGates[id]?.gate ?? AsyncGate()
+            fileGates[id] = (g, (fileGates[id]?.users ?? 0) + 1)
             return g
+        }
+        await gate.acquire()
+        return gate
+    }
+
+    private func releaseFileGate(_ id: Int, _ gate: AsyncGate) async {
+        await gate.release()
+        lock.withLock {
+            guard let entry = fileGates[id], entry.gate === gate else { return }
+            fileGates[id] = entry.users > 1 ? (gate, entry.users - 1) : nil
+        }
+    }
+
+    /// The last player of this file closed: forget where its streaming download was.
+    func forgetStream(fileId: Int) {
+        lock.withLock {
+            streamWindows[fileId] = nil
+            lastWindowMove[fileId] = nil
         }
     }
 
@@ -746,9 +769,8 @@ final class TDService: @unchecked Sendable {
     func download(fileId: Int, priority: Int = 16, progress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> URL {
         // Same per-file gate as ranged reads: TDLib runs one download per file and cancels the other
         // ("Canceled by another downloadFile request"), e.g. sharing a video while it streams.
-        let gate = fileGate(fileId)
-        await gate.acquire()
-        defer { Task { await gate.release() } }
+        let gate = await acquireFileGate(fileId)
+        defer { Task { await releaseFileGate(fileId, gate) } }
         do {
             let client = try requireClient()
             guard let progress else {
@@ -847,7 +869,7 @@ final class TDService: @unchecked Sendable {
                 try? fm.removeItem(at: file)
             }
         }
-        lock.withLock { streamWindows.removeAll(); cacheFiles.removeAll() }
+        lock.withLock { streamWindows.removeAll(); lastWindowMove.removeAll(); cacheFiles.removeAll() }
     }
 
     func storageUsage() -> Int64 {
