@@ -315,6 +315,13 @@ struct ViewerPage: View {
                     .onDisappear {
                         player.pause()
                         if session != nil { videos.close(entry.id) }
+                        if entry.asset != nil {
+                            // Scrolled away: let the player go, like Photos. Every phone video opened in one visit kept
+                            // its player and decoders until the viewer closed. `.task` loads it again on the way back.
+                            trace = nil
+                            videoReady = false
+                            content = .loading(poster)
+                        }
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .viewerWillClose)) { _ in player.pause() }
                     .onReceive(NotificationCenter.default.publisher(for: .viewerCloseCancelled)) { _ in if isCurrent { player.play() } }
@@ -326,6 +333,9 @@ struct ViewerPage: View {
             }
         }
         .task(id: entry.id) { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.mediaServicesWereResetNotification)) { _ in
+            restartVideoAfterReset()
+        }
         .onChange(of: zoomed) { _, now in
             guard now, isCurrent, !fullDetailLoaded, case .image = content else { return }
             fullDetailLoaded = true
@@ -409,6 +419,25 @@ struct ViewerPage: View {
 
     /// Streams a cloud video from Telegram (no full download): the fast version when the connection can't carry the
     /// original (Settings → Video quality), and the edit rather than the original when it was edited in Photos.
+    /// iOS restarts its media services now and then (after a while in the background, under memory pressure), and every
+    /// player made before that fails with -11819 ("Cannot Complete Action"): the video on screen stayed black until the
+    /// viewer was closed. Make a new player for it.
+    private func restartVideoAfterReset() {
+        guard case .video = content else { return }
+        appLog("Media services were reset; reopening the video on screen")
+        trace = nil
+        videoReady = false
+        if entry.asset != nil {
+            content = .loading(poster)
+            Task { await load() }
+        } else if let item = entry.item, session != nil {
+            videos.close(entry.id)
+            session = nil
+            content = .loading(poster)
+            if isCurrent { startCloudVideo(item) }
+        }
+    }
+
     private func startCloudVideo(_ item: MediaItem) {
         let s = videos.open(entry.id, item: item, reader: AppEnvironment.shared.reader)
         session = s
