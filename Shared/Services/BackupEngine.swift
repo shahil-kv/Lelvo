@@ -370,6 +370,7 @@ final class BackupEngine: @unchecked Sendable {
         if !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
             await completeEarlierBackups(deadline: deadline, isCancelled: isCancelled)
             await makeEarlierScreenCopies(deadline: deadline, isCancelled: isCancelled)
+            await env.library.writeSnapshotIfDue()
         }
 
         let counts = await counter.snapshot()

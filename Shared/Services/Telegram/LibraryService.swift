@@ -331,6 +331,9 @@ final class LibraryService: @unchecked Sendable {
         let api = try td.api()
         await td.ensureChat(chatId)
         let stopAt: Int64 = full ? 0 : Int64(UserDefaults.standard.integer(forKey: Self.lastScanKey))
+        // A device with an empty index (new phone, reinstall) can take everything older than the newest snapshot from it.
+        let allowSnapshot = full && !((try? store.allItems()) ?? []).contains { $0.cloudParts != nil }
+        var fromSnapshot: IndexSnapshot.Body?
         var summary = ScanSummary()
         var cloud: [CloudMessage] = []
         var thumbnailIds: [Int64: String] = [:]
@@ -355,6 +358,11 @@ final class LibraryService: @unchecked Sendable {
                 summary.messages += 1
                 guard case .messageDocument(let doc) = message.content else { continue }
                 let caption = doc.caption.text
+                if allowSnapshot, IndexSnapshot.isSnapshot(caption),
+                   let snapshot = await readSnapshot(caption: caption, file: doc.document.document) {
+                    fromSnapshot = snapshot
+                    break scanLoop
+                }
                 guard CaptionCodec.isMemvo(caption) else { continue }
                 do {
                     let meta = try CaptionCodec.decode(caption, captionKey: captionKey)
@@ -372,6 +380,17 @@ final class LibraryService: @unchecked Sendable {
         }
 
         thumbnails.record(thumbnailIds, chatId: chatId)
+        if let fromSnapshot {
+            // Newer messages read above win over the snapshot's copy of the same message.
+            let read = Set(cloud.map(\.messageId))
+            cloud += fromSnapshot.messages.map(\.message).filter { !read.contains($0.messageId) }
+            try merge(cloud: cloud, full: false, summary: &summary)
+            if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
+            appLog("Library restored from the index snapshot up to message \(fromSnapshot.upto): \(summary.items) items, \(summary.messages) newer messages read; checking the whole channel next")
+            // The channel is the truth: a full scan in the background catches anything deleted since the snapshot.
+            Task.detached(priority: .utility) { [self] in _ = try? await self.scan(full: true) }
+            return summary
+        }
         try merge(cloud: cloud, full: full, summary: &summary)
         if full { UserDefaults.standard.set(summary.orphans.map { NSNumber(value: $0) }, forKey: Self.duplicatesKey) }
         if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
@@ -382,6 +401,79 @@ final class LibraryService: @unchecked Sendable {
         }
         appLog("Library scan (\(full ? "full" : "recent")): \(summary.messages) messages, \(summary.items) items, \(summary.incomplete) incomplete, \(summary.orphans.count) duplicates")
         return summary
+    }
+
+    // MARK: - Index snapshots (docs/CLOUD_FORMAT.md §7.1)
+
+    private static let snapshotMessageKey = "indexSnapshotMessageId"
+    private static let snapshotUptoKey = "indexSnapshotUpto"
+    /// A new snapshot after this many Memvo messages not in the last one (or the first once a library is this big).
+    static let snapshotEvery = 500
+
+    /// Downloads and checks a snapshot; nil (and a full scan instead) when anything about it is off.
+    private func readSnapshot(caption: String, file: File) async -> IndexSnapshot.Body? {
+        guard let info = IndexSnapshot.parseCaption(caption, captionKey: captionKey) else { return nil }
+        do {
+            let path = try await td.download(fileId: file.id, priority: 32)
+            var data = try Data(contentsOf: path)
+            if isEncrypted {
+                guard let master = keys?.master else { return nil }
+                data = try FileCrypto.decrypt(data: data, masterKey: master)
+            }
+            guard IndexCodec.sha256Hex(data) == info.h else {
+                AppLog.shared.warn("Index snapshot doesn't match its checksum; reading the whole channel instead")
+                return nil
+            }
+            let body = try IndexSnapshot.decode(data)
+            guard body.upto == info.upto, body.messages.count == info.n else { return nil }
+            return body
+        } catch {
+            AppLog.shared.warn("Couldn't read the index snapshot (\(error.localizedDescription)); reading the whole channel instead")
+            return nil
+        }
+    }
+
+    /// After a backup run: uploads a new snapshot when enough has changed since the last one, then deletes the previous
+    /// one. Optional: a failure only means a new device reads more of the channel.
+    func writeSnapshotIfDue() async {
+        guard let chatId, isUnlocked, !DemoMode.isActive else { return }
+        let items = (try? store.allItems()) ?? []
+        let known = items.flatMap { ($0.cloudParts ?? [:]).values.flatMap { $0.map(\.messageId) } }
+        guard let upto = known.max() else { return }
+        let lastUpto = Int64(store.meta(Self.snapshotUptoKey) ?? "") ?? 0
+        let newer = known.filter { $0 > lastUpto }.count
+        guard newer >= Self.snapshotEvery else { return }
+        let started = Date()
+        let body = IndexSnapshot.body(items: items, upto: upto)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("snapshot-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let plain = try IndexSnapshot.encode(body)
+            let caption = try IndexSnapshot.caption(.init(upto: upto, n: body.messages.count, h: IndexCodec.sha256Hex(plain)), captionKey: captionKey)
+            let url = dir.appendingPathComponent(isEncrypted ? "library-index.cge" : "library-index.json.deflate")
+            if isEncrypted {
+                guard let master = keys?.master else { return }
+                try FileCrypto.encrypt(data: plain, masterKey: master).write(to: url)
+            } else {
+                try plain.write(to: url)
+            }
+            let size = try CloudUploader.size(of: url)
+            let message = try await td.sendDocument(chatId: chatId, fileURL: url, caption: caption, thumbnail: nil)
+            guard case .messageDocument(let doc) = message.content, doc.document.document.size == size else {
+                try? await td.deleteMessages(chatId: chatId, ids: [message.id])
+                return
+            }
+            let previous = Int64(store.meta(Self.snapshotMessageKey) ?? "")
+            store.setMeta(Self.snapshotMessageKey, String(message.id))
+            store.setMeta(Self.snapshotUptoKey, String(upto))
+            if let previous { try? await td.deleteMessages(chatId: chatId, ids: [previous]) }
+            await td.deleteLocalCopy(fileId: doc.document.document.id)
+            appLog(String(format: "Uploaded the index snapshot: %d messages up to %lld, %@, in %.1f s",
+                          body.messages.count, upto, Format.bytes(size), Date().timeIntervalSince(started)))
+        } catch {
+            AppLog.shared.warn("Index snapshot not uploaded: \(error.localizedDescription)")
+        }
     }
 
     /// Merges scanned items into the store, keeping local links (asset identifiers) and pending work.

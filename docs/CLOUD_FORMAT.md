@@ -175,6 +175,25 @@ file    = header | chunk_0 | chunk_1 | … | chunk_last
 4. An item is **complete** when every required resource (§2) is present and, for split resources, parts `0..count−1` all exist with matching `h`. Incomplete items are shown as "incomplete in cloud" and never offered for Free Up Space.
 5. The local database is only a cache of this. Deleting it never loses data.
 
+### 7.1 Index snapshots (optional)
+
+So that a new device doesn't have to read every message, writers may upload an **index snapshot** now and then:
+
+- One document message. Its caption is `CGX1:` followed by compact JSON `{"h":…,"n":…,"upto":…,"v":1}`, or in E2E
+  libraries `CGX1E:` followed by Base64 of `nonce(12) ‖ AES-256-GCM(ck, nonce, json, aad = UTF-8("CGX1E")) ‖ tag(16)`
+  (`ck` as in §6.3). `upto` is the newest message id the snapshot covers, `n` the number of records, `h` the SHA-256
+  (lowercase hex) of the document's plaintext.
+- The document is compact JSON `{"messages":[…],"upto":…,"v":1}` compressed with raw DEFLATE (RFC 1951), and
+  CGFE-encrypted (§6.2) in E2E libraries. Each record is one Memvo message as a scan reads it:
+  `{"c":<caption metadata as in §3.1>,"f":<file id>,"m":<message id>,"s":<document size>,"u":<unique file id>}`.
+- It is **not pinned**: Telegram reports only the newest pinned message, which must stay the header (§1).
+- A reader with an empty index reads history from the newest message as in step 2, and at the first snapshot whose
+  caption and checksum are valid stops paging: it takes the records with message ids up to `upto` from the snapshot,
+  and the messages it already read win over records with the same message id. It then does a full scan as above,
+  which corrects anything deleted since the snapshot. A snapshot that doesn't check out is ignored.
+- Readers that don't know snapshots ignore them: the caption doesn't start with `CG1:` or `CG1E:`.
+- Writers keep one: after a new snapshot is confirmed, the previous one is deleted.
+
 ## 8. Writing rules
 
 - An item is "backed up" only after Telegram confirms every required message (`updateMessageSendSucceeded`) and each document's size equals the uploaded stream size (or part size).
