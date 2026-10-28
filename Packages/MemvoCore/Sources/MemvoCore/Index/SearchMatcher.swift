@@ -10,13 +10,18 @@ public enum SearchMatcher {
             .filter { !$0.isEmpty }
     }
 
-    /// The words a date is found by: the year and the month's full and short English names.
+    /// The words a date is found by: the year, and the month in English and in the calendar's language (the month
+    /// suggestions are written in the user's language, so "juin 2023" must find June).
     public static func dateWords(_ date: Date?, calendar: Calendar = .current) -> [String] {
         guard let date else { return [] }
         let c = calendar.dateComponents([.year, .month], from: date)
         guard let year = c.year, let month = c.month, (1...12).contains(month) else { return [] }
         let names = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
-        return [String(year), names[month - 1]]
+        var out = [String(year), names[month - 1]]
+        for name in words(calendar.monthSymbols[month - 1] + " " + calendar.standaloneMonthSymbols[month - 1]) where !out.contains(name) {
+            out.append(name)
+        }
+        return out
     }
 
     /// Whether every query word starts one of `known` (already passed through `words`).

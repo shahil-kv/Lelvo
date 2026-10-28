@@ -24,8 +24,13 @@ import MemvoCore
 
     @Test func datesAreFoundByYearAndMonth() {
         let date = Date(timeIntervalSince1970: 1_686_000_000) // 5 June 2023
-        #expect(SearchMatcher.dateWords(date, calendar: utc) == ["2023", "june"])
+        var english = utc
+        english.locale = Locale(identifier: "en_US")
+        #expect(SearchMatcher.dateWords(date, calendar: english) == ["2023", "june"])
         #expect(SearchMatcher.dateWords(nil).isEmpty)
+        var french = utc
+        french.locale = Locale(identifier: "fr_FR")
+        #expect(SearchMatcher.dateWords(date, calendar: french) == ["2023", "june", "juin"])
     }
 
     @Test func storedWordsAreCleanUniqueAndCapped() {

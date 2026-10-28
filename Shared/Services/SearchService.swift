@@ -98,12 +98,20 @@ final class SearchService: @unchecked Sendable {
     /// Reads photos not read yet (or edited since) until done or `isCancelled`. One pass at a time.
     func index(isCancelled: @escaping @Sendable () -> Bool) async {
         let start: Bool = lock.withLock {
-            if running { return false }
+            // A pass still finishing (the app was left and opened again): it runs once more when done.
+            if running { rerun = true; return false }
             running = true
             return true
         }
         guard start else { return }
-        defer { lock.withLock { running = false } }
+        defer {
+            let again: Bool = lock.withLock {
+                running = false
+                defer { rerun = false }
+                return rerun
+            }
+            if again { indexInForeground() }
+        }
         guard PhotoLibraryService.hasAccess || !((try? store.items(status: .backedUp)) ?? []).isEmpty else { return }
         let started = Date()
 
@@ -116,7 +124,7 @@ final class SearchService: @unchecked Sendable {
                 work.append((a.localIdentifier, "p\(Int64(a.modificationDate?.timeIntervalSince1970 ?? 0))", a, nil))
             }
         }
-        for item in (try? store.items(status: .backedUp)) ?? [] where item.hidden != true && (item.localIdentifier.map { !present.contains($0) } ?? true) {
+        for item in store.cloudOnlyItems(present: present) {
             work.append(("cloud-\(item.id)", "c", nil, item))
         }
         let stamps = (try? store.searchStamps()) ?? [:]
@@ -128,7 +136,8 @@ final class SearchService: @unchecked Sendable {
         // Place names come from the network, photos from the device: both at once.
         let places = Task.detached(priority: .utility) { [self] in await lookUpPlaces(isCancelled: isCancelled) }
 
-        var done = 0
+        var done = 0, missing = 0
+        var lastNotice = Date()
         for entry in todo {
             if isCancelled() || Task.isCancelled { break }
             let image: CGImage?
@@ -139,24 +148,36 @@ final class SearchService: @unchecked Sendable {
             } else {
                 image = nil
             }
-            let found = image.map(Self.read)
-            try? store.setSearch(key: entry.key, stamp: entry.stamp, words: found?.words ?? "", things: found?.things ?? [],
-                                 score: found?.score, utility: found?.utility ?? false)
+            guard let image else {
+                // No image yet (only in iCloud Photos on mobile data, or a thumbnail while offline): not marked as read,
+                // so a later pass tries again.
+                missing += 1
+                continue
+            }
+            let found = Self.read(image)
+            try? store.setSearch(key: entry.key, stamp: entry.stamp, words: found.words, things: found.things,
+                                 score: found.score, utility: found.utility)
             done += 1
-            status = (work.count - todo.count + done, work.count)
-            if done % 50 == 0 { NotificationCenter.default.post(name: Self.didIndex, object: nil) }
+            status = (work.count - todo.count + done, work.count - missing)
+            // Search and Memories rebuild on this: often enough to see progress, not on every photo.
+            if Date().timeIntervalSince(lastNotice) > 20 {
+                lastNotice = Date()
+                NotificationCenter.default.post(name: Self.didIndex, object: nil)
+            }
             // On battery, leave room for everything else the phone is doing.
             if !Device.isCharging { try? await Task.sleep(nanoseconds: 50_000_000) }
         }
         if Task.isCancelled { places.cancel() }
         await places.value
         NotificationCenter.default.post(name: Self.didIndex, object: nil)
-        if done > 0 { NotificationCenter.default.post(name: Self.didIndex, object: nil) }
-        appLog(String(format: "Search index: read %d of %d new photos (%d of %d indexed) in %.0f s",
-                      done, todo.count, status.indexed, status.total, Date().timeIntervalSince(started)))
+        appLog(String(format: "Search index: read %d of %d new photos (%d of %d indexed, %d without an image yet) in %.0f s",
+                      done, todo.count, status.indexed, status.total, missing, Date().timeIntervalSince(started)))
     }
 
     private var foreground: Task<Void, Never>?
+    /// Which `indexInForeground` call owns `foreground`, so an older pass ending can't clear a newer one.
+    private var foregroundToken = UUID()
+    private var rerun = false
 
     /// While the app is open, as Ente and Immich read photos for search: at low priority, a short pause between photos
     /// when not charging, and not at all in Low Power Mode. `stopForeground` when the app leaves the screen.
@@ -164,9 +185,11 @@ final class SearchService: @unchecked Sendable {
         guard !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
         lock.withLock {
             guard foreground == nil else { return }
+            let token = UUID()
+            foregroundToken = token
             foreground = Task.detached(priority: .utility) { [self] in
                 await index(isCancelled: { ProcessInfo.processInfo.isLowPowerModeEnabled })
-                lock.withLock { foreground = nil }
+                lock.withLock { if foregroundToken == token { foreground = nil } }
             }
         }
     }
@@ -204,11 +227,13 @@ final class SearchService: @unchecked Sendable {
     }
 
     /// Big enough to read text in, from what's on the device (nothing is downloaded from iCloud Photos for this).
+    /// A photo kept only in iCloud Photos (Optimize Storage) comes as a small image from iCloud on Wi-Fi, as Photos
+    /// reads its own; on mobile data it waits for a later pass.
     private func phoneImage(_ asset: PHAsset) async -> CGImage? {
         let options = PHImageRequestOptions()
         options.deliveryMode = .highQualityFormat
         options.resizeMode = .fast
-        options.isNetworkAccessAllowed = false
+        options.isNetworkAccessAllowed = !NetworkStatus.shared.isExpensive
         return await withCheckedContinuation { cont in
             var resumed = false
             PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: 1024, height: 1024), contentMode: .aspectFit,
