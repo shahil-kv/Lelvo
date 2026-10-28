@@ -169,6 +169,17 @@ final class BackupEngine: @unchecked Sendable {
 
     @MainActor private func publish(_ change: @MainActor (BackupActivity) -> Void) { change(BackupActivity.shared) }
 
+    /// Fails before the export when the phone can't hold the item's files and one upload part: copying a 10 GB video
+    /// out of Photos onto a nearly full phone otherwise fails halfway with a vague Photos error.
+    private func checkFreeSpace(for asset: PHAsset, name: String) async throws {
+        guard let sizes = env.photos.exportSizes(of: asset), let free = CloudUploader.freeSpace(at: rawDirectory) else { return }
+        let needed = PartLayout.spaceNeeded(exportSizes: sizes, encrypted: env.library.isEncrypted,
+                                            limit: await env.td.uploadLimit()) + CloudUploader.spaceMargin
+        guard free < needed else { return }
+        appLog("Not enough space to back up \(name): needs \(needed >> 20) MB, \(free >> 20) MB free")
+        throw NotEnoughSpaceError(needed: needed - free)
+    }
+
     var isRunning: Bool { gate.withLock { running } }
 
     /// Why the queue can't run right now (nil = OK).
@@ -574,6 +585,7 @@ final class BackupEngine: @unchecked Sendable {
                 appLog("\(item.filename) is already backed up (stored hash, not exported again)")
                 return .duplicate
             }
+            try await checkFreeSpace(for: asset, name: item.filename)
             let exp = try await env.photos.exportOriginal(of: asset, into: rawDirectory, extras: true)
             exported = exp
 
