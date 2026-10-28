@@ -16,9 +16,7 @@ final class DemoModeTests: XCTestCase {
         let leftover = springboard.buttons["Don’t Allow"]
         if leftover.waitForExistence(timeout: 2) { leftover.tap() }
 
-        let start = app.buttons["Continue with Telegram"]
-        XCTAssertTrue(start.waitForExistence(timeout: 20))
-        start.tap()
+        app.passIntro()
 
         // As the review notes say: country code 1, then 555 010 0199 (the number pad has no "+").
         let phone = app.textFields["Phone number"]
@@ -86,6 +84,6 @@ final class DemoModeTests: XCTestCase {
         for _ in 0..<6 where !signOut.isHittable { app.swipeUp() }
         signOut.tap()
         app.alerts.buttons["Sign Out"].tap()
-        XCTAssertTrue(app.buttons["Continue with Telegram"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 20))
     }
 }

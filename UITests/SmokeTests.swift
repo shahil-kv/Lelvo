@@ -11,9 +11,7 @@ final class SmokeTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestReset"]
         app.launch()
-        let start = app.buttons["Continue with Telegram"]
-        XCTAssertTrue(start.waitForExistence(timeout: 20), "Welcome screen should appear on a fresh install")
-        start.tap()
+        app.passIntro()
         // Sign-in starts at the phone number, like Telegram's own apps. Without built-in app keys a real number
         // asks for keys next; the App Review demo number works either way.
         let phone = app.textFields["Phone number"]

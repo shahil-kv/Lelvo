@@ -205,15 +205,16 @@ Backups wait and continue later; nothing is lost. Items already on your phone st
 In a **Standard** library, files are encrypted in transit and stored on Telegram's servers like any other cloud
 chat, but cloud chats are not end-to-end encrypted ([Telegram FAQ](https://telegram.org/faq#q-so-how-do-you-encrypt-data)).
 In an **End-to-end encrypted** library, Memvo encrypts every file and caption on your device before upload
-(AES-256-GCM, key derived from your passphrase with PBKDF2-SHA256 at 600,000 iterations). Telegram then stores only
+(AES-256-GCM, with a random library key locked by your passphrase through Argon2id). Telegram then stores only
 unreadable `.cge` files. Details: [CLOUD_FORMAT.md](CLOUD_FORMAT.md#6-end-to-end-encryption).
 
 **Can I open my photos in the Telegram app?**
 Standard libraries: yes, they're normal files. Encrypted libraries: no, only Memvo with your passphrase can.
 
 **I forgot my passphrase.**
-It can't be recovered or reset by anyone, including the people who make Memvo. That's what end-to-end means.
-Without it, the encrypted files can't be opened. Keep it in a password manager.
+Unlock with the recovery key you saved when you created the library, then set a new passphrase (Settings → Library → Passphrase and recovery key).
+If you lose both, nobody can open the encrypted files, including the people who make Memvo. That's what end-to-end
+means. Keep both in a password manager.
 
 **Can I switch a library between Standard and Encrypted?**
 No, it's chosen when the library is created. You can create a second library of the other kind (Settings → Library →
