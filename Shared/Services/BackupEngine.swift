@@ -184,14 +184,54 @@ final class BackupEngine: @unchecked Sendable {
     // MARK: - Queue
 
     /// Adds phone assets that match the backup selection and aren't known yet as pending jobs.
+    /// `among`: only these assets (Photos' change history), nil for the whole library.
     @discardableResult
-    func enqueueNewAssets(force: Bool = false) -> Int {
+    func enqueueNewAssets(force: Bool = false, among ids: Set<String>? = nil) -> Int {
         guard force || Prefs.autoBackup else { return 0 }
         let known = (try? env.store.knownLocalIdentifiers()) ?? []
-        let fresh = env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }
+        let fresh = env.photos.backupCandidates(among: ids).filter { !known.contains($0.localIdentifier) }
         let items = fresh.map(makeItem)
         try? env.store.upsert(items)
         return items.count
+    }
+
+    // MARK: - Photos' change history (#31)
+
+    private static let changeTokenKey = "photosChangeToken"
+    private static let changeSelectionKey = "photosChangeSelection"
+    private static let lastFullPhotoScanKey = "photosLastFullScan"
+
+    /// One search for new and edited photos: the token to save once it's done, and the changes since the last search
+    /// (nil when the whole library has to be read, see `PhotoChangeScan`).
+    struct PhotoSearch {
+        let token: Data?
+        let changes: (inserted: Set<String>, updated: Set<String>)?
+    }
+
+    /// Everything that decides which photos are backed up; a change means photos that didn't change may now belong in.
+    private var selectionFingerprint: String {
+        [Prefs.mediaFilter.rawValue, Prefs.dateFrom.map { String(Int64($0.timeIntervalSince1970)) } ?? "-",
+         String(Prefs.includeScreenshots), String(Prefs.includeHidden), Prefs.albumMode.rawValue,
+         Prefs.albumIds.sorted().joined(separator: ",")].joined(separator: "|")
+    }
+
+    /// The token is taken before reading anything, so a photo taken during the search is found by the next one.
+    private func beginPhotoSearch() -> PhotoSearch {
+        let token = env.photos.changeToken()
+        let saved = env.store.meta(Self.changeTokenKey).flatMap { Data(base64Encoded: $0) }
+        let lastFull = env.store.meta(Self.lastFullPhotoScanKey).flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
+        guard let saved, PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: env.store.meta(Self.changeSelectionKey),
+                                                       selection: selectionFingerprint, lastFullScan: lastFull, now: Date()) else {
+            return PhotoSearch(token: token, changes: nil)
+        }
+        return PhotoSearch(token: token, changes: env.photos.changedAssets(since: saved))
+    }
+
+    private func finishPhotoSearch(_ search: PhotoSearch) {
+        guard let token = search.token else { return }
+        env.store.setMeta(Self.changeTokenKey, token.base64EncodedString())
+        env.store.setMeta(Self.changeSelectionKey, selectionFingerprint)
+        if search.changes == nil { env.store.setMeta(Self.lastFullPhotoScanKey, String(Date().timeIntervalSince1970)) }
     }
 
     /// After a reinstall the restored cloud items aren't linked to this iPhone's photos (the link lived only in
@@ -208,13 +248,26 @@ final class BackupEngine: @unchecked Sendable {
         let unlinked = all.filter { $0.status == .backedUp && $0.localIdentifier == nil }
         guard !unlinked.isEmpty else { return 0 }
         let linked = Set(all.filter { $0.status == .backedUp }.compactMap(\.localIdentifier))
+        let filter = RestoreLinker.Prefilter(unlinked: unlinked)
         var assets: [AssetKey] = []
+        var namesLookedUp = 0
+        let started = Date()
         env.photos.fetchAllAssets().enumerateObjects { asset, _, _ in
-            guard !linked.contains(asset.localIdentifier),
-                  let name = self.env.photos.originalResources(for: asset)?.primary.originalFilename else { return }
+            guard !linked.contains(asset.localIdentifier) else { return }
+            let name: String
+            if filter.linksById(asset.localIdentifier) {
+                name = ""
+            } else if filter.needsFilename(creationDate: asset.creationDate, pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight),
+                      let found = self.env.photos.originalResources(for: asset)?.primary.originalFilename {
+                name = found
+                namesLookedUp += 1
+            } else {
+                return
+            }
             assets.append(AssetKey(localIdentifier: asset.localIdentifier, filename: name, creationDate: asset.creationDate,
                                    pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight))
         }
+        appLog(String(format: "Relink: %d candidate photos, %d file names looked up, in %.1f s", assets.count, namesLookedUp, Date().timeIntervalSince(started)))
         let links = RestoreLinker.match(unlinked: unlinked, assets: assets)
         guard !links.isEmpty else { return 0 }
         let linkedAssets = Set(links.values)
@@ -309,9 +362,15 @@ final class BackupEngine: @unchecked Sendable {
         // Reconcile anything sent before an interruption so it isn't uploaded twice.
         _ = try? await env.library.scan(full: false)
         relinkRestoredItems()
-        enqueueNewAssets(force: includeNew)
-
-        if includeNew || Prefs.autoBackup { requeueEditedSinceBackup() }
+        if includeNew || Prefs.autoBackup {
+            let started = Date()
+            let search = beginPhotoSearch()
+            let queued = enqueueNewAssets(force: true, among: search.changes.map { $0.inserted.union($0.updated) })
+            let edited = requeueEditedSinceBackup(among: search.changes?.updated)
+            finishPhotoSearch(search)
+            let how = search.changes.map { "\($0.inserted.count) new and \($0.updated.count) changed photos from Photos' history" } ?? "the whole library"
+            appLog(String(format: "Looked for new photos in %@: %d queued, %d edits to check, in %.1f s", how, queued, edited, Date().timeIntervalSince(started)))
+        }
 
         // Items left "uploading" by a killed process go back to pending.
         if let stale = try? env.store.items(status: .uploading) {
@@ -502,13 +561,32 @@ final class BackupEngine: @unchecked Sendable {
             Task { await self.publish { $0.lanes[laneKey] = nil } }
         }
         do {
+            // Tried before and unchanged since: the duplicate check can use the stored hash before anything is exported
+            // (a duplicate then never touches the file, which may have to come from iCloud Photos).
+            if item.cloudParts == nil, !item.sha256.isEmpty, item.assetModifiedAt != nil, item.assetModifiedAt == asset.modificationDate,
+               item.hasEdit != true || item.roleHashes?["e"] != nil,
+               let twin = try env.store.items(sha256: item.sha256).first(where: {
+                   $0.id != item.id && $0.status == .backedUp && Deduplicator.isSamePhoto(editHash: item.roleHashes?["e"], as: $0)
+               }) {
+                let missing = twin.localIdentifier.map { env.photos.asset(localIdentifier: $0) == nil } ?? true
+                try env.store.delete(id: item.id)
+                try Deduplicator(store: env.store).link(localIdentifier: localId, to: twin, existingAssetIsMissing: missing)
+                appLog("\(item.filename) is already backed up (stored hash, not exported again)")
+                return .duplicate
+            }
             let exp = try await env.photos.exportOriginal(of: asset, into: rawDirectory, extras: true)
             exported = exp
 
-            // Content hash and de-duplication against everything already in the cloud.
-            let primaryHash = try Deduplicator.sha256(of: exp.primaryURL)
-            let pairedHash = try exp.pairedVideoURL.map { try Deduplicator.sha256(of: $0) }
-            let editedHash = try exp.editedURL.map { try Deduplicator.sha256(of: $0) }
+            // Content hash and de-duplication against everything already in the cloud. A retry of an unchanged photo
+            // reuses the hashes from its last try: hashing a 3 GB video again took minutes of battery.
+            let sizes = (primary: try CloudUploader.size(of: exp.primaryURL),
+                         paired: try exp.pairedVideoURL.map { try CloudUploader.size(of: $0) },
+                         edited: try exp.editedURL.map { try CloudUploader.size(of: $0) })
+            let reuse = Deduplicator.canReuseHashes(of: item, modified: asset.modificationDate, sizes: sizes)
+            if reuse { appLog("Reusing the stored hash of \(exp.primaryFilename) (unchanged since the last try)") }
+            let primaryHash = reuse ? item.sha256 : try Deduplicator.sha256(of: exp.primaryURL)
+            let pairedHash = reuse ? item.roleHashes?["pv"] : try exp.pairedVideoURL.map { try Deduplicator.sha256(of: $0) }
+            let editedHash = reuse ? item.roleHashes?["e"] : try exp.editedURL.map { try Deduplicator.sha256(of: $0) }
             let twins = try env.store.items(sha256: primaryHash).filter { $0.id != item.id && $0.status == .backedUp }
             if item.cloudParts == nil, !twins.isEmpty, !twins.contains(where: { Deduplicator.isSamePhoto(editHash: editedHash, as: $0) }) {
                 appLog("\(exp.primaryFilename) has the same original as a backed-up photo but a different edit: backing it up as its own photo")
@@ -523,12 +601,18 @@ final class BackupEngine: @unchecked Sendable {
             item.filename = exp.primaryFilename
             item.kind = exp.kind
             item.uti = exp.primaryUTI
-            item.fileSize = try CloudUploader.size(of: exp.primaryURL)
+            item.fileSize = sizes.primary
             item.pairedVideoFilename = exp.pairedVideoFilename
-            item.pairedVideoSize = try exp.pairedVideoURL.map { try CloudUploader.size(of: $0) }
+            item.pairedVideoSize = sizes.paired
             item.hasEdit = exp.editedURL != nil ? true : nil
             item.editedFilename = exp.editedFilename
-            item.editedSize = try exp.editedURL.map { try CloudUploader.size(of: $0) }
+            item.editedSize = sizes.edited
+            // Saved before the upload starts with the date they belong to (`assetModifiedAt` below), for a retry.
+            var knownHashes = item.roleHashes ?? [:]
+            knownHashes["o"] = primaryHash
+            knownHashes["pv"] = pairedHash
+            knownHashes["e"] = editedHash
+            item.roleHashes = knownHashes
             item.encrypted = env.library.isEncrypted
             item.mimeType = exp.primaryFilename.mimeTypeForFilename
             if let video = await VideoInfo.inspect(asset: asset) {
@@ -711,9 +795,11 @@ final class BackupEngine: @unchecked Sendable {
         let aliases = (try? env.store.aliases()) ?? []
         let present = env.photos.existingIdentifiers(aliases.map(\.localIdentifier))
         let byItem = Dictionary(grouping: aliases.filter { present.contains($0.localIdentifier) }, by: \.itemId)
+        let items = Dictionary(((try? env.store.items(ids: byItem.keys)) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let originals = env.photos.existingIdentifiers(items.values.compactMap(\.localIdentifier))
         return byItem.compactMap { itemId, rows in
-            guard let item = try? env.store.item(id: itemId) else { return nil }
-            let original = item.localIdentifier.flatMap { env.photos.asset(localIdentifier: $0) != nil ? $0 : nil }
+            guard let item = items[itemId] else { return nil }
+            let original = item.localIdentifier.flatMap { originals.contains($0) ? $0 : nil }
             return PhoneDuplicateGroup(item: item, original: original, copies: rows.map(\.localIdentifier))
         }
         .sorted { ($0.item.creationDate ?? .distantPast) > ($1.item.creationDate ?? .distantPast) }
@@ -732,10 +818,14 @@ final class BackupEngine: @unchecked Sendable {
 
     /// Backed-up photos edited (again) in Photos since their backup: queue them so this run uploads the new
     /// edited version. Runs only for "Back up now" (or automatic backup). Returns how many were queued.
+    /// `among`: only these photos (changed ones from Photos' history), nil for every backed-up photo.
     @discardableResult
-    func requeueEditedSinceBackup() -> Int {
+    func requeueEditedSinceBackup(among changed: Set<String>? = nil) -> Int {
         guard PhotoLibraryService.hasAccess else { return 0 }
-        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.cloudParts != nil && $0.localIdentifier != nil }
+        if let changed, changed.isEmpty { return 0 }
+        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter {
+            $0.cloudParts != nil && $0.localIdentifier.map { changed?.contains($0) ?? true } == true
+        }
         let assets = env.photos.assets(localIdentifiers: items.compactMap(\.localIdentifier))
         var queued: [MediaItem] = []
         var unknownDate = 0
@@ -755,7 +845,7 @@ final class BackupEngine: @unchecked Sendable {
         // before edits counted, they're backed up as their own photos.
         var editedCopies = 0
         let byId = Dictionary(((try? env.store.items(status: .backedUp)) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        let aliases = (try? env.store.aliases()) ?? []
+        let aliases = ((try? env.store.aliases()) ?? []).filter { changed?.contains($0.localIdentifier) ?? true }
         let aliasAssets = env.photos.assets(localIdentifiers: aliases.map(\.localIdentifier))
         for alias in aliases {
             guard let asset = aliasAssets[alias.localIdentifier], let twin = byId[alias.itemId], twin.hasEdit != true,
@@ -1146,7 +1236,8 @@ final class BackupEngine: @unchecked Sendable {
         }
         let kind: TelegramErrorKind
         if let td = error as? TDServiceError { kind = td.kind }
-        else if error is CryptoError || error is PhotoLibraryError || error is LibraryError { kind = .permanent }
+        // Not enough space: retrying in this run would export the file again and fail the same way.
+        else if error is CryptoError || error is PhotoLibraryError || error is LibraryError || error is NotEnoughSpaceError { kind = .permanent }
         else { kind = .transient }
         switch kind {
         case .floodWait(let s):

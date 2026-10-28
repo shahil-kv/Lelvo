@@ -12,8 +12,19 @@ struct PreparedResource {
     let meta: CaptionMeta
 }
 
+/// Not enough free space for the part being uploaded. Kept as a failure the user can act on rather than retried at once:
+/// the space has to be freed first.
+struct NotEnoughSpaceError: LocalizedError {
+    let needed: Int64
+
+    var errorDescription: String? {
+        "Not enough free space to back up this item. Free up \(ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)) and tap Retry."
+    }
+}
+
 /// Uploads resources in format 1: optional CGFE encryption, splitting above the account limit,
 /// one confirmed document message per part, and a size check before anything counts as uploaded.
+/// Only one part is on disk at a time next to the export: encrypted files are encrypted straight into each part.
 final class CloudUploader: @unchecked Sendable {
     private let td: TDService
     private let library: LibraryService
@@ -36,34 +47,51 @@ final class CloudUploader: @unchecked Sendable {
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: workDir) }
 
-        // 1. The stream to store: the original, or its CGFE ciphertext.
-        var stream = resource.fileURL
+        // 1. The stream to store: the original, or its CGFE ciphertext, made as the parts are written.
+        var encryptor: FileCrypto.Encryptor?
         var captionKey: SymmetricKeyBox?
         if encrypted {
             guard let keys = library.keys else { throw LibraryError.locked }
-            let out = workDir.appendingPathComponent("stream.cge")
             let chunk = resource.role == "sp" ? FileCrypto.fastVersionChunkSize : FileCrypto.defaultChunkSize
-            try FileCrypto.encrypt(input: resource.fileURL, output: out, masterKey: keys.master, chunkSize: chunk)
-            stream = out
+            encryptor = try FileCrypto.Encryptor(input: resource.fileURL, masterKey: keys.master, chunkSize: chunk)
             captionKey = SymmetricKeyBox(keys.captionKey)
         }
-        let streamSize = try Self.size(of: stream)
+        let streamSize = try encryptor?.cipherSize ?? Self.size(of: resource.fileURL)
         let limit = await td.uploadLimit()
         let layout = PartLayout.forUpload(size: streamSize, limit: limit)
 
         // 2. Parts.
         var done = existing.count == layout.partCount ? [] : Array(existing.prefix(layout.partCount))
         if done.count == layout.partCount { return done }
-        for index in done.count..<layout.partCount {
+        if encrypted, !done.isEmpty {
+            // Parts from an earlier try were encrypted with that try's salt and nonces, which are gone: parts made now
+            // wouldn't decrypt with the header in part 1. Start this file over (the photo is still on the device). The old
+            // parts must go first: a scan keeps the lowest message id of each part, so a stale part 1 would win.
+            try await td.deleteMessages(chatId: chatId, ids: done.map(\.messageId))
+            done = []
+            try checkpoint(done, layout.partCount)
+            appLog("Starting the encrypted upload of \(resource.role) for an item over: an earlier try was interrupted")
+        }
+        // The export is already on disk; a part beside it needs its own space (an unsplit plain file is a hard link).
+        let needed = (encrypted || layout.isSplit) ? layout.size(ofPart: 0) : 0
+        if needed > 0, let free = Self.freeSpace(at: workDir), free < needed + Self.spaceMargin {
+            throw NotEnoughSpaceError(needed: needed + Self.spaceMargin - free)
+        }
+        for index in 0..<layout.partCount {
             try Task.checkCancellation()
             let partName = Self.telegramName(itemId: itemId, role: resource.role, original: resource.meta.n,
                                              encrypted: encrypted, part: layout.isSplit ? index : nil)
             let partURL = workDir.appendingPathComponent(partName)
             let partSize = layout.size(ofPart: index)
-            if layout.isSplit {
-                try Self.copyRange(from: stream, offset: Int64(index) * layout.partSize, length: partSize, to: partURL)
+            if let encryptor {
+                try Self.write(partSize, from: encryptor, to: partURL)
             } else {
-                try Self.linkOrCopy(stream, to: partURL)
+                if index < done.count { continue }
+                if layout.isSplit {
+                    try Self.copyRange(from: resource.fileURL, offset: Int64(index) * layout.partSize, length: partSize, to: partURL)
+                } else {
+                    try Self.linkOrCopy(resource.fileURL, to: partURL)
+                }
             }
 
             var meta = resource.meta
@@ -107,6 +135,30 @@ final class CloudUploader: @unchecked Sendable {
         let safe = original.components(separatedBy: CharacterSet(charactersIn: "/\\:")).joined(separator: "_")
         guard let part else { return safe.isEmpty ? "\(itemId)" : safe }
         return "\(safe).part\(String(format: "%03d", part + 1))"
+    }
+
+    /// Room left for the system and TDLib's own files while a part is on disk.
+    static let spaceMargin: Int64 = 200 << 20
+
+    static func freeSpace(at url: URL) -> Int64? {
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage
+    }
+
+    /// Writes the next `length` ciphertext bytes into a new part file.
+    static func write(_ length: Int64, from encryptor: FileCrypto.Encryptor, to dst: URL) throws {
+        let fm = FileManager.default
+        try? fm.removeItem(at: dst)
+        fm.createFile(atPath: dst.path, contents: nil)
+        let output = try FileHandle(forWritingTo: dst)
+        defer { try? output.close() }
+        var remaining = length
+        while remaining > 0 {
+            let bytes = try encryptor.read(upToCount: Int(min(remaining, 4 << 20)))
+            guard !bytes.isEmpty else { throw CryptoError.truncated }
+            try output.write(contentsOf: bytes)
+            remaining -= Int64(bytes.count)
+        }
     }
 
     static func size(of url: URL) throws -> Int64 {

@@ -58,6 +58,11 @@ final class LibraryService: @unchecked Sendable {
            KeychainStore.data(for: .e2eMasterKey) != nil {
             UserDefaults.standard.set(NSNumber(value: chatId), forKey: Self.keysChatKey)
         }
+        td.observeChannels { [weak self] event in self?.channelChanged(event) }
+        td.observeAuth { [weak self] step in
+            guard step == .ready, let self, let chatId = self.chatId else { return }
+            Task { await self.td.openChat(chatId) }
+        }
     }
 
     // MARK: - State
@@ -88,8 +93,10 @@ final class LibraryService: @unchecked Sendable {
     var captionKey: SymmetricKey? { isEncrypted ? keys?.captionKey : nil }
 
     private func save(chatId: Int64, header: LibraryHeader) {
+        let switched = self.chatId != chatId
         UserDefaults.standard.set(NSNumber(value: chatId), forKey: Self.chatIdKey)
         UserDefaults.standard.set(header.line, forKey: Self.headerKey)
+        if switched { Task { await td.openChat(chatId) } }
     }
 
     func forget() {
@@ -430,6 +437,70 @@ final class LibraryService: @unchecked Sendable {
         }
         appLog("Library scan (\(full ? "full" : "recent")): \(summary.messages) messages, \(summary.items) items, \(summary.incomplete) incomplete, \(summary.orphans.count) duplicates")
         return summary
+    }
+
+    // MARK: - Live changes from the other device
+
+    /// Message ids deleted elsewhere, waiting for `applyDeletes`.
+    private var pendingDeletes = Set<Int64>()
+    private var liveScanScheduled = false, deletesScheduled = false
+
+    /// Uploads and deletes made on the user's other device show here while the app is open, instead of at the next scan.
+    /// Both are batched over a second: a backup on the other device sends a message every few seconds, and a bulk delete
+    /// arrives in many updates. Scans stay the catch-up path for whatever happened while the app wasn't running.
+    private func channelChanged(_ event: TDService.ChannelEvent) {
+        switch event {
+        case .added(let chat):
+            guard chat == chatId else { return }
+            let start: Bool = lock.withLock {
+                defer { liveScanScheduled = true }
+                return !liveScanScheduled
+            }
+            guard start else { return }
+            Task.detached(priority: .utility) { [self] in
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                lock.withLock { liveScanScheduled = false }
+                guard isConfigured, isUnlocked else { return }
+                _ = try? await scan(full: false)
+            }
+        case .deleted(let chat, let ids):
+            guard chat == chatId, !ids.isEmpty else { return }
+            let start: Bool = lock.withLock {
+                pendingDeletes.formUnion(ids)
+                defer { deletesScheduled = true }
+                return !deletesScheduled
+            }
+            guard start else { return }
+            Task.detached(priority: .utility) { [self] in
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                applyDeletes()
+            }
+        }
+    }
+
+    /// Applies the same rules as a full scan to the items that owned the deleted messages (this device's own deletes are
+    /// filtered out by `TDService`).
+    private func applyDeletes() {
+        let ids: Set<Int64> = lock.withLock {
+            defer { pendingDeletes.removeAll(); deletesScheduled = false }
+            return pendingDeletes
+        }
+        guard let items = try? store.allItems() else { return }
+        var changed: [MediaItem] = []
+        var removed = 0
+        for item in items {
+            switch LibraryIndexer.afterDeleting(ids, from: item) {
+            case .unchanged: break
+            case .update(let rebuilt): changed.append(rebuilt)
+            case .remove:
+                try? store.delete(id: item.id)
+                removed += 1
+            }
+        }
+        try? store.upsert(changed)
+        if !changed.isEmpty || removed > 0 {
+            appLog("Deleted on another device: \(ids.count) messages, \(removed) items removed, \(changed.count) updated")
+        }
     }
 
     // MARK: - Index snapshots (docs/CLOUD_FORMAT.md §7.1)

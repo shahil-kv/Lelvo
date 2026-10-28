@@ -110,4 +110,50 @@ import MemvoCore
         #expect(rebuilt.hasStreamingCopy)
         #expect(rebuilt.status == .backedUp)
     }
+
+    // MARK: Deletes from another device
+
+    @Test func deletingTheOnlyMessageOfAPhoneLinkedItemAsksForARetry() {
+        var item = LibraryIndexer.build([msg(10)]).items[0]
+        item.localIdentifier = "asset-1"
+        guard case .update(let missing) = LibraryIndexer.afterDeleting([10], from: item) else { Issue.record("expected update"); return }
+        #expect(missing.status == .failed)
+        #expect(missing.cloudParts == nil)
+        #expect(missing.localIdentifier == "asset-1")
+    }
+
+    @Test func deletingACloudOnlyOrTrashedItemRemovesIt() {
+        let item = LibraryIndexer.build([msg(10)]).items[0]
+        #expect(LibraryIndexer.afterDeleting([10], from: item) == .remove)
+        var trashed = item
+        trashed.status = .trashed
+        #expect(LibraryIndexer.afterDeleting([10], from: trashed) == .remove)
+    }
+
+    @Test func deletingOnePartLeavesTheItemIncomplete() {
+        var item = LibraryIndexer.build([msg(10, part: [0, 2, 100]), msg(11, part: [1, 2, 100])]).items[0]
+        item.localIdentifier = "asset-1"
+        #expect(item.status == .backedUp)
+        guard case .update(let rebuilt) = LibraryIndexer.afterDeleting([11], from: item) else { Issue.record("expected update"); return }
+        #expect(rebuilt.status == .failed)
+        #expect(rebuilt.parts("o").map(\.messageId) == [10])
+        #expect(rebuilt.localIdentifier == "asset-1")
+    }
+
+    @Test func deletingAnOptionalRoleKeepsTheItemBackedUpAndInTheTrash() {
+        var item = LibraryIndexer.build([msg(10), msg(20, role: .thumbnail)]).items[0]
+        item.status = .trashed
+        item.trashedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        guard case .update(let rebuilt) = LibraryIndexer.afterDeleting([20], from: item) else { Issue.record("expected update"); return }
+        #expect(rebuilt.parts("t").isEmpty)
+        #expect(rebuilt.status == .trashed)
+        #expect(rebuilt.trashedAt == item.trashedAt)
+    }
+
+    @Test func otherMessagesAndItemsBeingUploadedAreLeftAlone() {
+        var item = LibraryIndexer.build([msg(10)]).items[0]
+        #expect(LibraryIndexer.afterDeleting([99], from: item) == .unchanged)
+        item.status = .uploading
+        #expect(LibraryIndexer.afterDeleting([10], from: item) == .unchanged)
+    }
 }

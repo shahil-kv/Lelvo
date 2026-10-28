@@ -13,9 +13,17 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 
 /// Local database of every item the app knows about. SQLite with indexed lookup columns and the
 /// full `MediaItem` stored as JSON, so the schema stays stable while the model evolves.
+///
+/// Writes go through one connection; reads from outside go through a second, read-only one. In WAL mode a reader sees
+/// the last commit without waiting, so the timeline's reads no longer queue behind a backup's writes.
 public final class LibraryStore: @unchecked Sendable {
     private var db: OpaquePointer?
     private let lock = NSRecursiveLock()
+    /// Prepared statements by SQL, per connection (preparing again on every call made `upsert` of 10k items prepare 10k times).
+    private var statements: [String: OpaquePointer] = [:]
+    private var readDB: OpaquePointer?
+    private let readLock = NSLock()
+    private var readStatements: [String: OpaquePointer] = [:]
     private let encoder: JSONEncoder = { let e = JSONEncoder(); e.dateEncodingStrategy = .secondsSince1970; return e }()
     private let decoder: JSONDecoder = { let d = JSONDecoder(); d.dateDecodingStrategy = .secondsSince1970; return d }()
 
@@ -40,6 +48,9 @@ public final class LibraryStore: @unchecked Sendable {
         // last one to close still checkpointing the write-ahead log.
         sqlite3_busy_timeout(db, 5000)
         try exec("PRAGMA journal_mode=WAL;")
+        // In WAL mode NORMAL skips the fsync on every commit (the backup commits after every part). A crash can lose the
+        // last commits but never corrupts the database, and the channel is the source of truth for what was uploaded.
+        try exec("PRAGMA synchronous=NORMAL;")
         try exec("""
         CREATE TABLE IF NOT EXISTS items (
             id TEXT PRIMARY KEY,
@@ -55,7 +66,45 @@ public final class LibraryStore: @unchecked Sendable {
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE IF NOT EXISTS aliases (local_id TEXT PRIMARY KEY, item_id TEXT NOT NULL);
         """)
+        try migrate()
         try normalizeItemIds()
+        if let url {
+            // A second connection to ":memory:" would be a different, empty database: tests read through the writer.
+            guard sqlite3_open_v2(url.path, &readDB, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
+                sqlite3_close(readDB)
+                readDB = nil
+                return
+            }
+            sqlite3_busy_timeout(readDB, 5000)
+        }
+    }
+
+    /// Schema changes in order: entry `i` takes a database from `PRAGMA user_version` `i` to `i + 1`. Version 0 is a
+    /// database from before versions were kept, which already has the tables created above.
+    private static let migrations: [String] = [
+        "", // 0 → 1: start counting.
+    ]
+
+    /// The database's schema version (`PRAGMA user_version`).
+    public var schemaVersion: Int {
+        (try? withStatement("PRAGMA user_version;") { sqlite3_step($0) == SQLITE_ROW ? Int(sqlite3_column_int64($0, 0)) : 0 }) ?? 0
+    }
+
+    private func migrate() throws {
+        lock.lock(); defer { lock.unlock() }
+        let current = schemaVersion
+        guard current < Self.migrations.count else { return }
+        try exec("BEGIN IMMEDIATE;")
+        do {
+            for version in current ..< Self.migrations.count {
+                if !Self.migrations[version].isEmpty { try exec(Self.migrations[version]) }
+            }
+            try exec("PRAGMA user_version = \(Self.migrations.count);")
+            try exec("COMMIT;")
+        } catch {
+            try? exec("ROLLBACK;")
+            throw error
+        }
     }
 
     /// Older builds created uppercase item ids while captions store them lowercase, so every scan added an
@@ -70,7 +119,7 @@ public final class LibraryStore: @unchecked Sendable {
             for old in mixed {
                 var item = old
                 item.id = old.id.lowercased()
-                if var twin = try self.item(id: item.id) {
+                if var twin = try writerItem(id: item.id) {
                     twin.localIdentifier = twin.localIdentifier ?? old.localIdentifier
                     twin.verifiedAt = twin.verifiedAt ?? old.verifiedAt
                     twin.favorite = twin.favorite ?? old.favorite
@@ -91,7 +140,13 @@ public final class LibraryStore: @unchecked Sendable {
         }
     }
 
-    deinit { sqlite3_close(db) }
+    deinit {
+        // A connection with statements left open doesn't close.
+        statements.values.forEach { sqlite3_finalize($0) }
+        readStatements.values.forEach { sqlite3_finalize($0) }
+        sqlite3_close(db)
+        sqlite3_close(readDB)
+    }
 
     /// Opens the database at `url`; if it is corrupt, moves it aside and starts fresh (the channel is the
     /// source of truth, so a rescan restores everything). Falls back to memory only if the disk is unusable.
@@ -113,13 +168,41 @@ public final class LibraryStore: @unchecked Sendable {
         }
     }
 
-    private func withStatement<T>(_ sql: String, bind: (OpaquePointer?) -> Void = { _ in }, _ body: (OpaquePointer?) throws -> T) throws -> T {
+    /// Runs `sql` on the writing connection. `cache: false` for SQL that varies (`IN` lists of any length).
+    private func withStatement<T>(_ sql: String, cache: Bool = true, bind: (OpaquePointer?) -> Void = { _ in },
+                                  _ body: (OpaquePointer?) throws -> T) throws -> T {
         lock.lock(); defer { lock.unlock() }
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            throw StoreError.sqlite(String(cString: sqlite3_errmsg(db)))
+        return try Self.run(sql, on: db, cache: cache ? \.statements : nil, of: self, bind: bind, body)
+    }
+
+    /// Runs a read on the read-only connection (the writer when there is none, e.g. in memory). Reads that are part of a
+    /// write (`update`, the id fix-up) stay on the writer, which sees its own uncommitted changes.
+    private func withReadStatement<T>(_ sql: String, cache: Bool = true, bind: (OpaquePointer?) -> Void = { _ in },
+                                      _ body: (OpaquePointer?) throws -> T) throws -> T {
+        guard let readDB else { return try withStatement(sql, cache: cache, bind: bind, body) }
+        readLock.lock(); defer { readLock.unlock() }
+        return try Self.run(sql, on: readDB, cache: cache ? \.readStatements : nil, of: self, bind: bind, body)
+    }
+
+    /// The caller holds the connection's lock. A cached statement is taken out of the cache while it runs, so a nested
+    /// use of the same SQL prepares its own instead of resetting this one.
+    private static func run<T>(_ sql: String, on db: OpaquePointer?, cache: ReferenceWritableKeyPath<LibraryStore, [String: OpaquePointer]>?,
+                               of store: LibraryStore, bind: (OpaquePointer?) -> Void, _ body: (OpaquePointer?) throws -> T) throws -> T {
+        var stmt = cache.flatMap { store[keyPath: $0].removeValue(forKey: sql) }
+        if stmt == nil {
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                throw StoreError.sqlite(String(cString: sqlite3_errmsg(db)))
+            }
         }
-        defer { sqlite3_finalize(stmt) }
+        defer {
+            if let cache, store[keyPath: cache][sql] == nil {
+                sqlite3_reset(stmt)
+                sqlite3_clear_bindings(stmt)
+                store[keyPath: cache][sql] = stmt
+            } else {
+                sqlite3_finalize(stmt)
+            }
+        }
         bind(stmt)
         return try body(stmt)
     }
@@ -183,28 +266,32 @@ public final class LibraryStore: @unchecked Sendable {
     @discardableResult
     public func update(id: String, _ change: (inout MediaItem) -> Void) throws -> MediaItem? {
         lock.lock(); defer { lock.unlock() }
-        guard var item = try item(id: id) else { return nil }
+        guard var item = try writerItem(id: id) else { return nil }
         change(&item)
         try upsert(item)
         return item
     }
 
     public func item(id: String) throws -> MediaItem? {
+        try withReadStatement("SELECT json FROM items WHERE id = ? LIMIT 1;", bind: { bindText($0, 1, id) }, readItems).first
+    }
+
+    private func writerItem(id: String) throws -> MediaItem? {
         try withStatement("SELECT json FROM items WHERE id = ? LIMIT 1;", bind: { bindText($0, 1, id) }, readItems).first
     }
 
     /// Looks up by local identifier, including duplicate assets aliased to an item.
     public func item(localIdentifier: String) throws -> MediaItem? {
-        if let direct = try withStatement("SELECT json FROM items WHERE local_id = ? LIMIT 1;", bind: { bindText($0, 1, localIdentifier) }, readItems).first {
+        if let direct = try withReadStatement("SELECT json FROM items WHERE local_id = ? LIMIT 1;", bind: { bindText($0, 1, localIdentifier) }, readItems).first {
             return direct
         }
-        return try withStatement("SELECT items.json FROM aliases JOIN items ON items.id = aliases.item_id WHERE aliases.local_id = ? LIMIT 1;",
+        return try withReadStatement("SELECT items.json FROM aliases JOIN items ON items.id = aliases.item_id WHERE aliases.local_id = ? LIMIT 1;",
                                  bind: { bindText($0, 1, localIdentifier) }, readItems).first
     }
 
     /// Duplicate assets recorded by `addAlias`: (asset local identifier, item id).
     public func aliases() throws -> [(localIdentifier: String, itemId: String)] {
-        try withStatement("SELECT local_id, item_id FROM aliases;") { s in
+        try withReadStatement("SELECT local_id, item_id FROM aliases;") { s in
             var out: [(String, String)] = []
             while sqlite3_step(s) == SQLITE_ROW {
                 if let a = sqlite3_column_text(s, 0), let b = sqlite3_column_text(s, 1) { out.append((String(cString: a), String(cString: b))) }
@@ -231,7 +318,7 @@ public final class LibraryStore: @unchecked Sendable {
         for start in stride(from: 0, to: all.count, by: 500) {
             let batch = all[start..<min(start + 500, all.count)]
             let marks = Array(repeating: "?", count: batch.count).joined(separator: ",")
-            result += try withStatement("SELECT json FROM items WHERE id IN (\(marks));", bind: { s in
+            result += try withReadStatement("SELECT json FROM items WHERE id IN (\(marks));", cache: false, bind: { s in
                 for (i, id) in batch.enumerated() { bindText(s, Int32(i + 1), id) }
             }, readItems)
         }
@@ -239,20 +326,20 @@ public final class LibraryStore: @unchecked Sendable {
     }
 
     public func items(sha256: String) throws -> [MediaItem] {
-        try withStatement("SELECT json FROM items WHERE sha256 = ?;", bind: { bindText($0, 1, sha256) }, readItems)
+        try withReadStatement("SELECT json FROM items WHERE sha256 = ?;", bind: { bindText($0, 1, sha256) }, readItems)
     }
 
     public func items(status: ItemStatus) throws -> [MediaItem] {
-        try withStatement("SELECT json FROM items WHERE status = ? ORDER BY creation_date DESC;", bind: { bindText($0, 1, status.rawValue) }, readItems)
+        try withReadStatement("SELECT json FROM items WHERE status = ? ORDER BY creation_date DESC;", bind: { bindText($0, 1, status.rawValue) }, readItems)
     }
 
     public func allItems() throws -> [MediaItem] {
-        try withStatement("SELECT json FROM items ORDER BY creation_date DESC;", readItems)
+        try withReadStatement("SELECT json FROM items ORDER BY creation_date DESC;", readItems)
     }
 
     /// All local identifiers the store knows, for fast scanning.
     public func knownLocalIdentifiers() throws -> Set<String> {
-        try withStatement("SELECT local_id FROM items WHERE local_id IS NOT NULL UNION SELECT local_id FROM aliases;") { s in
+        try withReadStatement("SELECT local_id FROM items WHERE local_id IS NOT NULL UNION SELECT local_id FROM aliases;") { s in
             var set = Set<String>()
             while sqlite3_step(s) == SQLITE_ROW {
                 if let c = sqlite3_column_text(s, 0) { set.insert(String(cString: c)) }
@@ -262,7 +349,7 @@ public final class LibraryStore: @unchecked Sendable {
     }
 
     public func counts() throws -> [ItemStatus: Int] {
-        try withStatement("SELECT status, COUNT(*) FROM items GROUP BY status;") { s in
+        try withReadStatement("SELECT status, COUNT(*) FROM items GROUP BY status;") { s in
             var result: [ItemStatus: Int] = [:]
             while sqlite3_step(s) == SQLITE_ROW {
                 if let c = sqlite3_column_text(s, 0), let st = ItemStatus(rawValue: String(cString: c)) {
@@ -288,7 +375,7 @@ public final class LibraryStore: @unchecked Sendable {
     // MARK: - Meta
 
     public func meta(_ key: String) -> String? {
-        try? withStatement("SELECT value FROM meta WHERE key = ?;", bind: { bindText($0, 1, key) }) { s in
+        try? withReadStatement("SELECT value FROM meta WHERE key = ?;", bind: { bindText($0, 1, key) }) { s in
             sqlite3_step(s) == SQLITE_ROW ? sqlite3_column_text(s, 0).map { String(cString: $0) } : nil
         }
     }

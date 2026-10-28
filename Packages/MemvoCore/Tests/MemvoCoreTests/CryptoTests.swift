@@ -168,3 +168,91 @@ import MemvoCore
         }
     }
 }
+
+@Suite struct DecryptedChunkCacheTests {
+    let master = SymmetricKey(size: .bits256)
+    let chunk = 4096
+
+    func encrypted(_ size: Int) throws -> (plain: Data, cipher: Data) {
+        let plain = Data((0..<size).map { UInt8(truncatingIfNeeded: $0 &* 7) })
+        let dir = FileManager.default.temporaryDirectory
+        let input = dir.appendingPathComponent(UUID().uuidString), output = dir.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: input); try? FileManager.default.removeItem(at: output) }
+        try plain.write(to: input)
+        try FileCrypto.encrypt(input: input, output: output, masterKey: master, chunkSize: chunk)
+        return (plain, try Data(contentsOf: output))
+    }
+
+    /// Player-sized pieces read through the cache equal the plaintext, at chunk boundaries and the short last chunk,
+    /// and each chunk is fetched (and decrypted) once.
+    @Test func cachedReadsMatchFreshOnesAndFetchEachChunkOnce() async throws {
+        let (plain, cipher) = try encrypted(chunk * 5 + 123)
+        let reader = try CGFERandomReader(header: cipher.prefix(25), cipherSize: Int64(cipher.count), master: master)
+        let cache = DecryptedChunkCache(limit: 64 << 10)
+        var fetched: [Range<Int64>] = []
+        let fetch: (Range<Int64>) async throws -> Data = { range in
+            fetched.append(range)
+            return cipher.subdata(in: Int(range.lowerBound)..<Int(range.upperBound))
+        }
+        let c = Int64(chunk), total = Int64(plain.count)
+        for start in stride(from: Int64(0), to: total, by: 1000) {
+            let range = start ..< min(total, start + 1000)
+            let data = try await reader.read(range, cache: cache, file: "a/o", fetch: fetch)
+            #expect(data == plain.subdata(in: Int(range.lowerBound)..<Int(range.upperBound)))
+        }
+        #expect(fetched.count == Int(reader.layout.chunkCount))
+        for range in [c - 10 ..< c + 10, 0 ..< total, total - 5 ..< total + 50] as [Range<Int64>] {
+            let data = try await reader.read(range, cache: cache, file: "a/o", fetch: fetch)
+            #expect(data == plain.subdata(in: Int(range.lowerBound)..<Int(min(range.upperBound, total))))
+        }
+        #expect(fetched.count == Int(reader.layout.chunkCount))
+    }
+
+    @Test func staysWithinItsLimitAndForgetsAFile() {
+        let cache = DecryptedChunkCache(limit: 10)
+        cache.store("a", 0, Data(count: 4))
+        cache.store("a", 1, Data(count: 4))
+        #expect(cache.chunk("a", 0) != nil) // now the most recently used
+        cache.store("b", 0, Data(count: 4))
+        #expect(cache.totalBytes == 8)
+        #expect(cache.chunk("a", 1) == nil)
+        #expect(cache.chunk("a", 0) != nil)
+        cache.remove(file: "a")
+        #expect(cache.chunk("a", 0) == nil)
+        #expect(cache.chunk("b", 0) != nil)
+        #expect(cache.totalBytes == 4)
+    }
+}
+
+@Suite struct StreamingEncryptorTests {
+    let master = SymmetricKey(size: .bits256)
+
+    /// Reading the ciphertext in pieces of any size (as split parts do) gives exactly the whole-file output for the same
+    /// salt and nonces, at chunk boundaries, for an empty file and for exactly one chunk.
+    @Test(arguments: [0, 1, 999, 1000, 1001, 2000, 5432])
+    func piecesEqualTheWholeFile(size: Int) throws {
+        let chunk = 1000
+        let plain = Data((0..<size).map { UInt8(truncatingIfNeeded: $0 &* 13) })
+        let salt = Data(repeating: 7, count: 16)
+        let count = max(1, (size + chunk - 1) / chunk)
+        let nonces = (0..<count).map { i in Data((0..<12).map { UInt8(truncatingIfNeeded: $0 + i * 12) }) }
+        let whole = try FileCrypto.encryptForTesting(data: plain, masterKey: master, chunkSize: chunk, fileSalt: salt, nonces: nonces)
+        #expect(try FileCrypto.decrypt(data: whole, masterKey: master) == plain)
+
+        let input = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: input) }
+        try plain.write(to: input)
+        for piece in [1, 25, 999, 1028, 4096] {
+            let encryptor = try FileCrypto.Encryptor.forTesting(input: input, masterKey: master, chunkSize: chunk, fileSalt: salt, nonces: nonces)
+            #expect(encryptor.cipherSize == Int64(whole.count))
+            var joined = Data()
+            while true {
+                let bytes = try encryptor.read(upToCount: piece)
+                if bytes.isEmpty { break }
+                #expect(bytes.count <= piece)
+                joined.append(bytes)
+            }
+            #expect(joined == whole)
+        }
+    }
+}
