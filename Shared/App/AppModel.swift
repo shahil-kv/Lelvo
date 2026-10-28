@@ -100,6 +100,11 @@ enum UITestSupport {
                                  kind: i % 7 == 0 ? .video : .photo, creationDate: now.addingTimeInterval(Double(-i) * 9_000),
                                  fileSize: 2_000_000, status: .backedUp)
             if i % 7 == 0 { item.duration = Double(5 + i % 90) }
+            // Places for the map, Memories and Search: most around home, and a four-day trip.
+            let trip = (200..<240).contains(i)
+            let jitter = Double(i % 13) * 0.002
+            item.latitude = (trip ? 15.49 : 9.93) + jitter
+            item.longitude = (trip ? 73.82 : 76.26) + jitter
             item.setParts([RemoteFile(messageId: Int64(i + 1), fileId: "demo", fileUniqueId: "demo\(i)", size: 2_000_000)],
                           role: "o", expected: 1)
             return item
