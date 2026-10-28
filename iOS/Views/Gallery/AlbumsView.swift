@@ -67,6 +67,21 @@ struct AlbumsView: View {
                     }
                     VStack(alignment: .leading, spacing: 12) {
                         sectionTitle("Utilities")
+                        NavigationLink {
+                            PhotoMapView { filter in GalleryView(filter: filter, embedInNavigation: false) }
+                        } label: {
+                            HStack(spacing: 14) {
+                                Image(systemName: "map").font(.body).foregroundStyle(.tint).frame(width: 24)
+                                Text("Map").foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 48)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
                         NavigationLink { RecentlyDeletedView() } label: {
                             HStack(spacing: 14) {
                                 Image(systemName: "trash").font(.body).foregroundStyle(.tint).frame(width: 24)

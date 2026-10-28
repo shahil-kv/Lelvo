@@ -9,7 +9,7 @@ enum SidebarItem: Hashable {
     case smart(String)
     case album(String)
     case backup, recentlyDeleted
-    case search
+    case search, map
 
     var title: String {
         switch self {
@@ -23,6 +23,7 @@ enum SidebarItem: Hashable {
         case .backup: return "Backup"
         case .recentlyDeleted: return "Recently Deleted"
         case .search: return "Search"
+        case .map: return "Map"
         }
     }
 
@@ -39,6 +40,7 @@ enum SidebarItem: Hashable {
         case .backup: return "arrow.triangle.2.circlepath.icloud"
         case .recentlyDeleted: return "trash"
         case .search: return "magnifyingglass"
+        case .map: return "map"
         }
     }
 
@@ -92,7 +94,7 @@ final class MacLibraryIndex: ObservableObject {
 
     func filter(for item: SidebarItem) -> GalleryFilter? {
         switch item {
-        case .library, .backup, .recentlyDeleted, .search: return nil
+        case .library, .backup, .recentlyDeleted, .search, .map: return nil
         case .favorites: return .favorites
         case .videos: return .videos
         case .livePhotos: return .livePhotos
@@ -179,6 +181,8 @@ struct MainWindowView: View {
             NavigationStack { RecentlyDeletedView() }
         case .search:
             MacSearchView()
+        case .map:
+            NavigationStack { PhotoMapView { filter in MacGalleryView(item: .map, filter: filter) } }
         case let item:
             MacGalleryView(item: item, filter: index.filter(for: item))
                 .id(item)
@@ -200,6 +204,7 @@ struct MacSidebar: View {
             Section("Photos") {
                 row(.library)
                 row(.search)
+                row(.map)
                 row(.favorites)
                 row(.videos)
                 row(.livePhotos)
