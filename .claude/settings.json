@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(Scripts/build.sh:*)",
+      "Bash(Scripts/check-warnings.sh:*)",
+      "Bash(python3 Scripts/website-pages.py)",
+      "Bash(swift test:*)",
+      "Bash(xcodegen generate:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr merge:*)",
+      "Edit(./docs/test-vectors/**)",
+      "Edit(./docs/CLOUD_FORMAT.md)"
+    ],
+    "deny": [
+      "Read(./Config/Secrets.xcconfig)",
+      "Read(./**/*.xcconfig.local)",
+      "Read(./.env)",
+      "Read(./.dev.vars*)",
+      "Read(./**/*.p12)",
+      "Read(./**/*.mobileprovision)",
+      "Read(./build/DerivedData/**)",
+      "Read(./build/SourcePackages/**)",
+      "Read(./Packages/MemvoCore/.build/**)",
+      "Read(./Memvo.xcodeproj/**)",
+      "Read(./website/vendor/**)",
+      "Read(./website/fonts/**)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/website-pages.sh" }
+        ]
+      }
+    ]
+  }
+}

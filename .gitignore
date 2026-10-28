@@ -30,7 +30,14 @@ Config/Secrets.xcconfig
 # Local logs and tools
 *.log
 .DS_Store
-.claude/
+# Claude Code: share rules, skills, agents, hooks and settings.json; keep personal files out
+.claude/*
+!.claude/rules/
+!.claude/skills/
+!.claude/agents/
+!.claude/hooks/
+!.claude/settings.json
+CLAUDE.local.md
 .superpowers/
 .idea/
 .vscode/
