@@ -215,6 +215,30 @@ func sampleMeta() -> CaptionMeta {
         let big = PartLayout.forUpload(size: 5 * 1024 * PartLayout.mib, limit: PartLayout.standardLimit)
         #expect(big.partCount == 3)
     }
+
+    @Test func spaceNeededForPlainUnsplitIsJustTheExport() {
+        // An unsplit plain file is hard-linked into the upload, so it needs no second copy.
+        #expect(PartLayout.spaceNeeded(exportSizes: [500 * PartLayout.mib, 3 * PartLayout.mib], encrypted: false,
+                                       limit: PartLayout.standardLimit) == 503 * PartLayout.mib)
+    }
+
+    @Test func spaceNeededForPlainSplitAddsOnePart() {
+        let video = 5 * 1024 * PartLayout.mib
+        #expect(PartLayout.spaceNeeded(exportSizes: [video], encrypted: false, limit: PartLayout.standardLimit)
+                == video + 1999 * PartLayout.mib)
+        #expect(PartLayout.spaceNeeded(exportSizes: [video], encrypted: false, limit: PartLayout.premiumLimit)
+                == video + 3999 * PartLayout.mib)
+    }
+
+    @Test func spaceNeededForEncryptedAddsTheLargestFirstPart() {
+        let photo = 3 * PartLayout.mib, video = 700 * PartLayout.mib
+        #expect(PartLayout.spaceNeeded(exportSizes: [photo, video], encrypted: true, limit: PartLayout.standardLimit)
+                == photo + video + FileCrypto.encryptedSize(plaintextSize: video))
+        let big = 5 * 1024 * PartLayout.mib
+        #expect(PartLayout.spaceNeeded(exportSizes: [big], encrypted: true, limit: PartLayout.standardLimit)
+                == big + 1999 * PartLayout.mib)
+        #expect(PartLayout.spaceNeeded(exportSizes: [], encrypted: true, limit: PartLayout.standardLimit) == 0)
+    }
 }
 
 @Suite struct JobMachineTests {

@@ -421,6 +421,20 @@ final class PhotoLibraryService: @unchecked Sendable {
     }
 
     /// The rendered edit of an edited asset (`fullSizePhoto` / `fullSizeVideo`), nil if never edited.
+    /// Sizes of the files `exportOriginal` writes (original, Live Photo video, edit), from Photos' own records, so free
+    /// space can be checked before a large video is copied out. Nil when Photos doesn't say; the export then goes ahead.
+    func exportSizes(of asset: PHAsset) -> [Int64]? {
+        guard let res = originalResources(for: asset) else { return nil }
+        let edit = editedResource(for: asset).flatMap { $0 !== res.primary ? $0 : nil }
+        var sizes: [Int64] = []
+        for resource in [res.primary, res.paired, edit].compactMap({ $0 }) {
+            // `fileSize` isn't public API, but PHAssetResource has answered to it since iOS 10 and macOS 10.15.
+            guard let size = (resource.value(forKey: "fileSize") as? NSNumber)?.int64Value, size > 0 else { return nil }
+            sizes.append(size)
+        }
+        return sizes
+    }
+
     func editedResource(for asset: PHAsset) -> PHAssetResource? {
         let resources = PHAssetResource.assetResources(for: asset)
         let original = resources.contains { $0.type == .photo || $0.type == .video }

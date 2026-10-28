@@ -209,6 +209,17 @@ public struct PartLayout: Equatable, Sendable {
                      : PartLayout(partSize: max(size, 1), totalSize: size)
     }
 
+    /// Free space a backup needs at its peak, before any margin: every exported file stays on disk until the item is
+    /// done, and an encrypted or split file also writes one part beside its export (an unsplit plain file is a hard link).
+    public static func spaceNeeded(exportSizes: [Int64], encrypted: Bool, limit: Int64) -> Int64 {
+        let parts = exportSizes.map { size -> Int64 in
+            let stream = encrypted ? FileCrypto.encryptedSize(plaintextSize: size) : size
+            let layout = forUpload(size: stream, limit: limit)
+            return encrypted || layout.isSplit ? layout.size(ofPart: 0) : 0
+        }
+        return exportSizes.reduce(0, +) + (parts.max() ?? 0)
+    }
+
     public var partCount: Int { max(1, Int((totalSize + partSize - 1) / partSize)) }
     public var isSplit: Bool { partCount > 1 }
 

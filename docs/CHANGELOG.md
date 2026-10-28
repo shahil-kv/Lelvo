@@ -68,6 +68,8 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - **Similar photos** in Duplicates: bursts and near-identical shots grouped, with the best one marked.
 - **Video viewer:** double-tap a side to skip 10 seconds, see frames while you scrub, and long videos continue where you
   stopped.
+- **Big videos on a full phone:** before backing up, Memvo checks there's room for the copy it uploads, and tells you
+  how much space to free instead of failing with an unclear error.
 
 ## Before this repository
 
