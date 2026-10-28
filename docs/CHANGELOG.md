@@ -56,6 +56,18 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   that couldn't be opened. Such uploads now start that file again.
 - **Smoother cloud videos** with less battery: playback waits for Telegram's progress instead of asking every 40 ms,
   and encrypted videos decrypt each piece once.
+- **Four tabs, like Google Photos:** Photos, Collections, Search and Backup. Settings opens from the gear at the top of
+  every tab.
+- **Collections:** Memories, recent days, trips, albums (Favorites and Screenshots first, then WhatsApp, Instagram and
+  your other albums), a map of your photos, media types, documents and receipts, and duplicates. Each shows the first
+  few; Show More opens the rest.
+- **Memories,** made on your iPhone or Mac: years ago on this day, recent highlights, trips with their place names, and
+  themes like pets, beaches and food. Play one like a story; swipe down to close.
+- **Search** for places, months, text in photos and things in them, all on your device. Your recent searches come first.
+- **Map** of every photo and video with a location, phone and cloud alike.
+- **Similar photos** in Duplicates: bursts and near-identical shots grouped, with the best one marked.
+- **Video viewer:** double-tap a side to skip 10 seconds, see frames while you scrub, and long videos continue where you
+  stopped.
 
 ## Before this repository
 
