@@ -6,7 +6,7 @@ import MemvoCore
 final class AppModel: ObservableObject {
     static let shared = AppModel()
 
-    enum Tab: Hashable { case gallery, albums, backup, settings }
+    enum Tab: Hashable { case gallery, albums, search, backup, settings }
 
     @Published var onboardingComplete = Prefs.onboardingComplete
     @Published var selectedTab: Tab = .gallery

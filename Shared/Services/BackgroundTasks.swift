@@ -63,6 +63,8 @@ enum BackgroundTasks {
         Task {
             let summary = await AppEnvironment.shared.engine.run(isCancelled: { flag.isCancelled })
             appLog("Overnight backup: \(summary.text)")
+            // Then, still on the charger, read new photos for search.
+            await AppEnvironment.shared.search.index(isCancelled: { flag.isCancelled })
             task.setTaskCompleted(success: summary.error == nil)
         }
     }
@@ -111,6 +113,7 @@ enum BackgroundTasks {
                         appLog("Hourly backup: \(summary.text)")
                     }
                 }
+                if Device.isCharging { await env.search.index(isCancelled: { scheduler.shouldDefer || !Device.isCharging }) }
                 await env.enforceCacheLimits()
                 completion(.finished)
             }

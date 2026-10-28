@@ -139,6 +139,7 @@ struct AlbumsView: View {
         case .cloudOnly: return "icloud"
         case .notBackedUp: return "icloud.slash"
         case .album: return "photo.on.rectangle"
+        case .matching: return "magnifyingglass"
         }
     }
 

@@ -81,4 +81,19 @@ import MemvoCore
         #expect(seen.isSubset(of: [0, 5000]))
         #expect(try store.counts()[.backedUp] == 5000)
     }
+
+    @Test func searchWordsAreStoredAndMigrated() throws {
+        let url = tempURL()
+        defer { remove(url) }
+        let store = try LibraryStore(url: url)
+        #expect(store.schemaVersion == 2)
+        try store.setSearch(key: "A", stamp: "1", words: "beach sunset")
+        try store.setSearch(key: "B", stamp: "2", words: "")
+        #expect(try store.searchStamps() == ["A": "1", "B": "2"])
+        #expect(try store.searchWords() == ["A": "beach sunset"])
+        try store.deleteSearch(keys: ["A"])
+        #expect(try store.searchWords().isEmpty)
+        try store.deleteAll()
+        #expect(try store.searchStamps().isEmpty)
+    }
 }

@@ -83,6 +83,9 @@ public final class LibraryStore: @unchecked Sendable {
     /// database from before versions were kept, which already has the tables created above.
     private static let migrations: [String] = [
         "", // 0 → 1: start counting.
+        // 1 → 2: words Vision found in each photo, for on-device search (#14). `key` is the timeline entry id; `stamp`
+        // says which version of the photo was read, so an edited photo is read again.
+        "CREATE TABLE IF NOT EXISTS search (key TEXT PRIMARY KEY, stamp TEXT NOT NULL, words TEXT NOT NULL);",
     ]
 
     /// The database's schema version (`PRAGMA user_version`).
@@ -368,8 +371,46 @@ public final class LibraryStore: @unchecked Sendable {
 
     public func deleteAll() throws {
         lock.lock(); defer { lock.unlock() }
-        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases;")
+        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search;")
         notifyChanged(ids: nil)
+    }
+
+    // MARK: - Search (#14)
+
+    /// Which version of each entry the search index has read.
+    public func searchStamps() throws -> [String: String] {
+        try withReadStatement("SELECT key, stamp FROM search;") { s in
+            var out: [String: String] = [:]
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let k = sqlite3_column_text(s, 0), let v = sqlite3_column_text(s, 1) { out[String(cString: k)] = String(cString: v) }
+            }
+            return out
+        }
+    }
+
+    /// Every entry's indexed words.
+    public func searchWords() throws -> [String: String] {
+        try withReadStatement("SELECT key, words FROM search WHERE words <> '';") { s in
+            var out: [String: String] = [:]
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let k = sqlite3_column_text(s, 0), let v = sqlite3_column_text(s, 1) { out[String(cString: k)] = String(cString: v) }
+            }
+            return out
+        }
+    }
+
+    public func setSearch(key: String, stamp: String, words: String) throws {
+        try withStatement("INSERT OR REPLACE INTO search (key, stamp, words) VALUES (?, ?, ?);", bind: { s in
+            bindText(s, 1, key); bindText(s, 2, stamp); bindText(s, 3, words)
+        }) { s in
+            guard sqlite3_step(s) == SQLITE_DONE else { throw StoreError.sqlite(String(cString: sqlite3_errmsg(db))) }
+        }
+    }
+
+    public func deleteSearch(keys: some Collection<String>) throws {
+        for key in keys {
+            try withStatement("DELETE FROM search WHERE key = ?;", bind: { bindText($0, 1, key) }) { _ = sqlite3_step($0) }
+        }
     }
 
     // MARK: - Meta

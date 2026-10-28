@@ -43,6 +43,8 @@ struct GalleryEntry: Identifiable, Equatable, Hashable {
 enum GalleryFilter: Hashable {
     case videos, livePhotos, favorites, cloudOnly, notBackedUp
     case album(title: String, localIds: Set<String>)
+    /// Search results and other fixed sets of timeline entries, by entry id.
+    case matching(title: String, ids: Set<String>)
 
     var title: String {
         switch self {
@@ -52,6 +54,7 @@ enum GalleryFilter: Hashable {
         case .cloudOnly: return "Only in the cloud"
         case .notBackedUp: return "Not backed up"
         case .album(let t, _): return t
+        case .matching(let t, _): return t
         }
     }
 
@@ -62,6 +65,7 @@ enum GalleryFilter: Hashable {
         case .favorites: return e.asset?.isFavorite == true || e.item?.favorite == true
         case .cloudOnly: return e.isCloudOnly
         case .notBackedUp: return [.phoneOnly, .waiting, .failed].contains(e.badge)
+        case .matching(_, let ids): return ids.contains(e.id)
         case .album(let title, let ids):
             return e.asset.map { ids.contains($0.localIdentifier) } == true || e.item?.albums?.contains(title) == true
         }

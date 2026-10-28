@@ -16,6 +16,9 @@ struct RootView: View {
                     AlbumsView()
                         .tabItem { Label("Albums", systemImage: "rectangle.stack") }
                         .tag(AppModel.Tab.albums)
+                    SearchView()
+                        .tabItem { Label("Search", systemImage: "magnifyingglass") }
+                        .tag(AppModel.Tab.search)
                     BackupDashboardView()
                         .tabItem { Label("Backup", systemImage: "icloud.and.arrow.up") }
                         .tag(AppModel.Tab.backup)

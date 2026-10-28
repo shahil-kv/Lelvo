@@ -108,6 +108,8 @@ struct GalleryView: View {
     private var filterSize: Int {
         switch filter {
         case .album(_, let ids)?: return ids.count
+        // A new search with as many results must still refresh the grid.
+        case .matching(_, let ids)?: return ids.hashValue
         case nil: return -1
         default: return 0
         }
