@@ -44,6 +44,7 @@ struct MemvoApp: App {
                 env.td.start()
                 Task { await env.enforceCacheLimits() }
                 Task.detached(priority: .utility) { await GalleryActions.emptyExpiredTrash() }
+                env.search.indexInForeground()
                 Task.detached(priority: .utility) {
                     guard env.library.needsRepairScan, (try? await env.td.waitUntilReady(timeout: 30)) != nil else { return }
                     _ = try? await env.library.scan(full: true)
@@ -64,6 +65,7 @@ struct MemvoApp: App {
                 // Cheap no-op unless restored items are still unlinked (e.g. right after a reinstall).
                 Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
             case .background:
+                env.search.stopForeground()
                 env.originalsCache.flush()
                 env.thumbnailCache.flush()
                 if model.onboardingComplete { BackgroundTasks.scheduleAll() }

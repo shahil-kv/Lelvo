@@ -36,7 +36,7 @@ struct GalleryView: View {
     private struct FilterKey: Equatable { let revision: Int; let grouping: GalleryModel.Grouping; let size: Int }
 
     var body: some View {
-        if embedInNavigation { NavigationStack { content } } else { content }
+        if embedInNavigation { NavigationStack { content.settingsButton() } } else { content }
     }
 
     private var content: some View {
@@ -108,6 +108,8 @@ struct GalleryView: View {
     private var filterSize: Int {
         switch filter {
         case .album(_, let ids)?: return ids.count
+        // A new search with as many results must still refresh the grid.
+        case .matching(_, let ids)?: return ids.hashValue
         case nil: return -1
         default: return 0
         }
@@ -197,6 +199,7 @@ struct GalleryView: View {
                 } label: { Image(systemName: "square.grid.3x3") }
                 .accessibilityLabel("Grid size")
             }
+
         }
     }
 
