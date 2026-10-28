@@ -399,3 +399,15 @@ actor TimelineSource {
         assets = patched
     }
 }
+
+extension LibraryStore {
+    /// The backed-up items the timeline shows as cloud-only, by the same rule as `GalleryModel.merge`: not hidden, and
+    /// with no photo on this device, neither their own nor a copy linked to them (aliases). Search and Similar Photos
+    /// must use this too: a backup whose copy is on the phone listed as its own photo could be trashed as a "duplicate".
+    func cloudOnlyItems(present: Set<String>) -> [MediaItem] {
+        let linked = Set(((try? aliases()) ?? []).filter { present.contains($0.localIdentifier) }.map(\.itemId))
+        return ((try? items(status: .backedUp)) ?? []).filter { item in
+            item.hidden != true && !linked.contains(item.id) && (item.localIdentifier.map { !present.contains($0) } ?? true)
+        }
+    }
+}

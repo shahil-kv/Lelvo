@@ -19,6 +19,7 @@ final class AppEnvironment: @unchecked Sendable {
     private(set) var engine: BackupEngine!
     private(set) var media: CloudMediaService!
     private(set) var freeUpSpace: FreeUpSpaceService!
+    private(set) var similar: SimilarPhotosService!
 
     private init() {
         Prefs.registerDefaults()
@@ -49,6 +50,7 @@ final class AppEnvironment: @unchecked Sendable {
         engine = BackupEngine(environment: self)
         media = CloudMediaService(environment: self)
         freeUpSpace = FreeUpSpaceService(environment: self)
+        similar = SimilarPhotosService(photos: photos, store: store, media: { [unowned self] in self.media })
     }
 
     /// Signed in to Telegram, library chosen and (if encrypted) unlocked.
