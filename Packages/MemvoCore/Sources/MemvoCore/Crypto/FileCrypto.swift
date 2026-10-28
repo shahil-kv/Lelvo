@@ -57,16 +57,55 @@ public enum FileCrypto {
         }
     }
 
+    /// Where an interrupted encrypted upload stopped: enough to make the rest of the same ciphertext. Chunk boundaries
+    /// don't line up with part boundaries (the header shifts them by 25 bytes), so the chunk crossing the cut is sealed
+    /// again with its old nonce, which gives the very same bytes. That is only safe for the very same plaintext: reusing
+    /// a GCM nonce for other bytes gives the key away, hence `plaintextHash`. Nothing here is secret: the salt and
+    /// nonces are stored in the clear in the uploaded parts.
+    public struct ResumePoint: Codable, Equatable, Sendable {
+        /// Ciphertext bytes already uploaded.
+        public let cipherOffset: Int64
+        public let chunkSize: Int
+        public let fileSalt: Data
+        /// Nonce of the chunk crossing `cipherOffset`; nil when a chunk starts exactly there.
+        public let nonce: Data?
+        /// SHA-256 (hex) of the plaintext, set by the caller and checked before resuming.
+        public let plaintextHash: String
+
+        public init(cipherOffset: Int64, chunkSize: Int, fileSalt: Data, nonce: Data?, plaintextHash: String) {
+            self.cipherOffset = cipherOffset
+            self.chunkSize = chunkSize
+            self.fileSalt = fileSalt
+            self.nonce = nonce
+            self.plaintextHash = plaintextHash
+        }
+
+        /// True when the parts confirmed so far (their sizes, in order) end exactly here and the file and its
+        /// encryption are the same as before. Anything else starts over.
+        public func continues(partSizes: [Int64], layout: PartLayout, chunkSize: Int, plaintextHash: String) -> Bool {
+            guard !partSizes.isEmpty, partSizes.count < layout.partCount,
+                  chunkSize == self.chunkSize, plaintextHash == self.plaintextHash, fileSalt.count == 16,
+                  partSizes.enumerated().allSatisfy({ $0.element == layout.size(ofPart: $0.offset) }) else { return false }
+            return cipherOffset == partSizes.reduce(0, +)
+        }
+    }
+
     /// The CGFE ciphertext of a file, produced in order as it's read, so a caller can write it straight into split parts
     /// (one part on disk at a time) instead of encrypting a whole copy first: a 4 GB video in an encrypted library needed
     /// about 10 GB free. The bytes are exactly those `encrypt(input:output:…)` writes.
     public final class Encryptor {
         private let reader: FileHandle
         private let header: Data
+        private let fileSalt: Data
         private let key: SymmetricKey
         private let chunkSize: Int
         private let nonces: [Data]?
         private var index: UInt64 = 0
+        /// Ciphertext bytes handed out so far, counted from the start of the file.
+        private var offset: Int64 = 0
+        /// When resuming: the nonce for the first chunk sealed, and how many of its bytes were uploaded already.
+        private var resumeNonce: AES.GCM.Nonce?
+        private var resumeSkip = 0
         /// Sealed bytes not handed out yet, from `pendingStart`.
         private var pending: Data
         private var pendingStart = 0
@@ -80,6 +119,14 @@ public enum FileCrypto {
             try self.init(input: input, masterKey: masterKey, chunkSize: chunkSize, fileSalt: KeyDerivation.randomSalt(), nonces: nil)
         }
 
+        /// Continues the ciphertext of an earlier `Encryptor` from `point`: the bytes read are exactly those that
+        /// encryptor would have produced after `point.cipherOffset`, apart from the nonces of whole chunks, which are new.
+        /// The caller checks that `input` is the same plaintext (`point.plaintextHash`).
+        public convenience init(input: URL, masterKey: SymmetricKey, resumingAt point: ResumePoint) throws {
+            try self.init(input: input, masterKey: masterKey, chunkSize: point.chunkSize, fileSalt: point.fileSalt, nonces: nil)
+            try resume(at: point)
+        }
+
         init(input: URL, masterKey: SymmetricKey, chunkSize: Int, fileSalt: Data, nonces: [Data]?) throws {
             reader = try FileHandle(forReadingFrom: input)
             let size = Int64(try reader.seekToEnd())
@@ -90,6 +137,7 @@ public enum FileCrypto {
             header.append(contentsOf: withUnsafeBytes(of: UInt32(chunkSize).bigEndian) { Array($0) })
             header.append(fileSalt)
             self.header = header
+            self.fileSalt = fileSalt
             self.key = fileKey(master: masterKey, salt: fileSalt)
             self.chunkSize = chunkSize
             self.nonces = nonces
@@ -101,7 +149,50 @@ public enum FileCrypto {
             try Encryptor(input: input, masterKey: masterKey, chunkSize: chunkSize, fileSalt: fileSalt, nonces: nonces)
         }
 
+        /// Same as `init(input:masterKey:resumingAt:)` with fixed nonces for the chunks after the cut, for tests only.
+        public static func forTesting(input: URL, masterKey: SymmetricKey, resumingAt point: ResumePoint, nonces: [Data]) throws -> Encryptor {
+            let encryptor = try Encryptor(input: input, masterKey: masterKey, chunkSize: point.chunkSize, fileSalt: point.fileSalt, nonces: nonces)
+            try encryptor.resume(at: point)
+            return encryptor
+        }
+
         deinit { try? reader.close() }
+
+        /// Where the bytes read so far end, to resume from there later.
+        public func resumePoint(plaintextHash: String) -> ResumePoint {
+            // Inside a sealed chunk, `pending` holds it and starts with its nonce. Resumed with nothing read yet, the
+            // cut is still the earlier point's.
+            let insideChunk = offset > Int64(headerLength) && pendingStart < pending.count
+            let nonce = resumeNonce.map { $0.withUnsafeBytes { Data($0) } } ?? (insideChunk ? Data(pending.prefix(12)) : nil)
+            return ResumePoint(cipherOffset: offset, chunkSize: chunkSize, fileSalt: fileSalt, nonce: nonce,
+                               plaintextHash: plaintextHash)
+        }
+
+        private func resume(at point: ResumePoint) throws {
+            guard point.cipherOffset >= 0, point.cipherOffset <= cipherSize else { throw CryptoError.badFormat }
+            offset = point.cipherOffset
+            if point.cipherOffset == cipherSize {
+                pending = Data()
+                pendingStart = 0
+                finished = true
+                return
+            }
+            if point.cipherOffset < Int64(headerLength) {
+                pendingStart = Int(point.cipherOffset)
+                return
+            }
+            let sealed = Int64(chunkSize + overheadPerChunk)
+            let into = point.cipherOffset - Int64(headerLength)
+            index = UInt64(into / sealed)
+            resumeSkip = Int(into % sealed)
+            if resumeSkip > 0 {
+                guard let nonce = point.nonce else { throw CryptoError.badFormat }
+                resumeNonce = try AES.GCM.Nonce(data: nonce)
+            }
+            try reader.seek(toOffset: index * UInt64(chunkSize))
+            pending = Data()
+            pendingStart = 0
+        }
 
         /// Up to `count` more ciphertext bytes; empty once everything was read.
         public func read(upToCount count: Int) throws -> Data {
@@ -114,6 +205,7 @@ public enum FileCrypto {
                 out.append(pending[pending.startIndex + pendingStart ..< pending.startIndex + pendingStart + n])
                 pendingStart += n
             }
+            offset += Int64(out.count)
             return out
         }
 
@@ -124,11 +216,13 @@ public enum FileCrypto {
             let chunk = try current ?? (reader.read(upToCount: chunkSize) ?? Data())
             let next = chunk.count == chunkSize ? (try reader.read(upToCount: chunkSize) ?? Data()) : Data()
             let isFinal = next.isEmpty
-            let nonce = try nonces.map { try AES.GCM.Nonce(data: $0[Int(index)]) } ?? AES.GCM.Nonce()
+            let nonce = try resumeNonce ?? nonces.map { try AES.GCM.Nonce(data: $0[Int(index)]) } ?? AES.GCM.Nonce()
             let box = try AES.GCM.seal(chunk, using: key, nonce: nonce, authenticating: aad(header: header, index: index, final: isFinal))
             guard let combined = box.combined else { throw CryptoError.badFormat }
             pending = combined
-            pendingStart = 0
+            pendingStart = resumeSkip
+            resumeNonce = nil
+            resumeSkip = 0
             current = next
             index += 1
             finished = isFinal

@@ -431,7 +431,8 @@ final class TDService: @unchecked Sendable {
 
     /// Per-file upload limit: 4000 MiB with Premium, otherwise 2000 MiB.
     func uploadLimit() async -> Int64 {
-        (try? await me())?.isPremium == true ? PartLayout.premiumLimit : PartLayout.standardLimit
+        if let limit = UITestSupport.uploadLimitOverride { return limit }
+        return (try? await me())?.isPremium == true ? PartLayout.premiumLimit : PartLayout.standardLimit
     }
 
     // MARK: - Chats

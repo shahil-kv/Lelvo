@@ -117,6 +117,9 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var roleNames: [String: String]?
     /// When the user deleted it from the cloud (status `trashed`); its messages go 30 days later.
     public var trashedAt: Date?
+    /// Per caption role: where an interrupted encrypted upload stopped, so a retry sends only the missing parts.
+    /// Cleared with the parts. Local only.
+    public var uploadResume: [String: FileCrypto.ResumePoint]?
 
     /// Ids are lowercase, like the caption `id` field, so a channel scan matches the local item.
     public init(id: String = UUID().uuidString.lowercased(), localIdentifier: String?, sha256: String, filename: String,
@@ -198,7 +201,10 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
         }
     }
 
-    public mutating func setParts(_ files: [RemoteFile], role: String, expected: Int) {
+    public mutating func setParts(_ files: [RemoteFile], role: String, expected: Int, resume: FileCrypto.ResumePoint? = nil) {
+        var points = uploadResume ?? [:]
+        points[role] = files.isEmpty || files.count >= expected ? nil : resume
+        uploadResume = points.isEmpty ? nil : points
         var all = cloudParts ?? [:]
         all[role] = files
         cloudParts = all
