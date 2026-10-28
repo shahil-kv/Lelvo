@@ -9,7 +9,7 @@ enum SidebarItem: Hashable {
     case smart(String)
     case album(String)
     case backup, recentlyDeleted
-    case search, map
+    case search, map, memories
 
     var title: String {
         switch self {
@@ -24,6 +24,7 @@ enum SidebarItem: Hashable {
         case .recentlyDeleted: return "Recently Deleted"
         case .search: return "Search"
         case .map: return "Map"
+        case .memories: return "Memories"
         }
     }
 
@@ -41,6 +42,7 @@ enum SidebarItem: Hashable {
         case .recentlyDeleted: return "trash"
         case .search: return "magnifyingglass"
         case .map: return "map"
+        case .memories: return "sparkles"
         }
     }
 
@@ -94,7 +96,7 @@ final class MacLibraryIndex: ObservableObject {
 
     func filter(for item: SidebarItem) -> GalleryFilter? {
         switch item {
-        case .library, .backup, .recentlyDeleted, .search, .map: return nil
+        case .library, .backup, .recentlyDeleted, .search, .map, .memories: return nil
         case .favorites: return .favorites
         case .videos: return .videos
         case .livePhotos: return .livePhotos
@@ -158,6 +160,7 @@ struct MainWindowView: View {
     @StateObject private var gallery = GalleryModel()
     @StateObject private var index = MacLibraryIndex()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @StateObject private var memories = MemoriesModel()
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -183,6 +186,8 @@ struct MainWindowView: View {
             MacSearchView()
         case .map:
             NavigationStack { PhotoMapView { filter in MacGalleryView(item: .map, filter: filter) } }
+        case .memories:
+            NavigationStack { MemoriesView(model: memories) { filter in MacGalleryView(item: .memories, filter: filter) } }
         case let item:
             MacGalleryView(item: item, filter: index.filter(for: item))
                 .id(item)
@@ -203,6 +208,7 @@ struct MacSidebar: View {
         List(selection: $navigation.selection) {
             Section("Photos") {
                 row(.library)
+                row(.memories)
                 row(.search)
                 row(.map)
                 row(.favorites)

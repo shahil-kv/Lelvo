@@ -25,6 +25,7 @@ struct GalleryView: View {
     @State private var scrubToken = 0
     /// Bumped when the filtered timeline is recomputed, so the grid knows its data changed.
     @State private var filteredVersion = 0
+    @StateObject private var memories = MemoriesModel()
 
     private var grouping: GalleryModel.Grouping { GalleryModel.Grouping(columns: columns) }
     /// The timeline is already grouped by the model; filtered views (albums, Videos…) are computed once per
@@ -66,6 +67,9 @@ struct GalleryView: View {
             }
         }
         .task { if !model.loaded { await model.reload() } }
+        .task(id: filter == nil ? model.revision : -1) {
+            if filter == nil, model.loaded { await memories.refresh(entries: model.entries, revision: model.revision) }
+        }
         .task(id: FilterKey(revision: model.revision, grouping: grouping, size: filterSize)) {
             let source = model.entries
             let filter = self.filter
@@ -198,6 +202,20 @@ struct GalleryView: View {
                     Button { showLegend = true } label: { Label("What the icons mean", systemImage: "info.circle") }
                 } label: { Image(systemName: "square.grid.3x3") }
                 .accessibilityLabel("Grid size")
+            }
+            if filter == nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        MemoriesView(model: memories) { f in GalleryView(filter: f, embedInNavigation: false) }
+                    } label: {
+                        // A dot when there are photos from this day in earlier years, like Photos' For You badge.
+                        Image(systemName: "sparkles")
+                            .overlay(alignment: .topTrailing) {
+                                if memories.hasOnThisDay { Circle().fill(.red).frame(width: 7, height: 7).offset(x: 3, y: -2) }
+                            }
+                    }
+                    .accessibilityLabel(memories.hasOnThisDay ? "Memories, new on this day" : "Memories")
+                }
             }
         }
     }

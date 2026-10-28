@@ -69,6 +69,11 @@ final class SearchService: @unchecked Sendable {
         return (placeCounts.sorted { ($0.value, $1.key) > ($1.value, $0.key) }.prefix(limit).map(\.key), Array(monthOrder.prefix(limit)))
     }
 
+    /// The name found for a `SearchMatcher.placeCell` (first part, e.g. the city), if it was looked up.
+    func placeName(cell: String) -> String? {
+        loadPlaces()[cell]?.split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
     private static func cell(_ e: GalleryEntry) -> String? {
         if let loc = e.asset?.location { return SearchMatcher.placeCell(latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude) }
         if let item = e.item, let lat = item.latitude, let lon = item.longitude { return SearchMatcher.placeCell(latitude: lat, longitude: lon) }
@@ -134,8 +139,9 @@ final class SearchService: @unchecked Sendable {
             } else {
                 image = nil
             }
-            let words = image.map(Self.read) ?? ""
-            try? store.setSearch(key: entry.key, stamp: entry.stamp, words: words)
+            let found = image.map(Self.read)
+            try? store.setSearch(key: entry.key, stamp: entry.stamp, words: found?.words ?? "", things: found?.things ?? [],
+                                 score: found?.score, utility: found?.utility ?? false)
             done += 1
             status = (work.count - todo.count + done, work.count)
             if done % 50 == 0 { NotificationCenter.default.post(name: Self.didIndex, object: nil) }
@@ -172,16 +178,29 @@ final class SearchService: @unchecked Sendable {
         }
     }
 
-    /// Text in the photo and the things and scenes Vision recognises, on the device.
-    private static func read(_ image: CGImage) -> String {
+    /// Text in the photo, the things and scenes Vision recognises, and (iOS 18 and macOS 15 on) how good it looks and
+    /// whether it's a screenshot or document, all on the device.
+    private static func read(_ image: CGImage) -> (words: String, things: [String], score: Double?, utility: Bool) {
         let text = VNRecognizeTextRequest()
         text.recognitionLevel = .accurate
         text.usesLanguageCorrection = true
         let things = VNClassifyImageRequest()
-        try? VNImageRequestHandler(cgImage: image).perform([text, things])
+        var requests: [VNRequest] = [text, things]
+        var aesthetics: VNRequest?
+        if #available(iOS 18.0, macOS 15.0, *) {
+            let r = VNCalculateImageAestheticsScoresRequest()
+            aesthetics = r
+            requests.append(r)
+        }
+        try? VNImageRequestHandler(cgImage: image).perform(requests)
         let lines = (text.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-        let labels = (things.results ?? []).filter { $0.confidence >= 0.35 }.prefix(10).map(\.identifier)
-        return SearchMatcher.storedWords(text: lines, things: Array(labels))
+        let labels = Array((things.results ?? []).filter { $0.confidence >= 0.35 }.prefix(10).map(\.identifier))
+        var score: Double?, utility = false
+        if #available(iOS 18.0, macOS 15.0, *), let r = (aesthetics as? VNCalculateImageAestheticsScoresRequest)?.results?.first {
+            score = Double(r.overallScore)
+            utility = r.isUtility
+        }
+        return (SearchMatcher.storedWords(text: lines, things: labels), labels, score, utility)
     }
 
     /// Big enough to read text in, from what's on the device (nothing is downloaded from iCloud Photos for this).

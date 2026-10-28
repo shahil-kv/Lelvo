@@ -63,6 +63,10 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    NavigationLink("Memories") { MemoriesSettingsView() }
+                }
+
+                Section {
                     NavigationLink { StorageSettingsView() } label: {
                         LabeledContent("Storage", value: usage.map { Format.bytes($0.thumbnails + $0.originals + $0.telegram) } ?? "…")
                     }

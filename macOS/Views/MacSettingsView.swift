@@ -14,6 +14,7 @@ struct MacSettingsView: View {
             Tab("Libraries", systemImage: "photo.stack") {
                 NavigationStack { LibrarySettingsView() }
             }
+            Tab("Memories", systemImage: "sparkles") { MemoriesSettingsView() }
             Tab("Storage", systemImage: "internaldrive") { StorageSettingsView().formStyle(.grouped) }
             Tab("Export", systemImage: "square.and.arrow.down.on.square") { ExportLibraryView().formStyle(.grouped) }
             Tab("Logs", systemImage: "doc.text.magnifyingglass") { NavigationStack { LogsView() } }
