@@ -37,8 +37,10 @@ final class SmokeTests: XCTestCase {
         for _ in 0..<6 { scroll.swipeUp(velocity: .fast) }
         for _ in 0..<3 { scroll.swipeDown(velocity: .fast) }
         XCTAssertEqual(app.state, .runningForeground)
-        app.buttons["Albums"].firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["Albums"].waitForExistence(timeout: 20))
+        app.buttons["Collections"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Collections"].waitForExistence(timeout: 20))
+        // Settings opens from the gear in Photos.
+        app.buttons["Photos"].firstMatch.tap()
         app.buttons["Settings"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 20))
     }

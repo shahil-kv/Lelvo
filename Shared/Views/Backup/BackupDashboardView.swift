@@ -211,6 +211,9 @@ struct BackupDashboardView: View {
                 }
             }
             .navigationTitle("Backup")
+            #if os(iOS)
+            .settingsButton()
+            #endif
             .navigationDestination(isPresented: $app.showFreeUpSpace) { FreeUpSpaceView() }
             .refreshable { stats.refresh() }
             .onAppear { stats.refresh() }

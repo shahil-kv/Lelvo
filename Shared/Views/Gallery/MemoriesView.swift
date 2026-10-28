@@ -159,6 +159,35 @@ struct MemoriesView<Destination: View>: View {
     }
 }
 
+/// A memory's cover with its title, filling whatever frame it's given (Collections' row).
+struct MemoryCover: View {
+    let card: MemoriesModel.Card
+    let cover: GalleryEntry?
+    @State private var image: PlatformImage?
+
+    var body: some View {
+        Color.tileBackground
+            .overlay { if let image { Image(platformImage: image).resizable().scaledToFill() } }
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(card.title).font(.subheadline.bold()).lineLimit(2)
+                    Text(card.subtitle).font(.caption2).lineLimit(1)
+                }
+                .foregroundStyle(.white)
+                .shadow(radius: 3)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .task(id: cover?.id) {
+                guard let cover else { return }
+                for await img in ThumbnailPipeline.shared.images(for: cover, pixels: 450) { image = img }
+            }
+    }
+}
+
 private struct MemoryCard: View {
     let card: MemoriesModel.Card
     let cover: GalleryEntry?

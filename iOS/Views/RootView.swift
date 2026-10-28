@@ -5,6 +5,7 @@ struct RootView: View {
     @EnvironmentObject private var activity: BackupActivity
     @AppStorage(Prefs.Key.keepAwakeDuringBackup) private var keepAwake = true
     @StateObject private var gallery = GalleryModel()
+    @StateObject private var memories = MemoriesModel()
 
     var body: some View {
         Group {
@@ -13,20 +14,20 @@ struct RootView: View {
                     GalleryView()
                         .tabItem { Label("Photos", systemImage: "photo.on.rectangle") }
                         .tag(AppModel.Tab.gallery)
+                    // Four tabs like Google Photos; Settings opens from the gear in Photos.
                     AlbumsView()
-                        .tabItem { Label("Albums", systemImage: "rectangle.stack") }
-                        .tag(AppModel.Tab.albums)
+                        .tabItem { Label("Collections", systemImage: "rectangle.stack") }
+                        .tag(AppModel.Tab.collections)
                     SearchView()
                         .tabItem { Label("Search", systemImage: "magnifyingglass") }
                         .tag(AppModel.Tab.search)
                     BackupDashboardView()
                         .tabItem { Label("Backup", systemImage: "icloud.and.arrow.up") }
                         .tag(AppModel.Tab.backup)
-                    SettingsView()
-                        .tabItem { Label("Settings", systemImage: "gearshape") }
-                        .tag(AppModel.Tab.settings)
                 }
                 .environmentObject(gallery)
+                .environmentObject(memories)
+                .task(id: gallery.revision) { if gallery.loaded { await memories.refresh(entries: gallery.entries, revision: gallery.revision) } }
                 .safeAreaInset(edge: .top, spacing: 0) { if DemoMode.isActive { DemoBanner() } }
                 .fullScreenCover(isPresented: $model.needsSignIn) {
                     OnboardingView().environmentObject(model)
