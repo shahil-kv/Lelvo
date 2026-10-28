@@ -70,8 +70,8 @@ final class RecentlyDeletedTests: XCTestCase {
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "count == %d", before - 1), object: grid.cells)
         wait(for: [gone], timeout: 15)
 
-        // It waits in Albums → Recently Deleted with 30 days left.
-        app.buttons["Albums"].firstMatch.tap()
+        // It waits in Collections → Recently Deleted with 30 days left.
+        app.buttons["Collections"].firstMatch.tap()
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Recently Deleted, 1")).firstMatch
         for _ in 0..<4 where !row.isHittable { app.swipeUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 10))

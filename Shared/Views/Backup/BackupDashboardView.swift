@@ -211,6 +211,9 @@ struct BackupDashboardView: View {
                 }
             }
             .navigationTitle("Backup")
+            #if os(iOS)
+            .settingsButton()
+            #endif
             .navigationDestination(isPresented: $app.showFreeUpSpace) { FreeUpSpaceView() }
             .refreshable { stats.refresh() }
             .onAppear { stats.refresh() }
@@ -362,6 +365,10 @@ struct DuplicatesView: View {
     @State private var busy: String?
     @State private var alert: GalleryAlert?
     @State private var confirmCloud = false
+    @State private var similar: [SimilarPhotosService.Group] = []
+    @State private var similarProgress: (done: Int, total: Int)?
+    @State private var selectedSimilar = Set<String>()
+    @State private var confirmSimilar = false
     private var env: AppEnvironment { AppEnvironment.shared }
 
     var body: some View {
@@ -431,12 +438,14 @@ struct DuplicatesView: View {
                     Text("Identical copies of photos that are already backed up. Deleting a copy moves it to Recently Deleted; the backup isn't affected.")
                 }
             }
+
+            similarSection
         }
         .platformGroupedForm()
         .overlay {
             if loading {
                 ProgressView("Looking for duplicates…")
-            } else if messageDuplicates.isEmpty && cloudGroups.isEmpty && phoneGroups.isEmpty {
+            } else if messageDuplicates.isEmpty && cloudGroups.isEmpty && phoneGroups.isEmpty && similar.isEmpty && similarProgress == nil {
                 EmptyStateView(systemImage: "checkmark.circle", title: "No Duplicates",
                                message: "Nothing is stored twice in your library or on this \(Device.name).")
             }
@@ -447,8 +456,19 @@ struct DuplicatesView: View {
             if let busy { ProgressView(busy).padding(20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) }
         }
         .task { await load() }
-        .refreshable { await load() }
+        .task { await findSimilar() }
+        .refreshable { await load(); await findSimilar() }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
+        .alert("Delete \(selectedSimilar.count) similar photos?", isPresented: $confirmSimilar) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) { deleteSimilar() }
+        } message: {
+            let chosen = similar.flatMap(\.entries).filter { selectedSimilar.contains($0.id) }
+            let unsafe = chosen.filter { $0.asset != nil && $0.item?.status != .backedUp }.count
+            Text(unsafe > 0
+                 ? "\(unsafe) of these are not backed up yet and are lost once Recently Deleted in Photos is emptied."
+                 : "Photos on this \(Device.name) go to Recently Deleted in Photos; photos only in your Telegram library go to Recently Deleted in Memvo.")
+        }
         .alert("Remove extra copies?", isPresented: $confirmCloud) {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) { removeCloud() }
@@ -468,6 +488,103 @@ struct DuplicatesView: View {
         phoneGroups = p
         selectedCopies = selectedCopies.intersection(Set(p.flatMap(\.copies)))
         loading = false
+    }
+
+    // MARK: - Similar photos (#15)
+
+    @ViewBuilder private var similarSection: some View {
+        if let p = similarProgress {
+            Section("Similar Photos") {
+                ProgressView(value: Double(p.done), total: Double(max(p.total, 1))) {
+                    Text("Comparing photos taken close together…")
+                } currentValueLabel: {
+                    Text("\(p.done) of \(p.total)")
+                }
+            }
+        } else if !similar.isEmpty {
+            Section {
+                ForEach(similar) { g in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(spacing: 8) {
+                            ForEach(g.entries, id: \.id) { entry in similarTile(entry, isBest: entry.id == g.best) }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                HStack {
+                    // Photos not backed up are never chosen for you: select them one by one if you mean it.
+                    Button("Select all but the best") {
+                        selectedSimilar = Set(similar.flatMap { g in
+                            g.entries.filter { $0.id != g.best && !(($0.asset != nil) && $0.item?.status != .backedUp) }.map(\.id)
+                        })
+                    }
+                    Spacer()
+                    Button(role: .destructive) { confirmSimilar = true } label: { Text("Delete \(selectedSimilar.count)") }
+                        .disabled(selectedSimilar.isEmpty)
+                }
+                .buttonStyle(.borderless)
+            } header: { Text("Similar Photos") } footer: {
+                Text("Photos taken moments apart that look almost the same. The suggested one to keep is marked Best. Photos on this \(Device.name) go to Recently Deleted in Photos; photos only in your Telegram library go to Recently Deleted in Memvo.")
+            }
+        }
+    }
+
+    private func similarTile(_ entry: GalleryEntry, isBest: Bool) -> some View {
+        let id = entry.id
+        let selected = selectedSimilar.contains(id)
+        let notBackedUp = entry.asset != nil && entry.item?.status != .backedUp
+        return SimilarThumb(entry: entry)
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected ? Color.accentColor : .white).padding(4)
+            }
+            .overlay(alignment: .bottomLeading) {
+                if isBest {
+                    Text("Best").font(.caption2.bold()).padding(4).background(.black.opacity(0.6), in: Capsule()).padding(4).foregroundStyle(.white)
+                } else if notBackedUp {
+                    Image(systemName: "icloud.slash").font(.caption2.bold()).padding(4).background(.black.opacity(0.6), in: Capsule())
+                        .padding(4).foregroundStyle(.white)
+                } else if entry.asset == nil {
+                    Image(systemName: "icloud").font(.caption2.bold()).padding(4).background(.black.opacity(0.6), in: Capsule())
+                        .padding(4).foregroundStyle(.white)
+                }
+            }
+            .onTapGesture { if selected { selectedSimilar.remove(id) } else { selectedSimilar.insert(id) } }
+            .accessibilityLabel("\(isBest ? "Best photo" : "Photo")\(notBackedUp ? ", not backed up" : "")\(entry.asset == nil ? ", only in the cloud" : "")\(selected ? ", selected" : "")")
+            .accessibilityAddTraits(.isButton)
+    }
+
+    private func findSimilar() async {
+        guard similarProgress == nil else { return }
+        similarProgress = (0, 0)
+        // Runs in the view's task, so leaving Duplicates stops the comparing.
+        let found = await env.similar.find { done, total in Task { @MainActor in if similarProgress != nil { similarProgress = (done, total) } } }
+        similarProgress = nil
+        guard !Task.isCancelled else { return }
+        similar = found
+        selectedSimilar = selectedSimilar.intersection(Set(similar.flatMap { $0.entries.map(\.id) }))
+    }
+
+    private func deleteSimilar() {
+        let chosen = similar.flatMap(\.entries).filter { selectedSimilar.contains($0.id) }
+        let onDevice = chosen.compactMap(\.asset).map(\.localIdentifier)
+        let cloudOnly = chosen.filter { $0.asset == nil }.compactMap(\.item)
+        Task {
+            do {
+                // Photos asks to confirm too and keeps them in its Recently Deleted.
+                if !onDevice.isEmpty { try await env.photos.deleteAssets(onDevice) }
+                if !cloudOnly.isEmpty { try await GalleryActions.deleteFromCloud(cloudOnly) }
+                Haptics.success()
+                appLog("Deleted \(onDevice.count) similar photos from this \(Device.name) and moved \(cloudOnly.count) to Recently Deleted")
+                selectedSimilar.removeAll()
+            } catch let error as NSError where error.domain == PHPhotosErrorDomain && error.code == PHPhotosError.userCancelled.rawValue {
+                // The user said no to Photos' own confirmation.
+            } catch {
+                AppLog.shared.error("Deleting similar photos failed: \(error.localizedDescription)")
+                alert = GalleryAlert(title: "Couldn't delete", message: error.localizedDescription)
+            }
+            await findSimilar()
+        }
     }
 
     private func removeCloud() {
@@ -498,6 +615,21 @@ struct DuplicatesView: View {
             }
             await load()
         }
+    }
+}
+
+private struct SimilarThumb: View {
+    let entry: GalleryEntry
+    @State private var image: PlatformImage?
+
+    var body: some View {
+        Color.tileBackground
+            .frame(width: 88, height: 88)
+            .overlay { if let image { Image(platformImage: image).resizable().scaledToFill() } }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .task(id: entry.id) {
+                for await img in ThumbnailPipeline.shared.images(for: entry, pixels: 264) { image = img }
+            }
     }
 }
 

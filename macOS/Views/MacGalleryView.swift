@@ -128,6 +128,7 @@ struct MacGalleryView: View {
 
     private var filterSize: Int {
         if case .album(_, let ids)? = filter { return ids.count }
+        if case .matching(_, let ids)? = filter { return ids.hashValue }
         return -1
     }
 

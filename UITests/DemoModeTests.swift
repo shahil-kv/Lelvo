@@ -78,7 +78,7 @@ final class DemoModeTests: XCTestCase {
         let allSix = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Today, 6 items")).firstMatch
         XCTAssertTrue(allSix.waitForExistence(timeout: 30), "The uploaded items join the timeline")
 
-        // Settings shows the demo account; signing out returns to the welcome screen.
+        // Settings (the gear in Photos) shows the demo account; signing out returns to the welcome screen.
         app.buttons["Settings"].firstMatch.tap()
         let account = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Demo account")).firstMatch
         XCTAssertTrue(account.waitForExistence(timeout: 10))

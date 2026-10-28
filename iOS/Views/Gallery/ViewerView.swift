@@ -284,6 +284,8 @@ struct ViewerPage: View {
     @State private var poster: UIImage?
     @State private var videoReady = false
     @State private var trace: VideoTrace?
+    /// The side last double-tapped to skip (-1 back, 1 forward), shown for a moment.
+    @State private var skipShown: (side: Int, id: UUID)?
 
     var body: some View {
         ZStack {
@@ -296,7 +298,8 @@ struct ViewerPage: View {
             case .live(let live):
                 LivePhotoView(livePhoto: live)
             case .video(let player):
-                PlayerView(player: player, zoomed: $zoomed, onPictureInPicture: { pip = $0 }, onReadyForDisplay: { videoReady = true; trace?.firstFrame() })
+                PlayerView(player: player, zoomed: $zoomed, onPictureInPicture: { pip = $0 }, onReadyForDisplay: { videoReady = true; trace?.firstFrame() },
+                           onSkip: { side in showSkip(side) })
                     .overlay {
                         if !videoReady {
                             ZStack {
@@ -308,6 +311,7 @@ struct ViewerPage: View {
                         }
                     }
                     .overlay { if let session { VideoSwitchingOverlay(session: session) } }
+                    .overlay { if let skipShown { SkipFeedback(side: skipShown.side).id(skipShown.id).allowsHitTesting(false) } }
                     .overlay(alignment: .bottom) {
                         if !chromeHidden { VideoControls(player: player, pip: pip).padding(.bottom, 112).transition(.opacity) }
                     }
@@ -320,6 +324,7 @@ struct ViewerPage: View {
                     .onAppear { if isCurrent { player.play() } }
                     .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }
                     .onDisappear {
+                        rememberPosition(player)
                         player.pause()
                         if session != nil { videos.close(entry.id) }
                         if entry.asset != nil {
@@ -330,7 +335,10 @@ struct ViewerPage: View {
                             content = .loading(poster)
                         }
                     }
-                    .onReceive(NotificationCenter.default.publisher(for: .viewerWillClose)) { _ in player.pause() }
+                    .onReceive(NotificationCenter.default.publisher(for: .viewerWillClose)) { _ in
+                        rememberPosition(player)
+                        player.pause()
+                    }
                     .onReceive(NotificationCenter.default.publisher(for: .viewerCloseCancelled)) { _ in if isCurrent { player.play() } }
             case .unavailable(let reason, let placeholder):
                 VStack(spacing: 16) {
@@ -374,7 +382,9 @@ struct ViewerPage: View {
             if asset.mediaType == .video {
                 if let item = await Self.playerItem(for: asset) {
                     trace = VideoTrace(item: item, name: entry.item?.filename ?? "local video", source: "iPhone")
-                    content = .video(AVPlayer(playerItem: item))
+                    let player = AVPlayer(playerItem: item)
+                    resume(player)
+                    content = .video(player)
                 }
                 else { content = .unavailable("Couldn't load this video.", nil) }
             } else if asset.mediaSubtypes.contains(.photoLive), let live = await Self.livePhoto(for: asset, size: target) {
@@ -461,7 +471,36 @@ struct ViewerPage: View {
             trace = VideoTrace(item: playerItem, name: item.filename,
                                source: s.quality == .original ? "cloud \(Format.bytes(item.fileSize))" : "cloud fast version")
         }
+        resume(s.player)
         content = .video(s.player)
+    }
+
+    // MARK: - Skip and resume (#17)
+
+    private var videoDuration: Double {
+        entry.duration ?? 0
+    }
+
+    /// A long video opens where it was left (`VideoNavigation`), like Photos.
+    private func resume(_ player: AVPlayer) {
+        guard let start = VideoNavigation.resumePosition(saved: PlaybackPositions.position(for: entry.id), duration: videoDuration) else { return }
+        player.seek(to: CMTime(seconds: start, preferredTimescale: 600), toleranceBefore: CMTime(seconds: 0.5, preferredTimescale: 600), toleranceAfter: .zero)
+        appLog("Video resume: \(entry.item?.filename ?? "video") from \(VideoControls.time(start))")
+    }
+
+    private func rememberPosition(_ player: AVPlayer) {
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite, seconds > 0 else { return }
+        PlaybackPositions.record(seconds, duration: videoDuration, for: entry.id)
+    }
+
+    private func showSkip(_ side: Int) {
+        let id = UUID()
+        skipShown = (side, id)
+        Task {
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            if skipShown?.id == id { skipShown = nil }
+        }
     }
 
     /// Zoomed in: replace the screen-size image with up to 4800 px of the original (all of a 12 MP photo; enough of a
@@ -711,6 +750,8 @@ struct PlayerView: UIViewRepresentable {
     var zoomed: Binding<Bool> = .constant(false)
     var onPictureInPicture: (AVPictureInPictureController?) -> Void = { _ in }
     var onReadyForDisplay: () -> Void = {}
+    /// A double-tap near the left or right edge skips back or forward (`VideoNavigation.skip`); the middle zooms.
+    var onSkip: (Int) -> Void = { _ in }
 
     final class LayerView: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
@@ -722,6 +763,8 @@ struct PlayerView: UIViewRepresentable {
         var readyObservation: NSKeyValueObservation?
         var layerView: LayerView?
         var zoomed: Binding<Bool>
+        weak var player: AVPlayer?
+        var onSkip: (Int) -> Void = { _ in }
         init(zoomed: Binding<Bool>) { self.zoomed = zoomed }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { layerView }
@@ -733,8 +776,16 @@ struct PlayerView: UIViewRepresentable {
 
         @objc func doubleTapped(_ g: UITapGestureRecognizer) {
             guard let scroll = g.view as? UIScrollView else { return }
+            let x = g.location(in: scroll).x - scroll.contentOffset.x
+            let side = x < scroll.bounds.width * 0.3 ? -1 : (x > scroll.bounds.width * 0.7 ? 1 : 0)
             if scroll.zoomScale > 1.01 {
                 scroll.setZoomScale(1, animated: true)
+            } else if side != 0, let player, let item = player.currentItem {
+                let target = VideoNavigation.skipTarget(current: player.currentTime().seconds, duration: item.duration.seconds,
+                                                        by: Double(side) * VideoNavigation.skip)
+                player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                            toleranceBefore: CMTime(seconds: 0.25, preferredTimescale: 600), toleranceAfter: CMTime(seconds: 0.25, preferredTimescale: 600))
+                onSkip(side)
             } else {
                 let point = g.location(in: layerView)
                 let size = CGSize(width: scroll.bounds.width / 2.5, height: scroll.bounds.height / 2.5)
@@ -771,6 +822,8 @@ struct PlayerView: UIViewRepresentable {
             view.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor)
         ])
         context.coordinator.layerView = view
+        context.coordinator.player = player
+        context.coordinator.onSkip = onSkip
         let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped(_:)))
         doubleTap.numberOfTapsRequired = 2
         scroll.addGestureRecognizer(doubleTap)
@@ -792,6 +845,8 @@ struct PlayerView: UIViewRepresentable {
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
         context.coordinator.zoomed = zoomed
+        context.coordinator.player = player
+        context.coordinator.onSkip = onSkip
         if let layer = context.coordinator.layerView?.playerLayer, layer.player !== player { layer.player = player }
     }
 }
@@ -828,8 +883,22 @@ struct VideoControls: View {
     private static let speeds: [Float] = [0.5, 1, 1.25, 1.5, 2]
     @State private var scrubbing = false
     @State private var scrubValue: Double = 0
+    @StateObject private var strip = FrameStrip()
 
     var body: some View {
+        VStack(spacing: 10) {
+            if scrubbing, !strip.frames.isEmpty {
+                FrameStripView(frames: strip.frames, position: state.duration > 0 ? scrubValue / state.duration : 0)
+                    .padding(.horizontal, 16)
+                    .transition(.opacity)
+            }
+            bar
+        }
+        .animation(.easeOut(duration: 0.15), value: scrubbing)
+        .onChange(of: scrubbing) { _, now in if now { strip.load(player) } }
+    }
+
+    private var bar: some View {
         HStack(spacing: 12) {
             Button { if state.isPlaying { player.pause() } else { player.play() } } label: {
                 ZStack {
@@ -912,6 +981,89 @@ struct VideoControls: View {
         guard seconds.isFinite else { return "0:00" }
         let s = Int(seconds.rounded(.down))
         return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+/// Frames along the timeline, shown above the scrubber while it's dragged. Made once per video, small and at the nearest
+/// keyframe, so a cloud video only fetches a little around each one.
+@MainActor
+final class FrameStrip: ObservableObject {
+    @Published private(set) var frames: [UIImage] = []
+    private weak var loadedItem: AVPlayerItem?
+    private var task: Task<Void, Never>?
+    static let count = 8
+
+    func load(_ player: AVPlayer) {
+        guard let item = player.currentItem, item !== loadedItem else { return }
+        let times = VideoNavigation.stripTimes(duration: item.duration.seconds, count: Self.count)
+        guard !times.isEmpty else { return }
+        loadedItem = item
+        frames = []
+        task?.cancel()
+        let generator = AVAssetImageGenerator(asset: item.asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 160, height: 160)
+        generator.requestedTimeToleranceBefore = .positiveInfinity
+        generator.requestedTimeToleranceAfter = .positiveInfinity
+        let started = Date()
+        task = Task { [weak self] in
+            var made: [UIImage] = []
+            for await result in generator.images(for: times.map { CMTime(seconds: $0, preferredTimescale: 600) }) {
+                if Task.isCancelled { return }
+                if let image = try? result.image { made.append(UIImage(cgImage: image)) }
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.frames = made
+            appLog(String(format: "Video frame strip: %d of %d frames in %.1f s", made.count, times.count, Date().timeIntervalSince(started)))
+        }
+    }
+
+    deinit { task?.cancel() }
+}
+
+private struct FrameStripView: View {
+    let frames: [UIImage]
+    /// 0…1 along the video.
+    let position: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                ForEach(frames.indices, id: \.self) { i in
+                    Image(uiImage: frames[i]).resizable().scaledToFill()
+                        .frame(width: geo.size.width / CGFloat(frames.count), height: geo.size.height)
+                        .clipped()
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2).fill(.white).frame(width: 3, height: geo.size.height + 6)
+                    .shadow(radius: 2)
+                    .offset(x: max(0, min(geo.size.width - 3, geo.size.width * position - 1.5)))
+            }
+        }
+        .frame(height: 44)
+        .accessibilityHidden(true)
+    }
+}
+
+/// "10 s back / forward" over the side that was double-tapped.
+private struct SkipFeedback: View {
+    let side: Int
+
+    var body: some View {
+        HStack {
+            if side > 0 { Spacer() }
+            Image(systemName: side < 0 ? "gobackward.10" : "goforward.10")
+                .font(.title.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(18)
+                .background(.black.opacity(0.35), in: Circle())
+                .padding(.horizontal, 40)
+                .accessibilityLabel(side < 0 ? "Back 10 seconds" : "Forward 10 seconds")
+            if side < 0 { Spacer() }
+        }
+        .transition(.opacity)
     }
 }
 

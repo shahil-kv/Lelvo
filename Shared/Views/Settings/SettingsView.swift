@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var confirmReset = false
 
     private var env: AppEnvironment { AppEnvironment.shared }
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -63,6 +64,10 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    NavigationLink("Memories") { MemoriesSettingsView() }
+                }
+
+                Section {
                     NavigationLink { StorageSettingsView() } label: {
                         LabeledContent("Storage", value: usage.map { Format.bytes($0.thumbnails + $0.originals + $0.telegram) } ?? "…")
                     }
@@ -93,6 +98,8 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            // Opened as a sheet from the gear in Photos.
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .disabled(busy)
             .overlay { if busy { ProgressView().padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) } }
             .task {

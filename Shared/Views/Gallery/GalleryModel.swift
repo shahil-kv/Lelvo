@@ -43,6 +43,8 @@ struct GalleryEntry: Identifiable, Equatable, Hashable {
 enum GalleryFilter: Hashable {
     case videos, livePhotos, favorites, cloudOnly, notBackedUp
     case album(title: String, localIds: Set<String>)
+    /// Search results and other fixed sets of timeline entries, by entry id.
+    case matching(title: String, ids: Set<String>)
 
     var title: String {
         switch self {
@@ -52,6 +54,7 @@ enum GalleryFilter: Hashable {
         case .cloudOnly: return "Only in the cloud"
         case .notBackedUp: return "Not backed up"
         case .album(let t, _): return t
+        case .matching(let t, _): return t
         }
     }
 
@@ -62,6 +65,7 @@ enum GalleryFilter: Hashable {
         case .favorites: return e.asset?.isFavorite == true || e.item?.favorite == true
         case .cloudOnly: return e.isCloudOnly
         case .notBackedUp: return [.phoneOnly, .waiting, .failed].contains(e.badge)
+        case .matching(_, let ids): return ids.contains(e.id)
         case .album(let title, let ids):
             return e.asset.map { ids.contains($0.localIdentifier) } == true || e.item?.albums?.contains(title) == true
         }
@@ -397,5 +401,17 @@ actor TimelineSource {
               patched.count == after.count else { return loadAssets() }
         self.fetch = after
         assets = patched
+    }
+}
+
+extension LibraryStore {
+    /// The backed-up items the timeline shows as cloud-only, by the same rule as `GalleryModel.merge`: not hidden, and
+    /// with no photo on this device, neither their own nor a copy linked to them (aliases). Search and Similar Photos
+    /// must use this too: a backup whose copy is on the phone listed as its own photo could be trashed as a "duplicate".
+    func cloudOnlyItems(present: Set<String>) -> [MediaItem] {
+        let linked = Set(((try? aliases()) ?? []).filter { present.contains($0.localIdentifier) }.map(\.itemId))
+        return ((try? items(status: .backedUp)) ?? []).filter { item in
+            item.hidden != true && !linked.contains(item.id) && (item.localIdentifier.map { !present.contains($0) } ?? true)
+        }
     }
 }

@@ -129,8 +129,16 @@ struct MacViewer: View {
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
-        .onKeyPress(.leftArrow) { step(-1); return .handled }
-        .onKeyPress(.rightArrow) { step(1); return .handled }
+        // ⌥← / ⌥→ skip 10 s in a video, like QuickTime's J/L; plain arrows move between items.
+        .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+            let delta = press.key == .leftArrow ? -1 : 1
+            if press.modifiers.contains(.option), current?.isVideo == true {
+                NotificationCenter.default.post(name: .macViewerSkip, object: currentId, userInfo: ["side": delta])
+            } else {
+                step(delta)
+            }
+            return .handled
+        }
         .onKeyPress(.escape) { close(); return .handled }
         .onKeyPress(.space) {
             if current?.isVideo == true {
@@ -287,6 +295,8 @@ struct MacViewer: View {
 
 extension Notification.Name {
     static let macViewerTogglePlay = Notification.Name("Memvo.macViewerTogglePlay")
+    /// ⌥← / ⌥→ on a video; `userInfo["side"]` is -1 or 1.
+    static let macViewerSkip = Notification.Name("Memvo.macViewerSkip")
     static let macViewerClose = Notification.Name("Memvo.macViewerClose")
 }
 
@@ -353,12 +363,20 @@ struct MacViewerPage: View {
                     .onAppear { if isCurrent { player.play() } }
                     .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }
                     .onDisappear {
+                        rememberPosition(player)
                         player.pause()
                         if session != nil { videos.close(entry.id) }
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .macViewerTogglePlay)) { note in
                         guard isCurrent else { return }
                         if player.timeControlStatus == .playing { player.pause() } else { player.play() }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .macViewerSkip)) { note in
+                        guard isCurrent, let side = note.userInfo?["side"] as? Int, let item = player.currentItem else { return }
+                        let target = VideoNavigation.skipTarget(current: player.currentTime().seconds, duration: item.duration.seconds,
+                                                                by: Double(side) * VideoNavigation.skip)
+                        player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                                    toleranceBefore: CMTime(seconds: 0.25, preferredTimescale: 600), toleranceAfter: CMTime(seconds: 0.25, preferredTimescale: 600))
                     }
             case .unavailable(let reason, let placeholder):
                 VStack(spacing: 16) {
@@ -378,6 +396,19 @@ struct MacViewerPage: View {
             try? await Task.sleep(nanoseconds: 450_000_000)
             withAnimation(.easeIn(duration: 0.2)) { showSpinner = true }
         }
+    }
+
+    /// A long video opens where it was left (`VideoNavigation`), as on iPhone.
+    private func resume(_ player: AVPlayer) {
+        guard let start = VideoNavigation.resumePosition(saved: PlaybackPositions.position(for: entry.id), duration: entry.duration ?? 0) else { return }
+        player.seek(to: CMTime(seconds: start, preferredTimescale: 600), toleranceBefore: CMTime(seconds: 0.5, preferredTimescale: 600), toleranceAfter: .zero)
+        appLog("Video resume: \(entry.item?.filename ?? "video") from \(Int(start)) s")
+    }
+
+    private func rememberPosition(_ player: AVPlayer) {
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite, seconds > 0 else { return }
+        PlaybackPositions.record(seconds, duration: entry.duration ?? 0, for: entry.id)
     }
 
     private var spinner: some View {
@@ -406,7 +437,9 @@ struct MacViewerPage: View {
             content = .loading(preview)
             if asset.mediaType == .video {
                 if let item = await Self.playerItem(for: asset) {
-                    content = .video(AVPlayer(playerItem: item))
+                    let player = AVPlayer(playerItem: item)
+                    resume(player)
+                    content = .video(player)
                 } else {
                     content = .unavailable("Couldn't load this video.", preview)
                 }
@@ -439,6 +472,7 @@ struct MacViewerPage: View {
                 // fast version on a slow or metered connection (Settings → Video quality).
                 let s = videos.open(entry.id, item: item, reader: env.reader)
                 session = s
+                resume(s.player)
                 content = .video(s.player)
             case .livePhoto:
                 // The screen copy shows at once; the Live Photo itself needs the original still and its video.
