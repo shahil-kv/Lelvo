@@ -79,11 +79,53 @@ final class WebsiteScreenshots: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestReset"]
         app.launch()
-        XCTAssertTrue(app.buttons["Continue with Telegram"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 20))
         settle(2.5)
         shot("welcome")
-        app.buttons["Continue with Telegram"].tap()
+        app.passIntro()
         settle(2)
         shot("signin")
+    }
+
+    /// The pictures on the intro's "Everything in one app" page (Shared/Resources/Onboarding.xcassets), in dark mode
+    /// like onboarding. Run with Scripts/onboarding-shots.sh.
+    func testOnboardingFeatures() {
+        let app = launchLibrary(columns: 4)
+        let grid = app.collectionViews["galleryGrid"]
+        shot("feature-backup")
+
+        let video = grid.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "Video")).firstMatch
+        for _ in 0..<6 where !video.exists { grid.swipeUp() }
+        if video.exists {
+            video.tap()
+            settle(3)
+            shot("feature-video")
+            app.buttons["Close"].tap()
+            settle()
+        }
+
+        app.buttons["Backup"].firstMatch.tap()
+        settle(2)
+        let free = app.buttons["Free up space"].firstMatch
+        for _ in 0..<4 where !free.isHittable { app.swipeUp() }
+        free.tap()
+        settle(3)
+        shot("feature-freeup")
+        app.buttons["Backup"].firstMatch.tap()
+
+        app.buttons["Search"].firstMatch.tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20))
+        settle(3)
+        shot("feature-search")
+
+        app.buttons["Collections"].firstMatch.tap()
+        settle(3)
+        shot("feature-memories")
+        let map = app.buttons["Map"].firstMatch
+        for _ in 0..<6 where !map.isHittable { app.swipeUp() }
+        map.tap()
+        settle(4)
+        shot("feature-map")
     }
 }

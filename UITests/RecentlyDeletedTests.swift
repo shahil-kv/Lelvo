@@ -26,9 +26,7 @@ final class RecentlyDeletedTests: XCTestCase {
 
     /// The reviewer sign-in from `DemoModeTests`.
     private func openDemoLibrary() {
-        let start = app.buttons["Continue with Telegram"]
-        XCTAssertTrue(start.waitForExistence(timeout: 20))
-        start.tap()
+        app.passIntro()
         let phone = app.textFields["Phone number"]
         XCTAssertTrue(phone.waitForExistence(timeout: 15))
         let dial = app.textFields["Country code"]

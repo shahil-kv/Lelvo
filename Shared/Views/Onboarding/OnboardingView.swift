@@ -7,6 +7,10 @@ final class OnboardingModel: ObservableObject {
     enum Step: Equatable { case welcome, credentials, phone, code, password, otherDevice, noAccount, library, unlock, recoveryKey, scanning, photos }
 
     @Published var step: Step = .welcome
+    /// Page of the intro, kept so Back from sign-in returns to where the user left it.
+    @Published var introPage = 0
+    /// Items found when an existing library was restored, for the welcome-back ending.
+    @Published var restoredItems: Int?
     @Published var apiId = ""
     @Published var apiHash = ""
     @Published var phone = ""
@@ -38,7 +42,26 @@ final class OnboardingModel: ObservableObject {
     private let env = AppEnvironment.shared
     private var observer: UUID?
 
+    #if DEBUG
+    /// Screenshot preview (`-replay N`): the real screens, but nothing is sent to Telegram and no library is created.
+    /// 0 plays a new user; more plays a returning user whose library has that many items.
+    var replayRestored: Int?
+    #endif
+
     init() {
+        #if DEBUG
+        // For screenshots: `-introPage N` opens the intro on page N; `-replay N` with `-replayStep library|photos`
+        // opens that step of a preview.
+        introPage = UserDefaults.standard.integer(forKey: "introPage")
+        if let n = UserDefaults.standard.string(forKey: "replay").flatMap(Int.init) {
+            self.replayRestored = n
+            switch UserDefaults.standard.string(forKey: "replayStep") {
+            case "library": step = .library
+            case "photos": restoredItems = n; step = .photos
+            default: break
+            }
+        }
+        #endif
         if let creds = TDCredentials.load() {
             apiId = String(creds.apiId)
             apiHash = creds.apiHash
@@ -53,6 +76,9 @@ final class OnboardingModel: ObservableObject {
     }
 
     private func apply(_ auth: TDService.AuthStep) {
+        #if DEBUG
+        if replayRestored != nil { return }
+        #endif
         guard step != .welcome || auth == .ready else { return }
         // Any new state from Telegram means the previous request finished: never leave the spinner on.
         if auth != .starting { busy = false; credentialsTimeout?.cancel() }
@@ -100,6 +126,12 @@ final class OnboardingModel: ObservableObject {
     /// The phone step comes first even without app keys, so the App Review demo number always works;
     /// a real number then asks for keys if the build has none.
     func start() {
+        #if DEBUG
+        if let n = replayRestored {
+            if n > 0 { restoredItems = n; step = .photos } else { step = .library }
+            return
+        }
+        #endif
         if env.td.isReady { goToLibrary(); return }
         step = .phone
         if TDCredentials.load() != nil { env.td.start() }
@@ -236,6 +268,9 @@ final class OnboardingModel: ObservableObject {
     }
 
     func createLibrary() {
+        #if DEBUG
+        if replayRestored != nil { step = .photos; return }
+        #endif
         run {
             let name = self.newLibraryName.trimmingCharacters(in: .whitespacesAndNewlines)
             let created = try await self.env.library.createLibrary(title: name.isEmpty ? LibraryService.titleDefault : String(name.prefix(128)),
@@ -275,6 +310,7 @@ final class OnboardingModel: ObservableObject {
             let env = self.env
             _ = await Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }.value
             self.info = summary.items == 0 ? "Your library is empty: a fresh start." : "Found \(summary.items) items in your library."
+            self.restoredItems = summary.items
             self.step = .photos
         }
     }
@@ -311,7 +347,8 @@ struct OnboardingView: View {
             Color.black.ignoresSafeArea()
             Group {
                 switch m.step {
-                case .welcome: WelcomeScreen { m.start() }
+                case .welcome:
+                    IntroView(page: $m.introPage, encrypted: $m.newLibraryEncrypted, photoStatus: $m.photoStatus) { m.start() }
                 case .credentials: credentials
                 case .phone: PhoneScreen(m: m)
                 case .code: CodeScreen(m: m)
@@ -328,7 +365,12 @@ struct OnboardingView: View {
                         }
                     }
                 case .scanning: scanning
-                case .photos: photos
+                case .photos:
+                    if !DemoMode.isActive, m.photoStatus == .authorized || m.photoStatus == .limited {
+                        FirstBackupView(restored: m.restoredItems) { app.finishOnboarding() }
+                    } else {
+                        photos
+                    }
                 }
             }
             .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
@@ -486,6 +528,7 @@ private struct LibraryScreen: View {
     @State private var selectedId: Int64?
     @State private var renaming: LibraryService.ChannelChoice?
     @State private var renameText = ""
+    @State private var editingName = false
 
     private var libraries: [LibraryService.ChannelChoice] { m.channels.filter(\.isLibrary) }
     private var others: [LibraryService.ChannelChoice] { m.channels.filter { !$0.isLibrary } }
@@ -517,13 +560,17 @@ private struct LibraryScreen: View {
                     }
                 }
             } else {
-                OnboardingPage(icon: "photo.stack.fill", title: "Create your library",
-                               subtitle: "Memvo keeps your backup in a private Telegram channel that only you can see.",
-                               m: m, button: .init(title: "Create my library", enabled: m.newPassphraseProblem == nil) { m.createLibrary() }) {
+                // First time: one library is made for you. The only real choice is Standard or encrypted.
+                OnboardingPage(icon: "photo.stack.fill", title: "Your library",
+                               subtitle: "Memvo makes a private channel in your Telegram for your backup. Only you can see it.",
+                               m: m, button: .init(title: m.newLibraryEncrypted ? "Create my encrypted library" : "Create my library",
+                                                   enabled: m.newPassphraseProblem == nil && !m.newLibraryName.trimmingCharacters(in: .whitespaces).isEmpty) {
+                                   m.createLibrary()
+                               }) {
                     VStack(alignment: .leading, spacing: 18) {
-                        OnboardingField(placeholder: "Library name", text: $m.newLibraryName)
+                        nameRow
                         EncryptionChoice(encrypted: $m.newLibraryEncrypted, passphrase: $m.passphrase,
-                                         confirm: $m.passphraseConfirm, acknowledged: $m.acknowledgedRisk)
+                                         confirm: $m.passphraseConfirm, acknowledged: $m.acknowledgedRisk, showsPreview: true)
                         secondaryLinks(showCreate: false)
                     }
                 }
@@ -585,6 +632,25 @@ private struct LibraryScreen: View {
             }
             .presentationDetents([.medium, .large])
             .preferredColorScheme(.dark)
+        }
+    }
+
+    /// The name is filled in for you; renaming is one tap away and can be done later too.
+    @ViewBuilder private var nameRow: some View {
+        if editingName {
+            OnboardingField(placeholder: "Library name", text: $m.newLibraryName, autofocus: true) { editingName = false }
+        } else {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Name").font(.caption).foregroundStyle(.secondary)
+                    Text(m.newLibraryName).font(.body.weight(.semibold))
+                }
+                Spacer()
+                Button("Rename") { Haptics.tap(); editingName = true }.font(.subheadline.weight(.semibold))
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            Text("You can rename it any time in Settings.").font(.footnote).foregroundStyle(.secondary).padding(.top, -10)
         }
     }
 
@@ -678,6 +744,8 @@ struct EncryptionChoice: View {
     @Binding var passphrase: String
     @Binding var confirm: String
     @Binding var acknowledged: Bool
+    /// Shows what the channel in Telegram will look like for the chosen kind.
+    var showsPreview = false
 
     /// Why the encrypted choice isn't ready yet (nil = ready).
     static func problem(encrypted: Bool, passphrase: String, confirm: String, acknowledged: Bool) -> String? {
@@ -694,12 +762,13 @@ struct EncryptionChoice: View {
                    detail: "Fastest. Files can also be opened in the Telegram app.")
             option(isEncrypted: true, icon: "lock.shield.fill", title: "End-to-end encrypted",
                    detail: "Only Memvo on your devices can open your files.")
+            if showsPreview { TelegramPreview(encrypted: encrypted) }
             if encrypted {
                 VStack(alignment: .leading, spacing: 10) {
                     OnboardingField(placeholder: "Passphrase (10+ characters)", text: $passphrase, secure: true, content: .newPassword)
                     OnboardingField(placeholder: "Repeat passphrase", text: $confirm, secure: true, content: .newPassword)
                     Toggle(isOn: $acknowledged) {
-                        Text("I understand that if I lose both this passphrase and the recovery key I'll get next, nobody can recover my photos.")
+                        Text("I understand that if I lose both this passphrase and the recovery key I'll get next, nobody can help me get my photos back. Not Memvo, not Telegram.")
                             .font(.footnote).foregroundStyle(.orange)
                     }
                     if let p = Self.problem(encrypted: encrypted, passphrase: passphrase, confirm: confirm, acknowledged: acknowledged),
@@ -798,6 +867,15 @@ private struct OnboardingPage<Content: View>: View {
             if let button {
                 PrimaryCapsuleButton(title: button.title, enabled: button.enabled, busy: m.busy, action: button.run)
                     .padding(.horizontal, 24).padding(.vertical, 12)
+                    // Solid behind the button so fields scrolling under it never show through.
+                    .background {
+                        Color.black
+                            .overlay(alignment: .top) {
+                                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                                    .frame(height: 28).offset(y: -28)
+                            }
+                            .ignoresSafeArea(edges: .bottom)
+                    }
             }
         }
     }
@@ -820,10 +898,11 @@ struct PrimaryCapsuleButton: View {
                 if busy { ProgressView().tint(.black) }
             }
             .font(.headline)
-            .foregroundStyle(.black)
+            .foregroundStyle(enabled ? Color.black : Color.white.opacity(0.45))
             .frame(maxWidth: 520)
             .frame(height: 54)
-            .background(Color.white.opacity(enabled ? 1 : 0.35), in: Capsule())
+            // Solid when disabled too: a see-through button shows whatever scrolls under it.
+            .background(enabled ? Color.white : Color(white: 0.2), in: Capsule())
         }
         .buttonStyle(PressScaleStyle())
         .disabled(!enabled || busy)
@@ -876,102 +955,6 @@ struct OnboardingField: View {
         .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(focused ? Color.accentColor : .clear, lineWidth: 1.5))
         .onAppear { if autofocus { focused = true } }
-    }
-}
-
-// MARK: - Welcome
-
-private struct WelcomeScreen: View {
-    let start: () -> Void
-    @State private var appeared = false
-
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            PhotoWall()
-                .ignoresSafeArea()
-                .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.28),
-                                             .init(color: .clear, location: 0.6)], startPoint: .top, endPoint: .bottom))
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 18) {
-                Text("All your photos.\nIn your own Telegram.")
-                    .font(.system(size: 38, weight: .bold))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Back up originals, stream videos, and get everything back on any iPhone or Mac. Free, private, no servers.")
-                    .font(.title3).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                PrimaryCapsuleButton(title: "Continue with Telegram", action: start)
-                    .padding(.top, 10)
-                Label("Stored in a private channel only you can see.", systemImage: "lock.fill")
-                    .font(.footnote).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                // Telegram API terms 2.2: say the app uses the Telegram API (and isn't Telegram's own).
-                Text("Uses the Telegram API. Not affiliated with Telegram.")
-                    .font(.caption2).foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity)
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 12)
-            .frame(maxWidth: 560)
-            .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 24)
-        }
-        .onAppear { withAnimation(.easeOut(duration: 0.8).delay(0.15)) { appeared = true } }
-    }
-}
-
-/// Slowly drifting columns of photo-like tiles (no photo access needed yet).
-private struct PhotoWall: View {
-    private static let palettes: [[Color]] = [
-        [.orange, .pink], [.teal, .blue], [.green, .teal], [.purple, .indigo], [.yellow, .orange],
-        [.pink, .red], [.cyan, .blue], [.indigo, .black], [.mint, .green], [.red, .orange], [.blue, .purple], [.brown, .orange]
-    ]
-    private static let glyphs = ["", "play.fill", "", "livephoto", "", "", "heart.fill", "", "play.fill", "", "", "livephoto"]
-
-    var body: some View {
-        GeometryReader { geo in
-            let columns = 5
-            let width = (geo.size.width * 1.3 - CGFloat(columns - 1) * 8) / CGFloat(columns)
-            TimelineView(.animation) { ctx in
-                let t = ctx.date.timeIntervalSinceReferenceDate
-                HStack(alignment: .top, spacing: 8) {
-                    ForEach(0..<columns, id: \.self) { col in
-                        column(col, width: width, time: t)
-                    }
-                }
-                .frame(width: geo.size.width * 1.3)
-                .rotationEffect(.degrees(-8))
-                .offset(x: -geo.size.width * 0.15, y: -60)
-            }
-        }
-    }
-
-    private func column(_ col: Int, width: CGFloat, time: TimeInterval) -> some View {
-        let heights: [CGFloat] = (0..<8).map { i in width * [1.0, 1.35, 0.8, 1.2, 1.0, 1.5, 0.9, 1.25][(i + col * 3) % 8] }
-        let loop = heights.reduce(0) { $0 + $1 + 8 }
-        let speed = [14.0, 20.0, 11.0, 17.0, 13.0][col % 5]
-        let offset = -CGFloat((time * speed).truncatingRemainder(dividingBy: Double(loop)))
-        return VStack(spacing: 8) {
-            ForEach(0..<16, id: \.self) { i in
-                tile(index: i % 8 + col * 5, height: heights[i % 8], width: width)
-            }
-        }
-        .offset(y: offset)
-    }
-
-    private func tile(index: Int, height: CGFloat, width: CGFloat) -> some View {
-        let colors = Self.palettes[index % Self.palettes.count]
-        let glyph = Self.glyphs[index % Self.glyphs.count]
-        return RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay(alignment: .topLeading) {
-                Circle().fill(.white.opacity(0.25)).frame(width: width * 0.35).blur(radius: 18).offset(x: width * 0.15, y: height * 0.12)
-            }
-            .overlay(alignment: .bottomLeading) {
-                if !glyph.isEmpty { Image(systemName: glyph).font(.caption.bold()).foregroundStyle(.white.opacity(0.9)).padding(10) }
-            }
-            .frame(width: width, height: height)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 

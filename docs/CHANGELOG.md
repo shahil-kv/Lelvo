@@ -70,6 +70,11 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   stopped.
 - **Big videos on a full phone:** before backing up, Memvo checks there's room for the copy it uploads, and tells you
   how much space to free instead of failing with an unclear error.
+- **New first run:** a short intro that shows what Memvo does with real app screens, who can see your photos,
+  straight answers to the questions people ask before trusting a backup app, and your own library in numbers.
+  A new library gets a name for you, and you only choose Standard or end-to-end encrypted, with a preview of what
+  Telegram stores. Then you pick your first photo and watch it arrive. Returning users get a welcome back with their
+  library count.
 
 ## Before this repository
 
