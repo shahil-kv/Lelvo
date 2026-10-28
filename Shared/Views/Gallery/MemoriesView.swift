@@ -108,22 +108,14 @@ final class MemoriesModel: ObservableObject {
 struct MemoriesView<Destination: View>: View {
     @EnvironmentObject private var gallery: GalleryModel
     @ObservedObject var model: MemoriesModel
-    /// Only these kinds (Collections → Trips → See All); nil for all.
-    var kinds: Set<KindKey>? = nil
     let destination: (GalleryFilter) -> Destination
-
-    enum KindKey { case trip, other }
-    private var cards: [MemoriesModel.Card] {
-        guard let kinds else { return model.cards }
-        return model.cards.filter { kinds.contains($0.memory.kind == .trip ? .trip : .other) }
-    }
     @State private var playing: MemoriesModel.Card?
     @State private var showingAll: MemoriesModel.Card?
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
-                ForEach(cards) { card in
+                ForEach(model.cards) { card in
                     Button { playing = card } label: { MemoryCard(card: card, cover: model.entries[card.memory.cover]) }
                         .buttonStyle(.plain)
                         .contextMenu { Button { showingAll = card } label: { Label("Show All Photos", systemImage: "square.grid.2x2") } }
@@ -141,7 +133,7 @@ struct MemoriesView<Destination: View>: View {
                 ProgressView()
             }
         }
-        .navigationTitle(kinds == [.trip] ? "Trips" : "Memories")
+        .navigationTitle("Memories")
         .task(id: gallery.revision) { await model.refresh(entries: gallery.entries, revision: gallery.revision) }
         .navigationDestination(item: $showingAll) { card in destination(.matching(title: card.title, ids: Set(card.memory.allIds))) }
         #if os(iOS)

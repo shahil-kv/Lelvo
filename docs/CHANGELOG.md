@@ -58,7 +58,7 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   and encrypted videos decrypt each piece once.
 - **Four tabs, like Google Photos:** Photos, Collections, Search and Backup. Settings opens from the gear at the top of
   every tab.
-- **Collections:** Memories, recent days, trips, albums (Favorites and Screenshots first, then WhatsApp, Instagram and
+- **Collections:** Memories (trips included), recent days, albums (Favorites and Screenshots first, then WhatsApp, Instagram and
   your other albums), a map of your photos, media types, documents and receipts, and duplicates. Each shows the first
   few; Show More opens the rest.
 - **Memories,** made on your iPhone or Mac: years ago on this day, recent highlights, trips with their place names, and

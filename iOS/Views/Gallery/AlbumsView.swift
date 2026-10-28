@@ -2,7 +2,7 @@ import SwiftUI
 import Photos
 import MemvoCore
 
-/// The Collections tab, laid out like Photos' Collections in iOS 18: Memories, Recent Days and Trips as rows of covers,
+/// The Collections tab, laid out like Photos' Collections in iOS 18: Memories (trips included) and Recent Days as rows of covers,
 /// then albums, places, media types and utilities. Long sections show their first few with See All or Show More.
 /// Everything shown is counted once per library change, off the main thread, never while drawing.
 struct AlbumsView: View {
@@ -57,8 +57,6 @@ struct AlbumsView: View {
                 VStack(alignment: .leading, spacing: 28) {
                     if !memories.cards.isEmpty { memoriesRow }
                     if !content.days.isEmpty { coverRow("Recent Days", rows: content.days) }
-                    let trips = memories.cards.filter { $0.memory.kind == .trip }
-                    if !trips.isEmpty { tripsRow(trips) }
                     if !content.albums.isEmpty { albumsSection }
                     groupedSection("Places") {
                         linkRow("Map", symbol: "map") { PhotoMapView { filter in GalleryView(filter: filter, embedInNavigation: false) } }
@@ -113,25 +111,6 @@ struct AlbumsView: View {
                     ForEach(memories.cards.prefix(Self.shown)) { card in
                         Button { playing = card } label: {
                             MemoryCover(card: card, cover: memories.entries[card.memory.cover]).frame(width: 150, height: 200)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(card.title), \(card.subtitle)")
-                    }
-                }
-            }
-        }
-    }
-
-    private func tripsRow(_ trips: [MemoriesModel.Card]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Trips", seeAll: trips.count > Self.shown ? {
-                MemoriesView(model: memories, kinds: [.trip]) { f in GalleryView(filter: f, embedInNavigation: false) }
-            } : nil)
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
-                    ForEach(trips.prefix(Self.shown)) { card in
-                        Button { playing = card } label: {
-                            MemoryCover(card: card, cover: memories.entries[card.memory.cover]).frame(width: 220, height: 150)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("\(card.title), \(card.subtitle)")
