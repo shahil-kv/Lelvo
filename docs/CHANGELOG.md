@@ -75,6 +75,8 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   A new library gets a name for you, and you only choose Standard or end-to-end encrypted, with a preview of what
   Telegram stores. Then you pick your first photo and watch it arrive. Returning users get a welcome back with their
   library count.
+- **Encrypted backups pick up where they stopped:** if a big video's upload is interrupted (the app closes or the
+  connection drops), it continues from the next part instead of starting the whole file over.
 
 ## Before this repository
 

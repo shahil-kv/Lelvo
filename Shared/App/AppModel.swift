@@ -61,6 +61,18 @@ enum UITestSupport {
     static let isDemo = false
     #endif
 
+    /// `-TestUploadLimitMiB <n>`: splits uploads above n MiB, so resuming a split upload can be tried with a small video
+    /// instead of one over 2 GB.
+    static var uploadLimitOverride: Int64? {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-TestUploadLimitMiB"), i + 1 < args.count, let mib = Int64(args[i + 1]), mib > 1 else { return nil }
+        return mib * PartLayout.mib
+        #else
+        return nil
+        #endif
+    }
+
     static func prepareIfNeeded() {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments

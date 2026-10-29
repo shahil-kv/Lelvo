@@ -36,11 +36,12 @@ final class CloudUploader: @unchecked Sendable {
         self.staging = staging
     }
 
-    /// Uploads `resource`, skipping parts already confirmed in `existing` (resume after interruption).
-    /// `checkpoint` is called after every confirmed part so progress survives a crash.
+    /// Uploads `resource`, skipping parts already confirmed in `existing` (resume after interruption); an encrypted
+    /// file also needs the `resume` point saved with them. `checkpoint` is called after every confirmed part so progress
+    /// survives a crash.
     func upload(itemId: String, resource: PreparedResource, encrypted: Bool, thumbnail: (URL, Int, Int)?,
-                existing: [MemvoCore.RemoteFile],
-                checkpoint: @escaping ([MemvoCore.RemoteFile], Int) throws -> Void,
+                existing: [MemvoCore.RemoteFile], resume: FileCrypto.ResumePoint? = nil,
+                checkpoint: @escaping ([MemvoCore.RemoteFile], Int, FileCrypto.ResumePoint?) throws -> Void,
                 progress: @escaping (Int64, Int64) -> Void) async throws -> [MemvoCore.RemoteFile] {
         guard let chatId = library.chatId else { throw LibraryError.noLibrary }
         let workDir = staging.appendingPathComponent("up-\(UUID().uuidString)", isDirectory: true)
@@ -48,29 +49,36 @@ final class CloudUploader: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: workDir) }
 
         // 1. The stream to store: the original, or its CGFE ciphertext, made as the parts are written.
-        var encryptor: FileCrypto.Encryptor?
-        var captionKey: SymmetricKeyBox?
-        if encrypted {
-            guard let keys = library.keys else { throw LibraryError.locked }
-            let chunk = resource.role == "sp" ? FileCrypto.fastVersionChunkSize : FileCrypto.defaultChunkSize
-            encryptor = try FileCrypto.Encryptor(input: resource.fileURL, masterKey: keys.master, chunkSize: chunk)
-            captionKey = SymmetricKeyBox(keys.captionKey)
-        }
-        let streamSize = try encryptor?.cipherSize ?? Self.size(of: resource.fileURL)
+        let chunk = resource.role == "sp" ? FileCrypto.fastVersionChunkSize : FileCrypto.defaultChunkSize
+        let plainSize = try Self.size(of: resource.fileURL)
+        let streamSize = encrypted ? FileCrypto.encryptedSize(plaintextSize: plainSize, chunkSize: chunk) : plainSize
         let limit = await td.uploadLimit()
         let layout = PartLayout.forUpload(size: streamSize, limit: limit)
 
         // 2. Parts.
         var done = existing.count == layout.partCount ? [] : Array(existing.prefix(layout.partCount))
         if done.count == layout.partCount { return done }
-        if encrypted, !done.isEmpty {
-            // Parts from an earlier try were encrypted with that try's salt and nonces, which are gone: parts made now
-            // wouldn't decrypt with the header in part 1. Start this file over (the photo is still on the device). The old
-            // parts must go first: a scan keeps the lowest message id of each part, so a stale part 1 would win.
-            try await td.deleteMessages(chatId: chatId, ids: done.map(\.messageId))
-            done = []
-            try checkpoint(done, layout.partCount)
-            appLog("Starting the encrypted upload of \(resource.role) for an item over: an earlier try was interrupted")
+        var encryptor: FileCrypto.Encryptor?
+        var captionKey: SymmetricKeyBox?
+        if encrypted {
+            guard let keys = library.keys else { throw LibraryError.locked }
+            captionKey = SymmetricKeyBox(keys.captionKey)
+            if !done.isEmpty, let resume,
+               resume.continues(partSizes: done.map(\.size), layout: layout, chunkSize: chunk, plaintextHash: resource.meta.h) {
+                encryptor = try FileCrypto.Encryptor(input: resource.fileURL, masterKey: keys.master, resumingAt: resume)
+                appLog("Resuming the encrypted upload of \(resource.role) for an item at part \(done.count + 1) of \(layout.partCount)")
+            } else {
+                if !done.isEmpty {
+                    // No resume point that matches (saved by an older version, the file or the account limit changed):
+                    // these parts can't be continued. Start this file over (the photo is still on the device). The old
+                    // parts must go first: a scan keeps the lowest message id of each part, so a stale part 1 would win.
+                    try await td.deleteMessages(chatId: chatId, ids: done.map(\.messageId))
+                    done = []
+                    try checkpoint(done, layout.partCount, nil)
+                    appLog("Starting the encrypted upload of \(resource.role) for an item over: an earlier try can't be continued")
+                }
+                encryptor = try FileCrypto.Encryptor(input: resource.fileURL, masterKey: keys.master, chunkSize: chunk)
+            }
         }
         // The export is already on disk; a part beside it needs its own space (an unsplit plain file is a hard link).
         let needed = (encrypted || layout.isSplit) ? layout.size(ofPart: 0) : 0
@@ -83,10 +91,10 @@ final class CloudUploader: @unchecked Sendable {
                                              encrypted: encrypted, part: layout.isSplit ? index : nil)
             let partURL = workDir.appendingPathComponent(partName)
             let partSize = layout.size(ofPart: index)
+            if index < done.count { continue }
             if let encryptor {
                 try Self.write(partSize, from: encryptor, to: partURL)
             } else {
-                if index < done.count { continue }
                 if layout.isSplit {
                     try Self.copyRange(from: resource.fileURL, offset: Int64(index) * layout.partSize, length: partSize, to: partURL)
                 } else {
@@ -99,6 +107,7 @@ final class CloudUploader: @unchecked Sendable {
             meta.e = encrypted ? 1 : nil
             meta.src = "ios"
             let caption = try CaptionCodec.encode(meta, captionKey: captionKey?.key)
+            let resumePoint = encryptor?.resumePoint(plaintextHash: resource.meta.h)
 
             let base = Int64(index) * layout.partSize
             let message = try await td.sendDocument(chatId: chatId, fileURL: partURL, caption: caption,
@@ -116,7 +125,7 @@ final class CloudUploader: @unchecked Sendable {
             }
             done.append(MemvoCore.RemoteFile(messageId: message.id, fileId: file.remote.id,
                                                     fileUniqueId: file.remote.uniqueId, size: file.size))
-            try checkpoint(done, layout.partCount)
+            try checkpoint(done, layout.partCount, resumePoint)
             // TDLib keeps the upload's temporary file as this file's local copy; it's deleted below, so the first
             // read when playing from the cloud would fail and retry. Forget it now: reads then go to Telegram directly.
             await td.deleteLocalCopy(fileId: file.id)

@@ -255,4 +255,126 @@ import MemvoCore
             #expect(joined == whole)
         }
     }
+
+    /// An upload interrupted after any number of bytes (inside the header, on a chunk boundary, inside a nonce or a
+    /// tag, at the end) carries on from its resume point: the joined stream decrypts to the original, and with the same
+    /// nonces it is byte for byte the whole-file output.
+    @Test(arguments: [0, 3, 25, 26, 37, 1000, 1053, 1054, 1060, 2081, 4000, 5625])
+    func resumesFromAnyCut(cut: Int) throws {
+        let chunk = 1000
+        let plain = Data((0..<5432).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+        let salt = Data(repeating: 9, count: 16)
+        let nonces = (0..<6).map { i in Data((0..<12).map { UInt8(truncatingIfNeeded: $0 * 7 + i) }) }
+        let whole = try FileCrypto.encryptForTesting(data: plain, masterKey: master, chunkSize: chunk, fileSalt: salt, nonces: nonces)
+        #expect(whole.count == 5625)
+
+        let input = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: input) }
+        try plain.write(to: input)
+        let first = try FileCrypto.Encryptor.forTesting(input: input, masterKey: master, chunkSize: chunk, fileSalt: salt, nonces: nonces)
+        let uploaded = try first.read(upToCount: cut)
+        let point = first.resumePoint(plaintextHash: "h")
+        #expect(point.cipherOffset == Int64(cut))
+        #expect(point.fileSalt == salt)
+
+        // Survives being saved with the job, as it is between launches.
+        let saved = try JSONDecoder().decode(FileCrypto.ResumePoint.self, from: JSONEncoder().encode(point))
+        let same = try FileCrypto.Encryptor.forTesting(input: input, masterKey: master, resumingAt: saved, nonces: nonces)
+        #expect(same.resumePoint(plaintextHash: "h") == point)
+        #expect(uploaded + (try readAll(same)) == whole)
+
+        let fresh = try FileCrypto.Encryptor(input: input, masterKey: master, resumingAt: saved)
+        let joined = uploaded + (try readAll(fresh))
+        #expect(joined.count == whole.count)
+        #expect(try FileCrypto.decrypt(data: joined, masterKey: master) == plain)
+    }
+
+    /// Cut in the middle of a chunk without its nonce: refused rather than sealing with a new one, which wouldn't decrypt.
+    @Test func resumeInsideAChunkNeedsItsNonce() throws {
+        let input = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: input) }
+        try Data(repeating: 1, count: 3000).write(to: input)
+        let point = FileCrypto.ResumePoint(cipherOffset: 1500, chunkSize: 1000, fileSalt: Data(repeating: 2, count: 16),
+                                           nonce: nil, plaintextHash: "h")
+        #expect(throws: CryptoError.self) { try FileCrypto.Encryptor(input: input, masterKey: master, resumingAt: point) }
+    }
+
+    /// Parts in the real layout (whole MiB) and 1 MiB chunks: every cut falls inside a chunk, so the nonce is kept.
+    @Test func partCutsNeedTheCrossingChunksNonce() throws {
+        let input = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: input) }
+        try Data(repeating: 3, count: 5 << 20).write(to: input)
+        let encryptor = try FileCrypto.Encryptor(input: input, masterKey: master)
+        let layout = PartLayout.forUpload(size: encryptor.cipherSize, limit: 3 << 20)
+        #expect(layout.partCount == 3)
+        _ = try encryptor.read(upToCount: Int(layout.partSize))
+        #expect(encryptor.resumePoint(plaintextHash: "h").nonce?.count == 12)
+    }
+
+    /// The upload as the app does it: parts 0 and 1 written and the app quits; a new launch resumes from part 2 with the
+    /// saved point and fresh nonces. The joined parts decrypt to the original, byte for byte.
+    @Test func splitUploadResumesFromPartTwo() throws {
+        let input = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: input) }
+        let plain = Data((0..<(7 << 20) + 12345).map { UInt8(truncatingIfNeeded: $0 &* 2654435761 >> 7) })
+        try plain.write(to: input)
+        let first = try FileCrypto.Encryptor(input: input, masterKey: master)
+        let layout = PartLayout.forUpload(size: first.cipherSize, limit: 3 << 20)
+        #expect(layout.partCount == 4)
+
+        var parts: [Data] = []
+        for index in 0..<2 { parts.append(try first.read(upToCount: Int(layout.size(ofPart: index)))) }
+        let saved = try JSONEncoder().encode(first.resumePoint(plaintextHash: "h"))
+
+        let point = try JSONDecoder().decode(FileCrypto.ResumePoint.self, from: saved)
+        #expect(point.continues(partSizes: parts.map { Int64($0.count) }, layout: layout,
+                                chunkSize: FileCrypto.defaultChunkSize, plaintextHash: "h"))
+        let resumed = try FileCrypto.Encryptor(input: input, masterKey: master, resumingAt: point)
+        for index in 2..<layout.partCount {
+            let part = try resumed.read(upToCount: Int(layout.size(ofPart: index)))
+            #expect(Int64(part.count) == layout.size(ofPart: index))
+            parts.append(part)
+        }
+        #expect(try resumed.read(upToCount: 1).isEmpty)
+        #expect(try FileCrypto.decrypt(data: parts.reduce(Data(), +), masterKey: master) == plain)
+    }
+
+    /// A retry continues only from the exact end of the confirmed parts, for the same file, chunk size and part layout.
+    @Test func resumePointMustMatchTheConfirmedParts() {
+        let layout = PartLayout(partSize: 1000, totalSize: 3500)
+        let point = FileCrypto.ResumePoint(cipherOffset: 2000, chunkSize: 100, fileSalt: Data(repeating: 1, count: 16),
+                                           nonce: Data(repeating: 2, count: 12), plaintextHash: "h")
+        #expect(point.continues(partSizes: [1000, 1000], layout: layout, chunkSize: 100, plaintextHash: "h"))
+        #expect(!point.continues(partSizes: [1000], layout: layout, chunkSize: 100, plaintextHash: "h"))
+        #expect(!point.continues(partSizes: [], layout: layout, chunkSize: 100, plaintextHash: "h"))
+        #expect(!point.continues(partSizes: [1000, 1000], layout: layout, chunkSize: 100, plaintextHash: "other file"))
+        #expect(!point.continues(partSizes: [1000, 1000], layout: layout, chunkSize: 200, plaintextHash: "h"))
+        // The account limit changed (Premium), so the parts have another size.
+        #expect(!point.continues(partSizes: [1000, 1000], layout: PartLayout(partSize: 2000, totalSize: 3500), chunkSize: 100, plaintextHash: "h"))
+        #expect(!point.continues(partSizes: [1000, 999], layout: layout, chunkSize: 100, plaintextHash: "h"))
+    }
+
+    /// The point is kept only while some parts are missing, and goes when the parts are cleared or complete.
+    @Test func resumePointIsKeptWithUnfinishedParts() {
+        var item = MediaItem(localIdentifier: nil, sha256: "h", filename: "a.mov", kind: .video, creationDate: nil, fileSize: 1)
+        let file = RemoteFile(messageId: 1, fileId: "f", fileUniqueId: "u", size: 1000)
+        let point = FileCrypto.ResumePoint(cipherOffset: 1000, chunkSize: 100, fileSalt: Data(repeating: 1, count: 16),
+                                           nonce: nil, plaintextHash: "h")
+        item.setParts([file], role: "o", expected: 3, resume: point)
+        #expect(item.uploadResume?["o"] == point)
+        item.setParts([], role: "o", expected: 3)
+        #expect(item.uploadResume == nil)
+        item.setParts([file], role: "o", expected: 3, resume: point)
+        item.setParts([file, file, file], role: "o", expected: 3, resume: point)
+        #expect(item.uploadResume == nil)
+    }
+
+    private func readAll(_ encryptor: FileCrypto.Encryptor) throws -> Data {
+        var out = Data()
+        while true {
+            let bytes = try encryptor.read(upToCount: 333)
+            if bytes.isEmpty { return out }
+            out.append(bytes)
+        }
+    }
 }

@@ -695,9 +695,9 @@ final class BackupEngine: @unchecked Sendable {
                 let parts = try await env.uploader.upload(
                     itemId: itemId, resource: resource, encrypted: item.encrypted,
                     thumbnail: thumbData != nil ? (thumbURL, thumbSize.0, thumbSize.1) : nil,
-                    existing: item.parts(resource.role),
-                    checkpoint: { parts, expected in
-                        try store.update(id: itemId) { $0.setParts(parts, role: resource.role, expected: expected) }
+                    existing: item.parts(resource.role), resume: item.uploadResume?[resource.role],
+                    checkpoint: { parts, expected, resume in
+                        try store.update(id: itemId) { $0.setParts(parts, role: resource.role, expected: expected, resume: resume) }
                     },
                     progress: { [weak self] sent, _ in
                         let name = item.filename
@@ -935,7 +935,7 @@ final class BackupEngine: @unchecked Sendable {
                 resource: PreparedResource(role: "e", fileURL: url,
                                            meta: captionMeta(item, role: .edited, hash: hash, name: resource.originalFilename, size: size)),
                 encrypted: item.encrypted, thumbnail: nil, existing: [],
-                checkpoint: { parts, expected in try store.update(id: itemId) { $0.setParts(parts, role: "e", expected: expected) } },
+                checkpoint: { parts, expected, _ in try store.update(id: itemId) { $0.setParts(parts, role: "e", expected: expected) } },
                 progress: { [weak self] sent, total in
                     Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: "\(name) (edit)", sent: sent, total: total) } }
                 })
@@ -1028,7 +1028,7 @@ final class BackupEngine: @unchecked Sendable {
         let parts = try await env.uploader.upload(
             itemId: itemId, resource: PreparedResource(role: "sp", fileURL: copy.url, meta: meta),
             encrypted: item.encrypted, thumbnail: thumbnail, existing: [],
-            checkpoint: { parts, expected in try store.update(id: itemId) { $0.setParts(parts, role: "sp", expected: expected) } },
+            checkpoint: { parts, expected, _ in try store.update(id: itemId) { $0.setParts(parts, role: "sp", expected: expected) } },
             progress: { [weak self] sent, total in
                 Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
             })
@@ -1100,7 +1100,10 @@ final class BackupEngine: @unchecked Sendable {
         defer { Task { await self.publish { $0.lanes[laneKey] = nil } } }
         let parts = try await env.uploader.upload(
             itemId: itemId, resource: resource, encrypted: item.encrypted, thumbnail: nil, existing: item.parts(resource.role),
-            checkpoint: { parts, expected in try store.update(id: itemId) { $0.setParts(parts, role: resource.role, expected: expected) } },
+            resume: item.uploadResume?[resource.role],
+            checkpoint: { parts, expected, resume in
+                try store.update(id: itemId) { $0.setParts(parts, role: resource.role, expected: expected, resume: resume) }
+            },
             progress: { [weak self] sent, total in
                 Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
             })
@@ -1186,7 +1189,7 @@ final class BackupEngine: @unchecked Sendable {
         let parts = try await env.uploader.upload(
             itemId: itemId, resource: PreparedResource(role: "d", fileURL: copy.url, meta: meta),
             encrypted: item.encrypted, thumbnail: thumbnail, existing: [],
-            checkpoint: { parts, expected in try store.update(id: itemId) { $0.setParts(parts, role: "d", expected: expected) } },
+            checkpoint: { parts, expected, _ in try store.update(id: itemId) { $0.setParts(parts, role: "d", expected: expected) } },
             progress: { [weak self] sent, total in
                 Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
             })
