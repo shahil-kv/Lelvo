@@ -11,6 +11,7 @@ enum TDServiceError: LocalizedError {
     case unexpectedContent
     case sizeMismatch(expected: Int64, actual: Int64)
     case cancelled
+    case stalled(sent: Int64, total: Int64)
 
     var errorDescription: String? {
         switch self {
@@ -21,6 +22,9 @@ enum TDServiceError: LocalizedError {
         case .unexpectedContent: return "That message isn't a Memvo file."
         case .sizeMismatch(let e, let a): return "Telegram stored \(a) bytes but \(e) were uploaded."
         case .cancelled: return "Cancelled."
+        case .stalled(let sent, let total):
+            return "The upload stopped moving at \(ByteCountFormatter.string(fromByteCount: sent, countStyle: .file)) of "
+                + "\(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)). It will be tried again."
         }
     }
 
@@ -58,7 +62,7 @@ enum TDServiceError: LocalizedError {
         switch self {
         case .telegram(let code, let message): return TelegramErrorClassifier.classify(code: code, message: message)
         case .sendFailed(let m): return TelegramErrorClassifier.classify(code: 400, message: m)
-        case .notReady: return .transient
+        case .notReady, .stalled: return .transient
         case .missingCredentials: return .auth
         default: return .permanent
         }
@@ -283,6 +287,7 @@ final class TDService: @unchecked Sendable {
             }
             if !others.isEmpty { observer?(.deleted(chatId: u.chatId, messageIds: others)) }
         case .updateSpeedLimitNotification(let u):
+            if u.isUpload { NotificationCenter.default.post(name: Self.uploadSpeedLimited, object: nil) }
             // Telegram slows transfers for accounts without Premium and tells clients so; logged (at most every few
             // minutes) because it explains slow cloud playback that no setting in the app can fix.
             let now = Foundation.Date()
@@ -506,11 +511,32 @@ final class TDService: @unchecked Sendable {
         } catch { throw error.asTD }
 
         var fileId: Int?
+        var watchdog: Task<Void, Never>?
         if case .messageDocument(let doc) = pending.content {
-            fileId = doc.document.document.id
-            if let progress, let id = fileId { setUploadObserver(id, progress) }
+            let id = doc.document.document.id
+            fileId = id
+            let stall = StallState(UploadStall(startedAt: Foundation.Date()))
+            setUploadObserver(id) { sent, total in
+                stall.record(sent: sent, total: total)
+                progress?(sent, total)
+            }
+            watchdog = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 10_000_000_000)
+                    guard !Task.isCancelled, let self else { return }
+                    let (stalled, sent, total) = stall.check()
+                    guard stalled else { continue }
+                    AppLog.shared.warn("Upload stopped moving at \(sent >> 20) of \(total >> 20) MB for \(Int(UploadStall.defaultTimeout)) s; trying again")
+                    _ = try? await client.deleteMessages(chatId: chatId, messageIds: [pending.id], revoke: true)
+                    self.finishSend(oldId: pending.id, result: .failure(TDServiceError.stalled(sent: sent, total: total)))
+                    return
+                }
+            }
         }
-        defer { if let id = fileId { setUploadObserver(id, nil) } }
+        defer {
+            watchdog?.cancel()
+            if let id = fileId { setUploadObserver(id, nil) }
+        }
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (c: CheckedContinuation<Message, Swift.Error>) in
@@ -760,6 +786,8 @@ final class TDService: @unchecked Sendable {
     /// a long session that browses thousands of files doesn't keep a gate for each.
     private var fileGates: [Int: (gate: AsyncGate, users: Int)] = [:]
     private var lastSpeedLimitLog = Foundation.Date.distantPast
+    /// Telegram slowed this account's uploads (no Premium): the backup keeps going, just slower.
+    static let uploadSpeedLimited = Notification.Name("TDService.uploadSpeedLimited")
     /// When each file's streaming download last moved (see `streamRead`).
     private var lastWindowMove: [Int: Foundation.Date] = [:]
     private var loadedChats = Set<Int64>()
@@ -1030,5 +1058,25 @@ actor AsyncGate {
 
     func release() {
         if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
+    }
+}
+
+/// An upload's `UploadStall`, shared between TDLib's update thread and the send's watchdog.
+private final class StallState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stall: UploadStall
+    private var total: Int64 = 0
+
+    init(_ stall: UploadStall) { self.stall = stall }
+
+    func record(sent: Int64, total: Int64) {
+        lock.withLock {
+            stall.record(sent: sent, at: Foundation.Date())
+            self.total = total
+        }
+    }
+
+    func check() -> (stalled: Bool, sent: Int64, total: Int64) {
+        lock.withLock { (stall.check(at: Foundation.Date()), max(stall.sent, 0), total) }
     }
 }

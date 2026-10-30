@@ -454,3 +454,43 @@ import MemvoCore
         #expect(PhotoChangeScan.queuedButDeleted(items, present: [], libraryIsEmpty: true).count == 2)
     }
 }
+
+@Suite struct UploadStallTests {
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test func aSlowUploadThatMovesIsNotStuck() {
+        var stall = UploadStall(startedAt: start, timeout: 180)
+        for minute in 1...10 {
+            stall.record(sent: Int64(minute) << 20, at: start.addingTimeInterval(Double(minute) * 60))
+        }
+        #expect(!stall.isStalled(at: start.addingTimeInterval(10 * 60 + 179)))
+        #expect(stall.isStalled(at: start.addingTimeInterval(10 * 60 + 180)))
+    }
+
+    @Test func repeatedReportsOfTheSameBytesDontCountAsMoving() {
+        var stall = UploadStall(startedAt: start, timeout: 180)
+        stall.record(sent: 25 << 20, at: start.addingTimeInterval(10))
+        stall.record(sent: 25 << 20, at: start.addingTimeInterval(150))
+        #expect(stall.isStalled(at: start.addingTimeInterval(190)))
+        #expect(stall.sent == 25 << 20)
+    }
+
+    @Test func timeTheAppWasSuspendedDoesntCount() {
+        var stall = UploadStall(startedAt: start, timeout: 180)
+        var looks: [Bool] = []
+        func look(_ t: TimeInterval) { looks.append(stall.check(at: start.addingTimeInterval(t))) }
+        look(10)
+        // Backgrounded for 10 minutes: the next look comes long after the last one.
+        look(610)
+        for t in stride(from: 620.0, through: 780, by: 10) { look(t) }
+        #expect(!looks.contains(true))
+        look(790)
+        #expect(looks.last == true)
+    }
+
+    @Test func anUploadThatNeverStartsIsStuckAfterTheTimeout() {
+        let stall = UploadStall(startedAt: start, timeout: 180)
+        #expect(!stall.isStalled(at: start.addingTimeInterval(179)))
+        #expect(stall.isStalled(at: start.addingTimeInterval(180)))
+    }
+}

@@ -159,6 +159,14 @@ final class BackupEngine: @unchecked Sendable {
 
     init(environment: AppEnvironment) {
         self.env = environment
+        // Only logged before, so a throttled upload looked stuck in the app.
+        NotificationCenter.default.addObserver(forName: TDService.uploadSpeedLimited, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                let a = BackupActivity.shared
+                guard a.isRunning, a.notice == nil else { return }
+                a.notice = "Telegram limits upload speed for accounts without Premium. The backup continues, just slower."
+            }
+        }
     }
 
     private var rawDirectory: URL {
