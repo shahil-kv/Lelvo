@@ -437,4 +437,20 @@ import MemvoCore
         #expect(!PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: "a", selection: "a", lastFullScan: nil, now: now))
         #expect(!PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: "a", selection: "a", lastFullScan: now.addingTimeInterval(60), now: now))
     }
+    private func item(_ local: String?, _ status: ItemStatus = .queued) -> MediaItem {
+        MediaItem(localIdentifier: local, sha256: "", filename: "a.jpg", kind: .photo, creationDate: Date(), fileSize: 0, status: status)
+    }
+
+    @Test func dropsQueuedPhotosDeletedFromThePhone() {
+        let items = [item("kept"), item("deleted"), item("uploading", .uploading), item("backedUp", .backedUp), item(nil)]
+        let gone = PhotoChangeScan.queuedButDeleted(items, present: ["kept"], libraryIsEmpty: false)
+        #expect(gone.map(\.localIdentifier) == ["deleted"])
+    }
+
+    @Test func keepsTheQueueWhenPhotosFindsNothing() {
+        let items = [item("a"), item("b")]
+        #expect(PhotoChangeScan.queuedButDeleted(items, present: [], libraryIsEmpty: false).isEmpty)
+        // Every photo really was deleted.
+        #expect(PhotoChangeScan.queuedButDeleted(items, present: [], libraryIsEmpty: true).count == 2)
+    }
 }

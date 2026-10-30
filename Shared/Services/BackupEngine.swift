@@ -206,6 +206,21 @@ final class BackupEngine: @unchecked Sendable {
         return items.count
     }
 
+    /// Removes queued items whose photo was deleted from the phone before it was uploaded (see
+    /// `PhotoChangeScan.queuedButDeleted`). Only queue rows go; backed-up items and the cloud copies are untouched.
+    @discardableResult
+    func dropDeletedQueuedItems() -> Int {
+        guard PhotoLibraryService.hasAccess, !DemoMode.isActive else { return 0 }
+        let queued = (try? env.store.items(status: .queued)) ?? []
+        let ids = queued.compactMap(\.localIdentifier)
+        guard !ids.isEmpty else { return 0 }
+        let present = env.photos.existingIdentifiers(ids)
+        let gone = PhotoChangeScan.queuedButDeleted(queued, present: present, libraryIsEmpty: env.photos.fetchAllAssets().count == 0)
+        for item in gone { try? env.store.delete(id: item.id) }
+        if !gone.isEmpty { appLog("Dropped \(gone.count) queued items deleted from the phone") }
+        return gone.count
+    }
+
     // MARK: - Photos' change history (#31)
 
     private static let changeTokenKey = "photosChangeToken"
@@ -373,6 +388,7 @@ final class BackupEngine: @unchecked Sendable {
         // Reconcile anything sent before an interruption so it isn't uploaded twice.
         _ = try? await env.library.scan(full: false)
         relinkRestoredItems()
+        dropDeletedQueuedItems()
         if includeNew || Prefs.autoBackup {
             let started = Date()
             let search = beginPhotoSearch()

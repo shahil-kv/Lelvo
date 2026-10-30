@@ -13,4 +13,13 @@ public enum PhotoChangeScan {
         guard hasToken, savedSelection == selection, let lastFullScan else { return false }
         return now.timeIntervalSince(lastFullScan) < fullScanEvery && now >= lastFullScan
     }
+
+    /// Queued items whose photo was deleted from the phone before it was uploaded. Photos' change history only lists
+    /// new and edited photos, so without this they'd count as waiting until an upload lane reached them.
+    /// `present`: the queued photos Photos still has. Items being uploaded are left to the lane that has them, and
+    /// when Photos finds none of them while the library isn't empty, nothing is dropped (a Photos hiccup, not 50 deletions).
+    public static func queuedButDeleted(_ items: [MediaItem], present: Set<String>, libraryIsEmpty: Bool) -> [MediaItem] {
+        if present.isEmpty && !libraryIsEmpty { return [] }
+        return items.filter { $0.status == .queued && $0.localIdentifier.map { !present.contains($0) } == true }
+    }
 }

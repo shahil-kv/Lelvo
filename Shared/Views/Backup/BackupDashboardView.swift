@@ -35,6 +35,8 @@ final class BackupStatsModel: ObservableObject {
     func refresh() {
         let env = AppEnvironment.shared
         Task.detached {
+            // Photos deleted in the Photos app while queued would otherwise count as left to back up.
+            env.engine.dropDeletedQueuedItems()
             let counts = (try? env.store.counts()) ?? [:]
             // Without automatic backup, only picked items are "left to back up"; older queued ones count as not in the cloud.
             let queued = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
