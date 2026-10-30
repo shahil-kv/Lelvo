@@ -9,6 +9,8 @@ paths:
 
 - Look and talk like Apple's Photos and Settings: system controls, grouped forms, SF Symbols, Dynamic Type, dark
   and light mode. Prefer system colours and text styles over custom ones.
+- The accent is `.tint` / `Color.accentColor`, never `.blue`. Status uses system green, orange and red. Roles are in
+  `docs/DESIGN.md`; new colours go in `design/tokens.json`, then `python3 Scripts/design-tokens.py`.
 - Every icon-only button gets an `accessibilityLabel`.
 - Text: short sentences, plain words, no exclamation marks, "your Telegram library". Errors say what to do next.
 - `Shared/Views` builds for both platforms. Use `Shared/Support/Platform.swift` helpers instead of `#if os(...)` in a

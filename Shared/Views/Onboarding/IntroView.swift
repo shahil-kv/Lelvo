@@ -195,7 +195,7 @@ private struct HookPage: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .overlay(Capsule().stroke(Color.white.opacity(0.15)))
             (Text("Your photos.\n")
-             + Text("Your Telegram.").foregroundStyle(LinearGradient(colors: [Color.accentColor, Color(red: 0.45, green: 0.85, blue: 1)],
+             + Text("Your Telegram.").foregroundStyle(LinearGradient(colors: [Color.accentColor, Color(red: 0.83, green: 0.66, blue: 1)],
                                                                     startPoint: .leading, endPoint: .trailing)))
                 .font(.system(size: 46, weight: .bold))
                 .tracking(-0.8)

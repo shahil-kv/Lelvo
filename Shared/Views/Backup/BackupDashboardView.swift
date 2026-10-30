@@ -135,7 +135,7 @@ struct BackupDashboardView: View {
                         ForEach(activity.lanes.sorted(by: { $0.key < $1.key }), id: \.key) { _, lane in
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
-                                    Image(systemName: "arrow.up.circle").foregroundStyle(.blue)
+                                    Image(systemName: "arrow.up.circle").foregroundStyle(.tint)
                                     Text(lane.name).lineLimit(1)
                                     Spacer()
                                     if lane.total > 0 {
@@ -242,7 +242,7 @@ struct BackupDashboardView: View {
             (icon, tint, title) = ("exclamationmark.icloud.fill", .orange,
                                    "Backup complete, \(stats.failed) item\(stats.failed == 1 ? "" : "s") couldn't be backed up")
         case .running, .pending:
-            (icon, tint, title) = ("icloud.and.arrow.up", .blue, "\(left) item\(left == 1 ? "" : "s") left to back up")
+            (icon, tint, title) = ("icloud.and.arrow.up", .accentColor, "\(left) item\(left == 1 ? "" : "s") left to back up")
         case .notBackedUp:
             (icon, tint, title) = ("icloud.slash", .secondary,
                                    "\(stats.notQueued) item\(stats.notQueued == 1 ? "" : "s") not in the cloud")

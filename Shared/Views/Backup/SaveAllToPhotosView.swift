@@ -35,7 +35,7 @@ struct SaveAllToPhotosView: View {
                     Text("Save every photo and video that's only in your Telegram library back to Photos on this \(Device.name), with their dates, places, favourites and albums. Nothing is removed from Telegram.")
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
-                    Image(systemName: "square.and.arrow.down.on.square.fill").foregroundStyle(.blue)
+                    Image(systemName: "square.and.arrow.down.on.square.fill").foregroundStyle(.tint)
                 }
             }
 

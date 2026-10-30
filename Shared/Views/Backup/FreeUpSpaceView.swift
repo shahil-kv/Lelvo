@@ -19,7 +19,7 @@ struct FreeUpSpaceView: View {
                     Text("Remove photos and videos from this \(Device.name) that are already safely backed up, to get storage back. They stay in Memvo, and you can save any of them back anytime.")
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
-                    Image(systemName: "internaldrive.fill").foregroundStyle(.blue)
+                    Image(systemName: "internaldrive.fill").foregroundStyle(.tint)
                 }
             }
 
