@@ -87,6 +87,8 @@ struct SettingsView: View {
                     #if os(iOS)
                     NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
                     #endif
+                    NavigationLink { FeedbackView(kind: .bug) } label: { Label("Report a problem", systemImage: "ladybug") }
+                    NavigationLink { FeedbackView(kind: .idea) } label: { Label("Suggest a feature", systemImage: "lightbulb") }
                     NavigationLink { LogsView() } label: { Label("Logs", systemImage: "doc.text.magnifyingglass") }
                     NavigationLink { AboutView() } label: { Label("About & licenses", systemImage: "info.circle") }
                 }
@@ -226,22 +228,16 @@ struct LogsView: View {
 }
 
 struct AboutView: View {
-    private var version: String {
-        let info = Bundle.main.infoDictionary
-        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "\(short) (\(build))"
-    }
-
     var body: some View {
         List {
             Section {
-                LabeledContent("Version", value: version)
+                LabeledContent("Version", value: Bundle.main.displayVersion)
                 Text("Memvo backs up your photos to a private channel in your own Telegram account. No servers, no analytics, no ads.")
             }
             Section {
                 Link(destination: AppLinks.faq) { Label("Questions and answers", systemImage: "questionmark.circle") }
-                Link(destination: AppLinks.reportProblem) { Label("Report a problem or suggest a feature", systemImage: "exclamationmark.bubble") }
+                NavigationLink { FeedbackView(kind: .bug) } label: { Label("Report a problem", systemImage: "ladybug") }
+                NavigationLink { FeedbackView(kind: .idea) } label: { Label("Suggest a feature", systemImage: "lightbulb") }
                 Link(destination: AppLinks.privacyPolicy) { Label("Privacy policy", systemImage: "hand.raised") }
             } header: { Text("Help") }
             Section {

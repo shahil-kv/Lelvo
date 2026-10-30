@@ -20,6 +20,42 @@ enum Device {
     static let symbol = "iphone"
     #endif
 
+    /// "iPhone", "iPad" or "Mac", as the issue templates' App dropdown names them.
+    @MainActor static var kind: String {
+        #if os(macOS)
+        "Mac"
+        #else
+        UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+        #endif
+    }
+
+    /// The hardware model identifier ("iPhone17,1", "Mac15,3"), for bug reports.
+    static var model: String {
+        #if os(macOS)
+        var size = 0
+        sysctlbyname("hw.model", nil, &size, nil, 0)
+        var bytes = [CChar](repeating: 0, count: size)
+        sysctlbyname("hw.model", &bytes, &size, nil, 0)
+        return String(cString: bytes)
+        #else
+        // The simulator reports the Mac's CPU ("arm64") as its machine; the simulated model is in the environment.
+        if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] { return simulated }
+        var info = utsname()
+        uname(&info)
+        return withUnsafeBytes(of: &info.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        #endif
+    }
+
+    /// "iOS 26.1", "iPadOS 26.1" or "macOS 26.0.1".
+    @MainActor static var osVersion: String {
+        #if os(macOS)
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "macOS \(v.majorVersion).\(v.minorVersion)" + (v.patchVersion > 0 ? ".\(v.patchVersion)" : "")
+        #else
+        return "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
+        #endif
+    }
+
     /// Whether the device is on external power (Only while charging).
     static var isCharging: Bool {
         #if os(macOS)
