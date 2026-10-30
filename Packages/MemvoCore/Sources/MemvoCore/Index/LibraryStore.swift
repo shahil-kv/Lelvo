@@ -376,6 +376,21 @@ public final class LibraryStore: @unchecked Sendable {
         notifyChanged(ids: [id])
     }
 
+    /// Deletes the item only if it is still queued. For cleanup that works from an earlier read: an upload may have
+    /// started since, and its row must stay. Returns whether a row was deleted.
+    @discardableResult
+    public func deleteIfQueued(id: String) throws -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let deleted = try withStatement("DELETE FROM items WHERE id = ? AND status = ?;", bind: {
+            bindText($0, 1, id)
+            bindText($0, 2, ItemStatus.queued.rawValue)
+        }) { _ = sqlite3_step($0); return sqlite3_changes(db) > 0 }
+        guard deleted else { return false }
+        try withStatement("DELETE FROM aliases WHERE item_id = ?;", bind: { bindText($0, 1, id) }) { _ = sqlite3_step($0) }
+        notifyChanged(ids: [id])
+        return true
+    }
+
     public func deleteAll() throws {
         lock.lock(); defer { lock.unlock() }
         try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search;")

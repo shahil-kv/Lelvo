@@ -526,8 +526,17 @@ final class TDService: @unchecked Sendable {
                     guard !Task.isCancelled, let self else { return }
                     let (stalled, sent, total) = stall.check()
                     guard stalled else { continue }
+                    // Retry only once the stuck send is gone: if it could still finish, its part would sit in the channel
+                    // unrecorded next to the retry's, and a scan keeps the lowest message id of each part.
+                    do {
+                        try await client.deleteMessages(chatId: chatId, messageIds: [pending.id], revoke: true)
+                    } catch {
+                        AppLog.shared.warn("Upload stopped moving at \(sent >> 20) of \(total >> 20) MB, and cancelling it failed "
+                                           + "(\(error.asTD.localizedDescription)); waiting for it")
+                        stall.restart()
+                        continue
+                    }
                     AppLog.shared.warn("Upload stopped moving at \(sent >> 20) of \(total >> 20) MB for \(Int(UploadStall.defaultTimeout)) s; trying again")
-                    _ = try? await client.deleteMessages(chatId: chatId, messageIds: [pending.id], revoke: true)
                     self.finishSend(oldId: pending.id, result: .failure(TDServiceError.stalled(sent: sent, total: total)))
                     return
                 }
@@ -1074,6 +1083,10 @@ private final class StallState: @unchecked Sendable {
             stall.record(sent: sent, at: Foundation.Date())
             self.total = total
         }
+    }
+
+    func restart() {
+        lock.withLock { stall.restart(at: Foundation.Date()) }
     }
 
     func check() -> (stalled: Bool, sent: Int64, total: Int64) {

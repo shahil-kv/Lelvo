@@ -23,6 +23,11 @@ public struct UploadStall: Sendable {
         movedAt = now
     }
 
+    /// Gives the upload another full `timeout`, e.g. after cancelling it failed.
+    public mutating func restart(at now: Date) {
+        movedAt = now
+    }
+
     public func isStalled(at now: Date) -> Bool {
         now.timeIntervalSince(movedAt) >= timeout
     }

@@ -242,9 +242,10 @@ final class BackupEngine: @unchecked Sendable {
         guard !ids.isEmpty else { return 0 }
         let present = env.photos.existingIdentifiers(ids)
         let gone = PhotoChangeScan.queuedButDeleted(queued, present: present, libraryIsEmpty: env.photos.fetchAllAssets().count == 0)
-        for item in gone { try? env.store.delete(id: item.id) }
-        if !gone.isEmpty { appLog("Dropped \(gone.count) queued items deleted from the phone") }
-        return gone.count
+        // The list was read before the photo check; an upload may have started since, so only rows still queued go.
+        let dropped = gone.filter { (try? env.store.deleteIfQueued(id: $0.id)) == true }.count
+        if dropped > 0 { appLog("Dropped \(dropped) queued items deleted from the phone") }
+        return dropped
     }
 
     // MARK: - Photos' change history (#31)

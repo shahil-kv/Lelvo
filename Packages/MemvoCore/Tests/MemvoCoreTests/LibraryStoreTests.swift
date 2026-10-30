@@ -100,4 +100,18 @@ import MemvoCore
         try store.deleteAll()
         #expect(try store.searchStamps().isEmpty)
     }
+
+    /// Cleanup from an earlier read must not remove an upload that started since.
+    @Test func deleteIfQueuedLeavesStartedUploads() throws {
+        let url = tempURL()
+        defer { remove(url) }
+        let store = try LibraryStore(url: url)
+        let queued = item(1, status: .queued), started = item(2, status: .queued)
+        try store.upsert([queued, started])
+        _ = try store.update(id: started.id) { $0.status = .uploading }
+        #expect(try store.deleteIfQueued(id: queued.id))
+        #expect(try !store.deleteIfQueued(id: started.id))
+        #expect(try store.item(id: queued.id) == nil)
+        #expect(try store.item(id: started.id)?.status == .uploading)
+    }
 }

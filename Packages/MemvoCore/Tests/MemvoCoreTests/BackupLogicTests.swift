@@ -447,6 +447,15 @@ import MemvoCore
         #expect(gone.map(\.localIdentifier) == ["deleted"])
     }
 
+    @Test func keepsItemsWithPartsInTheChannel() {
+        var editCheck = item("editCheck")
+        editCheck.editCheck = true
+        editCheck.cloudParts = ["o": [RemoteFile(messageId: 1, fileId: "f", fileUniqueId: "u", size: 10)]]
+        var halfDone = item("halfDone")
+        halfDone.cloudParts = ["o": [RemoteFile(messageId: 2, fileId: "f", fileUniqueId: "u", size: 10)]]
+        #expect(PhotoChangeScan.queuedButDeleted([editCheck, halfDone], present: ["other"], libraryIsEmpty: false).isEmpty)
+    }
+
     @Test func keepsTheQueueWhenPhotosFindsNothing() {
         let items = [item("a"), item("b")]
         #expect(PhotoChangeScan.queuedButDeleted(items, present: [], libraryIsEmpty: false).isEmpty)
@@ -486,6 +495,14 @@ import MemvoCore
         #expect(!looks.contains(true))
         look(790)
         #expect(looks.last == true)
+    }
+
+    @Test func restartGivesAnotherFullTimeout() {
+        var stall = UploadStall(startedAt: start, timeout: 180)
+        #expect(stall.isStalled(at: start.addingTimeInterval(200)))
+        stall.restart(at: start.addingTimeInterval(200))
+        #expect(!stall.isStalled(at: start.addingTimeInterval(379)))
+        #expect(stall.isStalled(at: start.addingTimeInterval(380)))
     }
 
     @Test func anUploadThatNeverStartsIsStuckAfterTheTimeout() {
