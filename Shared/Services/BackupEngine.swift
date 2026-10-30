@@ -12,7 +12,25 @@ final class BackupActivity: ObservableObject {
     @Published var done = 0
     @Published var total = 0
     /// Per upload lane: the file being uploaded and its byte progress (two uploads run in parallel).
-    @Published var lanes: [String: LaneProgress] = [:]
+    @Published var lanes: [String: LaneProgress] = [:] {
+        didSet { updateTimeLeft() }
+    }
+    /// Per upload lane: about how many seconds its file still needs at the recent speed.
+    @Published private(set) var secondsLeft: [String: Int] = [:]
+    private var rates: [String: (name: String, rate: TransferRate)] = [:]
+
+    private func updateTimeLeft() {
+        let now = Date()
+        var left: [String: Int] = [:]
+        for (key, lane) in lanes where lane.total > 0 {
+            var entry = rates[key].flatMap { $0.name == lane.name ? $0 : nil } ?? (name: lane.name, rate: TransferRate())
+            entry.rate.record(lane.sent, at: now)
+            rates[key] = entry
+            left[key] = entry.rate.secondsLeft(total: lane.total)
+        }
+        rates = rates.filter { lanes[$0.key]?.total ?? 0 > 0 }
+        if left != secondsLeft { secondsLeft = left }
+    }
     @Published var uploaded = 0
     @Published var failed = 0
     @Published var message: String?
@@ -355,8 +373,7 @@ final class BackupEngine: @unchecked Sendable {
     /// `onlyChosen`: just the items the user picked (see `MediaItem.chosen`).
     func runnableItems(now: Date, onlyChosen: Bool = false) -> [MediaItem] {
         let pending = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
-        return pending.filter { $0.localIdentifier != nil && ($0.notBefore.map { $0 <= now } ?? true) && (!onlyChosen || $0.chosen == true) }
-            .sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
+        return UploadOrder.sorted(pending.filter { $0.localIdentifier != nil && ($0.notBefore.map { $0 <= now } ?? true) && (!onlyChosen || $0.chosen == true) })
     }
 
     /// Processes the queue with up to two concurrent uploads until it is empty, `deadline` passes,

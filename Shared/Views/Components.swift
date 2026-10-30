@@ -14,6 +14,16 @@ enum Format {
         return DateFormatter.localizedString(from: date, dateStyle: style, timeStyle: time)
     }
 
+    /// "About 4 min left".
+    static func timeLeft(_ seconds: Int) -> String {
+        let f = DateComponentsFormatter()
+        f.unitsStyle = .short
+        f.maximumUnitCount = 1
+        f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute, .second]
+        f.includesApproximationPhrase = true
+        return "\(f.string(from: TimeInterval(seconds)) ?? "") left"
+    }
+
     static func relative(_ date: Date?) -> String {
         guard let date else { return "never" }
         return RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date())

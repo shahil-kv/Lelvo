@@ -494,3 +494,52 @@ import MemvoCore
         #expect(stall.isStalled(at: start.addingTimeInterval(180)))
     }
 }
+
+@Suite struct TransferRateTests {
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test func estimatesFromTheRecentSpeed() {
+        var rate = TransferRate()
+        rate.record(0, at: start)
+        #expect(rate.secondsLeft(total: 100 << 20) == nil)
+        // 1 MB/s for 10 s, then Telegram slows it to 100 KB/s for 20 s: the estimate follows the slow speed.
+        for s in 1...10 { rate.record(Int64(s) << 20, at: start.addingTimeInterval(Double(s))) }
+        #expect(rate.secondsLeft(total: 100 << 20) == 90)
+        for s in 1...20 { rate.record((10 << 20) + Int64(s) * 102_400, at: start.addingTimeInterval(10 + Double(s))) }
+        let left = rate.secondsLeft(total: 100 << 20)
+        #expect(left.map { $0 > 850 && $0 < 950 } == true)
+    }
+
+    @Test func startsOverForANewFile() {
+        var rate = TransferRate()
+        rate.record(50 << 20, at: start)
+        rate.record(60 << 20, at: start.addingTimeInterval(10))
+        rate.record(1 << 20, at: start.addingTimeInterval(11))
+        #expect(rate.bytesPerSecond == nil)
+    }
+
+    @Test func noEstimateWhenNothingMoves() {
+        var rate = TransferRate()
+        rate.record(25 << 20, at: start)
+        rate.record(25 << 20, at: start.addingTimeInterval(10))
+        #expect(rate.secondsLeft(total: 80 << 20) == nil)
+    }
+}
+
+@Suite struct UploadOrderTests {
+    private func item(_ name: String, _ kind: MediaKind, day: Double) -> MediaItem {
+        MediaItem(localIdentifier: name, sha256: "", filename: name, kind: kind,
+                  creationDate: Date(timeIntervalSince1970: day * 86_400), fileSize: 0)
+    }
+
+    @Test func halfDoneFirstThenPhotosThenVideosNewestFirst() {
+        var halfDone = item("halfDone", .video, day: 1)
+        halfDone.cloudParts = ["o": [RemoteFile(messageId: 1, fileId: "f", fileUniqueId: "u", size: 10)]]
+        var editCheck = item("editCheck", .photo, day: 9)
+        editCheck.cloudParts = ["o": [RemoteFile(messageId: 2, fileId: "f", fileUniqueId: "u", size: 10)]]
+        editCheck.editCheck = true
+        let items = [item("oldVideo", .video, day: 2), item("newVideo", .video, day: 8), item("oldPhoto", .photo, day: 3),
+                     item("live", .livePhoto, day: 7), halfDone, editCheck]
+        #expect(UploadOrder.sorted(items).map(\.filename) == ["halfDone", "editCheck", "live", "oldPhoto", "newVideo", "oldVideo"])
+    }
+}
