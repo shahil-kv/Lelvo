@@ -42,8 +42,8 @@ struct MacBackupView: View {
             }
 
             Section {
-                Toggle(isOn: $autoBackup) { iconLabel("Back Up Automatically", "arrow.triangle.2.circlepath", .blue) }
-                Toggle(isOn: $wifiOnly) { iconLabel("Wi-Fi Only", "wifi", .blue) }
+                Toggle(isOn: $autoBackup) { iconLabel("Back Up Automatically", "arrow.triangle.2.circlepath", .accentColor) }
+                Toggle(isOn: $wifiOnly) { iconLabel("Wi-Fi Only", "wifi", .accentColor) }
                 Toggle(isOn: $chargingOnly) { iconLabel("Only on Power Adapter", "powerplug.fill", .green) }
             } header: { Text("Options") } footer: {
                 Text(autoBackup ? "While Memvo is open, even with its window closed, new photos are backed up every hour."
@@ -51,8 +51,8 @@ struct MacBackupView: View {
             }
 
             Section("Tools") {
-                NavigationLink { FreeUpSpaceView() } label: { iconLabel("Free Up Space", "internaldrive.fill", .blue) }
-                NavigationLink { SaveAllToPhotosView() } label: { iconLabel("Save All to Photos", "square.and.arrow.down.on.square.fill", .indigo) }
+                NavigationLink { FreeUpSpaceView() } label: { iconLabel("Free Up Space", "internaldrive.fill", .accentColor) }
+                NavigationLink { SaveAllToPhotosView() } label: { iconLabel("Save All to Photos", "square.and.arrow.down.on.square.fill", .teal) }
                 NavigationLink { DuplicatesView() } label: { iconLabel("Duplicates", "square.on.square.fill", .purple) }
                 Button { rescan() } label: {
                     HStack {
@@ -102,7 +102,7 @@ struct MacBackupView: View {
             switch state {
             case .complete: return ("checkmark.icloud.fill", .green, "Backup Complete")
             case .failures: return ("exclamationmark.icloud.fill", .orange, "\(stats.failed) Item\(stats.failed == 1 ? "" : "s") Couldn't Be Backed Up")
-            case .running: return ("icloud.and.arrow.up.fill", .blue, "Backing Up \(left.formatted()) Item\(left == 1 ? "" : "s")")
+            case .running: return ("icloud.and.arrow.up.fill", .accentColor, "Backing Up \(left.formatted()) Item\(left == 1 ? "" : "s")")
             case .notBackedUp: return (paused ? "pause.circle.fill" : "icloud.slash.fill", paused ? .orange : .gray,
                                        "\(left.formatted()) Item\(left == 1 ? "" : "s") Not Backed Up")
             }

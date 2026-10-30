@@ -1,9 +1,24 @@
-// Memvo website: smooth scrolling, the hero animation, the feature tour, reveals and the FAQ.
+// Memvo website: theme toggle, smooth scrolling, the hero library, the feature tour, the FAQ and the waiting list.
 // Everything here is an enhancement: without JavaScript the page is complete and readable.
 (() => {
   const root = document.documentElement;
   root.classList.add("js");
   const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Theme toggle: light by default, the choice kept for the next visit (theme.js applies it on load).
+  const toggle = document.querySelector(".theme-toggle");
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  const showTheme = () => {
+    const dark = root.dataset.theme === "dark";
+    if (toggle) toggle.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+    if (themeColor) themeColor.content = getComputedStyle(root).getPropertyValue("--paper").trim();
+  };
+  toggle?.addEventListener("click", () => {
+    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+    try { localStorage.setItem("memvo-theme", root.dataset.theme); } catch {}
+    showTheme();
+  });
+  showTheme();
 
   // Smooth, inertial scrolling (Lenis), also for in-page links. Off when the person asks for less motion.
   let lenis = null;
@@ -13,157 +28,140 @@
 
   // Header gets its rule once the page has moved.
   const header = document.querySelector(".site-header");
-  const onScroll = () => {
-    header.classList.toggle("is-scrolled", window.scrollY > 8);
-    drift();
-  };
-
-  // River: two rows of photos drift in opposite directions with the scroll.
-  const river = document.querySelector(".river");
-  const rows = [...document.querySelectorAll(".river-row")];
-  function drift() {
-    if (calm || !river) return;
-    const r = river.getBoundingClientRect();
-    const progress = (window.innerHeight - r.top) / (window.innerHeight + r.height); // 0 → 1 while on screen
-    if (progress < 0 || progress > 1) return;
-    rows.forEach((row) => {
-      const dir = Number(row.dataset.drift);
-      row.style.transform = `translate3d(${dir * (progress - 0.5) * 220}px, 0, 0)`;
-    });
-  }
+  const onScroll = () => header?.classList.toggle("is-scrolled", window.scrollY > 8);
   if (lenis) lenis.on("scroll", onScroll); else window.addEventListener("scroll", onScroll, { passive: true });
   onScroll();
 
-  // Hero: cells lift out of the real timeline screenshot and upload into the channel, one after another.
-  // Cell positions are in the screenshot's own pixels (607 × 1320, four 150 px columns).
-  const stage = document.querySelector(".hero-stage");
-  if (stage) {
-    const W = 607, H = 1320, CELL = 150;
-    const COLS = [0, 153, 305, 457], ROWS = [247, 400, 553, 775, 928];
-    const queue = [
-      [1, 3, "IMG_4021.HEIC", "3.6 MB"], [3, 3, "IMG_4028.HEIC", "2.4 MB"], [1, 0, "IMG_4030.HEIC", "4.1 MB"],
-      [4, 3, "IMG_4031.MOV", "182 MB"], [0, 1, "IMG_4033.HEIC", "3.2 MB"], [4, 1, "IMG_4036.DNG", "51.7 MB"],
-      [3, 3, "IMG_4038.HEIC", "2.9 MB"], [0, 3, "IMG_4040.HEIC", "3.3 MB"], [4, 2, "IMG_4041.HEIC", "2.6 MB"],
-    ];
-    const screen = stage.querySelector(".hero-phone img");
-    const list = stage.querySelector(".files");
-    const count = stage.querySelector(".count");
-    const arc = stage.querySelector(".path");
-    const arcLabel = stage.querySelector(".path-label");
-    const crop = (el, c, r) => {
-      el.style.setProperty("--x", `${(COLS[c] / (W - CELL)) * 100}%`);
-      el.style.setProperty("--y", `${(ROWS[r] / (H - CELL)) * 100}%`);
-    };
-    const local = (rect, box) => ({ x: rect.left - box.left, y: rect.top - box.top, w: rect.width, h: rect.height });
+  // Hero: the photos on the phone are buttons. Tap one and it flies into the channel; left alone, the hero plays
+  // itself. Cells are in the screenshot's own pixels (607 × 1320, four 150 px columns).
+  const journey = document.querySelector(".journey");
+  if (journey) {
+    const W = 607, H = 1320, CELL = 150, COLS = [0, 153, 305, 457], ROWS = [247, 400, 553];
+    const FILES = [["IMG_4041.HEIC", "3.1 MB"], ["IMG_4042.HEIC", "2.7 MB"], ["IMG_4043.HEIC", "3.6 MB"], ["IMG_4044.DNG", "49.5 MB"],
+      ["IMG_4045.HEIC", "2.9 MB"], ["IMG_4046.MOV", "164 MB"], ["IMG_4047.HEIC", "3.3 MB"], ["IMG_4048.HEIC", "4.0 MB"],
+      ["IMG_4036.HEIC", "3.0 MB"], ["IMG_4037.DNG", "51.7 MB"]];
+    const hero = document.querySelector(".hero");
+    const taps = journey.querySelector(".taps");
+    const stack = journey.querySelector(".stack");
+    const count = journey.querySelector(".count");
+    const hint = journey.querySelector(".hint");
+    const shot = journey.querySelector(".phone img").currentSrc || "img/timeline.webp";
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    let files = 1284, lastTap = 0, queue = Promise.resolve(), visible = true;
 
-    // The dotted path from the phone to the channel, with its label in the middle.
-    function drawPath() {
-      const box = stage.getBoundingClientRect();
-      const p = local(screen.getBoundingClientRect(), box);
-      const c = local(list.getBoundingClientRect(), box);
-      const card = local(stage.querySelector(".channel").getBoundingClientRect(), box);
-      if (window.innerWidth <= 960) { arc.classList.remove("is-drawn"); return; }
-      const x0 = p.x + p.w + 10, y0 = p.y + p.h * 0.3, x1 = card.x - 10, y1 = c.y + 26;
-      const mx = (x0 + x1) / 2, my = Math.min(y0, y1) - 46;
-      arc.querySelector("path").setAttribute("d", `M ${x0} ${y0} Q ${mx} ${my} ${x1} ${y1}`);
-      arc.classList.add("is-drawn");
-      arcLabel.style.left = `${mx}px`;
-      arcLabel.style.top = `${Math.max(y0, y1) + 18}px`;
+    // A crop of one cell of the screenshot, for a box of any shape (ratio = height / width).
+    const crop = (el, i, ratio) => {
+      const x = COLS[i % 4], y = ROWS[Math.floor(i / 4)], h = CELL * ratio;
+      el.style.backgroundImage = `url(${shot})`;
+      el.style.backgroundSize = `${(W / CELL) * 100}% auto`;
+      el.style.backgroundPosition = `${(x / (W - CELL)) * 100}% ${((y + (CELL - h) / 2) / (H - h)) * 100}%`;
+    };
+    const message = (i, sent) => {
+      const el = document.createElement("div");
+      el.className = sent ? "msg is-sent" : "msg";
+      el.innerHTML = `<div class="msg-pic"><span class="msg-progress"><i></i></span></div><div class="msg-meta"><b></b><span></span></div>
+        <div class="msg-state"><span></span><svg viewBox="0 0 18 12" aria-hidden="true"><path d="M1 6.5l3.5 3.5L11 3M7 10l1 1 8-9"/></svg></div>`;
+      crop(el.querySelector(".msg-pic"), i, 9 / 16);
+      el.querySelector("b").textContent = FILES[i][0];
+      el.querySelector(".msg-meta span").textContent = FILES[i][1];
+      el.querySelector(".msg-state span").textContent = sent ? "Original, backed up" : "Uploading";
+      return el;
+    };
+
+    // The channel starts with two photos already in it, so the resting state is complete.
+    stack.append(message(8, true), message(9, true));
+    const buttons = ROWS.slice(0, 2).flatMap((y, r) => COLS.map((x, c) => {
+      const i = r * 4 + c, b = document.createElement("button");
+      b.type = "button";
+      b.className = "tap";
+      b.setAttribute("aria-label", `Back up ${FILES[i][0]}`);
+      Object.assign(b.style, { left: `${(x / W) * 100}%`, top: `${(y / H) * 100}%`, width: `${(CELL / W) * 100}%`, height: `${(CELL / H) * 100}%` });
+      b.addEventListener("click", () => {
+        if (b.classList.contains("is-done") || b.classList.contains("is-lifted")) return;
+        lastTap = Date.now();
+        hint.classList.add("is-gone");
+        send(b, i);
+      });
+      taps.append(b);
+      return b;
+    }));
+    hint.hidden = false;
+
+    function fly(b, i) {
+      if (calm) return Promise.resolve();
+      const box = journey.getBoundingClientRect();
+      const from = b.getBoundingClientRect();
+      const to = stack.getBoundingClientRect();
+      const size = from.width;
+      const flyer = document.createElement("span");
+      flyer.className = "flyer";
+      Object.assign(flyer.style, { width: `${size}px`, height: `${size}px` });
+      crop(flyer, i, 1);
+      journey.append(flyer);
+      const x0 = from.left - box.left, y0 = from.top - box.top;
+      const x1 = to.right - box.left - size * 1.6, y1 = to.bottom - box.top - size * 1.8;
+      const qx = (x0 + x1) / 2, qy = Math.min(y0, y1) - 70;
+      const frames = Array.from({ length: 11 }, (_, k) => {
+        const u = k / 10, a = (1 - u) * (1 - u), m = 2 * (1 - u) * u, d = u * u;
+        return { transform: `translate(${a * x0 + m * qx + d * x1}px, ${a * y0 + m * qy + d * y1}px) scale(${1 + 0.4 * u})`, opacity: u > 0.85 ? 0 : 1, offset: u };
+      });
+      return flyer.animate(frames, { duration: 950, easing: "cubic-bezier(0.45, 0, 0.2, 1)" }).finished.then(() => flyer.remove());
     }
 
-    if (!calm) {
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-      let visible = true;
-      new IntersectionObserver(([e]) => { visible = e.isIntersecting; }).observe(stage);
-      const ready = async () => { while (!visible || document.hidden) await wait(400); };
-      let n = 1284;
-
-      async function upload([r, c, name, size]) {
-        const box = stage.getBoundingClientRect();
-        const s = local(screen.getBoundingClientRect(), box);
-        const size0 = (CELL / W) * s.w;
-        const x0 = s.x + (COLS[c] / W) * s.w, y0 = s.y + (ROWS[r] / H) * s.h;
-
-        // 1. The cell is picked.
-        const lift = document.createElement("span");
-        lift.className = "lift";
-        Object.assign(lift.style, { width: `${size0}px`, height: `${(CELL / H) * s.h}px`, transform: `translate(${x0}px, ${y0}px)` });
-        stage.append(lift);
-        await lift.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, fill: "forwards" }).finished;
-
-        // 2. A new row appears at the top of the channel; the oldest one leaves.
-        const li = list.firstElementChild.cloneNode(true);
-        li.className = "is-uploading";
-        crop(li.querySelector(".thumb"), c, r);
-        li.querySelector(".name").textContent = name;
-        li.querySelector(".size").textContent = size;
-        li.querySelector(".progress i").style.width = "0";
-        list.prepend(li);
-        const rowH = li.offsetHeight;
-        li.animate([{ height: "0px", opacity: 0, paddingTop: 0, paddingBottom: 0 }, { height: `${rowH}px`, opacity: 1 }], { duration: 380, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
-        const old = list.lastElementChild;
-        old.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, fill: "forwards" }).finished.then(() => old.remove());
-
-        // 3. The photo flies along an arc into the new row.
-        const t = local(li.querySelector(".thumb").getBoundingClientRect(), box);
-        const flyer = document.createElement("span");
-        flyer.className = "flyer";
-        crop(flyer, c, r);
-        Object.assign(flyer.style, { width: `${size0}px`, height: `${size0}px` });
-        stage.append(flyer);
-        const x1 = t.x + t.w / 2, y1 = t.y + t.h / 2, cx = x0 + size0 / 2, cy = y0 + size0 / 2;
-        const qx = (cx + x1) / 2, qy = Math.min(cy, y1) - 70, k = t.w / size0;
-        const frames = Array.from({ length: 11 }, (_, i) => {
-          const u = i / 10, a = (1 - u) * (1 - u), b = 2 * (1 - u) * u, d = u * u;
-          const x = a * cx + b * qx + d * x1, y = a * cy + b * qy + d * y1, sc = 1 + (k - 1) * u;
-          return { transform: `translate(${x - size0 / 2}px, ${y - size0 / 2}px) scale(${sc})`, offset: u };
-        });
-        lift.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 500, delay: 250, fill: "forwards" }).finished.then(() => lift.remove());
-        await flyer.animate(frames, { duration: 950, easing: "cubic-bezier(0.45, 0, 0.2, 1)", fill: "forwards" }).finished;
-        li.classList.add("is-sent");
-        flyer.remove();
-
-        // 4. Upload progress, then confirmed.
-        await li.querySelector(".progress i").animate([{ width: "0%" }, { width: "100%" }], { duration: 1100, easing: "cubic-bezier(0.3, 0, 0.3, 1)", fill: "forwards" }).finished;
-        li.className = "";
-        n += 1;
-        count.textContent = n.toLocaleString("en-US");
+    async function arrive(i) {
+      const el = message(i, false);
+      stack.append(el);
+      // New messages land at the bottom; the stack scrolls up so the newest is in view.
+      const feed = stack.parentElement;
+      const shift = Math.max(0, stack.scrollHeight - feed.clientHeight + 24);
+      stack.style.transform = `translateY(${-shift}px)`;
+      if (!calm) {
+        await wait(450);
+        await el.querySelector(".msg-progress i").animate([{ width: "0%" }, { width: "100%" }], { duration: 1200, easing: "cubic-bezier(0.3, 0, 0.3, 1)", fill: "forwards" }).finished;
       }
+      el.classList.add("is-sent");
+      el.querySelector(".msg-state span").textContent = "Original, backed up";
+      files += 1;
+      count.textContent = files.toLocaleString("en-US");
+      while (stack.children.length > 6) {
+        const gone = stack.firstElementChild.offsetHeight + 10;
+        stack.firstElementChild.remove();
+        stack.style.transition = "none";
+        stack.style.transform = `translateY(${-(shift - gone)}px)`;
+        stack.offsetHeight;
+        stack.style.transition = "";
+      }
+    }
 
+    function send(b, i) {
+      queue = queue.then(async () => {
+        b.classList.add("is-lifted");
+        if (!calm) await wait(220);
+        await fly(b, i);
+        b.classList.remove("is-lifted");
+        await arrive(i);
+        b.classList.add("is-done");
+      });
+      return queue;
+    }
+
+    // Plays by itself while on screen, and steps aside for a few seconds after someone taps.
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(([e]) => { visible = e.isIntersecting; hero.classList.toggle("is-away", !visible); }).observe(hero);
+    }
+    if (!calm) {
       (async () => {
-        await wait(900);
-        for (let i = 0; ; i = (i + 1) % queue.length) {
-          await ready();
-          const [r, c] = queue[i];
-          // On narrow screens the card covers the lower right of the phone: only lift cells that are in view.
-          if (window.innerWidth <= 960 && r > 1 && c > 1) continue;
-          await upload(queue[i]);
-          await wait(1000);
+        await wait(1200);
+        for (;;) {
+          if (visible && !document.hidden && Date.now() - lastTap > 6000) {
+            let next = buttons.findIndex((b) => !b.classList.contains("is-done"));
+            if (next < 0) { buttons.forEach((b) => b.classList.remove("is-done")); next = 0; }
+            await send(buttons[next], next);
+          }
+          await wait(1800);
         }
       })();
     }
-
-    if (document.readyState === "complete") drawPath(); else window.addEventListener("load", drawPath, { once: true });
-    window.addEventListener("resize", drawPath);
-  }
-
-  // Reveal sections as they arrive.
-  const reveal = document.querySelectorAll(
-    "main h2, .river-caption, .details dl > div, .steps li, .privacy p, .faq-intro, .open p, .open .actions"
-  );
-  if (!calm && "IntersectionObserver" in window) {
-    const seen = new IntersectionObserver((entries) => {
-      entries.forEach((e) => {
-        if (!e.isIntersecting) return;
-        e.target.classList.add("is-visible");
-        seen.unobserve(e.target);
-      });
-    }, { rootMargin: "0px 0px -8% 0px" });
-    reveal.forEach((el, i) => {
-      el.setAttribute("data-reveal", "");
-      el.style.transitionDelay = `${(i % 4) * 60}ms`;
-      seen.observe(el);
-    });
   }
 
   // Feature tour: the step in the middle of the screen picks the phone's screen.
@@ -205,11 +203,16 @@
   // reaches Google counts as joined, and the script itself ignores duplicates.
   const waitlist = document.querySelector(".waitlist");
   if (waitlist && !waitlist.action.includes("PASTE_")) {
-    waitlist.hidden = false;
     const note = waitlist.querySelector(".waitlist-note");
     const button = waitlist.querySelector("button");
+    const email = waitlist.querySelector('input[type="email"]');
     waitlist.addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (!email.checkValidity()) {
+        note.textContent = "Enter your email address, like you@example.com.";
+        email.focus();
+        return;
+      }
       button.disabled = true;
       try {
         await fetch(waitlist.action, { method: "POST", mode: "no-cors", body: new URLSearchParams(new FormData(waitlist)) });

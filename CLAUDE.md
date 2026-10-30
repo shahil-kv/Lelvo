@@ -29,6 +29,7 @@ in `.claude/skills/`. Personal settings go in `CLAUDE.local.md` (ignored by git)
 | Gallery state | `Shared/Views/Gallery/GalleryModel.swift`; grids are `iOS/Views/Gallery/NativePhotoGrid.swift`, `macOS/Views/MacPhotoGrid.swift` |
 | Services wiring | `Shared/App/AppEnvironment.swift` |
 | Targets, Info.plist keys | `project.yml` |
+| Colours, web type, app icon | `design/tokens.json` → `python3 Scripts/design-tokens.py`; roles in `docs/DESIGN.md` |
 
 ## Save context
 
