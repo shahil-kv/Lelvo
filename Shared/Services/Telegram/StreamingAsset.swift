@@ -1,7 +1,7 @@
 import Foundation
 import AVFoundation
 import UniformTypeIdentifiers
-import MemvoCore
+import LelvoCore
 
 /// Serves AVPlayer byte-range requests from Telegram through `MediaReader`, so videos start in a
 /// second or two and seek instantly (including MOVs whose `moov` atom is at the end).
@@ -12,7 +12,7 @@ final class StreamingAsset: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
     private let item: MediaItem
     private let role: String
     private let reader: MediaReader
-    private let queue = DispatchQueue(label: "memvo.streaming")
+    private let queue = DispatchQueue(label: "lelvo.streaming")
     private let lock = NSLock()
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     /// AVPlayer's requests not answered yet: where each starts and when it came, for the "not playing" log line.

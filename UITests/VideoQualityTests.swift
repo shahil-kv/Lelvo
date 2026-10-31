@@ -39,7 +39,7 @@ final class VideoQualityTests: XCTestCase {
         XCTAssertTrue(code.waitForExistence(timeout: 10))
         code.typeText("24680")
         let allow = app.buttons["Allow Access"]
-        let begin = app.buttons["Start using Memvo"]
+        let begin = app.buttons["Start using Lelvo"]
         XCTAssertTrue(allow.waitForExistence(timeout: 10) || begin.exists)
         if allow.exists {
             allow.tap()

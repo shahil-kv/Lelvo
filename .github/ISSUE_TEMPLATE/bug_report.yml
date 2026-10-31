@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in Memvo doesn't work as it should
+description: Something in Lelvo doesn't work as it should
 labels: [bug]
 body:
   - type: markdown
@@ -7,8 +7,8 @@ body:
       value: |
         Thanks for taking the time. Two things first:
         - Problems with your **Telegram account** itself (frozen, banned, deleted, codes not arriving) aren't app bugs:
-          see the [FAQ](https://github.com/shahil-kv/Memvo/blob/main/docs/FAQ.md#when-something-goes-wrong-in-telegram).
-        - **Security problems** go to [a private report](https://github.com/shahil-kv/Memvo/security/advisories/new).
+          see the [FAQ](https://github.com/shahil-kv/Lelvo/blob/main/docs/FAQ.md#when-something-goes-wrong-in-telegram).
+        - **Security problems** go to [a private report](https://github.com/shahil-kv/Lelvo/security/advisories/new).
   - type: checkboxes
     id: checks
     attributes:
@@ -28,7 +28,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Memvo version
+      label: Lelvo version
       description: Settings → About → Version
       placeholder: 0.1.0 (12)
     validations:

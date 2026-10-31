@@ -1,5 +1,5 @@
 import SwiftUI
-import MemvoCore
+import LelvoCore
 
 /// Items deleted from the cloud, kept for 30 days like Photos' Recently Deleted (`CloudTrash`).
 struct RecentlyDeletedView: View {

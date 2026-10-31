@@ -24,8 +24,8 @@
       "Read(./**/*.mobileprovision)",
       "Read(./build/DerivedData/**)",
       "Read(./build/SourcePackages/**)",
-      "Read(./Packages/MemvoCore/.build/**)",
-      "Read(./Memvo.xcodeproj/**)",
+      "Read(./Packages/LelvoCore/.build/**)",
+      "Read(./Lelvo.xcodeproj/**)",
       "Read(./website/vendor/**)",
       "Read(./website/fonts/**)"
     ]

@@ -1,5 +1,5 @@
 import SwiftUI
-import MemvoCore
+import LelvoCore
 #if os(iOS)
 import UIKit
 #endif
@@ -63,7 +63,7 @@ struct SaveAllToPhotosView: View {
                     .disabled(loading || items.isEmpty || shortBy != nil)
                 }
             } footer: {
-                Text("Keep Memvo open while it saves. If it stops, tap again: what's already saved is skipped.")
+                Text("Keep Lelvo open while it saves. If it stops, tap again: what's already saved is skipped.")
             }
 
             if !failures.isEmpty {

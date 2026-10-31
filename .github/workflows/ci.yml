@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: swift test
-        working-directory: Packages/MemvoCore
+        working-directory: Packages/LelvoCore
         run: swift test 2>&1 | tail -40
 
   apps:
@@ -66,7 +66,7 @@ jobs:
 
       - name: Build Mac app
         run: |
-          xcodebuild build -project Memvo.xcodeproj -scheme MemvoMac -configuration Debug \
+          xcodebuild build -project Lelvo.xcodeproj -scheme LelvoMac -configuration Debug \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
             CODE_SIGNING_ALLOWED=NO > build/mac.log 2>&1 || { grep -E "error:" build/mac.log | head -50; tail -40 build/mac.log; exit 1; }
           tail -1 build/mac.log
@@ -101,7 +101,7 @@ jobs:
 
       - name: Build and test iOS app (unit and UI tests)
         run: |
-          xcodebuild test -project Memvo.xcodeproj -scheme Memvo \
+          xcodebuild test -project Lelvo.xcodeproj -scheme Lelvo \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
             -resultBundlePath build/TestResults.xcresult \
@@ -111,7 +111,7 @@ jobs:
 
       - name: Build iOS app (Release)
         run: |
-          xcodebuild build -project Memvo.xcodeproj -scheme Memvo -configuration Release \
+          xcodebuild build -project Lelvo.xcodeproj -scheme Lelvo -configuration Release \
             -destination "generic/platform=iOS" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
             CODE_SIGNING_ALLOWED=NO > build/ios-release.log 2>&1 || { grep -E "error:" build/ios-release.log | head -50; tail -40 build/ios-release.log; exit 1; }

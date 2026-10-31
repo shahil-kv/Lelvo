@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Ideas are welcome. Please check [what's not planned](https://github.com/shahil-kv/Memvo/blob/main/docs/not-planned.md)
+        Ideas are welcome. Please check [what's not planned](https://github.com/shahil-kv/Lelvo/blob/main/docs/not-planned.md)
         first: requests on that list are closed.
   - type: checkboxes
     id: checks

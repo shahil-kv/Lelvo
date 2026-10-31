@@ -1,6 +1,6 @@
-// The Memvo website (website/), served as static files by Cloudflare. Cloudflare Workers Builds deploys it on every push to main.
+// The Lelvo website (website/), served as static files by Cloudflare. Cloudflare Workers Builds deploys it on every push to main.
 {
-  "name": "memvo",
+  "name": "lelvo",
   "compatibility_date": "2026-10-19",
   "assets": {
     "directory": "website",

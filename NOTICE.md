@@ -1,6 +1,6 @@
 # Third-party notices
 
-Memvo is licensed under the GNU General Public License v3.0; see [LICENSE](LICENSE). The apps include the
+Lelvo is licensed under the GNU General Public License v3.0; see [LICENSE](LICENSE). The apps include the
 third-party software below, each under its own license. The apps show the same list under
 Settings → About → Acknowledgements.
 
@@ -10,7 +10,7 @@ Settings → About → Acknowledgements.
 | [TDLibFramework](https://github.com/Swiftgram/TDLibFramework) | TDLib built for Apple platforms | [MIT](https://github.com/Swiftgram/TDLibFramework/blob/main/LICENSE) |
 | [TDLibKit](https://github.com/Swiftgram/TDLibKit) | Swift API for TDLib | [MIT](https://github.com/Swiftgram/TDLibKit/blob/main/LICENSE) |
 | [OpenSSL](https://www.openssl.org) 3.x | Cryptography inside TDLib | [Apache License 2.0](https://www.openssl.org/source/license.html) |
-| [Argon2](https://github.com/P-H-C/phc-winner-argon2) reference implementation | Passphrase key derivation (Argon2id), included unchanged in [Packages/MemvoCore/Sources/CArgon2](Packages/MemvoCore/Sources/CArgon2) | [CC0 1.0 or Apache License 2.0](https://github.com/P-H-C/phc-winner-argon2/blob/master/LICENSE) |
+| [Argon2](https://github.com/P-H-C/phc-winner-argon2) reference implementation | Passphrase key derivation (Argon2id), included unchanged in [Packages/LelvoCore/Sources/CArgon2](Packages/LelvoCore/Sources/CArgon2) | [CC0 1.0 or Apache License 2.0](https://github.com/P-H-C/phc-winner-argon2/blob/master/LICENSE) |
 
 The website ([website/](website/)) uses the fonts [Bricolage Grotesque](https://github.com/ateliertriay/bricolage) and
 [Source Serif 4](https://github.com/adobe-fonts/source-serif), both under the [SIL Open Font License 1.1](https://openfontlicense.org).
@@ -26,5 +26,5 @@ operating system and aren't redistributed.
 
 ## Not included
 
-Memvo doesn't contain code from [AKS-Labs/CloudGallery](https://github.com/AKS-Labs/CloudGallery) or
+Lelvo doesn't contain code from [AKS-Labs/CloudGallery](https://github.com/AKS-Labs/CloudGallery) or
 Whitehole. They inspired the idea; this is a separate implementation written for Apple platforms.

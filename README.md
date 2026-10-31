@@ -1,31 +1,31 @@
-# Memvo
+# Lelvo
 
 **Back up every photo and video, in original quality, to a private channel in your own Telegram account.
 Browse it all in one fast timeline on iPhone and Mac.**
 
 <p align="center">
-  <a href="https://github.com/shahil-kv/Memvo/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/shahil-kv/Memvo?include_prereleases&sort=semver&label=release&color=1F6FEB"></a>
-  <a href="https://github.com/shahil-kv/Memvo/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shahil-kv/Memvo/ci.yml?branch=main&label=CI"></a>
+  <a href="https://github.com/shahil-kv/Lelvo/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/shahil-kv/Lelvo?include_prereleases&sort=semver&label=release&color=1F6FEB"></a>
+  <a href="https://github.com/shahil-kv/Lelvo/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shahil-kv/Lelvo/ci.yml?branch=main&label=CI"></a>
   <img alt="iOS 17+" src="https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=white">
   <img alt="macOS 15+" src="https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white">
   <img alt="Swift" src="https://img.shields.io/badge/Swift-SwiftUI%20%2B%20UIKit%2FAppKit-F05138?logo=swift&logoColor=white">
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-3DA639"></a>
 </p>
 
-**Website: [memvo.mshahilkv.workers.dev](https://memvo.mshahilkv.workers.dev)**
+**Website: [lelvo.mshahilkv.workers.dev](https://lelvo.mshahilkv.workers.dev)**
 
 It's not about free storage. It's about ownership: your photos live in a channel you own, in an account you
-already have, and you can open them without Memvo. No servers, no accounts of our own, no analytics, no ads.
+already have, and you can open them without Lelvo. No servers, no accounts of our own, no analytics, no ads.
 Your photos go straight from your device to your Telegram account, and nowhere else.
 
 <p align="center">
-  <img src="website/img/timeline.webp" width="200" alt="Memvo's photo timeline, grouped by day, with a cloud mark on each backed-up photo">
-  <img src="website/img/viewer.webp" width="200" alt="A photo open full screen in Memvo's viewer">
+  <img src="website/img/timeline.webp" width="200" alt="Lelvo's photo timeline, grouped by day, with a cloud mark on each backed-up photo">
+  <img src="website/img/viewer.webp" width="200" alt="A photo open full screen in Lelvo's viewer">
   <img src="website/img/albums.webp" width="200" alt="The Albums tab with Videos, Live Photos, Favorites, Only in the cloud and Not backed up">
   <img src="website/img/backup.webp" width="200" alt="The Backup tab showing items not in the cloud and a Back up now button">
 </p>
 <!-- Mac screenshot: add docs/images/mac.png and uncomment.
-<p align="center"><img src="docs/images/mac.png" width="820" alt="Memvo on a Mac, with a sidebar like Photos"></p>
+<p align="center"><img src="docs/images/mac.png" width="820" alt="Lelvo on a Mac, with a sidebar like Photos"></p>
 -->
 
 ### What Telegram sees in an end-to-end encrypted library
@@ -36,37 +36,37 @@ This is the library channel opened in the normal Telegram app. Every photo is a 
 and its caption (date, original file name, size) is ciphertext. Both are encrypted on your device with AES-256-GCM,
 using a key made from your passphrase (PBKDF2, 600,000 rounds), before anything is uploaded. Telegram stores them and can't read them. Neither can we.
 
-Open the same channel in Memvo, enter your passphrase, and it's your photo library again.
+Open the same channel in Lelvo, enter your passphrase, and it's your photo library again.
 
 <br clear="right">
 
 > [!NOTE]
-> Memvo uses the Telegram API. It is an independent app, not made, endorsed or supported by Telegram.
+> Lelvo uses the Telegram API. It is an independent app, not made, endorsed or supported by Telegram.
 > Your storage lives in your Telegram account and is subject to [Telegram's Terms of Service](https://telegram.org/tos).
 
 ## Contents
 
-- [Why Memvo exists](#why-memvo-exists)
+- [Why Lelvo exists](#why-lelvo-exists)
 - [What it does](#what-it-does)
 - [Install](#install)
 - [First launch](#first-launch)
 - [Before you trust it with your only copy](#before-you-trust-it-with-your-only-copy)
-- [What Memvo doesn't do (yet)](#what-memvo-doesnt-do-yet)
+- [What Lelvo doesn't do (yet)](#what-lelvo-doesnt-do-yet)
 - [Questions people ask](#questions-people-ask)
 - [Privacy](#privacy)
 - [Contributing](#contributing)
 - [Building from source](#building-from-source)
 - [License and credits](#license-and-credits)
 
-## Why Memvo exists
+## Why Lelvo exists
 
 Every photo cloud makes the same deal: free at first, then a storage plan, and a company that can see your library.
 iCloud gives you 5 GB, Google 15 GB shared with Gmail, and then it's a monthly bill for as long as you want your
 memories back.
 
-Telegram already gives every account cloud storage with no stated cap, and files of up to 2 GB each. Memvo turns
+Telegram already gives every account cloud storage with no stated cap, and files of up to 2 GB each. Lelvo turns
 that into a real photo backup: your library goes to a **private channel that you own**, inside **your own** Telegram
-account. There is no Memvo server in between, no Memvo account, and nothing for us to see.
+account. There is no Lelvo server in between, no Lelvo account, and nothing for us to see.
 
 ### But can Telegram see my photos?
 
@@ -74,11 +74,11 @@ The honest answer: in a Standard library, yes, Telegram could. Cloud chats are e
 Telegram's servers, but they aren't end-to-end encrypted. The same is true of Google Photos, and of iCloud unless
 you turn on Advanced Data Protection.
 
-So Memvo offers **End-to-end encrypted libraries**: every photo and its details are encrypted on your device
+So Lelvo offers **End-to-end encrypted libraries**: every photo and its details are encrypted on your device
 before they leave it, with a key made from a passphrase only you know. Telegram then stores files it can't open,
 and so does nobody else, including us.
 
-| | Memvo | iCloud Photos | Google Photos |
+| | Lelvo | iCloud Photos | Google Photos |
 |---|---|---|---|
 | Free storage | Your Telegram account's cloud, no stated cap | 5 GB | 15 GB, shared with Gmail and Drive |
 | After that | Still free | Monthly plan | Monthly plan |
@@ -88,7 +88,7 @@ and so does nobody else, including us.
 | Open source | Yes, every line | No | No |
 | Leave any time | Download everything, or open the channel in Telegram | Yes | Yes (Takeout) |
 
-Nobody is asking you to trust Telegram blindly either. Memvo just gives you another choice: storage you already
+Nobody is asking you to trust Telegram blindly either. Lelvo just gives you another choice: storage you already
 have, encryption you control, and code you can read.
 
 ## What it does
@@ -123,13 +123,13 @@ have, encryption you control, and code you can read.
 
 | | How | Notes |
 |---|---|---|
-| **iPhone / iPad** | Download `Memvo.ipa` from [Releases](https://github.com/shahil-kv/Memvo/releases/latest) and install it with [SideStore](https://sidestore.io), [AltStore](https://altstore.io) or [Sideloadly](https://sideloadly.io) | iOS 17 or later. The App Store version is in preparation. |
-| **Mac** | Download `Memvo.dmg` from [Releases](https://github.com/shahil-kv/Memvo/releases/latest), open it and drag Memvo to Applications | macOS 15 or later, Apple silicon or Intel. |
+| **iPhone / iPad** | Download `Lelvo.ipa` from [Releases](https://github.com/shahil-kv/Lelvo/releases/latest) and install it with [SideStore](https://sidestore.io), [AltStore](https://altstore.io) or [Sideloadly](https://sideloadly.io) | iOS 17 or later. The App Store version is in preparation. |
+| **Mac** | Download `Lelvo.dmg` from [Releases](https://github.com/shahil-kv/Lelvo/releases/latest), open it and drag Lelvo to Applications | macOS 15 or later, Apple silicon or Intel. |
 
 <details>
 <summary><b>Sideloading on iPhone, step by step</b></summary>
 
-1. Download `Memvo.ipa` from the latest release. It's unsigned; your sideloading tool signs it with your
+1. Download `Lelvo.ipa` from the latest release. It's unsigned; your sideloading tool signs it with your
    Apple ID.
 2. **SideStore**: My Apps → **+** → pick the IPA. SideStore refreshes it on the device every few days.
    **AltStore**: My Apps → **+**; AltServer on your computer refreshes it over Wi-Fi.
@@ -147,7 +147,7 @@ full reinstall, signing in brings the library back from Telegram.
 
 Until releases are notarized by Apple, macOS says it "can't check the app for malicious software" and won't open it.
 Click **Done**, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to
-Memvo, then **Open**. You only do this once. (On macOS 15 and later, right-click → Open no longer skips this.)
+Lelvo, then **Open**. You only do this once. (On macOS 15 and later, right-click → Open no longer skips this.)
 </details>
 
 ## First launch
@@ -155,7 +155,7 @@ Memvo, then **Open**. You only do this once. (On macOS 15 and later, right-click
 1. **Continue with Telegram** and enter the phone number of your Telegram account.
 2. Enter the login code Telegram sends to your other Telegram apps (or by SMS), and your two-step password if you
    use one.
-3. **Your library.** New here? Create one (Standard, or End-to-end encrypted). Coming back? Memvo finds your
+3. **Your library.** New here? Create one (Standard, or End-to-end encrypted). Coming back? Lelvo finds your
    existing library and restores it.
 4. Allow **Full Access** to Photos, then tap **Backup → Back up now**. For a big first backup, keep the app open on
    Wi-Fi and power. On iOS 26 and later it keeps going in the background with progress on the Lock Screen.
@@ -165,10 +165,10 @@ Builds made from source without app keys ask for a free `api_id` / `api_hash` fi
 
 ## Before you trust it with your only copy
 
-Memvo is careful, but your backup lives in a Telegram account that Telegram controls. Read these once:
+Lelvo is careful, but your backup lives in a Telegram account that Telegram controls. Read these once:
 
 1. **Telegram deletes inactive accounts**, and your channel goes with them. The default is 18 months without
-   opening any Telegram app. Memvo shows the current setting and can change it to the maximum, 2 years
+   opening any Telegram app. Lelvo shows the current setting and can change it to the maximum, 2 years
    (Settings → Telegram). Open the Telegram app now and then.
 2. **Deleting the channel deletes the backup.** Your library is an ordinary channel in your Telegram. Deleting it
    removes every file in it, and a deleted channel can't be restored. Don't rename it to something you might clean
@@ -182,7 +182,7 @@ Memvo is careful, but your backup lives in a Telegram account that Telegram cont
 
 The details, with links to Telegram's own pages, are in **[docs/FAQ.md](docs/FAQ.md)**.
 
-## What Memvo doesn't do (yet)
+## What Lelvo doesn't do (yet)
 
 Being honest about the gaps matters as much as the features:
 
@@ -193,23 +193,23 @@ Being honest about the gaps matters as much as the features:
   the background in short, system-controlled windows.
 - **Cloud speed is Telegram's.** Telegram sends free accounts roughly 1 MB/s, so saving a 4K original to Photos
   takes about a minute per 60 MB, and playing a 4K original (instead of its fast version) can stop to load.
-  Fast versions exist for videos backed up with Memvo 0.1 or later; older ones play the original unless you tap
+  Fast versions exist for videos backed up with Lelvo 0.1 or later; older ones play the original unless you tap
   *Make Fast Version*. Each fast version adds about 10% to the space a video takes in your Telegram.
-- **Telegram's rules apply to your storage.** If Telegram changes its limits or terms, Memvo can't override them.
+- **Telegram's rules apply to your storage.** If Telegram changes its limits or terms, Lelvo can't override them.
 
 ## Questions people ask
 
 <details><summary><b>Is this allowed by Telegram?</b></summary>
 
 Yes. Telegram's API is open to third-party apps under the [Telegram API Terms of Service](https://core.telegram.org/api/terms).
-Memvo uses its own `api_id`, says on its welcome screen that it uses the Telegram API, doesn't use
+Lelvo uses its own `api_id`, says on its welcome screen that it uses the Telegram API, doesn't use
 "Telegram" in its name or Telegram's logo, and doesn't change how Telegram works for anyone else.
 </details>
 
 <details><summary><b>Is Telegram storage really unlimited?</b></summary>
 
 Telegram describes its cloud storage as unlimited, with files up to 2 GB each (4 GB with Premium); see
-[Telegram's Terms of Service](https://telegram.org/tos) and the [Telegram FAQ](https://telegram.org/faq). That's Telegram's promise, not ours, and it can change. Memvo splits
+[Telegram's Terms of Service](https://telegram.org/tos) and the [Telegram FAQ](https://telegram.org/faq). That's Telegram's promise, not ours, and it can change. Lelvo splits
 bigger files automatically.
 </details>
 
@@ -236,7 +236,7 @@ Settings → Storage. Viewing cloud items never keeps them permanently.
 
 <details><summary><b>How do cloud videos play so fast if the originals are huge?</b></summary>
 
-Like iCloud Photos and Google Photos, Memvo plays a smaller version and keeps the original untouched. Because Memvo
+Like iCloud Photos and Google Photos, Lelvo plays a smaller version and keeps the original untouched. Because Lelvo
 has no servers, your phone makes that version itself while backing up: 1080p HEVC at about 2 Mbit/s, the sound
 copied as it is, about a tenth of the size of a 4K original. Telegram delivers it about four times faster than it
 plays, so it starts at once and never waits. Tap **1080p ⌄** in the viewer to switch to the 4K original, or set
@@ -254,7 +254,7 @@ More in **[docs/FAQ.md](docs/FAQ.md)**. Still stuck? See **[SUPPORT.md](SUPPORT.
 
 ## Privacy
 
-Memvo has no servers and collects nothing: no analytics, no crash reporting, no tracking. Your phone number
+Lelvo has no servers and collects nothing: no analytics, no crash reporting, no tracking. Your phone number
 and login code go only to Telegram. Your Telegram session, app keys and encryption key stay in this device's
 Keychain. Logs stay on the device unless you choose to share them, and phone numbers, keys and IDs are removed from
 them first. Full policy: **[PRIVACY.md](PRIVACY.md)**.
@@ -263,7 +263,7 @@ them first. Full policy: **[PRIVACY.md](PRIVACY.md)**.
 
 Bug reports, ideas, translations and code are all welcome. Please read **[CONTRIBUTING.md](CONTRIBUTING.md)** first:
 
-- **Bugs and ideas** start as [issues](https://github.com/shahil-kv/Memvo/issues/new/choose), using the forms.
+- **Bugs and ideas** start as [issues](https://github.com/shahil-kv/Lelvo/issues/new/choose), using the forms.
 - **Code**: wait for the issue to be labelled `approved`, then open a pull request that says `Closes #<number>`.
   Pull requests without an approved issue are closed automatically. Docs-only changes don't need approval.
 - Every pull request needs the one-time [Contributor License Agreement](CLA.md) (a bot asks you on your first PR).
@@ -275,15 +275,15 @@ Xcode 26 or later and [XcodeGen](https://github.com/yonaskolb/XcodeGen):
 
 ```sh
 brew install xcodegen
-git clone https://github.com/shahil-kv/Memvo.git && cd Memvo
-xcodegen generate && open Memvo.xcodeproj
+git clone https://github.com/shahil-kv/Lelvo.git && cd Lelvo
+xcodegen generate && open Lelvo.xcodeproj
 ```
 
 ```text
 iOS/                     iPhone and iPad app
 macOS/                   Mac app
 Shared/                  services and screens both apps use (Telegram, backup engine, onboarding, settings)
-Packages/MemvoCore  storage format, encryption, index, upload queue, with unit tests
+Packages/LelvoCore  storage format, encryption, index, upload queue, with unit tests
 UITests/                 iOS UI tests
 Config/                  build settings; your Telegram app keys go in Config/Secrets.xcconfig (never committed)
 docs/                    FAQ, architecture, storage format, development and release guides
@@ -294,9 +294,9 @@ Everything else (app keys, tests, the device workflow, releasing) is in
 
 ## License and credits
 
-Memvo is free software under the **[GNU General Public License v3.0](LICENSE)**: you may use, study, share
+Lelvo is free software under the **[GNU General Public License v3.0](LICENSE)**: you may use, study, share
 and change it, and copies you distribute must stay under the same license with their source code. Contributions are
-accepted under the [Contributor License Agreement](CLA.md). The Memvo name and icon are covered by
+accepted under the [Contributor License Agreement](CLA.md). The Lelvo name and icon are covered by
 [TRADEMARKS.md](TRADEMARKS.md). Third-party licenses: [NOTICE.md](NOTICE.md).
 
 Inspired by [AKS-Labs/CloudGallery](https://github.com/AKS-Labs/CloudGallery) and Whitehole, earlier projects that

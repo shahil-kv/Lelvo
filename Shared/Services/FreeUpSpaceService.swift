@@ -1,6 +1,6 @@
 import Foundation
 import Photos
-import MemvoCore
+import LelvoCore
 
 /// Finds items that are provably safe to delete from the phone and deletes them via PhotoKit
 /// (iOS always shows its own confirmation). Nothing unverified or larger than 20 MB is ever offered.

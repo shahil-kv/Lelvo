@@ -8,9 +8,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 command -v xcodegen >/dev/null || { echo "Install XcodeGen first: brew install xcodegen" >&2; exit 1; }
-[ -d Memvo.xcodeproj ] && [ Memvo.xcodeproj -nt project.yml ] || xcodegen generate --quiet
+[ -d Lelvo.xcodeproj ] && [ Lelvo.xcodeproj -nt project.yml ] || xcodegen generate --quiet
 
-common=(-project Memvo.xcodeproj -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages)
+common=(-project Lelvo.xcodeproj -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages)
 config="${2:-Debug}"
 
 simulator() {
@@ -20,9 +20,9 @@ simulator() {
 }
 
 case "${1:-}" in
-  ios) xcodebuild "${common[@]}" -scheme Memvo -configuration "$config" -destination "generic/platform=iOS Simulator" build ;;
-  mac) xcodebuild "${common[@]}" -scheme MemvoMac -configuration "$config" build ;;
-  test) (cd Packages/MemvoCore && swift test) ;;
-  uitest) xcodebuild "${common[@]}" -scheme Memvo -destination "platform=iOS Simulator,name=$(simulator)" test ;;
+  ios) xcodebuild "${common[@]}" -scheme Lelvo -configuration "$config" -destination "generic/platform=iOS Simulator" build ;;
+  mac) xcodebuild "${common[@]}" -scheme LelvoMac -configuration "$config" build ;;
+  test) (cd Packages/LelvoCore && swift test) ;;
+  uitest) xcodebuild "${common[@]}" -scheme Lelvo -destination "platform=iOS Simulator,name=$(simulator)" test ;;
   *) sed -n '2,6p' "$0"; exit 64 ;;
 esac

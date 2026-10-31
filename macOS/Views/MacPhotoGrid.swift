@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import Photos
 import UniformTypeIdentifiers
-import MemvoCore
+import LelvoCore
 
 /// A context-menu entry built in SwiftUI and shown as an NSMenu.
 struct GridMenuItem {

@@ -6,7 +6,7 @@ import CoreLocation
 import UIKit
 #endif
 import UniformTypeIdentifiers
-import MemvoCore
+import LelvoCore
 
 struct AlbumInfo: Identifiable, Hashable {
     let id: String
@@ -50,7 +50,7 @@ struct ExportedExtra {
 /// On iPhone the library is always there, so it counts as available straight away.
 enum PhotoAvailability {
     enum State { case unknown, probing, available, unavailable }
-    static let didChange = Notification.Name("Memvo.photoAvailabilityChanged")
+    static let didChange = Notification.Name("Lelvo.photoAvailabilityChanged")
     private static let lock = NSLock()
     #if os(macOS)
     private nonisolated(unsafe) static var state: State = .unknown
@@ -108,7 +108,7 @@ enum PhotoLibraryError: LocalizedError {
         switch self {
         case .noOriginalResource: return "This item has no original file to back up."
         case .assetMissing: return "The photo is no longer in your library."
-        case .notAuthorized: return "Memvo doesn't have access to your photo library."
+        case .notAuthorized: return "Lelvo doesn't have access to your photo library."
         }
     }
 }
@@ -534,7 +534,7 @@ final class PhotoLibraryService: @unchecked Sendable {
     enum RestoredEdit: String {
         /// The edit with Photos' own adjustment data: Photos can reopen the edit where it was.
         case photosAdjustments = "with Photos' edit data"
-        /// The edit with Memvo's marker as adjustment data: shown, and Revert gives the original.
+        /// The edit with Lelvo's marker as adjustment data: shown, and Revert gives the original.
         case revertible = "revertible"
         /// What the user saw, saved as the photo itself (how earlier versions restored edits).
         case asShown = "as shown"
@@ -570,7 +570,7 @@ final class PhotoLibraryService: @unchecked Sendable {
                         albums: [String], existingAlbums: [String: PHAssetCollection]) async throws -> String? {
         let adjustment: PHAdjustmentData? = switch edit {
         case .photosAdjustments: files["ad"].flatMap(Self.photosAdjustmentData)
-        case .revertible: PHAdjustmentData(formatIdentifier: "com.shahil-kv.memvo.restore", formatVersion: "1", data: Data("restored".utf8))
+        case .revertible: PHAdjustmentData(formatIdentifier: "com.shahil-kv.lelvo.restore", formatVersion: "1", data: Data("restored".utf8))
         case .asShown, .none: nil
         }
         if edit == .photosAdjustments, adjustment == nil { throw PhotoLibraryError.noOriginalResource }

@@ -1,12 +1,12 @@
 # Security
 
-Memvo holds people's whole photo libraries and a session for their Telegram account, so security reports get
+Lelvo holds people's whole photo libraries and a session for their Telegram account, so security reports get
 priority over everything else.
 
 ## Reporting a vulnerability
 
 **Please don't open a public issue.** Report it privately through GitHub:
-[Report a vulnerability](https://github.com/shahil-kv/Memvo/security/advisories/new) (Security tab → Report a
+[Report a vulnerability](https://github.com/shahil-kv/Lelvo/security/advisories/new) (Security tab → Report a
 vulnerability).
 
 Include what you found, how to reproduce it, which app and version, and what an attacker could do with it. A short

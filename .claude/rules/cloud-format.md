@@ -1,7 +1,7 @@
 ---
 paths:
-  - "Packages/MemvoCore/Sources/MemvoCore/Format/**"
-  - "Packages/MemvoCore/Sources/MemvoCore/Crypto/**"
+  - "Packages/LelvoCore/Sources/LelvoCore/Format/**"
+  - "Packages/LelvoCore/Sources/LelvoCore/Crypto/**"
   - "Shared/Services/Telegram/CloudUploader.swift"
   - "Shared/Services/Telegram/LibraryService.swift"
   - "docs/CLOUD_FORMAT.md"
@@ -22,4 +22,4 @@ Files already in users' Telegram libraries must stay readable forever. Read the 
 - Everything Photos knows about an item (original, edit render and adjustment data, RAW alternate, Live Photo video,
   albums, favourite, hidden, dates, place) is captured in both plain and encrypted libraries, even if no feature
   reads it yet. Nobody can re-upload after Free Up Space.
-- Run `cd Packages/MemvoCore && swift test --filter FormatTests` and `--filter CryptoTests` after every change here.
+- Run `cd Packages/LelvoCore && swift test --filter FormatTests` and `--filter CryptoTests` after every change here.

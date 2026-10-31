@@ -1,6 +1,6 @@
 import SwiftUI
 import UIKit
-import MemvoCore
+import LelvoCore
 
 /// The iPhone photo grid on UICollectionView, like Photos: recycled cells, thumbnails loaded ahead of the scroll,
 /// pinch to change columns, Photos' own swipe-to-select, long-press to start selecting, and the viewer opening

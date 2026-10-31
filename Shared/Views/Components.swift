@@ -2,7 +2,7 @@ import SwiftUI
 #if os(iOS)
 import UIKit
 #endif
-import MemvoCore
+import LelvoCore
 
 enum Format {
     static func bytes(_ value: Int64) -> String {

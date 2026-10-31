@@ -5,7 +5,7 @@ paths:
   - "Shared/Views/Backup/**"
   - "Shared/Views/Gallery/GalleryActions.swift"
   - "Shared/Views/Gallery/RecentlyDeletedView.swift"
-  - "Packages/MemvoCore/Sources/MemvoCore/Index/CloudTrash.swift"
+  - "Packages/LelvoCore/Sources/LelvoCore/Index/CloudTrash.swift"
 ---
 
 # Deleting photos

@@ -1,6 +1,6 @@
 import SwiftUI
 import Photos
-import MemvoCore
+import LelvoCore
 
 @MainActor
 final class OnboardingModel: ObservableObject {
@@ -113,7 +113,7 @@ final class OnboardingModel: ObservableObject {
                 apiId = ""
                 apiHash = ""
                 step = .credentials
-                self.error = "This version of Memvo can't connect to Telegram with its built-in key. Add your own free key below to continue. Your photos are safe in your channel."
+                self.error = "This version of Lelvo can't connect to Telegram with its built-in key. Add your own free key below to continue. Your photos are safe in your channel."
             } catch {
                 AppLog.shared.error(String(format: "Onboarding: %@ failed after %.1f s: %@", label, Date().timeIntervalSince(started), error.localizedDescription))
                 self.error = error.localizedDescription
@@ -477,7 +477,7 @@ struct OnboardingView: View {
                                 : m.info.map { "\($0) Allow Full Access so everything on this \(Device.name) is backed up too." }
                                     ?? "Allow Full Access so everything on this \(Device.name) is backed up.",
                               m: m, showsInfo: false,
-                              button: decided ? .init(title: "Start using Memvo", enabled: true) { app.finishOnboarding() }
+                              button: decided ? .init(title: "Start using Lelvo", enabled: true) { app.finishOnboarding() }
                                               : .init(title: "Allow Access", enabled: true) { m.requestPhotos() }) {
             VStack(alignment: .leading, spacing: 12) {
                 switch status {
@@ -562,7 +562,7 @@ private struct LibraryScreen: View {
             } else {
                 // First time: one library is made for you. The only real choice is Standard or encrypted.
                 OnboardingPage(icon: "photo.stack.fill", title: "Your library",
-                               subtitle: "Memvo makes a private channel in your Telegram for your backup. Only you can see it.",
+                               subtitle: "Lelvo makes a private channel in your Telegram for your backup. Only you can see it.",
                                m: m, button: .init(title: m.newLibraryEncrypted ? "Create my encrypted library" : "Create my library",
                                                    enabled: m.newPassphraseProblem == nil && !m.newLibraryName.trimmingCharacters(in: .whitespaces).isEmpty) {
                                    m.createLibrary()
@@ -610,7 +610,7 @@ private struct LibraryScreen: View {
             NavigationStack {
                 List {
                     if !libraries.isEmpty {
-                        Section("Memvo libraries") {
+                        Section("Lelvo libraries") {
                             ForEach(libraries) { c in channelButton(c, icon: "photo.stack.fill") }
                         }
                     }
@@ -761,14 +761,14 @@ struct EncryptionChoice: View {
             option(isEncrypted: false, icon: "photo.on.rectangle", title: "Standard",
                    detail: "Fastest. Files can also be opened in the Telegram app.")
             option(isEncrypted: true, icon: "lock.shield.fill", title: "End-to-end encrypted",
-                   detail: "Only Memvo on your devices can open your files.")
+                   detail: "Only Lelvo on your devices can open your files.")
             if showsPreview { TelegramPreview(encrypted: encrypted) }
             if encrypted {
                 VStack(alignment: .leading, spacing: 10) {
                     OnboardingField(placeholder: "Passphrase (10+ characters)", text: $passphrase, secure: true, content: .newPassword)
                     OnboardingField(placeholder: "Repeat passphrase", text: $confirm, secure: true, content: .newPassword)
                     Toggle(isOn: $acknowledged) {
-                        Text("I understand that if I lose both this passphrase and the recovery key I'll get next, nobody can help me get my photos back. Not Memvo, not Telegram.")
+                        Text("I understand that if I lose both this passphrase and the recovery key I'll get next, nobody can help me get my photos back. Not Lelvo, not Telegram.")
                             .font(.footnote).foregroundStyle(.orange)
                     }
                     if let p = Self.problem(encrypted: encrypted, passphrase: passphrase, confirm: confirm, acknowledged: acknowledged),

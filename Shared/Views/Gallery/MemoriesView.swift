@@ -1,5 +1,5 @@
 import SwiftUI
-import MemvoCore
+import LelvoCore
 
 /// Memories built on the device from the timeline (`Memories`): on this day in earlier years, and trips.
 @MainActor

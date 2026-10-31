@@ -1,9 +1,9 @@
 import SwiftUI
 import Photos
 import ImageIO
-import MemvoCore
+import LelvoCore
 
-/// The first-run story before Telegram sign-in: what Memvo is, the problem it solves, what you get, who can see your
+/// The first-run story before Telegram sign-in: what Lelvo is, the problem it solves, what you get, who can see your
 /// photos, honest answers, and your own library in numbers. Nothing here talks to Telegram or reads the library.
 struct IntroView: View {
     enum Page: Int, CaseIterable { case hook, pain, features, privacy, questions, numbers }
@@ -88,7 +88,7 @@ struct IntroView: View {
     private var buttonTitle: String {
         switch current {
         case .hook: return "Get started"
-        case .questions: return "Continue to Memvo"
+        case .questions: return "Continue to Lelvo"
         case .numbers:
             if photoStatus == .notDetermined { return "Allow access to Photos" }
             return "Continue with Telegram"
@@ -181,7 +181,7 @@ private struct IntroPage<Art: View>: View {
 
 // MARK: - 1. Hook
 
-/// Big, confident type over the photo wall: what Memvo is in two lines.
+/// Big, confident type over the photo wall: what Lelvo is in two lines.
 private struct HookPage: View {
     @State private var shown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -506,7 +506,7 @@ private struct PrivacyPage: View {
             .frame(height: 118)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Photos go from your \(Device.name) straight to your Telegram. Memvo has no servers.")
+        .accessibilityLabel("Photos go from your \(Device.name) straight to your Telegram. Lelvo has no servers.")
     }
 
     private func node(_ image: Image, _ label: String) -> some View {
@@ -619,7 +619,7 @@ struct TelegramPreview: View {
 
 // MARK: - 5. Questions
 
-/// Straight answers before anyone trusts us with their photos, including what Memvo can't promise. The four that
+/// Straight answers before anyone trusts us with their photos, including what Lelvo can't promise. The four that
 /// matter most show first; the rest are one tap away. Keep these in line with docs/FAQ.md.
 private struct QuestionsPage: View {
     @State private var open: Int?
@@ -627,21 +627,21 @@ private struct QuestionsPage: View {
 
     private static let shownFirst = 4
     private static let items: [(icon: String, question: String, answer: String)] = [
-        ("eye", "Can Memvo see my photos?",
-         "**No. Memvo has no servers.** The app talks only to Telegram, as you, like the official Telegram apps. **We have no way to see your library or your account.**"),
+        ("eye", "Can Lelvo see my photos?",
+         "**No. Lelvo has no servers.** The app talks only to Telegram, as you, like the official Telegram apps. **We have no way to see your library or your account.**"),
         ("paperplane", "Can Telegram see my photos?",
-         "In a Standard library, **Telegram could see them**: files are stored like any Telegram cloud chat, which isn't end-to-end encrypted. In an encrypted library, **Memvo locks every file on your device first**, so Telegram stores only unreadable files."),
-        ("trash", "Will Memvo delete photos from my \(Device.name)?",
-         "**Only when you choose Free Up Space**, and only items Memvo has just checked are complete in Telegram. **You confirm every deletion**, and they stay in Recently Deleted for 30 days."),
+         "In a Standard library, **Telegram could see them**: files are stored like any Telegram cloud chat, which isn't end-to-end encrypted. In an encrypted library, **Lelvo locks every file on your device first**, so Telegram stores only unreadable files."),
+        ("trash", "Will Lelvo delete photos from my \(Device.name)?",
+         "**Only when you choose Free Up Space**, and only items Lelvo has just checked are complete in Telegram. **You confirm every deletion**, and they stay in Recently Deleted for 30 days."),
         ("exclamationmark.triangle", "What if I lose my Telegram account?",
-         "**Your library goes with it.** Telegram deletes accounts unused for 18 months by default; **Memvo can raise this to 2 years**. For a second copy, **Download a copy of your library** saves every original to a drive or folder."),
+         "**Your library goes with it.** Telegram deletes accounts unused for 18 months by default; **Lelvo can raise this to 2 years**. For a second copy, **Download a copy of your library** saves every original to a drive or folder."),
         ("externaldrive", "Is the storage really free?",
-         "Telegram describes its cloud storage as **unlimited**, with files up to 2 GB each, or 4 GB with Premium. Memvo splits bigger videos automatically. **This is Telegram's offer, not ours, and Telegram can change it.**"),
+         "Telegram describes its cloud storage as **unlimited**, with files up to 2 GB each, or 4 GB with Premium. Lelvo splits bigger videos automatically. **This is Telegram's offer, not ours, and Telegram can change it.**"),
         ("key", "What if I forget my passphrase?",
          "Your **recovery key** opens the library and lets you set a new passphrase. **If you lose both, nobody can open your photos, including us.** Keep them in a password manager."),
         ("checkmark.shield", "Is this allowed by Telegram?",
-         "**Yes.** Memvo uses Telegram's public API under its terms, with its own app ID. It's an independent project, **not made or reviewed by Telegram**."),
-        ("chevron.left.forwardslash.chevron.right", "What if Memvo stops being developed?",
+         "**Yes.** Lelvo uses Telegram's public API under its terms, with its own app ID. It's an independent project, **not made or reviewed by Telegram**."),
+        ("chevron.left.forwardslash.chevron.right", "What if Lelvo stops being developed?",
          "**Your photos stay in your Telegram** as normal files, in a documented format. The code is open source, so anyone can keep it going, and **you can download everything at any time**."),
     ]
 
@@ -780,7 +780,7 @@ private struct NumbersPage: View {
                 .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .padding(.top, 30)
             Text("See your library in numbers").font(.system(size: 30, weight: .bold)).fixedSize(horizontal: false, vertical: true)
-            Text("Memvo needs access to Photos to back them up. Your photos go only to your own Telegram, and they're counted here on this \(Device.name).")
+            Text("Lelvo needs access to Photos to back them up. Your photos go only to your own Telegram, and they're counted here on this \(Device.name).")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Label("Choose Full Access so every photo is backed up. You can change it in Settings at any time.", systemImage: "info.circle")
                 .font(.footnote).foregroundStyle(.secondary)
@@ -798,7 +798,7 @@ private struct NumbersPage: View {
                     .font(.system(size: 60, weight: .heavy, design: .rounded)).monospacedDigit()
                     .foregroundStyle(Color.accentColor)
                     .contentTransition(.numericText(value: Double(stats.items)))
-                Text(status == .limited ? "photos and videos you've shared with Memvo" : "photos and videos on this \(Device.name)")
+                Text(status == .limited ? "photos and videos you've shared with Lelvo" : "photos and videos on this \(Device.name)")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
@@ -1053,7 +1053,7 @@ struct FirstBackupView: View {
     @ViewBuilder private var buttons: some View {
         VStack(spacing: 10) {
             if returning || finished || phase == .nothing {
-                PrimaryCapsuleButton(title: "Start using Memvo", action: done)
+                PrimaryCapsuleButton(title: "Start using Lelvo", action: done)
             } else if phase == .choosing {
                 PrimaryCapsuleButton(title: "Back up this photo", enabled: selected != nil) {
                     if let selected { Task { await upload(selected) } }
@@ -1246,7 +1246,7 @@ final class LibraryStats: ObservableObject {
             await MainActor.run { self.items = count; self.free = free }
             var total: Int64 = 0
             for i in 0..<count {
-                // The originals Memvo uploads (photo or video, and a Live Photo's video).
+                // The originals Lelvo uploads (photo or video, and a Live Photo's video).
                 for r in PHAssetResource.assetResources(for: assets.object(at: i))
                 where [.photo, .video, .pairedVideo].contains(r.type) {
                     // `fileSize` isn't public API, but PHAssetResource has answered to it since iOS 10 and macOS 10.15.

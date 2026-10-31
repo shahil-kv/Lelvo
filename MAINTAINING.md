@@ -1,4 +1,4 @@
-# Maintaining Memvo
+# Maintaining Lelvo
 
 How the maintainer runs the project day to day: issues, pull requests, releases, and the tools that do the routine
 work. Contributors don't need this; they read [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -40,9 +40,9 @@ GitHub → Settings → Saved replies, so these are one click in any comment box
 - **Needs info:** "Thanks! To look into this I need: <what>. Settings → Logs → Share gives a log with phone
   numbers and IDs already removed."
 - **Approved:** "Approved. Happy to take a pull request: link this issue with `Closes #<n>`. Keep it to this change."
-- **Not planned:** "Thanks for the idea. It doesn't fit what Memvo is for right now; the reasons are in
+- **Not planned:** "Thanks for the idea. It doesn't fit what Lelvo is for right now; the reasons are in
   docs/not-planned.md. Closing, but the discussion stays here."
-- **Telegram account:** "This is decided by Telegram, not Memvo, so only Telegram can change it. The FAQ explains
+- **Telegram account:** "This is decided by Telegram, not Lelvo, so only Telegram can change it. The FAQ explains
   what to do: docs/FAQ.md#when-something-goes-wrong-in-telegram. Your photos on the phone are untouched."
 
 ## Pull requests
@@ -108,11 +108,11 @@ secret). `privacy.html` and `changelog.html` are generated: edit `PRIVACY.md` or
 | Dependabot | Monthly GitHub Actions updates, security alerts | `.github/dependabot.yml`, Settings → Code security |
 | CLA Assistant (workflow) | Contributor agreement signatures | `.github/workflows/cla.yml`, `cla-signatures` branch |
 | Secret scanning + push protection | Blocks commits containing keys | Settings → Code security |
-| Cloudflare Workers Builds | Deploys the website | Cloudflare dashboard → Workers & Pages → memvo |
+| Cloudflare Workers Builds | Deploys the website | Cloudflare dashboard → Workers & Pages → lelvo |
 
 **Repository secrets:** `TD_API_ID`, `TD_API_HASH` (Telegram app keys for builds made on GitHub), and later
 `APPLE_TEAM_ID`, `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` (TestFlight). Set them with `gh secret set NAME -R
-shahil-kv/Memvo`, which asks for the value; never paste them anywhere else.
+shahil-kv/Lelvo`, which asks for the value; never paste them anywhere else.
 
 ## Tools worth having
 

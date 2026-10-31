@@ -1,6 +1,6 @@
 import SwiftUI
 import AVFoundation
-import MemvoCore
+import LelvoCore
 
 /// One cloud video in a viewer: its player, which version plays (original or fast version) and switching between
 /// them at the same moment. With Automatic quality, a stall of a few seconds on the original switches to the fast

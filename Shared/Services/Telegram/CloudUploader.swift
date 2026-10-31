@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 import TDLibKit
-import MemvoCore
+import LelvoCore
 
 /// One resource of an item, exported to disk and ready to upload.
 struct PreparedResource {
@@ -40,9 +40,9 @@ final class CloudUploader: @unchecked Sendable {
     /// file also needs the `resume` point saved with them. `checkpoint` is called after every confirmed part so progress
     /// survives a crash.
     func upload(itemId: String, resource: PreparedResource, encrypted: Bool, thumbnail: (URL, Int, Int)?,
-                existing: [MemvoCore.RemoteFile], resume: FileCrypto.ResumePoint? = nil,
-                checkpoint: @escaping ([MemvoCore.RemoteFile], Int, FileCrypto.ResumePoint?) throws -> Void,
-                progress: @escaping (Int64, Int64) -> Void) async throws -> [MemvoCore.RemoteFile] {
+                existing: [LelvoCore.RemoteFile], resume: FileCrypto.ResumePoint? = nil,
+                checkpoint: @escaping ([LelvoCore.RemoteFile], Int, FileCrypto.ResumePoint?) throws -> Void,
+                progress: @escaping (Int64, Int64) -> Void) async throws -> [LelvoCore.RemoteFile] {
         guard let chatId = library.chatId else { throw LibraryError.noLibrary }
         let workDir = staging.appendingPathComponent("up-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
@@ -123,7 +123,7 @@ final class CloudUploader: @unchecked Sendable {
                 try? await td.deleteMessages(chatId: chatId, ids: [message.id])
                 throw TDServiceError.sizeMismatch(expected: partSize, actual: file.size)
             }
-            done.append(MemvoCore.RemoteFile(messageId: message.id, fileId: file.remote.id,
+            done.append(LelvoCore.RemoteFile(messageId: message.id, fileId: file.remote.id,
                                                     fileUniqueId: file.remote.uniqueId, size: file.size))
             try checkpoint(done, layout.partCount, resumePoint)
             // TDLib keeps the upload's temporary file as this file's local copy; it's deleted below, so the first

@@ -12,12 +12,12 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-REPO = "https://github.com/shahil-kv/Memvo/blob/main/"
+REPO = "https://github.com/shahil-kv/Lelvo/blob/main/"
 
 PAGES = [
     ("PRIVACY.md", "privacy",
-     "Memvo's privacy policy: Memvo has no servers and collects nothing. Your photos go from your device to your own Telegram account."),
-    ("docs/CHANGELOG.md", "changelog", "What's new in each version of Memvo for iPhone and Mac."),
+     "Lelvo's privacy policy: Lelvo has no servers and collects nothing. Your photos go from your device to your own Telegram account."),
+    ("docs/CHANGELOG.md", "changelog", "What's new in each version of Lelvo for iPhone and Mac."),
 ]
 
 

@@ -1,7 +1,7 @@
 import SwiftUI
 import Photos
 import PhotosUI
-import MemvoCore
+import LelvoCore
 
 struct GalleryView: View {
     var filter: GalleryFilter?
@@ -90,7 +90,7 @@ struct GalleryView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete from Backup", role: .destructive) { Task { await deleteFromCloud() } }
         } message: {
-            Text("They move to Recently Deleted in Memvo and are removed from your Telegram library after 30 days. Any still on this iPhone stay there.")
+            Text("They move to Recently Deleted in Lelvo and are removed from your Telegram library after 30 days. Any still on this iPhone stay there.")
         }
         .alert("Delete \(selection.count) from this iPhone?", isPresented: $confirmDeviceDelete) {
             Button("Cancel", role: .cancel) {}
@@ -99,7 +99,7 @@ struct GalleryView: View {
             let notBacked = selectedEntries.filter { $0.asset != nil && $0.badge != .backedUp }.count
             Text(notBacked > 0
                  ? "\(notBacked) of these are NOT backed up yet and would be lost after Recently Deleted is emptied."
-                 : "They stay in your Telegram library and in Memvo as cloud items.")
+                 : "They stay in your Telegram library and in Lelvo as cloud items.")
         }
     }
 
@@ -148,7 +148,7 @@ struct GalleryView: View {
 
     private var limitedBanner: some View {
         HStack {
-            Label("Memvo can only see the photos you selected.", systemImage: "photo.badge.exclamationmark")
+            Label("Lelvo can only see the photos you selected.", systemImage: "photo.badge.exclamationmark")
                 .font(.footnote)
             Spacer()
             Button("Manage") { presentLimitedPicker() }.font(.footnote.bold())
@@ -167,7 +167,7 @@ struct GalleryView: View {
             }
         case .notDetermined:
             EmptyStateView(systemImage: "photo.on.rectangle", title: "Allow photo access",
-                           message: "Memvo needs access to back up your library.", actionTitle: "Allow") {
+                           message: "Lelvo needs access to back up your library.", actionTitle: "Allow") {
                 Task {
                     _ = await PhotoLibraryService.requestAuthorization()
                     model.registerForChangesIfNeeded()

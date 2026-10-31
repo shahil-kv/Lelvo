@@ -7,7 +7,7 @@ in `.claude/skills/`. Personal settings go in `CLAUDE.local.md` (ignored by git)
 
 ## Check your work
 
-- Core tests, seconds: `Scripts/build.sh test`. One suite: `cd Packages/MemvoCore && swift test --filter FormatTests`
+- Core tests, seconds: `Scripts/build.sh test`. One suite: `cd Packages/LelvoCore && swift test --filter FormatTests`
 - iOS build: `Scripts/build.sh ios > build/ios.log 2>&1; tail -5 build/ios.log; Scripts/check-warnings.sh build/ios.log`
 - Mac build: same with `mac` and `build/mac.log`
 - UI tests are slow (minutes): `Scripts/build.sh uitest`, only for UI changes
@@ -18,12 +18,12 @@ in `.claude/skills/`. Personal settings go in `CLAUDE.local.md` (ignored by git)
 
 | Task | Start in |
 |---|---|
-| Upload, retry, job states | `Shared/Services/BackupEngine.swift`, `Packages/MemvoCore/Sources/MemvoCore/Backup/JobQueue.swift` |
+| Upload, retry, job states | `Shared/Services/BackupEngine.swift`, `Packages/LelvoCore/Sources/LelvoCore/Backup/JobQueue.swift` |
 | TDLib calls, sign-in, ranged reads | `Shared/Services/Telegram/TDService.swift` |
 | Channel, header, restore scan | `Shared/Services/Telegram/LibraryService.swift`, `.../Format/LibraryIndexer.swift` |
-| Caption JSON, roles, parts | `Packages/MemvoCore/Sources/MemvoCore/Format/`, `docs/CLOUD_FORMAT.md` |
-| Encryption | `Packages/MemvoCore/Sources/MemvoCore/Crypto/FileCrypto.swift` |
-| SQLite index | `Packages/MemvoCore/Sources/MemvoCore/Index/LibraryStore.swift` |
+| Caption JSON, roles, parts | `Packages/LelvoCore/Sources/LelvoCore/Format/`, `docs/CLOUD_FORMAT.md` |
+| Encryption | `Packages/LelvoCore/Sources/LelvoCore/Crypto/FileCrypto.swift` |
+| SQLite index | `Packages/LelvoCore/Sources/LelvoCore/Index/LibraryStore.swift` |
 | Video streaming | `Shared/Services/Telegram/MediaReader.swift`, `StreamingAsset.swift`, `Shared/Views/Gallery/CloudVideo.swift` |
 | Deleting from the phone | `Shared/Services/FreeUpSpaceService.swift` |
 | Gallery state | `Shared/Views/Gallery/GalleryModel.swift`; grids are `iOS/Views/Gallery/NativePhotoGrid.swift`, `macOS/Views/MacPhotoGrid.swift` |
@@ -42,8 +42,8 @@ in `.claude/skills/`. Personal settings go in `CLAUDE.local.md` (ignored by git)
 
 ## Gotchas
 
-- `Memvo.xcodeproj` is generated from `project.yml` and ignored. Edit `project.yml`; `Scripts/build.sh` regenerates.
-- `Packages/MemvoCore/Sources/MemvoCore/BotAPI/` is the old v1 Bot API client. The apps use TDLib; don't extend it.
+- `Lelvo.xcodeproj` is generated from `project.yml` and ignored. Edit `project.yml`; `Scripts/build.sh` regenerates.
+- `Packages/LelvoCore/Sources/LelvoCore/BotAPI/` is the old v1 Bot API client. The apps use TDLib; don't extend it.
 - Stale `CloudGalleryCore` folders under `.build/` are from the old name. Ignore them.
 - `marketing/` is excluded through `.git/info/exclude`. Never commit it.
 - Don't relaunch the app on the owner's iPhone without asking. They may be using it.

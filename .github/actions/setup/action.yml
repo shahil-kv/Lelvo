@@ -65,7 +65,7 @@ runs:
         path: |
           build/SourcePackages
           build/DerivedData
-        key: xcode-${{ runner.os }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('project.yml', 'Packages/MemvoCore/Package.swift') }}-${{ github.sha }}
+        key: xcode-${{ runner.os }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('project.yml', 'Packages/LelvoCore/Package.swift') }}-${{ github.sha }}
         restore-keys: |
-          xcode-${{ runner.os }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('project.yml', 'Packages/MemvoCore/Package.swift') }}-
+          xcode-${{ runner.os }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('project.yml', 'Packages/LelvoCore/Package.swift') }}-
           xcode-${{ runner.os }}-${{ steps.xcode.outputs.build }}-

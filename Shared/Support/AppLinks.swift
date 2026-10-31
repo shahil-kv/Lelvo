@@ -2,9 +2,9 @@ import Foundation
 
 /// Web pages the app links to (About, Settings, error screens). One place to change if the repository moves.
 enum AppLinks {
-    static let repository = URL.literal("https://github.com/shahil-kv/Memvo")
-    static let faq = URL.literal("https://github.com/shahil-kv/Memvo/blob/main/docs/FAQ.md")
-    static let privacyPolicy = URL.literal("https://memvo.mshahilkv.workers.dev/privacy")
+    static let repository = URL.literal("https://github.com/shahil-kv/Lelvo")
+    static let faq = URL.literal("https://github.com/shahil-kv/Lelvo/blob/main/docs/FAQ.md")
+    static let privacyPolicy = URL.literal("https://lelvo.mshahilkv.workers.dev/privacy")
     static let license = URL.literal("https://www.gnu.org/licenses/gpl-3.0.html")
 
     /// Who "Message the developer" in Report a problem and Suggest a feature reaches, on Telegram.

@@ -1,4 +1,4 @@
-// Memvo website waiting list: a Google Apps Script web app that adds each sign-up to a Google Sheet.
+// Lelvo website waiting list: a Google Apps Script web app that adds each sign-up to a Google Sheet.
 // It is not part of the apps. The site has no server, so the Sheet's own script receives the form.
 //
 // Setup (once):

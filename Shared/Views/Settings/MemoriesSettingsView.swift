@@ -1,5 +1,5 @@
 import SwiftUI
-import MemvoCore
+import LelvoCore
 
 /// Which kinds of memories to make, like Google Photos' Memory types. All on by default.
 struct MemoriesSettingsView: View {
@@ -8,7 +8,7 @@ struct MemoriesSettingsView: View {
     @AppStorage("memories.trips") private var trips = true
     @AppStorage("memories.themes") private var themes = true
 
-    static let didChange = Notification.Name("Memvo.memoriesSettingsChanged")
+    static let didChange = Notification.Name("Lelvo.memoriesSettingsChanged")
 
     /// The kinds turned on.
     static var enabled: Set<Memories.KindFilter> {

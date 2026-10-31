@@ -31,7 +31,7 @@ reviews:
   path_instructions:
     - path: "**/*.swift"
       instructions: |
-        Memvo backs up users' only copies of their photos to their own Telegram account through TDLib.
+        Lelvo backs up users' only copies of their photos to their own Telegram account through TDLib.
         iOS 17+ and macOS 15+, Swift 5 language mode; Shared/ builds for both platforms.
         Report only:
         - data loss: deleting photos or cloud items without explicit user action, or marking an item backed up

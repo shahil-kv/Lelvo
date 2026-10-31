@@ -1,5 +1,5 @@
 import SwiftUI
-import MemvoCore
+import LelvoCore
 
 /// The search field's state: results (timeline entry ids) for the current text, computed off the main thread a moment
 /// after typing stops, plus suggestions and how far the index has got.
@@ -100,7 +100,7 @@ final class SearchModel: ObservableObject {
         if s.total == 0 || s.indexed >= s.total {
             status = "Search looks at places, dates, and text and things in your photos, on this \(Device.name)."
         } else {
-            status = "\(s.indexed.formatted()) of \(s.total.formatted()) photos read for search. Reading continues while Memvo is open."
+            status = "\(s.indexed.formatted()) of \(s.total.formatted()) photos read for search. Reading continues while Lelvo is open."
         }
     }
 }

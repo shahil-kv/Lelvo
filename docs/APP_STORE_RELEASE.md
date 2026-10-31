@@ -18,16 +18,16 @@ What's left is mostly yours (accounts, App Store Connect, testing on a device). 
 1. **Join the Apple Developer Program** (Phase 0). Wait for the approval email (usually 1–2 days).
 2. **Telegram key for the App Store build:** create it on a spare Telegram account (Phase 0), put it in
    `Config/Secrets.xcconfig`, and save it for CI:
-   `! gh secret set TD_API_ID -R shahil-kv/Memvo` and `! gh secret set TD_API_HASH -R shahil-kv/Memvo`.
-3. **Icon:** commission or draw a distinctive Memvo icon (Phase 1.2); send it and it goes into the asset catalog.
-4. **Trademark search** for "Memvo" in class 9 (Phase 1.2).
+   `! gh secret set TD_API_ID -R shahil-kv/Lelvo` and `! gh secret set TD_API_HASH -R shahil-kv/Lelvo`.
+3. **Icon:** commission or draw a distinctive Lelvo icon (Phase 1.2); send it and it goes into the asset catalog.
+4. **Trademark search** for "Lelvo" in class 9 (Phase 1.2).
 5. **App Store Connect:** register the bundle ID, create the app, fill in app information, age rating, privacy
    label, URLs and listing text (Phase 5). All text is ready below; copy it in.
 6. **API key for uploads:** App Store Connect → Users and Access → Integrations → App Store Connect API → generate a
    key with the *App Manager* role. Then save four secrets:
-   `! gh secret set APPLE_TEAM_ID -R shahil-kv/Memvo`, `! gh secret set ASC_KEY_ID -R shahil-kv/Memvo`,
-   `! gh secret set ASC_ISSUER_ID -R shahil-kv/Memvo`, and the key file itself:
-   `! gh secret set ASC_KEY_P8 -R shahil-kv/Memvo < ~/Downloads/AuthKey_XXXXXXXXXX.p8`.
+   `! gh secret set APPLE_TEAM_ID -R shahil-kv/Lelvo`, `! gh secret set ASC_KEY_ID -R shahil-kv/Lelvo`,
+   `! gh secret set ASC_ISSUER_ID -R shahil-kv/Lelvo`, and the key file itself:
+   `! gh secret set ASC_KEY_P8 -R shahil-kv/Lelvo < ~/Downloads/AuthKey_XXXXXXXXXX.p8`.
 7. **First TestFlight build:** GitHub → Actions → Release → Run workflow (app: ios, channel: beta, version 0.1.0).
    It archives, signs and uploads to App Store Connect; the build shows in TestFlight 10–30 minutes later.
    (Or archive in Xcode: Product → Archive → Distribute → App Store Connect.)
@@ -55,8 +55,8 @@ What's left is mostly yours (accounts, App Store Connect, testing on a device). 
 - [ ] 📝 Add the same keys as GitHub secrets so CI builds have them (each command asks for the value, so it never
       lands in your shell history):
       ```bash
-      gh secret set TD_API_ID -R shahil-kv/Memvo
-      gh secret set TD_API_HASH -R shahil-kv/Memvo
+      gh secret set TD_API_ID -R shahil-kv/Lelvo
+      gh secret set TD_API_HASH -R shahil-kv/Lelvo
       ```
 - [ ] 📝 Keep the old (personal) api_id only for local debug builds, or revoke it.
 
@@ -82,14 +82,14 @@ publish their own code anyway, so the project keeps every contribution publishab
 
 ### 1.2 Name and branding 🔧📝
 
-- ✅ Name: **Memvo** (24 October 2026). No app of that name on the US, Indian or UK App Store; replaces the
-      upstream name CloudGallery everywhere: app, bundle IDs (`com.shahil-kv.memvo`, `.mac`), repository.
+- ✅ Name: **Lelvo** (24 October 2026). No app of that name on the US, Indian or UK App Store; replaces the
+      upstream name CloudGallery everywhere: app, bundle IDs (`com.shahil-kv.lelvo`, `.mac`), repository.
 - [ ] 📝 Search the name in the trademark databases before submitting (class 9): [USPTO](https://tmsearch.uspto.gov),
       [WIPO Global Brand Database](https://branddb.wipo.int), [IP India](https://ipindiaonline.gov.in/eregister/).
-- [ ] 📝 Reserve **Memvo** in App Store Connect as soon as the developer account exists (Phase 5).
+- [ ] 📝 Reserve **Lelvo** in App Store Connect as soon as the developer account exists (Phase 5).
 - [ ] 🔧 **Must not contain "Telegram"** in the app name, subtitle, icon or keywords (Telegram API terms 2.3;
       Apple 5.2.1 — trademark). Saying "works with your Telegram account" in the description is fine.
-- [ ] 🔧 App icon: a distinctive Memvo icon (the current cloud-and-photo icon is generic). No paper plane, no
+- [ ] 🔧 App icon: a distinctive Lelvo icon (the current cloud-and-photo icon is generic). No paper plane, no
       Telegram blue circle, nothing resembling Apple Photos' flower (4.1 copycat). Original artwork only.
 - [ ] ✅ In-app disclosure "Uses the Telegram API. Not affiliated with Telegram." on the welcome screen
       (Telegram API terms 2.2).
@@ -149,7 +149,7 @@ DEMO ACCESS (no Telegram account needed):
 2. Enter the phone number +1 555 010 0199 (type it with the +1, or pick United States
    and enter 5550100199), then tap Continue.
 3. Enter the code 24680.
-4. Choose whether to allow Photos access (either works), then tap "Start using Memvo".
+4. Choose whether to allow Photos access (either works), then tap "Start using Lelvo".
 A demo library with sample photos and videos loads, marked by a banner at the top. Every
 feature works: timeline, pinch to resize, viewer, video playback, selection, sharing,
 albums, settings. On the Backup tab, "Back up now" shows a simulated backup of 6 items.
@@ -261,11 +261,11 @@ standard and published algorithms, used to protect the user's own data, which co
 
 Both are live (Cloudflare, deployed on every push to main):
 
-- **Privacy Policy URL:** https://memvo.mshahilkv.workers.dev/privacy (built from [PRIVACY.md](../PRIVACY.md) by
+- **Privacy Policy URL:** https://lelvo.mshahilkv.workers.dev/privacy (built from [PRIVACY.md](../PRIVACY.md) by
   `Scripts/website-pages.py`; the app's About screen links here).
-- **Support URL:** https://github.com/shahil-kv/Memvo/blob/main/SUPPORT.md (contact email, FAQ, how to report a
+- **Support URL:** https://github.com/shahil-kv/Lelvo/blob/main/SUPPORT.md (contact email, FAQ, how to report a
   problem).
-- **Marketing URL:** https://memvo.mshahilkv.workers.dev
+- **Marketing URL:** https://lelvo.mshahilkv.workers.dev
 
 What the policy covers, for reference:
 
@@ -291,11 +291,11 @@ What the policy covers, for reference:
 
 ### 5.1 Create the app
 
-- [ ] Register the bundle ID `com.shahil-kv.memvo` in developer.apple.com → Identifiers. Enable only the
+- [ ] Register the bundle ID `com.shahil-kv.lelvo` in developer.apple.com → Identifiers. Enable only the
       capabilities the app uses (Background Modes are Info.plist-only; no Push, no iCloud unless used).
 - [ ] App Store Connect → My Apps → **+** → New App: platform iOS, the new name, primary language, bundle ID, SKU
       (e.g. `photobackup-ios-1`).
-- [ ] Separate Mac app (`com.shahil-kv.memvo.mac`): a separate submission later with its own checklist run
+- [ ] Separate Mac app (`com.shahil-kv.lelvo.mac`): a separate submission later with its own checklist run
       (sandbox entitlements, notarization not needed for the Mac App Store). Ship iOS first.
 
 ### 5.2 App information
@@ -435,7 +435,7 @@ If a reply doesn't help, you can appeal to the App Review Board (App Store Conne
 | Background task identifiers | ✅ done |
 | Separate Telegram account for api_id | ⬜ Phase 0 |
 | GPL-3.0 + CLA, acknowledgements in About | ✅ Phase 1.1 |
-| New app name | ✅ Memvo |
+| New app name | ✅ Lelvo |
 | Original icon | ⬜ Phase 1.2 |
 | Reviewer demo mode (Release build, real sample media) | ✅ Phase 2.1 · ⬜ test on TestFlight |
 | PrivacyInfo.xcprivacy (iOS and Mac) | ✅ Phase 3.1 |

@@ -27,7 +27,7 @@ Store launch makes it 1.0.0. MINOR for new features, PATCH for fixes only.
 | Build number | the workflow run number (always increases) | same |
 | Tag | `ios-v0.2.0-beta.<run>`, `macos-v0.2.0-beta.<run>` | `ios-v0.2.0`, `macos-v0.2.0` |
 | Release page | pre-release | latest release |
-| Files | `Memvo.ipa` / `Memvo.dmg` and `Memvo-mac.zip`, each with `.sha256` | same |
+| Files | `Lelvo.ipa` / `Lelvo.dmg` and `Lelvo-mac.zip`, each with `.sha256` | same |
 | Notes | merged pull requests since the last release of that app, grouped by label (`.github/release.yml`) | same |
 
 It refuses to run off `main`, refuses a malformed version, and refuses a tag that already exists. Ship as many betas
@@ -57,7 +57,7 @@ them the step is skipped and only the unsigned build is published):
 | `APPLE_TEAM_ID` | developer.apple.com → Membership details → Team ID |
 | `ASC_KEY_ID` | App Store Connect → Users and Access → Integrations → App Store Connect API → your key's Key ID |
 | `ASC_ISSUER_ID` | The same page, "Issuer ID" above the key list |
-| `ASC_KEY_P8` | The `AuthKey_<id>.p8` file downloaded when the key was made (one download only): `gh secret set ASC_KEY_P8 -R shahil-kv/Memvo < AuthKey_<id>.p8` |
+| `ASC_KEY_P8` | The `AuthKey_<id>.p8` file downloaded when the key was made (one download only): `gh secret set ASC_KEY_P8 -R shahil-kv/Lelvo < AuthKey_<id>.p8` |
 
 Give the key the **App Manager** role (Admin works too); Xcode then signs with the team's cloud-managed distribution
 certificate and creates the provisioning profile itself. The app record must exist in App Store Connect first

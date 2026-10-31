@@ -6,7 +6,7 @@ everything in one private channel.
 
 ```
                 ┌──────────────── Telegram (user account, MTProto) ────────────────┐
-                │  Private channel "Memvo Library"                           │
+                │  Private channel "Lelvo Library"                           │
                 │  one document message per resource/part, caption = CG1 JSON        │
                 └──────────────────────────────▲───────────────────────────────────┘
                                                │ TDLib (TDLibKit / TDLibFramework)
@@ -22,7 +22,7 @@ everything in one private channel.
  │   PhotoLibraryService  PhotoKit: candidates, original export, edits, save back            │
  │   FreeUpSpaceService   verify in Telegram, then delete through PhotoKit                   │
  │   BackgroundTasks   iOS: BGProcessing, BGAppRefresh, BGContinuedProcessing · Mac: hourly   │
- │ Packages/MemvoCore (no UIKit/AppKit, unit-tested)                                  │
+ │ Packages/LelvoCore (no UIKit/AppKit, unit-tested)                                  │
  │   caption codec · CGFE encryption · part layout · LibraryIndexer · LibraryStore (SQLite)  │
  │   JobMachine · Deduplicator · RestoreLinker · LRUDiskCache · Redactor                      │
  └─────────────────────────────────────────────▲──────────────────────────────────────────┘

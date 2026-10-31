@@ -1,6 +1,6 @@
 import SwiftUI
 import Photos
-import MemvoCore
+import LelvoCore
 
 @MainActor
 final class BackupStatsModel: ObservableObject {
@@ -176,8 +176,8 @@ struct BackupDashboardView: View {
                     Toggle("Keep iPhone awake while backing up", isOn: $keepAwake)
                 } footer: {
                     Text(keepAwake
-                         ? "While a backup runs and Memvo is open, your iPhone won't lock. It locks as usual once the backup is done.\n\nTip: for a big backup, start it at night with your iPhone charging and Memvo open. It locks on its own when the backup is done."
-                         : "Your iPhone may lock and pause a backup; open Memvo to continue.")
+                         ? "While a backup runs and Lelvo is open, your iPhone won't lock. It locks as usual once the backup is done.\n\nTip: for a big backup, start it at night with your iPhone charging and Lelvo open. It locks on its own when the backup is done."
+                         : "Your iPhone may lock and pause a backup; open Lelvo to continue.")
                 }
                 #endif
 
@@ -473,7 +473,7 @@ struct DuplicatesView: View {
             let unsafe = chosen.filter { $0.asset != nil && $0.item?.status != .backedUp }.count
             Text(unsafe > 0
                  ? "\(unsafe) of these are not backed up yet and are lost once Recently Deleted in Photos is emptied."
-                 : "Photos on this \(Device.name) go to Recently Deleted in Photos; photos only in your Telegram library go to Recently Deleted in Memvo.")
+                 : "Photos on this \(Device.name) go to Recently Deleted in Photos; photos only in your Telegram library go to Recently Deleted in Lelvo.")
         }
         .alert("Remove extra copies?", isPresented: $confirmCloud) {
             Button("Cancel", role: .cancel) {}
@@ -530,7 +530,7 @@ struct DuplicatesView: View {
                 }
                 .buttonStyle(.borderless)
             } header: { Text("Similar Photos") } footer: {
-                Text("Photos taken moments apart that look almost the same. The suggested one to keep is marked Best. Photos on this \(Device.name) go to Recently Deleted in Photos; photos only in your Telegram library go to Recently Deleted in Memvo.")
+                Text("Photos taken moments apart that look almost the same. The suggested one to keep is marked Best. Photos on this \(Device.name) go to Recently Deleted in Photos; photos only in your Telegram library go to Recently Deleted in Lelvo.")
             }
         }
     }

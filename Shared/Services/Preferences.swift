@@ -1,5 +1,5 @@
 import Foundation
-import MemvoCore
+import LelvoCore
 
 /// UserDefaults-backed settings. Views bind with `@AppStorage(Prefs.Key.x)`; services read `Prefs.x`.
 enum Prefs {
@@ -84,7 +84,7 @@ enum Prefs {
     static var wifiOnly: Bool { defaults.bool(forKey: Key.wifiOnly) }
     static var backupVideos: Bool { defaults.bool(forKey: Key.backupVideos) }
     static var includeScreenshots: Bool { defaults.bool(forKey: Key.includeScreenshots) }
-    /// Back up photos hidden in Photos too. They're never shown in Memvo and come back hidden.
+    /// Back up photos hidden in Photos too. They're never shown in Lelvo and come back hidden.
     static var includeHidden: Bool { defaults.bool(forKey: Key.includeHidden) }
     static var encryptionEnabled: Bool { defaults.bool(forKey: Key.encryptionEnabled) }
     static var allowFreeUpSpace: Bool { defaults.bool(forKey: Key.allowFreeUpSpace) }

@@ -1,6 +1,6 @@
 import SwiftUI
 import MapKit
-import MemvoCore
+import LelvoCore
 
 /// Every photo and video with a location (phone and cloud-only) on a map, like Photos' Places. MapKit clusters the
 /// photos itself (`MKClusterAnnotation`), as Apple Photos does, so panning and zooming stay smooth with thousands of

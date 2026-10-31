@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 import TDLibKit
-import MemvoCore
+import LelvoCore
 
 enum LibraryError: LocalizedError {
     case noLibrary
@@ -13,11 +13,11 @@ enum LibraryError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noLibrary: return "Choose or create your Memvo library first."
-        case .notALibrary: return "That channel isn't a Memvo library. Pick another channel or create a new library."
+        case .noLibrary: return "Choose or create your Lelvo library first."
+        case .notALibrary: return "That channel isn't a Lelvo library. Pick another channel or create a new library."
         case .locked: return "This library is end-to-end encrypted. Enter your passphrase to unlock it."
         case .wrongPassphrase: return "That passphrase or recovery key doesn't open this library."
-        case .newerVersion: return "This library was set up by a newer version of Memvo. Update Memvo to open it."
+        case .newerVersion: return "This library was set up by a newer version of Lelvo. Update Lelvo to open it."
         case .headerNotSaved: return "Telegram didn't save the change. Check your connection and try again; your library still opens as before."
         }
     }
@@ -29,7 +29,7 @@ final class LibraryService: @unchecked Sendable {
     /// Message id → the document thumbnail's remote file id, learned while scanning (saves a message lookup per tile).
     let thumbnails = ThumbnailIdStore()
 
-    static let titleDefault = "Memvo Library"
+    static let titleDefault = "Lelvo Library"
     private static let chatIdKey = "libraryChatId"
     private static let headerKey = "libraryHeader"
     private static let lastScanKey = "libraryLastScannedMessageId"
@@ -137,7 +137,7 @@ final class LibraryService: @unchecked Sendable {
         appLog("Renamed library channel")
     }
 
-    /// Channels the user owns or administers, marking ones that already hold a Memvo header.
+    /// Channels the user owns or administers, marking ones that already hold a Lelvo header.
     func candidateChannels() async throws -> [ChannelChoice] {
         let api = try td.api()
         _ = try? await api.loadChats(chatList: .chatListMain, limit: 500)
@@ -172,7 +172,7 @@ final class LibraryService: @unchecked Sendable {
         }
         let chat: Chat
         do {
-            chat = try await api.createNewSupergroupChat(description: "Memvo Library · do not edit\n" + header.line,
+            chat = try await api.createNewSupergroupChat(description: "Lelvo Library · do not edit\n" + header.line,
                                                          forImport: false, isChannel: true, isForum: false, location: nil,
                                                          messageAutoDeleteTime: 0, title: title)
         } catch { throw error.asTD }
@@ -303,7 +303,7 @@ final class LibraryService: @unchecked Sendable {
         let api = try td.api()
         await td.ensureChat(chatId)
         do {
-            _ = try await api.setChatDescription(chatId: chatId, description: "Memvo Library · do not edit\n" + new.line)
+            _ = try await api.setChatDescription(chatId: chatId, description: "Lelvo Library · do not edit\n" + new.line)
             let text = InputMessageContent.inputMessageText(InputMessageText(
                 clearDraft: false, linkPreviewOptions: nil, text: FormattedText(entities: [], text: new.messageText)))
             if let pinned = try? await api.getChatPinnedMessage(chatId: chatId), case .messageText(let t) = pinned.content,
@@ -337,7 +337,7 @@ final class LibraryService: @unchecked Sendable {
         var unreadable = 0
     }
 
-    /// Reads every Memvo document in the channel and rebuilds the local index.
+    /// Reads every Lelvo document in the channel and rebuilds the local index.
     /// The one-time full scan that repairs items from test builds hasn't run yet (see `scan`).
     var needsRepairScan: Bool { isConfigured && store.meta(Self.repairedKey) == nil }
 
@@ -399,7 +399,7 @@ final class LibraryService: @unchecked Sendable {
                     fromSnapshot = snapshot
                     break scanLoop
                 }
-                guard CaptionCodec.isMemvo(caption) else { continue }
+                guard CaptionCodec.isLelvo(caption) else { continue }
                 do {
                     let meta = try CaptionCodec.decode(caption, captionKey: captionKey)
                     let file = doc.document.document
@@ -507,7 +507,7 @@ final class LibraryService: @unchecked Sendable {
 
     private static let snapshotMessageKey = "indexSnapshotMessageId"
     private static let snapshotUptoKey = "indexSnapshotUpto"
-    /// A new snapshot after this many Memvo messages not in the last one (or the first once a library is this big).
+    /// A new snapshot after this many Lelvo messages not in the last one (or the first once a library is this big).
     static let snapshotEvery = 500
 
     /// Downloads and checks a snapshot; nil (and a full scan instead) when anything about it is off.

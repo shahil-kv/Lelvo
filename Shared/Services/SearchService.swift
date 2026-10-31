@@ -2,7 +2,7 @@ import Foundation
 import Photos
 import Vision
 import CoreLocation
-import MemvoCore
+import LelvoCore
 
 /// On-device search (#14). Vision reads each photo once (text in it, and things and scenes) into the local database;
 /// places come from the photo's location, dates and kinds from the timeline itself. Photos are read on the device and
@@ -22,7 +22,7 @@ final class SearchService: @unchecked Sendable {
         set { lock.withLock { _status = newValue } }
     }
 
-    static let didIndex = Notification.Name("Memvo.searchDidIndex")
+    static let didIndex = Notification.Name("Lelvo.searchDidIndex")
 
     init(store: LibraryStore, photos: PhotoLibraryService, media: @escaping () -> CloudMediaService) {
         self.store = store

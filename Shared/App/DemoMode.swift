@@ -1,5 +1,5 @@
 import Foundation
-import MemvoCore
+import LelvoCore
 
 /// App Review demo. A reserved phone number and code open a sample library bundled with the app (iOS/DemoLibrary),
 /// so a reviewer can try every feature without a Telegram account. In demo mode nothing talks to Telegram and the
