@@ -69,3 +69,13 @@ runs:
         restore-keys: |
           xcode-${{ runner.os }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('project.yml', 'Packages/LelvoCore/Package.swift') }}-
           xcode-${{ runner.os }}-${{ steps.xcode.outputs.build }}-
+
+    # A cache restored by a fallback key can hold package state without TDLib's binary. Xcode then fails with "There is
+    # no XCFramework found" instead of downloading it, so start the packages over.
+    - name: Drop an incomplete package cache
+      shell: bash
+      run: |
+        if [ -d build/SourcePackages ] && ! ls -d build/SourcePackages/artifacts/*/*/*.xcframework >/dev/null 2>&1; then
+          echo "Cached packages have no TDLib binary: resolving them again"
+          rm -rf build/SourcePackages
+        fi
