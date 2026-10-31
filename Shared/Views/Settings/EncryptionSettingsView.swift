@@ -1,7 +1,7 @@
 import SwiftUI
-import MemvoCore
+import LelvoCore
 
-/// Shows a new recovery key once. Nothing in Memvo or Telegram keeps a readable copy, so the user has to save it now.
+/// Shows a new recovery key once. Nothing in Lelvo or Telegram keeps a readable copy, so the user has to save it now.
 struct RecoveryKeyView: View {
     let key: RecoveryKey
     let onDone: () -> Void
@@ -31,7 +31,7 @@ struct RecoveryKeyView: View {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
                 Toggle("I've saved my recovery key", isOn: $saved)
-                Text("Memvo won't show this key again. You can make a new one in Settings with your passphrase.")
+                Text("Lelvo won't show this key again. You can make a new one in Settings with your passphrase.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             .padding(20)

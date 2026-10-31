@@ -9,7 +9,7 @@ the theme toggle are in [DESIGN.md](DESIGN.md).
 - Canonical links, a sitemap with dates, and `robots.txt` pointing to it. The 404 page is `noindex`.
 - Share previews (Open Graph and X cards) on every page, with `og.png` as the image.
 - Structured data on the home page telling Google it's a free app for iOS and macOS.
-- A web manifest and icons, so the site has the Memvo icon in search results and on home screens.
+- A web manifest and icons, so the site has the Lelvo icon in search results and on home screens.
 - Fast pages: no framework, images sized and lazy-loaded, nothing moves the layout while loading.
 
 There are no analytics on purpose: the privacy policy promises no tracking. Search Console shows search traffic
@@ -26,7 +26,7 @@ without putting anything on the site.
    python3 Scripts/website-pages.py
    ```
 
-3. Make the old `memvo.mshahilkv.workers.dev` address redirect (301) to the new domain, so links already shared keep
+3. Make the old `lelvo.mshahilkv.workers.dev` address redirect (301) to the new domain, so links already shared keep
    working and Google moves its ranking over.
 4. [Google Search Console](https://search.google.com/search-console): add a **Domain** property, verify it with the
    DNS record it gives you (add it in Cloudflare DNS), then **Sitemaps → submit `sitemap.xml`** and

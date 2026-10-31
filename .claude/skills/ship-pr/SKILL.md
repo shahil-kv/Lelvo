@@ -1,6 +1,6 @@
 ---
 name: ship-pr
-description: Prepare and open a Memvo pull request - changelog, website pages, commits per issue, PR body. Only when the owner asks to ship or open a PR.
+description: Prepare and open a Lelvo pull request - changelog, website pages, commits per issue, PR body. Only when the owner asks to ship or open a PR.
 disable-model-invocation: true
 ---
 

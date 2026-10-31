@@ -1,6 +1,6 @@
 import SwiftUI
 import Photos
-import MemvoCore
+import LelvoCore
 
 /// Everything the sidebar can show, in Apple Photos' order.
 enum SidebarItem: Hashable {

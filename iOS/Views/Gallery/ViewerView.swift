@@ -3,7 +3,7 @@ import AVKit
 import Photos
 import PhotosUI
 import MapKit
-import MemvoCore
+import LelvoCore
 
 struct ViewerView: View {
     let entries: [GalleryEntry]
@@ -82,7 +82,7 @@ struct ViewerView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete from Backup", role: .destructive) { Task { await deleteCurrent() } }
         } message: {
-            Text("It moves to Recently Deleted in Memvo and is removed from your Telegram library after 30 days. If it's still on this iPhone, it stays there.")
+            Text("It moves to Recently Deleted in Lelvo and is removed from your Telegram library after 30 days. If it's still on this iPhone, it stays there.")
         }
     }
 

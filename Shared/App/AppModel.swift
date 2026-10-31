@@ -1,5 +1,5 @@
 import SwiftUI
-import MemvoCore
+import LelvoCore
 
 /// UI-wide state: onboarding status and deep-link navigation (e.g. from the Free Up Space shortcut).
 @MainActor

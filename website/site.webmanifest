@@ -1,6 +1,6 @@
 {
-  "name": "Memvo",
-  "short_name": "Memvo",
+  "name": "Lelvo",
+  "short_name": "Lelvo",
   "description": "Photo and video backup to a private channel in your own Telegram account.",
   "start_url": "/",
   "display": "browser",

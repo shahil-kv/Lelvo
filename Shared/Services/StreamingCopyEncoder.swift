@@ -1,6 +1,6 @@
 import Foundation
 import AVFoundation
-import MemvoCore
+import LelvoCore
 
 /// Encodes a video's fast version (role `sp`): HEVC at `StreamingCopyPolicy.targetBitsPerSecond(fps:)`, at most 1080p
 /// and 60 fps, SDR, `moov` first. Stereo AAC sound is copied untouched; anything else becomes 48 kHz stereo AAC. Apple's export presets can't set a bitrate (their 1080p HEVC is ~9 Mbit/s,
@@ -163,7 +163,7 @@ enum StreamingCopyEncoder {
         /// Copies one track's samples from the reader to the writer until the end, a failure or `cancel()`.
         private func pump(audio: Bool) async {
             let id = audio ? 1 : 0
-            let label = audio ? "memvo.encode.audio" : "memvo.encode.video"
+            let label = audio ? "lelvo.encode.audio" : "lelvo.encode.video"
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                 let alreadyCancelled = lock.withLock {
                     if !cancelled { waiting[id] = done }

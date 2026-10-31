@@ -1,25 +1,25 @@
 # Privacy policy
 
-Effective 27 October 2026. Applies to the Memvo apps for iPhone, iPad and Mac.
+Effective 27 October 2026. Applies to the Lelvo apps for iPhone, iPad and Mac.
 
-**In one sentence:** Memvo sends your photos from your device to your own Telegram account and nowhere else;
+**In one sentence:** Lelvo sends your photos from your device to your own Telegram account and nowhere else;
 the people who make it never receive any of your data.
 
 ## Who we are
 
-Memvo is a free, open-source app maintained by [@shahil-kv](https://github.com/shahil-kv) and contributors.
+Lelvo is a free, open-source app maintained by [@shahil-kv](https://github.com/shahil-kv) and contributors.
 Contact: [mshahilkv@gmail.com](mailto:mshahilkv@gmail.com), or an issue at
-[github.com/shahil-kv/Memvo](https://github.com/shahil-kv/Memvo/issues). Security problems: [SECURITY.md](SECURITY.md).
+[github.com/shahil-kv/Lelvo](https://github.com/shahil-kv/Lelvo/issues). Security problems: [SECURITY.md](SECURITY.md).
 
 ## What we collect
 
-**Nothing.** Memvo has no servers. It contains no analytics, advertising, tracking or crash-reporting code, and
+**Nothing.** Lelvo has no servers. It contains no analytics, advertising, tracking or crash-reporting code, and
 it doesn't share data with anyone. We can't see who uses the app, your photos, your Telegram account or your library.
 
 ## The website's waiting list
 
 If you join the waiting list on the website, your email address and the device you chose are stored in a Google
-Sheet that only the maintainer can open, with the date you joined. They are used once, to tell you when Memvo is on
+Sheet that only the maintainer can open, with the date you joined. They are used once, to tell you when Lelvo is on
 TestFlight and the App Store, and never shared or sold. To be removed, email
 [mshahilkv@gmail.com](mailto:mshahilkv@gmail.com). Google's [privacy policy](https://policies.google.com/privacy)
 applies to the Sheet. The apps never collect your email.
@@ -37,7 +37,7 @@ applies to the Sheet. The apps never collect your email.
 ## What stays on your device
 
 - Your Telegram session (in an encrypted database), the Telegram app keys and your encryption key, in the Keychain,
-  readable only by Memvo on this device and never synced.
+  readable only by Lelvo on this device and never synced.
 - A local index of your library (names, dates, sizes, places and Telegram message IDs) so the timeline opens quickly.
   It is excluded from device backups because it can be rebuilt from Telegram.
 - Caches of thumbnails and items you viewed, with size limits you control.
@@ -55,7 +55,7 @@ your library in Telegram.
 
 ## Children
 
-Memvo isn't directed at children under 13, and it doesn't knowingly handle any child's data, because it handles
+Lelvo isn't directed at children under 13, and it doesn't knowingly handle any child's data, because it handles
 no one's data.
 
 ## Changes

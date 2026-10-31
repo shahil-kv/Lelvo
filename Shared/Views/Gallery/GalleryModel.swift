@@ -1,7 +1,7 @@
 import Foundation
 import Photos
 import SwiftUI
-import MemvoCore
+import LelvoCore
 
 /// One tile in the unified timeline: a phone asset, a cloud item, or both.
 struct GalleryEntry: Identifiable, Equatable, Hashable {

@@ -1,5 +1,5 @@
 import SwiftUI
-import MemvoCore
+import LelvoCore
 
 /// Report a problem / Suggest a feature: what helps, then a choice between a Telegram message to the developer and a
 /// GitHub issue. Both open with the app version and device filled in; the user sends it themselves.
@@ -12,13 +12,13 @@ struct FeedbackView: View {
 
     private var telegramURL: URL? {
         Feedback.telegramURL(username: AppLinks.developerTelegram,
-                             text: Feedback.draft(kind, appName: "Memvo", developer: AppLinks.developerName, env: env))
+                             text: Feedback.draft(kind, appName: "Lelvo", developer: AppLinks.developerName, env: env))
     }
 
     var body: some View {
         Form {
             Section {
-                Text("You're writing to \(AppLinks.developerName), the one person who builds Memvo. I read every message myself, so a reply can take a little while, but I'll get back to you as soon as I can.")
+                Text("You're writing to \(AppLinks.developerName), the one person who builds Lelvo. I read every message myself, so a reply can take a little while, but I'll get back to you as soon as I can.")
             }
 
             Section {
@@ -29,7 +29,7 @@ struct FeedbackView: View {
                     Label("A screen recording or screenshots", systemImage: "record.circle")
                     NavigationLink { LogsView() } label: { Label("Your logs: open Logs and share the file", systemImage: "doc.text.magnifyingglass") }
                 case .idea:
-                    Label("What you'd like Memvo to do", systemImage: "lightbulb")
+                    Label("What you'd like Lelvo to do", systemImage: "lightbulb")
                     Label("Why it would help you", systemImage: "heart")
                     Label("A screenshot or sketch, if it helps", systemImage: "photo")
                 }

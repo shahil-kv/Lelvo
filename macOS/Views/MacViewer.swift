@@ -2,7 +2,7 @@ import SwiftUI
 import AVKit
 import Photos
 import PhotosUI
-import MemvoCore
+import LelvoCore
 
 /// Where a tile is on screen and what it shows, so the viewer can zoom out of it and back into it.
 @MainActor
@@ -294,10 +294,10 @@ struct MacViewer: View {
 }
 
 extension Notification.Name {
-    static let macViewerTogglePlay = Notification.Name("Memvo.macViewerTogglePlay")
+    static let macViewerTogglePlay = Notification.Name("Lelvo.macViewerTogglePlay")
     /// ⌥← / ⌥→ on a video; `userInfo["side"]` is -1 or 1.
-    static let macViewerSkip = Notification.Name("Memvo.macViewerSkip")
-    static let macViewerClose = Notification.Name("Memvo.macViewerClose")
+    static let macViewerSkip = Notification.Name("Lelvo.macViewerSkip")
+    static let macViewerClose = Notification.Name("Lelvo.macViewerClose")
 }
 
 /// One item: zoomable photo, Live Photo or video, from Photos or from Telegram.

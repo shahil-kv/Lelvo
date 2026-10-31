@@ -1,4 +1,4 @@
-// Memvo website: theme toggle, smooth scrolling, the hero library, the feature tour, the FAQ and the waiting list.
+// Lelvo website: theme toggle, smooth scrolling, the hero library, the feature tour, the FAQ and the waiting list.
 // Everything here is an enhancement: without JavaScript the page is complete and readable.
 (() => {
   const root = document.documentElement;
@@ -15,7 +15,7 @@
   };
   toggle?.addEventListener("click", () => {
     root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
-    try { localStorage.setItem("memvo-theme", root.dataset.theme); } catch {}
+    try { localStorage.setItem("lelvo-theme", root.dataset.theme); } catch {}
     showTheme();
   });
   showTheme();
@@ -217,7 +217,7 @@
       try {
         await fetch(waitlist.action, { method: "POST", mode: "no-cors", body: new URLSearchParams(new FormData(waitlist)) });
         waitlist.classList.add("is-done");
-        note.textContent = "You're on the list. We'll email you once, when Memvo is on TestFlight.";
+        note.textContent = "You're on the list. We'll email you once, when Lelvo is on TestFlight.";
       } catch {
         note.textContent = "That didn't go through. Check your connection and try again.";
         button.disabled = false;

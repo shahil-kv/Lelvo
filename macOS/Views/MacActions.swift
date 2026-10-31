@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 import Photos
-import MemvoCore
+import LelvoCore
 
 /// Progress and result messages shown as a floating pill at the bottom of the window.
 @MainActor

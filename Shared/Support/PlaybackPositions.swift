@@ -1,5 +1,5 @@
 import Foundation
-import MemvoCore
+import LelvoCore
 
 /// Where each long video was left, on this device only (`VideoNavigation` decides which positions count). Keyed by the
 /// viewer entry id; only the most recent few hundred are kept.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes Memvo's colours and web type from design/tokens.json, so each is defined in one place only:
+"""Writes Lelvo's colours and web type from design/tokens.json, so each is defined in one place only:
 
     app.colors  → iOS/ and macOS/Resources/Assets.xcassets/<Name>.colorset (light and dark)
     web         → the :root block at the top of website/styles.css

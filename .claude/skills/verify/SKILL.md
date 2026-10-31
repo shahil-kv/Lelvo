@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Run Memvo's checks before calling a change done - core unit tests, iOS and Mac builds with the no-new-warnings check. Use after any code change in Swift, project.yml or Config.
+description: Run Lelvo's checks before calling a change done - core unit tests, iOS and Mac builds with the no-new-warnings check. Use after any code change in Swift, project.yml or Config.
 ---
 
 Run in order and stop at the first failure. Keep logs in `build/`, never paste a whole log.

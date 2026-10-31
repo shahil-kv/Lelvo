@@ -5,7 +5,7 @@ import UIKit
 #else
 import AppKit
 #endif
-import MemvoCore
+import LelvoCore
 
 /// Grid thumbnails the way Photos does it: an in-memory cache so tiles that scroll back in show instantly,
 /// loading ahead of the scroll (Photos' own caching manager for local photos, Telegram thumbnails for cloud

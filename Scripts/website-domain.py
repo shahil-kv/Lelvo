@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Moves the website to a new address: every canonical link, share tag, sitemap entry and the robots file.
 
-    python3 Scripts/website-domain.py memvo.app
+    python3 Scripts/website-domain.py lelvo.app
 
 Run it once after the new domain serves the site, then commit the changed files. The steps around it (Cloudflare,
 Search Console) are in docs/WEBSITE.md.
@@ -16,7 +16,7 @@ FILES = ["website/index.html", "website/robots.txt", "website/sitemap.xml", "Scr
 
 def main() -> int:
     if len(sys.argv) != 2 or not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", sys.argv[1]):
-        print("Usage: python3 Scripts/website-domain.py memvo.app", file=sys.stderr)
+        print("Usage: python3 Scripts/website-domain.py lelvo.app", file=sys.stderr)
         return 1
     new = f"https://{sys.argv[1]}"
     old = re.search(r"https://[a-z0-9.-]+", (ROOT / "website/robots.txt").read_text().split("Sitemap:")[1]).group(0)

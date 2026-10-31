@@ -35,7 +35,7 @@ final class DemoModeTests: XCTestCase {
         // Photos step: decline if asked (the simulator remembers an earlier answer), so the test doesn't depend on
         // the simulator's photos.
         let allow = app.buttons["Allow Access"]
-        let begin = app.buttons["Start using Memvo"]
+        let begin = app.buttons["Start using Lelvo"]
         XCTAssertTrue(allow.waitForExistence(timeout: 10) || begin.exists)
         if allow.exists {
             allow.tap()

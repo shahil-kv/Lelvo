@@ -6,9 +6,9 @@ import UIKit
 /// BGProcessingTask for overnight catch-up, BGAppRefreshTask for index sync, and (iOS 26+)
 /// BGContinuedProcessingTask so a user-started backup keeps running with system progress UI.
 enum BackgroundTasks {
-    static let processingId = "com.shahil-kv.memvo.backup.processing"
-    static let refreshId = "com.shahil-kv.memvo.index.refresh"
-    static let continuedId = "com.shahil-kv.memvo.backup.continued"
+    static let processingId = "com.shahil-kv.lelvo.backup.processing"
+    static let refreshId = "com.shahil-kv.lelvo.index.refresh"
+    static let continuedId = "com.shahil-kv.lelvo.backup.continued"
 
     /// Must run before the app finishes launching.
     static func register() {
@@ -85,11 +85,11 @@ enum BackgroundTasks {
 
 #else
 
-/// macOS has no BGTaskScheduler: while Memvo is open, a system-scheduled activity checks for new
+/// macOS has no BGTaskScheduler: while Lelvo is open, a system-scheduled activity checks for new
 /// photos and refreshes the index every hour (it respects Wi-Fi only / charging only through the engine).
 enum BackgroundTasks {
     private static let scheduler: NSBackgroundActivityScheduler = {
-        let s = NSBackgroundActivityScheduler(identifier: "com.shahil-kv.memvo.mac.hourly")
+        let s = NSBackgroundActivityScheduler(identifier: "com.shahil-kv.lelvo.mac.hourly")
         s.repeats = true
         s.interval = 60 * 60
         s.tolerance = 10 * 60
@@ -152,7 +152,7 @@ final class ProgressNote: @unchecked Sendable {
 /// User-started "Back up now". On iOS 26+ it runs as a continued-processing task with progress in the
 /// system UI; earlier versions run while the app is open (uploads still finish in the background).
 #if os(iOS) && !targetEnvironment(macCatalyst)
-/// Thread-safe "Memvo is on screen", kept up to date from the app's lifecycle notifications.
+/// Thread-safe "Lelvo is on screen", kept up to date from the app's lifecycle notifications.
 final class ActiveFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var active = true
@@ -178,14 +178,14 @@ final class ActiveFlag: @unchecked Sendable {
 
 enum ContinuedBackup {
     #if os(iOS) && !targetEnvironment(macCatalyst)
-    /// Whether Memvo is on screen, readable from iOS's background callbacks (which don't run on the main thread).
+    /// Whether Lelvo is on screen, readable from iOS's background callbacks (which don't run on the main thread).
     private static let appActive = ActiveFlag()
     #endif
     @MainActor static var foregroundTask: Task<Void, Never>?
-    /// A user-started backup that iOS ended before it finished; resumed when Memvo is next on screen.
+    /// A user-started backup that iOS ended before it finished; resumed when Lelvo is next on screen.
     @MainActor private static var resumePending = false
 
-    /// Called when Memvo comes to the front (and after iOS ends a backup): starts the unfinished one again.
+    /// Called when Lelvo comes to the front (and after iOS ends a backup): starts the unfinished one again.
     @MainActor
     static func resumeIfPending() {
         #if os(iOS)
@@ -257,7 +257,7 @@ enum ContinuedBackup {
                           Date().timeIntervalSince(started), appActive.value ? "on screen" : "in background",
                           p.thermalState.rawValue, p.isLowPowerModeEnabled ? "on" : "off", note.summary))
             flag.cancel()
-            task.updateTitle("Backup paused", subtitle: "Open Memvo to continue")
+            task.updateTitle("Backup paused", subtitle: "Open Lelvo to continue")
         }
         task.progress.totalUnitCount = 1
         // iOS ends a continued-processing task whose progress stops moving. Counting only finished items left it still
@@ -281,10 +281,10 @@ enum ContinuedBackup {
             let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
             ticker.cancel()
             task.updateTitle(flag.isCancelled ? "Backup paused" : "Backup finished",
-                             subtitle: flag.isCancelled ? "Open Memvo to continue" : summary.text)
-            // Paused by iOS isn't a failure (it resumes when Memvo opens), and iOS shows "failed" for success: false.
+                             subtitle: flag.isCancelled ? "Open Lelvo to continue" : summary.text)
+            // Paused by iOS isn't a failure (it resumes when Lelvo opens), and iOS shows "failed" for success: false.
             task.setTaskCompleted(success: summary.error == nil || flag.isCancelled)
-            // Ended by iOS half-way: resume as a new system task (with its indicator) as soon as Memvo is open, which
+            // Ended by iOS half-way: resume as a new system task (with its indicator) as soon as Lelvo is open, which
             // iOS requires for starting one. Continuing inside the app had no indicator and stopped ~30 s after leaving.
             if flag.isCancelled, summary.remaining > 0 {
                 await MainActor.run {

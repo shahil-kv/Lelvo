@@ -1,7 +1,7 @@
 import Foundation
 import ImageIO
 import AVFoundation
-import MemvoCore
+import LelvoCore
 
 /// Thumbnails and full-size originals for cloud items, with an in-memory cache, a 300 MB thumbnail
 /// disk cache and a size-capped LRU cache for viewed originals. Videos stream instead (`StreamingAsset`).

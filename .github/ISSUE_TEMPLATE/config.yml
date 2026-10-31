@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Problem with my Telegram account (frozen, banned, deleted, login codes)
-    url: https://github.com/shahil-kv/Memvo/blob/main/docs/FAQ.md#when-something-goes-wrong-in-telegram
+    url: https://github.com/shahil-kv/Lelvo/blob/main/docs/FAQ.md#when-something-goes-wrong-in-telegram
     about: These are Telegram's to fix. The FAQ explains each case and links to Telegram's own help.
   - name: Question or help
-    url: https://github.com/shahil-kv/Memvo/discussions/categories/q-a
+    url: https://github.com/shahil-kv/Lelvo/discussions/categories/q-a
     about: Ask in Discussions. Read the FAQ first; most answers are there.
   - name: Security vulnerability
-    url: https://github.com/shahil-kv/Memvo/security/advisories/new
+    url: https://github.com/shahil-kv/Lelvo/security/advisories/new
     about: Report privately. Never in a public issue.

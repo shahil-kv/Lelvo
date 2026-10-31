@@ -4,9 +4,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Most answers are already in the [FAQ](https://github.com/shahil-kv/Memvo/blob/main/docs/FAQ.md). Bugs go to
-        [a bug report](https://github.com/shahil-kv/Memvo/issues/new?template=bug_report.yml), security problems to
-        [a private report](https://github.com/shahil-kv/Memvo/security/advisories/new).
+        Most answers are already in the [FAQ](https://github.com/shahil-kv/Lelvo/blob/main/docs/FAQ.md). Bugs go to
+        [a bug report](https://github.com/shahil-kv/Lelvo/issues/new?template=bug_report.yml), security problems to
+        [a private report](https://github.com/shahil-kv/Lelvo/security/advisories/new).
   - type: textarea
     id: question
     attributes:

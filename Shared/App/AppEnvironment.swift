@@ -1,5 +1,5 @@
 import Foundation
-import MemvoCore
+import LelvoCore
 
 /// Process-wide services, shared by the UI, BGTasks and App Intents.
 final class AppEnvironment: @unchecked Sendable {
@@ -127,7 +127,7 @@ final class AppEnvironment: @unchecked Sendable {
 
     /// Wipes local state (sign out / reset). The Telegram channel is not touched.
     func resetEverything() async {
-        appLog("Reset this \(Device.name): signing out and removing Memvo's local data")
+        appLog("Reset this \(Device.name): signing out and removing Lelvo's local data")
         DemoMode.exit()
         await td.logOut()
         await td.destroyLocalData()

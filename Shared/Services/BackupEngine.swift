@@ -2,7 +2,7 @@ import Foundation
 import Photos
 import AVFoundation
 import Network
-import MemvoCore
+import LelvoCore
 
 /// Live state for the UI (Backup tab, progress bars).
 @MainActor
@@ -72,7 +72,7 @@ final class NetworkStatus: @unchecked Sendable {
                 TDService.shared.networkChanged(to: kind)
             }
         }
-        monitor.start(queue: DispatchQueue(label: "memvo.network"))
+        monitor.start(queue: DispatchQueue(label: "lelvo.network"))
     }
 
     var kind: Kind { lock.withLock { path.map(Self.kind(of:)) ?? .other } }
@@ -125,8 +125,8 @@ final class BackupEngine: @unchecked Sendable {
         case notConfigured, noPhotoAccess, waitingForWiFi, waitingForPower, offline, alreadyRunning
         var errorDescription: String? {
             switch self {
-            case .notConfigured: return "Memvo isn't set up yet. Open the app to sign in to Telegram."
-            case .noPhotoAccess: return "Memvo has no access to your photos."
+            case .notConfigured: return "Lelvo isn't set up yet. Open the app to sign in to Telegram."
+            case .noPhotoAccess: return "Lelvo has no access to your photos."
             case .waitingForWiFi: return "Waiting for Wi-Fi (Wi-Fi only is on)."
             case .waitingForPower: return "Waiting for the charger (Charging only is on)."
             case .offline: return "No internet connection."
@@ -388,7 +388,7 @@ final class BackupEngine: @unchecked Sendable {
         if userStarted {
             Prefs.backupPaused = false
         } else if Prefs.backupPaused {
-            summary.error = "Backup is paused. Open Memvo and tap Back up now to resume."
+            summary.error = "Backup is paused. Open Lelvo and tap Back up now to resume."
             return summary
         }
         if DemoMode.isActive { return userStarted ? await runDemo(progress: progress) : summary }

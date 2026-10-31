@@ -1,6 +1,6 @@
-# Memvo cloud format, version 1
+# Lelvo cloud format, version 1
 
-This is the contract for every app that reads or writes a Memvo library: the iOS and Mac apps in this repository, and any compatible app someone else writes. A library written by one **must** be readable by all. If an implementation disagrees with this document, the implementation is wrong. Test vectors live in [`docs/test-vectors/`](test-vectors/), and every implementation's unit tests must pass them.
+This is the contract for every app that reads or writes a Lelvo library: the iOS and Mac apps in this repository, and any compatible app someone else writes. A library written by one **must** be readable by all. If an implementation disagrees with this document, the implementation is wrong. Test vectors live in [`docs/test-vectors/`](test-vectors/), and every implementation's unit tests must pass them.
 
 The app was called CloudGallery when this format was defined. Its identifiers (`#cloudgallery-library`, `CG1:`,
 `cg:1`, the `CloudGallery … v1` key-derivation labels) are part of the format and never change with the app's name.
@@ -11,7 +11,7 @@ All integers are unsigned and big-endian unless noted otherwise. "UTF-8" always 
 
 ## 1. The library
 
-- A library is one **private Telegram channel** owned by the user. The default title is `Memvo Library`; the user can pick any existing channel instead.
+- A library is one **private Telegram channel** owned by the user. The default title is `Lelvo Library`; the user can pick any existing channel instead.
 - The library is identified by a **header** string:
   - plain library: `cg:1`
   - end-to-end encrypted library, header format 2 (all new libraries): `cg:2;e2e:1;a2:<t>,<m>,<p>;s:<salt-b64>;wk:<locked-b64>;rk:<locked-b64>`
@@ -128,6 +128,7 @@ CG1:{"v":1,"id":"0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10","r":"o","k":"v","h":"9f86
     `-` (52 characters). Readers accept any case, spaces or dashes, and read `0`, `1`, `8` as `O`, `I`, `B`.
     `rkk = HKDF-SHA256(ikm = recovery key, salt = 32 zero bytes, info = UTF-8("Memvo recovery key v2"), L = 32)`,
     `rk = nonce(12) ‖ AES-256-GCM(rkk, nonce, master, aad = UTF-8("Memvo master key v2 recovery")) ‖ tag(16)`.
+- The `"Memvo …"` strings above keep the app's old name on purpose. They are part of the format and never change.
 - A wrong passphrase or recovery key fails to open `wk` / `rk` (the GCM tag). There is no key-check value.
 - Changing the passphrase writes a new `s` and `wk`; a new recovery key writes a new `rk`. Nothing else changes.
 - Upgrading a format 1 library: unlock it with the passphrase, lock its master key as above, then replace the header in
@@ -184,7 +185,7 @@ So that a new device doesn't have to read every message, writers may upload an *
   (`ck` as in §6.3). `upto` is the newest message id the snapshot covers, `n` the number of records, `h` the SHA-256
   (lowercase hex) of the document's plaintext.
 - The document is compact JSON `{"messages":[…],"upto":…,"v":1}` compressed with raw DEFLATE (RFC 1951), and
-  CGFE-encrypted (§6.2) in E2E libraries. Each record is one Memvo message as a scan reads it:
+  CGFE-encrypted (§6.2) in E2E libraries. Each record is one Lelvo message as a scan reads it:
   `{"c":<caption metadata as in §3.1>,"f":<file id>,"m":<message id>,"s":<document size>,"u":<unique file id>}`.
 - It is **not pinned**: Telegram reports only the newest pinned message, which must stay the header (§1).
 - A reader with an empty index reads history from the newest message as in step 2, and at the first snapshot whose

@@ -32,6 +32,6 @@ jobs:
           custom-notsigned-prcomment: >-
             Thanks for your contribution! Before it can be merged, please read the
             [Contributor License Agreement](https://github.com/${{ github.repository }}/blob/main/CLA.md)
-            (it keeps Memvo GPL-3.0 and lets it be published on the App Store) and sign it by commenting
+            (it keeps Lelvo GPL-3.0 and lets it be published on the App Store) and sign it by commenting
             with exactly the sentence below. You only do this once.
           custom-allsigned-prcomment: All contributors have signed the CLA. Thank you!

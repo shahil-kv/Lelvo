@@ -1,7 +1,7 @@
 import SwiftUI
 import Photos
 import UniformTypeIdentifiers
-import MemvoCore
+import LelvoCore
 
 /// The photo grid for one sidebar item. Click opens the viewer (zooming out of the tile); Select (or ⌘/⇧-click)
 /// picks several. Zoom slider, arrow keys, context menus and drag-out to Finder.
@@ -109,7 +109,7 @@ struct MacGalleryView: View {
                 Task { await MacActions.deleteFromCloud(entries, toast: toast); afterDelete(entries) }
             }
         } message: {
-            Text("They move to Recently Deleted in Memvo and are removed from your Telegram library after 30 days. Any still in Photos on this Mac stay there.")
+            Text("They move to Recently Deleted in Lelvo and are removed from your Telegram library after 30 days. Any still in Photos on this Mac stay there.")
         }
         .alert("Delete \(confirmMacDelete.count) item\(confirmMacDelete.count == 1 ? "" : "s") from this Mac?",
                isPresented: Binding(get: { !confirmMacDelete.isEmpty }, set: { if !$0 { confirmMacDelete = [] } })) {
@@ -122,7 +122,7 @@ struct MacGalleryView: View {
             let unsafe = EntryActions(entries: confirmMacDelete).unsafeOnMac
             Text(unsafe > 0
                  ? "\(unsafe) of these are NOT backed up yet and will be lost once Recently Deleted is emptied."
-                 : "They stay in your Telegram library and in Memvo as cloud items.")
+                 : "They stay in your Telegram library and in Lelvo as cloud items.")
         }
     }
 
@@ -184,7 +184,7 @@ struct MacGalleryView: View {
                 ContentUnavailableView {
                     Label("No access to Photos", systemImage: "photo.badge.exclamationmark")
                 } description: {
-                    Text("Allow Memvo in System Settings → Privacy & Security → Photos to back up and browse this Mac's library. Your cloud items appear here after a restore.")
+                    Text("Allow Lelvo in System Settings → Privacy & Security → Photos to back up and browse this Mac's library. Your cloud items appear here after a restore.")
                 } actions: {
                     Button("Open System Settings") { PlatformActions.openPhotoSettings() }.buttonStyle(.borderedProminent)
                 }
@@ -192,7 +192,7 @@ struct MacGalleryView: View {
                 ContentUnavailableView {
                     Label("Allow access to Photos", systemImage: "photo.on.rectangle")
                 } description: {
-                    Text("Memvo shows your Photos library and your Telegram backup in one timeline.")
+                    Text("Lelvo shows your Photos library and your Telegram backup in one timeline.")
                 } actions: {
                     Button("Allow Access") {
                         Task {

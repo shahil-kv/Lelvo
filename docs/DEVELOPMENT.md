@@ -1,6 +1,6 @@
 # Development
 
-How to build, run and test Memvo. For the code's design, see [ARCHITECTURE.md](ARCHITECTURE.md); for the
+How to build, run and test Lelvo. For the code's design, see [ARCHITECTURE.md](ARCHITECTURE.md); for the
 storage format, [CLOUD_FORMAT.md](CLOUD_FORMAT.md).
 
 ## Requirements
@@ -23,7 +23,7 @@ Shared/                      compiled into both apps
   Services/Telegram/         TDLib session, library channel, uploads, ranged reads, video streaming
   Support/                   platform helpers, thumbnail pipeline, app links
   Views/                     sign-in, settings, backup, free up space, gallery model
-Packages/MemvoCore/   platform-independent core: caption format, encryption, index, job queue, cache
+Packages/LelvoCore/   platform-independent core: caption format, encryption, index, job queue, cache
 UITests/                     iOS UI tests (demo library, no Telegram account needed)
 website/                     the website: plain HTML, CSS and JS; Cloudflare deploys it on every push to main
 Scripts/build.sh             command-line builds and tests
@@ -37,7 +37,7 @@ Code in `Shared/` must build for both platforms. Use the helpers in `Shared/Supp
 Every Telegram app needs an `api_id` and `api_hash` ([Telegram API terms §2.1](https://core.telegram.org/api/terms)).
 
 - **Your own build:** log in at [my.telegram.org](https://my.telegram.org) → **API development tools** → create an
-  app (title "Memvo dev", platform iOS). Copy `Config/Secrets.example.xcconfig` to `Config/Secrets.xcconfig`
+  app (title "Lelvo dev", platform iOS). Copy `Config/Secrets.example.xcconfig` to `Config/Secrets.xcconfig`
   and fill in both values. The app then starts sign-in at the phone number.
 - **Without the file**, the app asks for the keys on its first screen, so anyone can build and run it.
 - **Never commit `Config/Secrets.xcconfig`** (it's in `.gitignore`) and never paste keys into issues or logs.
@@ -48,7 +48,7 @@ Every Telegram app needs an `api_id` and `api_hash` ([Telegram API terms §2.1](
 
 ```sh
 xcodegen generate
-open Memvo.xcodeproj        # schemes: Memvo (iOS), MemvoMac
+open Lelvo.xcodeproj        # schemes: Lelvo (iOS), LelvoMac
 ```
 
 From the command line (everything goes to `build/`, which is ignored):
@@ -86,7 +86,7 @@ The Mac Debug build also listens for `DistributedNotificationCenter` commands to
 
 ## Tests
 
-- **Core unit tests** (`Packages/MemvoCore/Tests`): caption format and its cross-platform test vectors
+- **Core unit tests** (`Packages/LelvoCore/Tests`): caption format and its cross-platform test vectors
   (`docs/test-vectors/format1.json`), random-access decryption, split files, job state machine, slow-down parsing,
   de-duplication, restore linking, cache. Add tests here for any logic change.
 - **UI tests** (`UITests/`): first launch, the demo library grid (open viewer, select, swipe to select, pinch, scroll,

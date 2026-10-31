@@ -7,7 +7,7 @@ extension XCUIApplication {
         let start = buttons["Get started"]
         XCTAssertTrue(start.waitForExistence(timeout: 20), "The intro should open on a fresh install", file: file, line: line)
         start.tap()
-        let next = buttons["Continue"], last = buttons["Continue to Memvo"]
+        let next = buttons["Continue"], last = buttons["Continue to Lelvo"]
         for _ in 0..<3 where next.waitForExistence(timeout: 5) && !last.exists { next.tap() }
         XCTAssertTrue(last.waitForExistence(timeout: 5), file: file, line: line)
         last.tap()

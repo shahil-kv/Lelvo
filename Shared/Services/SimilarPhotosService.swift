@@ -1,7 +1,7 @@
 import Foundation
 import Photos
 import Vision
-import MemvoCore
+import LelvoCore
 
 /// Finds near-identical photos (bursts, several shots of one thing) with Vision's on-device feature prints, for
 /// Duplicates review. Like Ente, the whole library is compared: photos on this device from a small image of each,

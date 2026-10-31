@@ -1,6 +1,6 @@
 import Foundation
 import os
-import MemvoCore
+import LelvoCore
 
 /// Small on-device log (no analytics, never leaves the phone unless the user shares it).
 /// Every line is redacted before it is written.
@@ -9,8 +9,8 @@ final class AppLog: @unchecked Sendable {
 
     enum Level: String { case info = "INFO", warn = "WARN", error = "ERROR" }
 
-    private let queue = DispatchQueue(label: "memvo.log")
-    private let osLog = Logger(subsystem: "com.shahil-kv.memvo", category: "app")
+    private let queue = DispatchQueue(label: "lelvo.log")
+    private let osLog = Logger(subsystem: "com.shahil-kv.lelvo", category: "app")
     private let maxBytes = 1_000_000
     let fileURL: URL
     private let formatter: ISO8601DateFormatter = {
@@ -22,7 +22,7 @@ final class AppLog: @unchecked Sendable {
     private init() {
         let dir = AppPaths.support.appendingPathComponent("Logs", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        fileURL = dir.appendingPathComponent("memvo.log")
+        fileURL = dir.appendingPathComponent("lelvo.log")
     }
 
     private var secrets: [String] {
@@ -67,7 +67,7 @@ final class AppLog: @unchecked Sendable {
     }
 
     func exportFile() -> URL? {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Memvo-log.txt")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Lelvo-log.txt")
         do {
             try contents().write(to: url, atomically: true, encoding: .utf8)
             return url
@@ -92,7 +92,7 @@ extension URL {
     }
 }
 
-/// Where Memvo keeps its files. iOS apps are already in their own container; the Mac app isn't sandboxed,
+/// Where Lelvo keeps its files. iOS apps are already in their own container; the Mac app isn't sandboxed,
 /// so it uses its own folders (~/Library/Application Support/<bundle id>, ~/Library/Caches/<bundle id>).
 enum AppPaths {
     static let support = scoped(.applicationSupportDirectory)
@@ -101,7 +101,7 @@ enum AppPaths {
     private static func scoped(_ directory: FileManager.SearchPathDirectory) -> URL {
         let base = FileManager.default.urls(for: directory, in: .userDomainMask)[0]
         #if os(macOS)
-        let dir = base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.shahil-kv.memvo.mac", isDirectory: true)
+        let dir = base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.shahil-kv.lelvo.mac", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
         #else

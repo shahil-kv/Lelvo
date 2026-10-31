@@ -1,14 +1,14 @@
-# Memvo Contributor License Agreement
+# Lelvo Contributor License Agreement
 
 Version 1.0, effective 24 October 2026.
 
-Thank you for contributing. This agreement keeps Memvo free software and lets it be published on the
+Thank you for contributing. This agreement keeps Lelvo free software and lets it be published on the
 App Store at the same time. It's short; please read it. You sign it once, by commenting on your first pull request
 as the CLA bot asks, and it then covers all your contributions.
 
 ## Why it exists
 
-Memvo is licensed under the GNU General Public License v3.0 (GPL). Apple's App Store adds usage rules that
+Lelvo is licensed under the GNU General Public License v3.0 (GPL). Apple's App Store adds usage rules that
 the GPL doesn't allow when they're imposed on someone else's GPL code. The maintainer can still publish the app there
 because they hold the rights to all of its code. This agreement gives the maintainer the same rights to your
 contribution, so one pull request can't block the App Store version. It never takes the code away from anyone:
@@ -16,7 +16,7 @@ every version stays available under the GPL.
 
 ## The agreement
 
-"**Maintainer**" means the owner of the Memvo project, GitHub user [@shahil-kv](https://github.com/shahil-kv),
+"**Maintainer**" means the owner of the Lelvo project, GitHub user [@shahil-kv](https://github.com/shahil-kv),
 and anyone they transfer the project to. "**Contribution**" means code, documentation, translations, artwork or other
 material you submit to the project, for example in a pull request.
 

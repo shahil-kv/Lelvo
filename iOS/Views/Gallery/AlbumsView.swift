@@ -1,6 +1,6 @@
 import SwiftUI
 import Photos
-import MemvoCore
+import LelvoCore
 
 /// The Collections tab, laid out like Photos' Collections in iOS 18: Memories (trips included) and Recent Days as rows of covers,
 /// then albums, places, media types and utilities. Long sections show their first few with See All or Show More.

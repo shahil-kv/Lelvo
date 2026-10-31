@@ -5,9 +5,9 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 
 ## Unreleased
 
-- **New name: Memvo** (was CloudGallery), with new bundle IDs, so it installs as a new app: sign in once and your
+- **New name: Lelvo** (was CloudGallery), with new bundle IDs, so it installs as a new app: sign in once and your
   library comes back. Existing libraries in Telegram keep working unchanged.
-- **Own repository.** Memvo is now a standalone, community-driven project under the GPL-3.0, with a
+- **Own repository.** Lelvo is now a standalone, community-driven project under the GPL-3.0, with a
   contributor agreement, issue forms, an `approved`-issue rule for pull requests, CI on every pull request and
   automated reviews. The iOS and Mac apps live side by side (`iOS/`, `macOS/`, `Shared/`).
 - **Sign-in:** login codes of any length (Telegram sends 5 or 6 digits) and codes sent as a word or phrase.
@@ -18,8 +18,8 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - **Sign-in starts at your phone number** in every build; a build without Telegram app keys asks for them after.
 - **iPhone only** for now (it still runs on iPad in iPhone mode), and a **demo library** for App Review that never
   connects to Telegram.
-- New website pages: [changelog](https://memvo.mshahilkv.workers.dev/changelog) and
-  [privacy policy](https://memvo.mshahilkv.workers.dev/privacy).
+- New website pages: [changelog](https://lelvo.mshahilkv.workers.dev/changelog) and
+  [privacy policy](https://lelvo.mshahilkv.workers.dev/privacy).
 - **Fast cloud videos:** each video you back up also gets a small fast version (about a tenth of the size), so it
   plays at once from your Telegram library. The quality button in the viewer switches to the original at any time,
   and older videos can get one with Make Fast Version. Cloud videos seek instantly, keep playing when you switch
@@ -31,11 +31,11 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - **Backups keep everything Photos keeps**, and **Save to Photos puts photos back as they were:** the original with
   its edit (Revert in Photos still works), the RAW of RAW + JPEG photos, Live Photos, favourites, hidden photos and
   the same albums. Photos backed up earlier get the missing pieces from your iPhone or Mac at the next backup.
-- **Include hidden photos** in the backup (off by default). Memvo never shows them, and they come back hidden.
+- **Include hidden photos** in the backup (off by default). Lelvo never shows them, and they come back hidden.
 - **Share Original** (touch and hold Share on iPhone) and **Export Unmodified Original** on the Mac.
 - **Save all to Photos** (Backup → Tools): everything that's only in your Telegram library back to Photos in one go,
   with a space check first, progress and Stop. If it stops, run it again and it continues.
-- **Your library comes back faster on a new device:** Memvo keeps a compact index of your library in your Telegram
+- **Your library comes back faster on a new device:** Lelvo keeps a compact index of your library in your Telegram
   library, so a new iPhone or Mac shows everything after reading only the latest changes, then checks the rest in the
   background.
 - **Change your passphrase, and a recovery key** for encrypted libraries: if you forget the passphrase, the recovery
@@ -46,7 +46,7 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   already on your iPhone or Mac. Sharing, saving and exporting always use the original.
 - **Smoother timeline during a backup** in large libraries: only the photos that changed are updated, instead of
   the whole library being read again every second or two.
-- **Your other device's changes show at once:** while Memvo is open, photos backed up or deleted on your iPhone or Mac
+- **Your other device's changes show at once:** while Lelvo is open, photos backed up or deleted on your iPhone or Mac
   appear on the other one within seconds, instead of at the next scan.
 - **Faster, lighter backups:** new photos are found from Photos' list of changes instead of reading the whole library
   each time, a photo is no longer exported and checked again when its upload is retried, and big videos in an
@@ -68,9 +68,9 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - **Similar photos** in Duplicates: bursts and near-identical shots grouped, with the best one marked.
 - **Video viewer:** double-tap a side to skip 10 seconds, see frames while you scrub, and long videos continue where you
   stopped.
-- **Big videos on a full phone:** before backing up, Memvo checks there's room for the copy it uploads, and tells you
+- **Big videos on a full phone:** before backing up, Lelvo checks there's room for the copy it uploads, and tells you
   how much space to free instead of failing with an unclear error.
-- **New first run:** a short intro that shows what Memvo does with real app screens, who can see your photos,
+- **New first run:** a short intro that shows what Lelvo does with real app screens, who can see your photos,
   straight answers to the questions people ask before trusting a backup app, and your own library in numbers.
   A new library gets a name for you, and you only choose Standard or end-to-end encrypted, with a preview of what
   Telegram stores. Then you pick your first photo and watch it arrive. Returning users get a welcome back with their

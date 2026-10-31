@@ -1,5 +1,5 @@
 import SwiftUI
-import MemvoCore
+import LelvoCore
 
 /// Backup page in the style of System Settings (iCloud, Time Machine): solid grouped sections, the status and
 /// its one action on top, live uploads, library numbers, options inline, then tools.
@@ -46,7 +46,7 @@ struct MacBackupView: View {
                 Toggle(isOn: $wifiOnly) { iconLabel("Wi-Fi Only", "wifi", .accentColor) }
                 Toggle(isOn: $chargingOnly) { iconLabel("Only on Power Adapter", "powerplug.fill", .green) }
             } header: { Text("Options") } footer: {
-                Text(autoBackup ? "While Memvo is open, even with its window closed, new photos are backed up every hour."
+                Text(autoBackup ? "While Lelvo is open, even with its window closed, new photos are backed up every hour."
                                 : "Nothing uploads on its own. Use Back Up Now, or select photos and choose Back Up.")
             }
 

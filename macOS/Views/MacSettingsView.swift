@@ -1,7 +1,7 @@
 import SwiftUI
-import MemvoCore
+import LelvoCore
 
-/// Memvo → Settings… (⌘,): one pane per topic, like the system apps.
+/// Lelvo → Settings… (⌘,): one pane per topic, like the system apps.
 struct MacSettingsView: View {
     @EnvironmentObject private var app: AppModel
 
@@ -63,15 +63,15 @@ private struct MacGeneralSettings: View {
             }
             Section {
                 Toggle("Back up new photos automatically", isOn: $autoBackup)
-                Toggle("Show Memvo in the menu bar", isOn: $showMenuBarExtra)
+                Toggle("Show Lelvo in the menu bar", isOn: $showMenuBarExtra)
             } header: { Text("Backup") } footer: {
-                Text(autoBackup ? "While Memvo is open (even with its window closed), new photos are backed up every hour."
+                Text(autoBackup ? "While Lelvo is open (even with its window closed), new photos are backed up every hour."
                                 : "Nothing uploads on its own: use Back Up Now, or Back Up on the photos you choose.")
             }
             Section {
                 Button("Sign Out and Reset This Mac…", role: .destructive) { confirmReset = true }
             } footer: {
-                Text("Signs this Mac out of Telegram and removes Memvo's local data. Your Telegram library isn't touched.")
+                Text("Signs this Mac out of Telegram and removes Lelvo's local data. Your Telegram library isn't touched.")
             }
             if let error { Text(error).foregroundStyle(.red).font(.callout) }
         }
@@ -82,14 +82,14 @@ private struct MacGeneralSettings: View {
             libraryName = await env.library.title()
             accountTtl = await env.td.accountTtlDays()
         }
-        .alert("Sign out of Memvo?", isPresented: $confirmReset) {
+        .alert("Sign out of Lelvo?", isPresented: $confirmReset) {
             Button("Cancel", role: .cancel) {}
             Button("Sign Out", role: .destructive) {
                 busy = true
                 Task { await app.reset(); busy = false }
             }
         } message: {
-            Text("This Mac is signed out of Telegram and Memvo's local data is removed. Your backup in Telegram isn't touched; sign in again to get it back.")
+            Text("This Mac is signed out of Telegram and Lelvo's local data is removed. Your backup in Telegram isn't touched; sign in again to get it back.")
         }
     }
 }
@@ -120,7 +120,7 @@ struct MenuBarStatusView: View {
                     .foregroundStyle(activity.isRunning ? Color.accentColor : .green)
                     .symbolEffect(.pulse, isActive: activity.isRunning)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(activity.isRunning ? "Backing up" : (paused ? "Backup paused" : "Memvo"))
+                    Text(activity.isRunning ? "Backing up" : (paused ? "Backup paused" : "Lelvo"))
                         .font(.headline)
                     Text(statusText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
@@ -150,7 +150,7 @@ struct MenuBarStatusView: View {
                     }
                 }
                 Spacer()
-                Button("Open Memvo") {
+                Button("Open Lelvo") {
                     openWindow(id: MacNavigation.mainWindowId)
                     NSApp.activate()
                 }

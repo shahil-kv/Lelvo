@@ -9,7 +9,7 @@ enum KeychainStore {
         case tdApiId, tdApiHash, tdDatabaseKey, e2eMasterKey
     }
 
-    private static let service = "com.shahil-kv.memvo"
+    private static let service = "com.shahil-kv.lelvo"
 
     private static func query(_ key: Key) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

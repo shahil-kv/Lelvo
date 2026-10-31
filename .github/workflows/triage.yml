@@ -76,7 +76,7 @@ jobs:
             const body = [
               "Closing this automatically: it doesn't link an issue labelled `approved`.",
               "",
-              "Memvo agrees on a change before code is written, so nobody's work is wasted on something that",
+              "Lelvo agrees on a change before code is written, so nobody's work is wasted on something that",
               "can't be merged. See [CONTRIBUTING.md](" + contributing + ").",
               "",
               "1. Open an issue describing the change, or find the existing one.",

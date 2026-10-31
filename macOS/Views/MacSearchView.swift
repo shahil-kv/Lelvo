@@ -1,5 +1,5 @@
 import SwiftUI
-import MemvoCore
+import LelvoCore
 
 /// Search in the sidebar, like Photos for Mac: suggestions under an empty field, matching photos as a grid while typing.
 struct MacSearchView: View {

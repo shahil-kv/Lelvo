@@ -1,6 +1,6 @@
 import AppIntents
 import Foundation
-import MemvoCore
+import LelvoCore
 
 /// Runs without opening the app: queues new photos as background uploads and reports what it did.
 struct BackUpNewPhotosIntent: AppIntent {
@@ -39,7 +39,7 @@ struct BackupStatusIntent: AppIntent {
 /// iOS requires the user to confirm photo deletion, so this opens the app on the Free Up Space screen.
 struct FreeUpSpaceIntent: AppIntent {
     static var title: LocalizedStringResource = "Free Up Space"
-    static var description = IntentDescription("Opens Memvo on the Free Up Space screen.")
+    static var description = IntentDescription("Opens Lelvo on the Free Up Space screen.")
     static var openAppWhenRun: Bool = true
 
     @MainActor
@@ -49,7 +49,7 @@ struct FreeUpSpaceIntent: AppIntent {
     }
 }
 
-struct MemvoShortcuts: AppShortcutsProvider {
+struct LelvoShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: BackUpNewPhotosIntent(),
                     phrases: ["Back up new photos with \(.applicationName)", "\(.applicationName) backup"],

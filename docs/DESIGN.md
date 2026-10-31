@@ -1,6 +1,6 @@
 # Design
 
-How Memvo looks on iPhone, Mac and the website. Values live in [design/tokens.json](../design/tokens.json); this file
+How Lelvo looks on iPhone, Mac and the website. Values live in [design/tokens.json](../design/tokens.json); this file
 says what each one is for.
 
 ## Changing a colour
@@ -20,7 +20,7 @@ Never edit the generated `:root` block or the `AccentColor.colorset` files by ha
 | Website (`--signal`) | `#5E4AE3` | `#8B7CFF` |
 
 Indigo was chosen over the old blue because the old blue was Telegram's own colour and the iOS default tint, which
-made Memvo look like part of Telegram. Indigo keeps the calm, trustworthy feel of blue, and it doesn't clash with the
+made Lelvo look like part of Telegram. Indigo keeps the calm, trustworthy feel of blue, and it doesn't clash with the
 status colours or with people's photos. White text on `#5E4AE3` and `#5E4AE3` on white are both 5.9 : 1 (WCAG AA).
 
 The accent marks what you can act on and what is happening now: buttons, toggles, links, selection, the active tab,
@@ -70,7 +70,7 @@ override colours.
 
 The hero answers three questions in order: what it is (the headline), why it matters (one short line), what to do
 (one email field), then three small trust points. Below it, sample photos drift up at the edges and the real app on an
-iPhone sends photos into a Memvo Library channel. Visitors can tap a photo to send it; left alone, it plays itself.
+iPhone sends photos into a Lelvo Library channel. Visitors can tap a photo to send it; left alone, it plays itself.
 Never use Telegram's logo or its look for the channel (Telegram API terms). The header and footer are the same on every page
 (`index.html`, `404.html` and `Scripts/page.template.html`); change all three together.
 
