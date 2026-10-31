@@ -3,10 +3,16 @@
 User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac versions `macos-v*`
 ([RELEASING.md](RELEASING.md)).
 
-## Unreleased
+## 0.2.0, 2026-10-31
 
-- **New name: Lelvo** (was CloudGallery), with new bundle IDs, so it installs as a new app: sign in once and your
-  library comes back. Existing libraries in Telegram keep working unchanged.
+- **New name: Lelvo** (was Memvo, and CloudGallery before that), with new bundle IDs, so it installs as a new app:
+  sign in once and your library comes back. Existing libraries in Telegram keep working unchanged.
+- **Report a problem or suggest a feature** from Settings. Lelvo opens Telegram or GitHub with your message ready
+  and adds what the app runs on; nothing is sent until you press send.
+- **Backups that don't get stuck:** photos you delete from your phone while they wait in the queue are dropped, an
+  upload that stops moving for 3 minutes is retried, and photos go before videos. Each upload shows about how long
+  is left.
+- **Sign out and reset** shows the welcome screen at once, instead of leaving Settings on screen for a few seconds.
 - **Own repository.** Lelvo is now a standalone, community-driven project under the GPL-3.0, with a
   contributor agreement, issue forms, an `approved`-issue rule for pull requests, CI on every pull request and
   automated reviews. The iOS and Mac apps live side by side (`iOS/`, `macOS/`, `Shared/`).
