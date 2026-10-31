@@ -62,6 +62,15 @@ final class OnboardingModel: ObservableObject {
             }
         }
         #endif
+        // After "Sign out and reset" this screen is up before the wipe ends. The old session still reads as signed
+        // in until then, and would jump straight to the library.
+        Task { [weak self] in
+            await AppModel.shared.waitForReset()
+            self?.connect()
+        }
+    }
+
+    private func connect() {
         if let creds = TDCredentials.load() {
             apiId = String(creds.apiId)
             apiHash = creds.apiHash
@@ -132,9 +141,14 @@ final class OnboardingModel: ObservableObject {
             return
         }
         #endif
-        if env.td.isReady { goToLibrary(); return }
-        step = .phone
-        if TDCredentials.load() != nil { env.td.start() }
+        busy = true
+        Task {
+            await AppModel.shared.waitForReset()
+            busy = false
+            if env.td.isReady { goToLibrary(); return }
+            step = .phone
+            if TDCredentials.load() != nil { env.td.start() }
+        }
     }
 
     func saveCredentials() {

@@ -32,8 +32,9 @@ private struct MacGeneralSettings: View {
     @State private var accountName = "…"
     @State private var libraryName = LibraryService.titleDefault
     @State private var accountTtl: Int?
-    @State private var busy = false
     @State private var confirmReset = false
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
     @State private var error: String?
     private var env: AppEnvironment { AppEnvironment.shared }
 
@@ -76,7 +77,6 @@ private struct MacGeneralSettings: View {
             if let error { Text(error).foregroundStyle(.red).font(.callout) }
         }
         .formStyle(.grouped)
-        .disabled(busy)
         .task {
             accountName = await env.td.displayName() ?? (env.td.isReady ? "—" : "Not connected")
             libraryName = await env.library.title()
@@ -85,8 +85,10 @@ private struct MacGeneralSettings: View {
         .alert("Sign out of Lelvo?", isPresented: $confirmReset) {
             Button("Cancel", role: .cancel) {}
             Button("Sign Out", role: .destructive) {
-                busy = true
-                Task { await app.reset(); busy = false }
+                app.reset()
+                // Settings is its own window: close it and show the welcome screen in the main window.
+                dismiss()
+                openWindow(id: MacNavigation.mainWindowId)
             }
         } message: {
             Text("This Mac is signed out of Telegram and Lelvo's local data is removed. Your backup in Telegram isn't touched; sign in again to get it back.")

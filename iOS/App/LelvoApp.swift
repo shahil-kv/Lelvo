@@ -33,6 +33,7 @@ struct LelvoApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .id(model.sessionId)
                 .environmentObject(model)
                 .environmentObject(BackupActivity.shared)
         }

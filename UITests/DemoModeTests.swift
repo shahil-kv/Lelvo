@@ -84,6 +84,7 @@ final class DemoModeTests: XCTestCase {
         for _ in 0..<6 where !signOut.isHittable { app.swipeUp() }
         signOut.tap()
         app.alerts.buttons["Sign Out"].tap()
-        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 20))
+        // At once, not after the wipe: Settings used to stay up for seconds.
+        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 3))
     }
 }
