@@ -129,6 +129,8 @@ final class AppEnvironment: @unchecked Sendable {
     func resetEverything() async {
         appLog("Reset this \(Device.name): signing out and removing Lelvo's local data")
         DemoMode.exit()
+        // Stop uploads before the session goes; the paused flag is wiped with the other settings below.
+        engine.pause()
         await td.logOut()
         await td.destroyLocalData()
         try? store.deleteAll()

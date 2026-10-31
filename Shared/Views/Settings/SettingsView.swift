@@ -117,7 +117,7 @@ struct SettingsView: View {
             }
             .alert("Sign out of Lelvo?", isPresented: $confirmReset) {
                 Button("Cancel", role: .cancel) {}
-                Button("Sign Out", role: .destructive) { run(nil) { await app.reset() } }
+                Button("Sign Out", role: .destructive) { app.reset() }
             } message: {
                 Text("This \(Device.name) is signed out of Telegram and Lelvo's local data is removed. Your backup in Telegram isn't touched; sign in again to get it back.")
             }

@@ -45,10 +45,29 @@ final class AppModel: ObservableObject {
         showFreeUpSpace = true
     }
 
-    func reset() async {
-        await AppEnvironment.shared.resetEverything()
+    /// Bumped by `reset()` so the signed-in screens are rebuilt with nothing of the old account in memory.
+    @Published private(set) var sessionId = UUID()
+    /// The wipe `reset()` started. It can still be running while the welcome screen is up.
+    private var resetTask: Task<Void, Never>?
+
+    /// Shows the welcome screen at once, then wipes in the background. Waiting for the wipe first left Settings on
+    /// screen for seconds, because signing out waits for Telegram to answer.
+    func reset() {
         onboardingComplete = false
+        needsSignIn = false
+        showFreeUpSpace = false
         selectedTab = .gallery
+        sessionId = UUID()
+        let previous = resetTask
+        resetTask = Task {
+            await previous?.value
+            await AppEnvironment.shared.resetEverything()
+        }
+    }
+
+    /// Returns once a running reset has finished. Sign-in waits for this so it never sees the old session.
+    func waitForReset() async {
+        await resetTask?.value
     }
 }
 
