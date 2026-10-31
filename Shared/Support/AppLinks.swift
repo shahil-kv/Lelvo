@@ -5,8 +5,11 @@ enum AppLinks {
     static let repository = URL.literal("https://github.com/shahil-kv/Memvo")
     static let faq = URL.literal("https://github.com/shahil-kv/Memvo/blob/main/docs/FAQ.md")
     static let privacyPolicy = URL.literal("https://memvo.mshahilkv.workers.dev/privacy")
-    static let reportProblem = URL.literal("https://github.com/shahil-kv/Memvo/issues/new/choose")
     static let license = URL.literal("https://www.gnu.org/licenses/gpl-3.0.html")
+
+    /// Who "Message the developer" in Report a problem and Suggest a feature reaches, on Telegram.
+    static let developerName = "Shahil"
+    static let developerTelegram = "shahil9846"
 }
 
 /// Third-party code shipped inside the app, with the license each one is under.
