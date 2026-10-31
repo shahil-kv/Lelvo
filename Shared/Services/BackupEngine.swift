@@ -12,7 +12,25 @@ final class BackupActivity: ObservableObject {
     @Published var done = 0
     @Published var total = 0
     /// Per upload lane: the file being uploaded and its byte progress (two uploads run in parallel).
-    @Published var lanes: [String: LaneProgress] = [:]
+    @Published var lanes: [String: LaneProgress] = [:] {
+        didSet { updateTimeLeft() }
+    }
+    /// Per upload lane: about how many seconds its file still needs at the recent speed.
+    @Published private(set) var secondsLeft: [String: Int] = [:]
+    private var rates: [String: (name: String, rate: TransferRate)] = [:]
+
+    private func updateTimeLeft() {
+        let now = Date()
+        var left: [String: Int] = [:]
+        for (key, lane) in lanes where lane.total > 0 {
+            var entry = rates[key].flatMap { $0.name == lane.name ? $0 : nil } ?? (name: lane.name, rate: TransferRate())
+            entry.rate.record(lane.sent, at: now)
+            rates[key] = entry
+            left[key] = entry.rate.secondsLeft(total: lane.total)
+        }
+        rates = rates.filter { lanes[$0.key]?.total ?? 0 > 0 }
+        if left != secondsLeft { secondsLeft = left }
+    }
     @Published var uploaded = 0
     @Published var failed = 0
     @Published var message: String?
@@ -159,6 +177,14 @@ final class BackupEngine: @unchecked Sendable {
 
     init(environment: AppEnvironment) {
         self.env = environment
+        // Only logged before, so a throttled upload looked stuck in the app.
+        NotificationCenter.default.addObserver(forName: TDService.uploadSpeedLimited, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                let a = BackupActivity.shared
+                guard a.isRunning, a.notice == nil else { return }
+                a.notice = "Telegram limits upload speed for accounts without Premium. The backup continues, just slower."
+            }
+        }
     }
 
     private var rawDirectory: URL {
@@ -204,6 +230,22 @@ final class BackupEngine: @unchecked Sendable {
         let items = fresh.map(makeItem)
         try? env.store.upsert(items)
         return items.count
+    }
+
+    /// Removes queued items whose photo was deleted from the phone before it was uploaded (see
+    /// `PhotoChangeScan.queuedButDeleted`). Only queue rows go; backed-up items and the cloud copies are untouched.
+    @discardableResult
+    func dropDeletedQueuedItems() -> Int {
+        guard PhotoLibraryService.hasAccess, !DemoMode.isActive else { return 0 }
+        let queued = (try? env.store.items(status: .queued)) ?? []
+        let ids = queued.compactMap(\.localIdentifier)
+        guard !ids.isEmpty else { return 0 }
+        let present = env.photos.existingIdentifiers(ids)
+        let gone = PhotoChangeScan.queuedButDeleted(queued, present: present, libraryIsEmpty: env.photos.fetchAllAssets().count == 0)
+        // The list was read before the photo check; an upload may have started since, so only rows still queued go.
+        let dropped = gone.filter { (try? env.store.deleteIfQueued(id: $0.id)) == true }.count
+        if dropped > 0 { appLog("Dropped \(dropped) queued items deleted from the phone") }
+        return dropped
     }
 
     // MARK: - Photos' change history (#31)
@@ -332,8 +374,7 @@ final class BackupEngine: @unchecked Sendable {
     /// `onlyChosen`: just the items the user picked (see `MediaItem.chosen`).
     func runnableItems(now: Date, onlyChosen: Bool = false) -> [MediaItem] {
         let pending = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
-        return pending.filter { $0.localIdentifier != nil && ($0.notBefore.map { $0 <= now } ?? true) && (!onlyChosen || $0.chosen == true) }
-            .sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
+        return UploadOrder.sorted(pending.filter { $0.localIdentifier != nil && ($0.notBefore.map { $0 <= now } ?? true) && (!onlyChosen || $0.chosen == true) })
     }
 
     /// Processes the queue with up to two concurrent uploads until it is empty, `deadline` passes,
@@ -373,6 +414,7 @@ final class BackupEngine: @unchecked Sendable {
         // Reconcile anything sent before an interruption so it isn't uploaded twice.
         _ = try? await env.library.scan(full: false)
         relinkRestoredItems()
+        dropDeletedQueuedItems()
         if includeNew || Prefs.autoBackup {
             let started = Date()
             let search = beginPhotoSearch()

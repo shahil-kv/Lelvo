@@ -437,4 +437,126 @@ import MemvoCore
         #expect(!PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: "a", selection: "a", lastFullScan: nil, now: now))
         #expect(!PhotoChangeScan.canUseChanges(hasToken: true, savedSelection: "a", selection: "a", lastFullScan: now.addingTimeInterval(60), now: now))
     }
+    private func item(_ local: String?, _ status: ItemStatus = .queued) -> MediaItem {
+        MediaItem(localIdentifier: local, sha256: "", filename: "a.jpg", kind: .photo, creationDate: Date(), fileSize: 0, status: status)
+    }
+
+    @Test func dropsQueuedPhotosDeletedFromThePhone() {
+        let items = [item("kept"), item("deleted"), item("uploading", .uploading), item("backedUp", .backedUp), item(nil)]
+        let gone = PhotoChangeScan.queuedButDeleted(items, present: ["kept"], libraryIsEmpty: false)
+        #expect(gone.map(\.localIdentifier) == ["deleted"])
+    }
+
+    @Test func keepsItemsWithPartsInTheChannel() {
+        var editCheck = item("editCheck")
+        editCheck.editCheck = true
+        editCheck.cloudParts = ["o": [RemoteFile(messageId: 1, fileId: "f", fileUniqueId: "u", size: 10)]]
+        var halfDone = item("halfDone")
+        halfDone.cloudParts = ["o": [RemoteFile(messageId: 2, fileId: "f", fileUniqueId: "u", size: 10)]]
+        #expect(PhotoChangeScan.queuedButDeleted([editCheck, halfDone], present: ["other"], libraryIsEmpty: false).isEmpty)
+    }
+
+    @Test func keepsTheQueueWhenPhotosFindsNothing() {
+        let items = [item("a"), item("b")]
+        #expect(PhotoChangeScan.queuedButDeleted(items, present: [], libraryIsEmpty: false).isEmpty)
+        // Every photo really was deleted.
+        #expect(PhotoChangeScan.queuedButDeleted(items, present: [], libraryIsEmpty: true).count == 2)
+    }
+}
+
+@Suite struct UploadStallTests {
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test func aSlowUploadThatMovesIsNotStuck() {
+        var stall = UploadStall(startedAt: start, timeout: 180)
+        for minute in 1...10 {
+            stall.record(sent: Int64(minute) << 20, at: start.addingTimeInterval(Double(minute) * 60))
+        }
+        #expect(!stall.isStalled(at: start.addingTimeInterval(10 * 60 + 179)))
+        #expect(stall.isStalled(at: start.addingTimeInterval(10 * 60 + 180)))
+    }
+
+    @Test func repeatedReportsOfTheSameBytesDontCountAsMoving() {
+        var stall = UploadStall(startedAt: start, timeout: 180)
+        stall.record(sent: 25 << 20, at: start.addingTimeInterval(10))
+        stall.record(sent: 25 << 20, at: start.addingTimeInterval(150))
+        #expect(stall.isStalled(at: start.addingTimeInterval(190)))
+        #expect(stall.sent == 25 << 20)
+    }
+
+    @Test func timeTheAppWasSuspendedDoesntCount() {
+        var stall = UploadStall(startedAt: start, timeout: 180)
+        var looks: [Bool] = []
+        func look(_ t: TimeInterval) { looks.append(stall.check(at: start.addingTimeInterval(t))) }
+        look(10)
+        // Backgrounded for 10 minutes: the next look comes long after the last one.
+        look(610)
+        for t in stride(from: 620.0, through: 780, by: 10) { look(t) }
+        #expect(!looks.contains(true))
+        look(790)
+        #expect(looks.last == true)
+    }
+
+    @Test func restartGivesAnotherFullTimeout() {
+        var stall = UploadStall(startedAt: start, timeout: 180)
+        #expect(stall.isStalled(at: start.addingTimeInterval(200)))
+        stall.restart(at: start.addingTimeInterval(200))
+        #expect(!stall.isStalled(at: start.addingTimeInterval(379)))
+        #expect(stall.isStalled(at: start.addingTimeInterval(380)))
+    }
+
+    @Test func anUploadThatNeverStartsIsStuckAfterTheTimeout() {
+        let stall = UploadStall(startedAt: start, timeout: 180)
+        #expect(!stall.isStalled(at: start.addingTimeInterval(179)))
+        #expect(stall.isStalled(at: start.addingTimeInterval(180)))
+    }
+}
+
+@Suite struct TransferRateTests {
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test func estimatesFromTheRecentSpeed() {
+        var rate = TransferRate()
+        rate.record(0, at: start)
+        #expect(rate.secondsLeft(total: 100 << 20) == nil)
+        // 1 MB/s for 10 s, then Telegram slows it to 100 KB/s for 20 s: the estimate follows the slow speed.
+        for s in 1...10 { rate.record(Int64(s) << 20, at: start.addingTimeInterval(Double(s))) }
+        #expect(rate.secondsLeft(total: 100 << 20) == 90)
+        for s in 1...20 { rate.record((10 << 20) + Int64(s) * 102_400, at: start.addingTimeInterval(10 + Double(s))) }
+        let left = rate.secondsLeft(total: 100 << 20)
+        #expect(left.map { $0 > 850 && $0 < 950 } == true)
+    }
+
+    @Test func startsOverForANewFile() {
+        var rate = TransferRate()
+        rate.record(50 << 20, at: start)
+        rate.record(60 << 20, at: start.addingTimeInterval(10))
+        rate.record(1 << 20, at: start.addingTimeInterval(11))
+        #expect(rate.bytesPerSecond == nil)
+    }
+
+    @Test func noEstimateWhenNothingMoves() {
+        var rate = TransferRate()
+        rate.record(25 << 20, at: start)
+        rate.record(25 << 20, at: start.addingTimeInterval(10))
+        #expect(rate.secondsLeft(total: 80 << 20) == nil)
+    }
+}
+
+@Suite struct UploadOrderTests {
+    private func item(_ name: String, _ kind: MediaKind, day: Double) -> MediaItem {
+        MediaItem(localIdentifier: name, sha256: "", filename: name, kind: kind,
+                  creationDate: Date(timeIntervalSince1970: day * 86_400), fileSize: 0)
+    }
+
+    @Test func halfDoneFirstThenPhotosThenVideosNewestFirst() {
+        var halfDone = item("halfDone", .video, day: 1)
+        halfDone.cloudParts = ["o": [RemoteFile(messageId: 1, fileId: "f", fileUniqueId: "u", size: 10)]]
+        var editCheck = item("editCheck", .photo, day: 9)
+        editCheck.cloudParts = ["o": [RemoteFile(messageId: 2, fileId: "f", fileUniqueId: "u", size: 10)]]
+        editCheck.editCheck = true
+        let items = [item("oldVideo", .video, day: 2), item("newVideo", .video, day: 8), item("oldPhoto", .photo, day: 3),
+                     item("live", .livePhoto, day: 7), halfDone, editCheck]
+        #expect(UploadOrder.sorted(items).map(\.filename) == ["halfDone", "editCheck", "live", "oldPhoto", "newVideo", "oldVideo"])
+    }
 }

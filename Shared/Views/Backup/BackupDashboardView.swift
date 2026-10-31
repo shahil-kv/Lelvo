@@ -35,6 +35,8 @@ final class BackupStatsModel: ObservableObject {
     func refresh() {
         let env = AppEnvironment.shared
         Task.detached {
+            // Photos deleted in the Photos app while queued would otherwise count as left to back up.
+            env.engine.dropDeletedQueuedItems()
             let counts = (try? env.store.counts()) ?? [:]
             // Without automatic backup, only picked items are "left to back up"; older queued ones count as not in the cloud.
             let queued = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
@@ -132,7 +134,7 @@ struct BackupDashboardView: View {
                         if activity.failed > 0 {
                             Text("\(activity.failed) failed in this run (see Failed below)").font(.caption).foregroundStyle(.red)
                         }
-                        ForEach(activity.lanes.sorted(by: { $0.key < $1.key }), id: \.key) { _, lane in
+                        ForEach(activity.lanes.sorted(by: { $0.key < $1.key }), id: \.key) { key, lane in
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Image(systemName: "arrow.up.circle").foregroundStyle(.tint)
@@ -148,6 +150,10 @@ struct BackupDashboardView: View {
                                 .font(.footnote)
                                 if lane.total > 0 {
                                     ProgressView(value: Double(lane.sent), total: Double(lane.total))
+                                    // Only for a file that takes a while, where the bar alone looks stuck.
+                                    if let left = activity.secondsLeft[key], left >= 20 {
+                                        Text(Format.timeLeft(left)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
