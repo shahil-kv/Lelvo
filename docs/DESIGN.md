@@ -69,9 +69,9 @@ override colours.
 | `--ease` | All transitions |
 
 The hero answers three questions in order: what it is (the headline), why it matters (one short line), what to do
-(one email field), then three small trust points. Below it, sample photos drift up at the edges and the real app on an
-iPhone sends photos into a Lelvo Library channel. Visitors can tap a photo to send it; left alone, it plays itself.
-Never use Telegram's logo or its look for the channel (Telegram API terms). The header and footer are the same on every page
+(one email field), all on the left. On the right is one picture: the real app on an iPhone, with a Lelvo Library
+channel card resting on it. Nothing else goes in the hero; it was cut down from photo walls, badges and a tap demo
+because the first screen felt cluttered. Never use Telegram's logo or its look for the channel (Telegram API terms). The header and footer are the same on every page
 (`index.html`, `404.html` and `Scripts/page.template.html`); change all three together.
 
 ## App icon
