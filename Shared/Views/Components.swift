@@ -84,7 +84,8 @@ enum BackupBadge: Equatable, CaseIterable {
         case .phoneOnly: return .white
         case .cloudOnly: return .cyan
         case .waiting: return .white
-        case .uploading: return .blue
+        // Uploads in progress use the accent (docs/DESIGN.md), not a second blue.
+        case .uploading: return .accentColor
         case .failed: return .red
         case .tooLarge: return .orange
         case .viewNeedsV2: return .yellow
