@@ -21,6 +21,7 @@ final class AppEnvironment: @unchecked Sendable {
     private(set) var freeUpSpace: FreeUpSpaceService!
     private(set) var similar: SimilarPhotosService!
     private(set) var search: SearchService!
+    private(set) var secondCopy: SecondCopyService!
 
     private init() {
         Prefs.registerDefaults()
@@ -53,6 +54,7 @@ final class AppEnvironment: @unchecked Sendable {
         freeUpSpace = FreeUpSpaceService(environment: self)
         similar = SimilarPhotosService(photos: photos, store: store, media: { [unowned self] in self.media })
         search = SearchService(store: store, photos: photos, media: { [unowned self] in self.media })
+        secondCopy = SecondCopyService(environment: self)
     }
 
     /// Signed in to Telegram, library chosen and (if encrypted) unlocked.
@@ -131,6 +133,8 @@ final class AppEnvironment: @unchecked Sendable {
         DemoMode.exit()
         // Stop uploads before the session goes; the paused flag is wiped with the other settings below.
         engine.pause()
+        // The second copy's folder isn't touched; only the setting goes, with the others below.
+        secondCopy.cancelRun()
         await td.logOut()
         await td.destroyLocalData()
         try? store.deleteAll()

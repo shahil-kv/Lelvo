@@ -10,6 +10,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
         BackgroundTasks.register()
         AppEnvironment.shared.td.start()
         if Prefs.onboardingComplete { BackgroundTasks.scheduleAll() }
+        AppEnvironment.shared.secondCopy.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
