@@ -76,7 +76,24 @@ final class NativeGridTests: XCTestCase {
         let from = grid.cells.element(boundBy: 1).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let to = grid.cells.element(boundBy: 3).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         from.press(forDuration: 0.05, thenDragTo: to)
+        XCTAssertTrue(app.staticTexts["4"].waitForExistence(timeout: 5), "The first tile and the three swiped over")
         shot("07-swipe-select")
+        app.buttons["Done"].tap()
+    }
+
+    func testSwipeSelectsEveryTileBetweenAcrossRows() {
+        waitForGrid()
+        app.buttons["Select"].tap()
+        // Mostly sideways, so it selects instead of scrolling; ends one row down, three tiles along.
+        let from = grid.cells.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let to = grid.cells.element(boundBy: 7).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.05, thenDragTo: to)
+        XCTAssertTrue(app.staticTexts["8"].waitForExistence(timeout: 5), "Every tile between, in timeline order, like Photos")
+        shot("07b-swipe-across-rows")
+        // Starting on a selected tile deselects.
+        let back = grid.cells.element(boundBy: 1).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        back.press(forDuration: 0.05, thenDragTo: grid.cells.element(boundBy: 2).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        XCTAssertTrue(app.staticTexts["6"].waitForExistence(timeout: 5), "A swipe from a selected tile deselects")
         app.buttons["Done"].tap()
     }
 
