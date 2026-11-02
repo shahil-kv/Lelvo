@@ -96,7 +96,8 @@ final class PhotoPinView: MKAnnotationView {
         badge.alignmentMode = .center
         badge.cornerRadius = 9
         badge.foregroundColor = CGColor(gray: 1, alpha: 1)
-        badge.backgroundColor = PlatformColor.systemBlue.cgColor
+        // The accent from the asset catalog: a layer can't follow SwiftUI's tint, and system blue read as a second accent.
+        badge.backgroundColor = (PlatformColor(named: "AccentColor") ?? .systemIndigo).cgColor
         badge.isHidden = true
         #if os(iOS)
         layer.addSublayer(imageLayer)

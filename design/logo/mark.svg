@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Lelvo mark: one sunset print folded into an L, base lifted, with a padlock on the back of the print. Drawn from scratch. -->
+  <defs>
+    <linearGradient id="tile1" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1024" y2="1024"><stop offset="0" stop-color="#F7F5FF"/><stop offset="1" stop-color="#E2DCFA"/></linearGradient>
+    <linearGradient id="sky1" gradientUnits="userSpaceOnUse" x1="0" y1="192" x2="0" y2="816"><stop offset="0" stop-color="#4B3BFF"/><stop offset="0.3333333333333333" stop-color="#B44FD8"/><stop offset="0.6666666666666666" stop-color="#FF7A6B"/><stop offset="1" stop-color="#FFC27A"/></linearGradient>
+    <linearGradient id="back1" gradientUnits="userSpaceOnUse" x1="244" y1="0" x2="804" y2="0"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E8E4F6"/></linearGradient>
+    <linearGradient id="lake1" gradientUnits="userSpaceOnUse" x1="0" y1="612" x2="0" y2="816"><stop offset="0" stop-color="#FFC27A"/><stop offset="0.5" stop-color="#FF7A6B"/><stop offset="1" stop-color="#3A2690"/></linearGradient>
+    <linearGradient id="crease1" gradientUnits="userSpaceOnUse" x1="346" y1="714" x2="476" y2="844"><stop offset="0" stop-color="#0A0630" stop-opacity="0.32"/><stop offset="1" stop-color="#0A0630" stop-opacity="0"/></linearGradient>
+    <clipPath id="f1"><path d="M288 192 H404 A44 44 0 0 1 448 236 V612 L244 816 V236 A44 44 0 0 1 288 192 Z"/></clipPath>
+    <filter id="d1" x="-0.3" y="-0.3" width="1.6" height="1.6"><feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#0A0630" flood-opacity="0.38"/></filter>
+    <filter id="l1" x="-0.3" y="-0.3" width="1.6" height="1.6"><feDropShadow dx="0" dy="34" stdDeviation="20" flood-color="#0A0630" flood-opacity="0.45"/></filter>
+  </defs><rect width="1024" height="1024" rx="0" fill="url(#tile1)"/><g filter="url(#l1)"><path d="M448 612 H760 A44 44 0 0 1 804 656 V772 A44 44 0 0 1 760 816 H244 Z" fill="url(#back1)"/><defs><linearGradient id="lk1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5E4AFF"/><stop offset="1" stop-color="#3A26D0"/></linearGradient></defs><path d="M638 708 V680 A34 34 0 0 1 706 680 V708" fill="none" stroke="#3A26D0" stroke-width="22" stroke-linecap="round"/><rect x="614" y="704" width="116" height="86" rx="20" fill="url(#lk1)"/><rect x="665" y="728" width="14" height="30" rx="7" fill="#FFFFFF"/><path d="M448 612 H760 A44 44 0 0 1 804 656 V772 A44 44 0 0 1 760 816 H244 Z" fill="url(#crease1)"/><path d="M448 612 L244 816" stroke="#FFFFFF" stroke-opacity="0.75" stroke-width="5"/></g><g filter="url(#d1)"><g clip-path="url(#f1)"><rect x="244" y="192" width="204" height="624" fill="url(#sky1)"/>
+    <circle cx="372" cy="492" r="50" fill="#FFE6B0"/>
+    <path d="M244 592 L310 528 L352 564 L448 510 V816 H244 Z" fill="#3A2690"/>
+    <path d="M244 644 Q354 600 448 628 V816 H244 Z" fill="#1C1260"/></g></g>
+</svg>

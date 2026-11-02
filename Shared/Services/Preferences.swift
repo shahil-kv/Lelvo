@@ -29,6 +29,8 @@ enum Prefs {
         static let streamingCopies = "streamingCopies"
         static let videoQuality = "videoQuality"
         static let keepAwakeDuringBackup = "keepAwakeDuringBackup"
+        static let secondCopyBookmark = "secondCopyBookmark"
+        static let secondCopyVolume = "secondCopyVolume"
     }
 
     enum AlbumMode: String, CaseIterable, Identifiable {
@@ -108,6 +110,16 @@ enum Prefs {
         return t > 0 ? Date(timeIntervalSince1970: t) : nil
     }
     /// Set by the Pause button; automatic runs (Shortcuts, overnight) respect it until the user resumes.
+    /// The folder chosen for Keep a second copy, as a bookmark so it's found again after a drive is renamed or remounted.
+    static var secondCopyBookmark: Data? {
+        get { defaults.data(forKey: Key.secondCopyBookmark) }
+        set { defaults.set(newValue, forKey: Key.secondCopyBookmark) }
+    }
+    /// The drive's name when the folder was chosen, for "connect <drive>" while it's unplugged.
+    static var secondCopyVolume: String? {
+        get { defaults.string(forKey: Key.secondCopyVolume) }
+        set { defaults.set(newValue, forKey: Key.secondCopyVolume) }
+    }
     static var backupPaused: Bool {
         get { defaults.bool(forKey: Key.backupPaused) }
         set { defaults.set(newValue, forKey: Key.backupPaused) }
