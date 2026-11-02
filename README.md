@@ -1,3 +1,5 @@
+<p align="center"><img src="website/icon-192.png" alt="Lelvo icon: a sunset photo folded into an L, with a padlock" width="96" height="96"></p>
+
 # Lelvo
 
 **Back up every photo and video, in original quality, to a private channel in your own Telegram account.

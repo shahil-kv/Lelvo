@@ -76,5 +76,9 @@ because the first screen felt cluttered. Never use Telegram's logo or its look f
 
 ## App icon
 
-A white cloud holding a photo on an indigo gradient, `#4D44EF` to `#4B2CC8` (top left to bottom right). The PNGs in
-both `AppIcon.appiconset` folders and `website/apple-touch-icon.png` use these colours.
+One sunset print folded into an L: the picture on the upright, the white back of the print along the base, lifted
+off a light lavender tile (`#F7F5FF` to `#E2DCFA`) by a soft shadow. An indigo padlock on the back says the library is
+private. It's original geometry, with no font or stock art. The lock means "your own private channel", so copy next
+to the icon must not promise encryption unless it's on. The source is `design/logo/mark.svg`; `Scripts/app-icon.sh`
+renders both `AppIcon.appiconset` folders and the website icons from it. `website/favicon.svg` is the same drawing with
+rounded corners, and the site header shows it as an image.
