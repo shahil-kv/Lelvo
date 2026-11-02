@@ -3,6 +3,13 @@
 User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac versions `macos-v*`
 ([RELEASING.md](RELEASING.md)).
 
+## Unreleased
+
+- **Keep a second copy (Mac):** pick a folder on an external drive, a NAS or your Mac once, and Lelvo keeps your
+  whole library there, up to date, in Year/Month folders. Nothing is ever deleted from it, and an unplugged drive
+  just pauses until you connect it again.
+- **New icon:** a sunset photo folded into an L, with a padlock for your private library.
+
 ## 0.2.0, 2026-10-31
 
 - **New name: Lelvo** (was Memvo, and CloudGallery before that), with new bundle IDs, so it installs as a new app:
