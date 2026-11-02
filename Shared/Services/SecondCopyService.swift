@@ -194,9 +194,22 @@ final class SecondCopyService: @unchecked Sendable {
                 break
             }
             guard let item = byId[file.itemId] else { continue }
+            guard Self.staysInside(folder, path: file.path) else {
+                failed += 1
+                lastError = "A folder inside the copy points somewhere else"
+                AppLog.shared.warn("Second copy: skipped a file whose path leaves the folder")
+                continue
+            }
             let label = (file.path as NSString).lastPathComponent
             await publish { $0.current = label }
-            let dest = folder.appendingPathComponent(file.path)
+            // A file that appeared here since the plan isn't ours to replace: use a free name next to it.
+            var target = file
+            if sizeOnDisk(target.path) != nil {
+                var others = Dictionary(manifest.files.map { ($0.value.path.lowercased(), $0.key) }, uniquingKeysWith: { first, _ in first })
+                others[target.path.lowercased()] = SecondCopy.changedOutsideLelvo
+                target.path = SecondCopy.freePath(for: target, claimed: others, sizeOnDisk: sizeOnDisk)
+            }
+            let dest = folder.appendingPathComponent(target.path)
             // Written next to its final place, then moved: a pulled cable leaves a hidden partial file, never a broken
             // photo with the right name.
             let partial = dest.deletingLastPathComponent().appendingPathComponent(".lelvo-partial-\(UUID().uuidString)")
@@ -207,13 +220,12 @@ final class SecondCopyService: @unchecked Sendable {
                 if file.size > 0, written != file.size {
                     AppLog.shared.warn("Second copy: a file came out at \(written) bytes, the index says \(file.size)")
                 }
-                // Only our own earlier copy can be at `dest` (the plan never picks a path holding someone else's file).
-                if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+                // Never removes what's there: moveItem fails if anything has taken this name, and the next pass retries.
                 try fm.moveItem(at: partial, to: dest)
                 if let date = file.date {
                     try? fm.setAttributes([.creationDate: date, .modificationDate: date], ofItemAtPath: dest.path)
                 }
-                manifest.record(file, size: written)
+                manifest.record(target, size: written)
                 unsaved += 1
                 if unsaved >= 20 { save(manifest, to: manifestURL); unsaved = 0 }
                 files += 1; bytes += written; left -= 1; leftBytes = max(0, leftBytes - file.size)
@@ -262,6 +274,21 @@ final class SecondCopyService: @unchecked Sendable {
             Prefs.secondCopyBookmark = fresh
         }
         return url
+    }
+
+    /// Whether `path` really stays in `folder`. The plan checks the text; this walks the folders on disk, because a
+    /// symbolic link inside the copy (a share others can write to) could lead anywhere. Links aren't followed at all.
+    private static func staysInside(_ folder: URL, path: String) -> Bool {
+        guard SecondCopy.isSafe(path) else { return false }
+        let fm = FileManager.default
+        var current = folder
+        for part in path.split(separator: "/") {
+            current.appendPathComponent(String(part))
+            // attributesOfItem doesn't follow a link at the end of the path, so it reports the link itself.
+            guard let type = try? fm.attributesOfItem(atPath: current.path)[.type] as? FileAttributeType else { return true }
+            if type == .typeSymbolicLink { return false }
+        }
+        return true
     }
 
     private func save(_ manifest: SecondCopy.Manifest, to url: URL) {

@@ -53,13 +53,37 @@ import LelvoCore
         #expect(p.upToDate == 1 && p.upToDateBytes == 100)
     }
 
-    /// A drive that was unplugged mid-copy, or a file deleted by hand: copied again, to the same place.
-    @Test func missingOrTruncatedFilesAreCopiedAgainToTheSamePath() {
+    /// A new drive, or a file deleted by hand: copied again, to the same place.
+    @Test func missingFilesAreCopiedAgainToTheSamePath() {
         var m = SecondCopy.Manifest()
         m.files["aaaaaaaa1/o"] = .init(path: "2024/05/IMG_0001-aaaaaa.HEIC", size: 100)
-        m.files["bbbbbbbb2/o"] = .init(path: "2024/05/IMG_0002.HEIC", size: 100)
-        let p = plan([item("aaaaaaaa1"), item("bbbbbbbb2", "IMG_0002.HEIC")], m, disk: ["2024/05/IMG_0002.HEIC": 37])
-        #expect(p.toCopy.map(\.path) == ["2024/05/IMG_0001-aaaaaa.HEIC", "2024/05/IMG_0002.HEIC"])
+        let p = plan([item("aaaaaaaa1")], m)
+        #expect(p.toCopy.map(\.path) == ["2024/05/IMG_0001-aaaaaa.HEIC"])
+    }
+
+    /// Edited in place, say in Preview: that file is left alone and the original goes next to it.
+    @Test func aFileChangedOutsideLelvoIsKeptAndTheCopyGoesToANewPath() {
+        var m = SecondCopy.Manifest()
+        m.files["aaaaaaaa1/o"] = .init(path: "2024/05/IMG_0001.HEIC", size: 100)
+        let p = plan([item("aaaaaaaa1")], m, disk: ["2024/05/IMG_0001.HEIC": 37])
+        #expect(p.toCopy.map(\.path) == ["2024/05/IMG_0001-aaaaaa.HEIC"])
+        #expect(p.upToDate == 0)
+    }
+
+    /// The manifest can be written by anyone with access to the drive or share.
+    @Test(arguments: ["../../Documents/x.pages", "/etc/passwd", "2024/../../x", "./x", "2024//x", "~/x", "a\\b", ""])
+    func aManifestPathThatLeavesTheFolderIsNeverPlanned(bad: String) {
+        var m = SecondCopy.Manifest()
+        m.files["aaaaaaaa1/o"] = .init(path: bad, size: 100)
+        #expect(!SecondCopy.isSafe(bad))
+        let p = plan([item("aaaaaaaa1")], m, disk: [bad: 100])
+        #expect(p.toCopy.map(\.path) == ["2024/05/IMG_0001.HEIC"])
+        #expect(p.upToDate == 0 && p.toAdopt.isEmpty)
+    }
+
+    @Test func ordinaryPathsAreSafe() {
+        #expect(SecondCopy.isSafe("2024/05/IMG_0001 (edited).jpg"))
+        #expect(SecondCopy.isSafe("2024/05/..hidden..jpg"))
     }
 
     /// Two different photos with the same name and size in one month: each gets its own file.

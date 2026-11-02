@@ -93,24 +93,35 @@ public enum SecondCopy {
         var plan = Plan()
         // Paths the manifest already gives to an item, so a new item never takes one.
         var claimed: [String: String] = [:]
-        for (key, entry) in manifest.files { claimed[entry.path.lowercased()] = key }
+        for (key, entry) in manifest.files where isSafe(entry.path) { claimed[entry.path.lowercased()] = key }
 
         let present = Set(items.map(\.id))
         plan.removedFromLibrary = manifest.itemIds.subtracting(present).count
 
         for item in items.sorted(by: { ($0.creationDate ?? .distantPast, $0.id) < ($1.creationDate ?? .distantPast, $1.id) }) {
             for var file in wanted(item, calendar: calendar) {
-                if let entry = manifest.files[file.key] {
-                    // Copied before: keep its path. Missing or a different size from what was written (deleted by
-                    // hand, a new drive, a half-written file): copy it again to the same place. Compared with the
-                    // written size, not the index's, so an item whose recorded size is off isn't copied on every pass.
+                // The manifest sits on a drive or share others can write to, so its paths aren't trusted: one that could
+                // leave the folder is ignored, and the file gets a normal path below.
+                if let entry = manifest.files[file.key], isSafe(entry.path) {
                     file.path = entry.path
-                    if let onDisk = sizeOnDisk(entry.path), onDisk == entry.size {
+                    guard let onDisk = sizeOnDisk(entry.path) else {
+                        // Gone (deleted by hand, a new drive): copy it again to the same place.
+                        plan.toCopy.append(file)
+                        continue
+                    }
+                    if onDisk == entry.size {
                         plan.upToDate += 1
                         plan.upToDateBytes += onDisk
-                    } else {
-                        plan.toCopy.append(file)
+                        continue
                     }
+                    // A different size from what was written means something else changed it, say an edit saved in
+                    // Preview (Lelvo writes to a partial file and moves it, so it never leaves a short file here).
+                    // Nothing is ever deleted from the copy: leave it and copy to a new path.
+                    var others = claimed
+                    others[entry.path.lowercased()] = changedOutsideLelvo
+                    file.path = freePath(for: file, claimed: others, sizeOnDisk: sizeOnDisk)
+                    claimed[file.path.lowercased()] = file.key
+                    plan.toCopy.append(file)
                     continue
                 }
                 file.path = freePath(for: file, claimed: claimed, sizeOnDisk: sizeOnDisk)
@@ -125,9 +136,19 @@ public enum SecondCopy {
         return plan
     }
 
+    /// Owner of a path whose file was changed outside Lelvo: it's taken, whoever the manifest says wrote it.
+    public static let changedOutsideLelvo = "changed-outside-lelvo"
+
+    /// A path that stays inside the folder: relative, with no `.`, `..` or empty parts. This is only a check of the
+    /// text; the app also refuses paths that go through a symbolic link before it writes.
+    public static func isSafe(_ path: String) -> Bool {
+        guard !path.isEmpty, !path.hasPrefix("/"), !path.hasPrefix("~"), !path.contains("\\"), !path.contains("\0") else { return false }
+        return path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
+
     /// The wanted path, or `name-<id>.ext` when another item owns that path, or a different file of ours (or the
     /// user's) already sits there. Case-insensitive, because macOS and most drives are.
-    static func freePath(for file: File, claimed: [String: String], sizeOnDisk: (String) -> Int64?) -> String {
+    public static func freePath(for file: File, claimed: [String: String], sizeOnDisk: (String) -> Int64?) -> String {
         func taken(_ path: String) -> Bool {
             if let owner = claimed[path.lowercased()] { return owner != file.key }
             if let onDisk = sizeOnDisk(path) { return file.size == 0 || onDisk != file.size }
