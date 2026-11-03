@@ -672,7 +672,7 @@ final class CenteringClipView: NSClipView {
 
 // MARK: - Video
 
-/// AVPlayerView with the floating QuickTime controls: scrubbing, Picture in Picture, AirPlay, speed.
+/// AVPlayerView with the floating QuickTime controls: scrubbing, AirPlay, speed.
 struct MacPlayerView: NSViewRepresentable {
     let player: AVPlayer
     var onReadyForDisplay: () -> Void = {}
@@ -688,7 +688,7 @@ struct MacPlayerView: NSViewRepresentable {
         view.player = player
         view.controlsStyle = .floating
         view.videoGravity = .resizeAspect
-        view.allowsPictureInPicturePlayback = true
+        view.allowsPictureInPicturePlayback = false
         view.showsFullScreenToggleButton = true
         view.allowsMagnification = true
         view.updatesNowPlayingInfoCenter = true

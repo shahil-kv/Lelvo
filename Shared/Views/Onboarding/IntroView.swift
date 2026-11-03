@@ -125,9 +125,9 @@ struct IntroView: View {
             }
 
             if current == .hook {
-                // Telegram API terms 2.2: say the app uses the Telegram API (and isn't Telegram's own).
-                Text("Uses the Telegram API. Not affiliated with Telegram.")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                // Telegram API terms 2.2 ask for this to be prominent in the intro, so it can't be small tertiary text.
+                Text("Lelvo uses the Telegram API and is part of the Telegram ecosystem. Not affiliated with Telegram.")
+                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
         }
         .padding(.horizontal, 24)
@@ -635,12 +635,12 @@ private struct QuestionsPage: View {
          "**Only when you choose Free Up Space**, and only items Lelvo has just checked are complete in Telegram. **You confirm every deletion**, and they stay in Recently Deleted for 30 days."),
         ("exclamationmark.triangle", "What if I lose my Telegram account?",
          "**Your library goes with it.** Telegram deletes accounts unused for 18 months by default; **Lelvo can raise this to 2 years**. For a second copy, **Download a copy of your library** saves every original to a drive or folder."),
-        ("externaldrive", "Is the storage really free?",
-         "Telegram describes its cloud storage as **unlimited**, with files up to 2 GB each, or 4 GB with Premium. Lelvo splits bigger videos automatically. **This is Telegram's offer, not ours, and Telegram can change it.**"),
+        ("externaldrive", "What does storage cost?",
+         "**Lelvo doesn't charge for storage.** Your library uses your own Telegram account, under Telegram's terms, with files up to 2 GB each, or 4 GB with Premium. Lelvo splits bigger videos automatically. **Telegram can change its terms.**"),
         ("key", "What if I forget my passphrase?",
          "Your **recovery key** opens the library and lets you set a new passphrase. **If you lose both, nobody can open your photos, including us.** Keep them in a password manager."),
-        ("checkmark.shield", "Is this allowed by Telegram?",
-         "**Yes.** Lelvo uses Telegram's public API under its terms, with its own app ID. It's an independent project, **not made or reviewed by Telegram**."),
+        ("checkmark.shield", "Does this follow Telegram's rules?",
+         "**Lelvo follows Telegram's API terms**, with its own app ID. It's an independent project, **not made, reviewed or approved by Telegram**."),
         ("chevron.left.forwardslash.chevron.right", "What if Lelvo stops being developed?",
          "**Your photos stay in your Telegram** as normal files, in a documented format. The code is open source, so anyone can keep it going, and **you can download everything at any time**."),
     ]

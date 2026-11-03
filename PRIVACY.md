@@ -1,6 +1,6 @@
 # Privacy policy
 
-Effective 27 October 2026. Applies to the Lelvo apps for iPhone, iPad and Mac.
+Effective 3 November 2026. Applies to the Lelvo apps for iPhone, iPad and Mac.
 
 **In one sentence:** Lelvo sends your photos from your device to your own Telegram account and nowhere else;
 the people who make it never receive any of your data.
@@ -15,6 +15,10 @@ Contact: [mshahilkv@gmail.com](mailto:mshahilkv@gmail.com), or an issue at
 
 **Nothing.** Lelvo has no servers. It contains no analytics, advertising, tracking or crash-reporting code, and
 it doesn't share data with anyone. We can't see who uses the app, your photos, your Telegram account or your library.
+
+**Why the App Store label lists data:** Apple counts anything an app's built-in code sends to another company. Lelvo
+uses Telegram's code to reach your account, so the label lists your phone number, photos and videos, and Telegram
+user ID. They're used only to run the app, never to track you, and they go only to Telegram. We never receive them.
 
 ## The website's waiting list
 
@@ -46,6 +50,18 @@ applies to the Sheet. The apps never collect your email.
 
 **Settings → Sign out and reset** deletes all of this from the device, and so does deleting the app. It doesn't delete
 your library in Telegram.
+
+## Keeping and deleting your data
+
+- **On your device:** data stays until you sign out and reset, or delete the app.
+- **In Telegram:** your library stays in your channel until you delete it. Telegram keeps it under its own
+  [privacy policy](https://telegram.org/privacy), and we can't see or delete it for you. You can delete the channel in
+  the Telegram app, or your whole account at [my.telegram.org/delete](https://my.telegram.org/delete).
+- **To stop sharing:** signing out ends Lelvo's access to your Telegram account. You can also end the session in
+  Telegram under Settings → Devices. Turning off Photos access in iOS or macOS settings stops new backups.
+
+Telegram is the only third party that receives your data, and only because you sign in and choose to back up. We don't
+share data with anyone else, so no other company has to protect it.
 
 ## Permissions
 

@@ -84,7 +84,6 @@ targets:
         NSPhotoLibraryAddUsageDescription: Lelvo saves photos you download from your Telegram backup back into your library.
         PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
         UIBackgroundModes:
-          - audio
           - fetch
           - processing
         BGTaskSchedulerPermittedIdentifiers:
