@@ -148,6 +148,13 @@ publish their own code anyway, so the project keeps every contribution publishab
 - [ ] 📝 **Before Lelvo Plus or any paid feature:** list every monetization method in the store description (3.2),
       and re-read 3.3 (sponsored messages) and 1.5 (limits on using Telegram data for AI models). Plus's AI ideas
       need checking against 1.5 first.
+- [ ] 📝 Optional: ask Telegram whether a backup app is fine, and keep any reply. The API terms list no contact, so try
+      https://telegram.org/support and expect that they may not answer. A "no" is better to learn before launch. Text:
+      ```
+      I'm building Lelvo, an independent open-source app using TDLib with its own api_id. Each user
+      signs in to their own account and backs up their own photos to a private channel they own, at
+      Telegram's upload limits. Does this fit the API terms? https://github.com/shahil-kv/Lelvo
+      ```
 - [ ] 📝 Watch the app account's Telegram messages and email. Telegram allows 10 days to fix a reported violation
       before it can end API access and contact the App Store (4.2).
 - ✅ No ghost mode, no read-receipt or typing tampering, no acting without consent (1.4)
@@ -225,7 +232,10 @@ REAL FLOW: signing in with a real number sends the login code to that account's 
 A video of the real sign-in and backup is here: <link>
 
 Telegram allows third-party apps through its API (https://core.telegram.org/api/terms);
-the app follows those terms (own api_id, disclosure on the welcome screen).
+the app follows those terms (own api_id, disclosure on the welcome screen). Each user signs in
+with their own existing Telegram account and stores only their own photos in a private channel
+they own. The app doesn't sell or offer storage, doesn't create Telegram accounts, writes only
+to the user's own library channel, and follows Telegram's upload limits.
 
 Background modes: "processing" and "fetch" are used to continue the user-started photo backup.
 ```
@@ -408,6 +418,7 @@ Rules:
   terms are not yours to promise.
 - No mention of Android or other platforms (2.3.10).
 - No "Telegram" in the name, subtitle or keywords (trademark). In the description, factual use only.
+- Describe a backup to the user's own account, never free or unlimited storage (5.2.2).
 - Telegram API terms 2.2: the description must say prominently that the app uses the Telegram API and is part of the
   Telegram ecosystem, so it goes first. Don't move it to the end.
 - No mention of other apps' names as keywords (Google Photos, iCloud…) (2.3.7).
@@ -494,7 +505,7 @@ the reviewer misunderstood the app, you can appeal once per rejected submission.
 | **2.1 App Completeness — crash** | Crash on their device | Get the crash log from App Store Connect → TestFlight → Crashes; often IPv6-only network or iPad. Fix, upload a new build. |
 | **2.3.x Metadata** | Claims, keywords, screenshots | Remove "unlimited", the Telegram name from keywords, or Android mentions. Metadata-only fixes don't need a new build. |
 | **4.1 Copycat / 5.2.1 Intellectual Property** | Name or icon looks like Telegram, Apple Photos or upstream | Rename, redraw the icon. Reply that the Telegram API terms allow third-party clients (link). |
-| **5.2.2 Third-party service** | "Do you have permission to use Telegram?" | Reply: Telegram's API is public and free for third-party apps under https://core.telegram.org/api/terms; the app uses its own registered api_id and complies (disclosure on the welcome screen). |
+| **5.2.2 Third-party service** | "Do you have permission to use Telegram?" | Reply: Telegram's API is public and free for third-party apps under https://core.telegram.org/api/terms; the app uses its own registered api_id and complies (disclosure on the welcome screen). Each user stores only their own photos in their own account, and the app sells no storage. Lead with the terms, not other apps: Swiftgram is a messaging client, and CloudVault (a Telegram channel storage app on the App Store) uses a bot, so neither is the same case or proof of Telegram's permission. |
 | **5.1.1 Privacy policy / permissions** | Missing policy link in app, or permission purpose strings too vague | Add the in-app link; make `NSPhotoLibraryUsageDescription` specific (it already is). |
 | **5.1.1(v) Account deletion** | Reviewer thinks the app creates accounts | Reply: the app never creates accounts; users sign in with an existing Telegram account, deletable at https://my.telegram.org/delete; the app offers sign-out and on-device data removal. |
 | **4.2 Minimum functionality** | Rare | Point out the backup engine, encryption, restore and streaming: it's a full app, not a web wrapper. |
