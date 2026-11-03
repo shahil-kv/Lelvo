@@ -100,7 +100,7 @@ viewer's quality pill switches either way at the same moment; the user's choice 
 | | iOS | macOS |
 |---|---|---|
 | Grid | `NativePhotoGrid` (UICollectionView, pinch between column counts, swipe to select) | `MacPhotoGrid` (NSCollectionView, zoom slider, keyboard, drag to Finder) |
-| Viewer | `ViewerView`: paging, zoom, Live Photos, custom video controls, PiP, AirPlay | `MacViewer`: hero zoom from the tile, arrow keys, trackpad swipe, AVPlayerView |
+| Viewer | `ViewerView`: paging, zoom, Live Photos, custom video controls, AirPlay | `MacViewer`: hero zoom from the tile, arrow keys, trackpad swipe, AVPlayerView |
 | Background | `BGContinuedProcessingTask` (iOS 26+, user-started), `BGProcessingTask` (charging, overnight), App Intents | `NSBackgroundActivityScheduler` hourly while the app runs; App Nap held off during a backup |
 | Files | App container | `~/Library/Application Support/<bundle id>`, `~/Library/Caches/<bundle id>` (not sandboxed) |
 

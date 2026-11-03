@@ -279,7 +279,6 @@ struct ViewerPage: View {
     /// A cloud video's player and quality (original or fast version).
     @State private var session: CloudVideoSession?
     @EnvironmentObject private var videos: ViewerVideoSessions
-    @State private var pip: AVPictureInPictureController?
     /// Shown over a video until its first frame is on screen (instead of a black page).
     @State private var poster: UIImage?
     @State private var videoReady = false
@@ -298,7 +297,7 @@ struct ViewerPage: View {
             case .live(let live):
                 LivePhotoView(livePhoto: live)
             case .video(let player):
-                PlayerView(player: player, zoomed: $zoomed, onPictureInPicture: { pip = $0 }, onReadyForDisplay: { videoReady = true; trace?.firstFrame() },
+                PlayerView(player: player, zoomed: $zoomed, onReadyForDisplay: { videoReady = true; trace?.firstFrame() },
                            onSkip: { side in showSkip(side) })
                     .overlay {
                         if !videoReady {
@@ -313,7 +312,7 @@ struct ViewerPage: View {
                     .overlay { if let session { VideoSwitchingOverlay(session: session) } }
                     .overlay { if let skipShown { SkipFeedback(side: skipShown.side).id(skipShown.id).allowsHitTesting(false) } }
                     .overlay(alignment: .bottom) {
-                        if !chromeHidden { VideoControls(player: player, pip: pip).padding(.bottom, 112).transition(.opacity) }
+                        if !chromeHidden { VideoControls(player: player).padding(.bottom, 112).transition(.opacity) }
                     }
                     .onChange(of: session?.quality) { _, q in
                         // A new item after a quality switch: trace it like the first.
@@ -743,12 +742,11 @@ struct InfoSheet: View {
     }
 }
 
-/// Bare AVPlayerLayer: no system controls to collide with ours; Picture in Picture via the layer.
+/// Bare AVPlayerLayer: no system controls to collide with ours.
 struct PlayerView: UIViewRepresentable {
     let player: AVPlayer
     /// Pinch/double-tap zoom like Photos; paging is disabled while zoomed.
     var zoomed: Binding<Bool> = .constant(false)
-    var onPictureInPicture: (AVPictureInPictureController?) -> Void = { _ in }
     var onReadyForDisplay: () -> Void = {}
     /// A double-tap near the left or right edge skips back or forward (`VideoNavigation.skip`); the middle zooms.
     var onSkip: (Int) -> Void = { _ in }
@@ -759,7 +757,6 @@ struct PlayerView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UIScrollViewDelegate {
-        var pip: AVPictureInPictureController?
         var readyObservation: NSKeyValueObservation?
         var layerView: LayerView?
         var zoomed: Binding<Bool>
@@ -829,13 +826,6 @@ struct PlayerView: UIViewRepresentable {
         scroll.addGestureRecognizer(doubleTap)
 
         player.allowsExternalPlayback = true
-        if AVPictureInPictureController.isPictureInPictureSupported(), let layer = view.playerLayer {
-            let pip = AVPictureInPictureController(playerLayer: layer)
-            pip?.canStartPictureInPictureAutomaticallyFromInline = true
-            context.coordinator.pip = pip
-        }
-        let pip = context.coordinator.pip
-        DispatchQueue.main.async { onPictureInPicture(pip) }
         let ready = onReadyForDisplay
         context.coordinator.readyObservation = view.playerLayer?.observe(\.isReadyForDisplay, options: [.initial, .new]) { layer, _ in
             if layer.isReadyForDisplay { DispatchQueue.main.async { ready() } }
@@ -875,7 +865,6 @@ private struct AirPlayPicker: UIViewRepresentable {
 /// Play/pause, scrubber with elapsed and remaining time, and mute, styled like the Photos video bar.
 struct VideoControls: View {
     let player: AVPlayer
-    let pip: AVPictureInPictureController?
     @StateObject private var state = PlaybackState()
     @State private var speed: Float = 1
     @State private var airPlayTrigger = 0
@@ -935,9 +924,6 @@ struct VideoControls: View {
                         }
                     }
                 } label: { Label("Playback Speed · \(Self.speedLabel(speed))", systemImage: "gauge.with.dots.needle.67percent") }
-                if let pip {
-                    Button { pip.startPictureInPicture() } label: { Label("Picture in Picture", systemImage: "pip.enter") }
-                }
                 Button { airPlayTrigger += 1 } label: { Label("AirPlay", systemImage: "airplayvideo") }
             } label: {
                 Image(systemName: "ellipsis").font(.body.weight(.semibold)).frame(width: 28, height: 28).contentShape(Rectangle())

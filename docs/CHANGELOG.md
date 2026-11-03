@@ -5,6 +5,7 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 
 ## Unreleased
 
+- **Picture in Picture removed:** videos now stop when you leave Lelvo. AirPlay and playback speed stay.
 - **Keep a second copy (Mac):** pick a folder on an external drive, a NAS or your Mac once, and Lelvo keeps your
   whole library there, up to date, in Year/Month folders. Nothing is ever deleted from it, and an unplugged drive
   just pauses until you connect it again.
