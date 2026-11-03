@@ -232,7 +232,8 @@ final class TDService: @unchecked Sendable {
             self?.handle(data, client: client)
         }
         _ = try? newClient.execute(query: DTO(SetLogVerbosityLevel(newVerbosityLevel: 1)))
-        lock.lock(); client = newClient; loadedChats.removeAll(); lock.unlock()
+        // Connected belongs to the client before: until this one connects, its time can rest on an old clock difference.
+        lock.lock(); client = newClient; connected = false; loadedChats.removeAll(); lock.unlock()
         setAuth(.starting)
     }
 
@@ -366,7 +367,10 @@ final class TDService: @unchecked Sendable {
         case .authorizationStateClosing: setAuth(.loggingOut)
         case .authorizationStateClosed:
             let endedElsewhere: Bool = lock.withLock {
-                if self.client === client { self.client = nil }
+                if self.client === client {
+                    self.client = nil
+                    connected = false
+                }
                 return sessionWatch.closed()
             }
             setAuth(.closed)
@@ -1016,8 +1020,8 @@ final class TDService: @unchecked Sendable {
 
     /// Which of these messages are still in the channel. Asks for up to 100 at once, so Recover All on thousands of photos
     /// stays a few requests. `getMessages` answers with nulls for missing messages, which TDLibKit's `[Message]` can't
-    /// decode, so only a batch with one missing goes one by one, paced. Only "not found" means gone; anything else throws,
-    /// so a passing error can't make a photo look deleted.
+    /// decode, so a batch with one missing is halved until it's found, paced. Only "not found" means gone; anything else
+    /// throws, so a passing error can't make a photo look deleted.
     func existingMessages(chatId: Int64, ids: [Int64]) async throws -> Set<Int64> {
         await ensureChat(chatId)
         var found = Set<Int64>()
@@ -1025,43 +1029,47 @@ final class TDService: @unchecked Sendable {
         for start in stride(from: 0, to: unique.count, by: CloudTrash.maxMessagesPerDelete) {
             let batch = Array(unique[start..<min(start + CloudTrash.maxMessagesPerDelete, unique.count)])
             if start > 0 { try await Task.sleep(nanoseconds: 200_000_000) }
-            var allThere = false
-            while true {
-                do {
-                    _ = try await requireClient().getMessages(chatId: chatId, messageIds: batch)
-                    allThere = true
-                    break
-                } catch let error as TDLibKit.Error {
-                    let mapped = error.asTD
-                    guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind else { throw mapped }
-                    try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
-                } catch is TDServiceError {
-                    throw TDServiceError.notReady
-                } catch {
-                    break
-                }
-            }
-            if allThere {
-                found.formUnion(batch)
-                continue
-            }
-            for id in batch {
+            let there = try await BatchProbe.present(in: batch, allThere: { part in
+                if part.count < batch.count { try await Task.sleep(nanoseconds: 100_000_000) }
+                return try await self.allMessagesExist(chatId: chatId, ids: part)
+            }, isThere: { id in
                 try await Task.sleep(nanoseconds: 100_000_000)
-                while true {
-                    do {
-                        _ = try await requireClient().getMessage(chatId: chatId, messageId: id)
-                        found.insert(id)
-                        break
-                    } catch {
-                        let mapped = error.asTD
-                        if case TDServiceError.telegram(404, _)? = mapped as? TDServiceError { break }
-                        guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind else { throw mapped }
-                        try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
-                    }
-                }
-            }
+                return try await self.messageExists(chatId: chatId, id: id)
+            })
+            found.formUnion(there)
         }
         return found
+    }
+
+    private func allMessagesExist(chatId: Int64, ids: [Int64]) async throws -> Bool {
+        while true {
+            do {
+                _ = try await requireClient().getMessages(chatId: chatId, messageIds: ids)
+                return true
+            } catch let error as TDLibKit.Error {
+                let mapped = error.asTD
+                guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind else { throw mapped }
+                try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
+            } catch is TDServiceError {
+                throw TDServiceError.notReady
+            } catch {
+                return false
+            }
+        }
+    }
+
+    private func messageExists(chatId: Int64, id: Int64) async throws -> Bool {
+        while true {
+            do {
+                _ = try await requireClient().getMessage(chatId: chatId, messageId: id)
+                return true
+            } catch {
+                let mapped = error.asTD
+                if case TDServiceError.telegram(404, _)? = mapped as? TDServiceError { return false }
+                guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind else { throw mapped }
+                try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
+            }
+        }
     }
 
     /// Keeps TDLib's own file cache within `maxBytes`.

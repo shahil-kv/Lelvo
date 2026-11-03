@@ -390,6 +390,27 @@ import LelvoCore
         return item
     }
 
+    @Test func aCompleteItemStaysBackedUpWhenItsPhotoLeavesTheDevice() {
+        var item = backedUp()
+        item.status = .queued
+        item.editCheck = true
+        item.chosen = true
+        item.photoLeftDevice()
+        #expect(item.status == .backedUp)
+        #expect(item.localIdentifier == nil)
+        #expect(item.editCheck == nil)
+        #expect(item.chosen == nil)
+    }
+
+    @Test func anIncompleteItemFailsWhenItsPhotoLeavesTheDevice() {
+        var item = stranded()
+        item.localIdentifier = "A"
+        item.status = .queued
+        item.photoLeftDevice()
+        #expect(item.status == .failed)
+        #expect(item.isStrandedInCloud)
+    }
+
     @Test func anIncompleteItemWithNoPhoneCopyIsStranded() {
         #expect(stranded().isStrandedInCloud)
         var queued = stranded()
@@ -423,7 +444,10 @@ import LelvoCore
         var item = stranded()
         item.setParts([RemoteFile(messageId: 3, fileId: "t", fileUniqueId: "ut", size: 1)], role: "t", expected: 1)
         CloudTrash.trash(&item, now: Date(timeIntervalSince1970: 5))
-        guard case .update(let after) = LibraryIndexer.afterDeleting([3], from: item) else { return }
+        guard case .update(let after) = LibraryIndexer.afterDeleting([3], from: item) else {
+            Issue.record("Losing one part should update the item, not remove it")
+            return
+        }
         #expect(after.status == .trashed)
         #expect(after.trashedAt == Date(timeIntervalSince1970: 5))
     }
@@ -533,6 +557,45 @@ import LelvoCore
         let c = compute(failed: [item(.failed), item(.failed, local: nil, cloud: true)])
         #expect(c.failed == 2)
         #expect(c.retryable == 1)
+    }
+}
+
+@Suite struct BatchProbeTests {
+    final class Requests: @unchecked Sendable { var count = 0 }
+
+    func probe(_ ids: [Int], missing: Set<Int>, _ requests: Requests) async throws -> [Int] {
+        try await BatchProbe.present(in: ids, allThere: { batch in
+            requests.count += 1
+            return missing.isDisjoint(with: batch)
+        }, isThere: { id in
+            requests.count += 1
+            return !missing.contains(id)
+        })
+    }
+
+    @Test func allThereTakesOneRequest() async throws {
+        let requests = Requests()
+        #expect(try await probe(Array(1...100), missing: [], requests) == Array(1...100))
+        #expect(requests.count == 1)
+    }
+
+    @Test func oneMissingTakesAFewRequestsAndFindsTheRest() async throws {
+        let requests = Requests()
+        let found = try await probe(Array(1...100), missing: [37], requests)
+        #expect(found == Array(1...100).filter { $0 != 37 })
+        #expect(requests.count <= 15)
+    }
+
+    @Test func everyIdCanBeMissing() async throws {
+        #expect(try await probe(Array(1...9), missing: Set(1...9), Requests()).isEmpty)
+        #expect(try await probe([], missing: [], Requests()).isEmpty)
+    }
+
+    @Test func anErrorIsNotTakenAsMissing() async {
+        struct Passing: Error {}
+        await #expect(throws: Passing.self) {
+            _ = try await BatchProbe.present(in: [1, 2], allThere: { _ in false }, isThere: { _ in throw Passing() })
+        }
     }
 }
 

@@ -273,6 +273,15 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     /// may still have the photo; here it can only be left as it is or deleted.
     public var isStrandedInCloud: Bool { localIdentifier == nil && hasCloudParts && status != .backedUp && status != .trashed }
 
+    /// The photo left this device while the item waited in the queue. Complete in the channel, it's simply backed up (a
+    /// re-check for an edit can end here); otherwise it's failed, where it can be seen and deleted.
+    public mutating func photoLeftDevice() {
+        localIdentifier = nil
+        chosen = nil
+        editCheck = nil
+        status = isCompleteInCloud ? .backedUp : .failed
+    }
+
     /// Caption written next to each upload so a future version can rebuild the index from chat history.
     public func caption(for role: UploadRole) -> String {
         var parts = ["#cloudgallery", "id:\(id)", "role:\(role.rawValue)"]

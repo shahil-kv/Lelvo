@@ -146,8 +146,18 @@ final class BackupEngine: @unchecked Sendable {
 
     private var uploadSlots = UploadSlots(limit: BackupEngine.maxConcurrentUploads)
 
-    private func acquireLaneSlot() async {
-        while !gate.withLock({ uploadSlots.acquireForLane() }) { try? await Task.sleep(nanoseconds: 200_000_000) }
+    /// False if the run was paused or cancelled first. A cancelled task's sleep returns at once, so without the check this
+    /// would spin for as long as a note holds the slot.
+    private func acquireLaneSlot(isCancelled: () -> Bool) async -> Bool {
+        while !gate.withLock({ uploadSlots.acquireForLane() }) {
+            if isCancelled() || Task.isCancelled { return false }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        if isCancelled() || Task.isCancelled {
+            gate.withLock { uploadSlots.release() }
+            return false
+        }
+        return true
     }
 
     /// Sends a Recently Deleted note as one of the two uploads, keeping the pacing and any `FLOOD_WAIT` Telegram asked for.
@@ -275,7 +285,7 @@ final class BackupEngine: @unchecked Sendable {
     func dropDeletedQueuedItems() -> Int {
         // Queued by an earlier Retry with no photo here to upload: back to failed, where the counts and the list agree.
         if !DemoMode.isActive, let stuck = try? env.store.items(status: .queued).filter(\.isStrandedInCloud), !stuck.isEmpty {
-            try? env.store.upsert(stuck.map { var i = $0; i.status = .failed; i.chosen = nil; return i })
+            try? env.store.upsert(stuck.map { var i = $0; i.photoLeftDevice(); return i })
         }
         guard PhotoLibraryService.hasAccess, !DemoMode.isActive else { return 0 }
         let queued = (try? env.store.items(status: .queued)) ?? []
@@ -385,9 +395,11 @@ final class BackupEngine: @unchecked Sendable {
                 guard existing.status != .backedUp else { continue }
                 if existing.status == .trashed {
                     // Still in the channel (Recently Deleted): backing it up again is just recovering it.
-                    if (try? env.store.changeTrashState(id: existing.id, op: .recover, chatId: TrashSync.shared.noteChatId) { CloudTrash.recover(&$0) }) != nil {
-                        TrashSync.shared.schedule()
+                    // Holding the gate means this can't change the item while its messages are being deleted.
+                    let recovered = try? TrashGate.shared.ifNotDeleting(existing.id) {
+                        try env.store.changeTrashState(id: existing.id, op: .recover, chatId: TrashSync.shared.noteChatId) { CloudTrash.recover(&$0) }
                     }
+                    if recovered == true { TrashSync.shared.schedule() }
                     continue
                 }
                 if existing.status == .failed { existing.job = JobMachine.reduce(existing.job, .retry) }
@@ -522,7 +534,8 @@ final class BackupEngine: @unchecked Sendable {
                             break
                         }
                         await waitForFloodPause(isCancelled: isCancelled)
-                        await acquireLaneSlot()
+                        // The check at the top of the loop stops the run and logs why.
+                        guard await acquireLaneSlot(isCancelled: isCancelled) else { continue }
                         await paceUploadStart()
                         let outcome = await process(item, lane: lane, isCancelled: isCancelled)
                         gate.withLock { uploadSlots.release() }
@@ -674,11 +687,9 @@ final class BackupEngine: @unchecked Sendable {
             if item.hasCloudParts {
                 // Part of it is in the channel: dropping the row hid it until the next scan brought it back as failed.
                 // The photo left this device: without its id the item can't be retried for ever, and can be deleted.
-                item.localIdentifier = nil
-                item.status = .failed
-                item.chosen = nil
+                item.photoLeftDevice()
                 save(item)
-                return .failed
+                return item.status == .failed ? .failed : .skipped
             }
             // Deleted from the phone before it was uploaded: nothing left to back up.
             try? env.store.delete(id: item.id)
