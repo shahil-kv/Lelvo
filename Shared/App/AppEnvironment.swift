@@ -50,6 +50,7 @@ final class AppEnvironment: @unchecked Sendable {
         reader = MediaReader(td: td, library: library)
         uploader = CloudUploader(td: td, library: library, staging: stagingDirectory)
         engine = BackupEngine(environment: self)
+        uploader.beforeSend = { [engine = engine!] in try await engine.waitBeforeSending() }
         media = CloudMediaService(environment: self)
         freeUpSpace = FreeUpSpaceService(environment: self)
         similar = SimilarPhotosService(photos: photos, store: store, media: { [unowned self] in self.media })
