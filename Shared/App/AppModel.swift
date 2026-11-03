@@ -14,8 +14,18 @@ final class AppModel: ObservableObject {
     /// The Telegram session ended (logged out elsewhere, revoked): show sign-in again.
     @Published var needsSignIn = false
     private var authObserver: UUID?
+    private var sessionEndObserver: NSObjectProtocol?
 
     init() {
+        // Without a session nothing here can reach the library, so this works like Sign out and reset. The channel and the
+        // photos on this device aren't touched; signing in again brings the library back, with the photos deleted from it.
+        sessionEndObserver = NotificationCenter.default.addObserver(forName: TDService.sessionEndedElsewhere, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                let model = AppModel.shared
+                guard model.onboardingComplete, !UITestSupport.isDemo, !DemoMode.isActive else { return }
+                model.reset(keepingChoices: true)
+            }
+        }
         authObserver = TDService.shared.observeAuth { _ in
             Task { @MainActor in
                 // Re-read the current state: the startup "no client yet" state must not flash sign-in.
@@ -52,7 +62,7 @@ final class AppModel: ObservableObject {
 
     /// Shows the welcome screen at once, then wipes in the background. Waiting for the wipe first left Settings on
     /// screen for seconds, because signing out waits for Telegram to answer.
-    func reset() {
+    func reset(keepingChoices: Bool = false) {
         onboardingComplete = false
         needsSignIn = false
         showFreeUpSpace = false
@@ -61,7 +71,7 @@ final class AppModel: ObservableObject {
         let previous = resetTask
         resetTask = Task {
             await previous?.value
-            await AppEnvironment.shared.resetEverything()
+            await AppEnvironment.shared.resetEverything(keepingChoices: keepingChoices)
         }
     }
 

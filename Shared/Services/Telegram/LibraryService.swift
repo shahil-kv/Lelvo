@@ -372,6 +372,7 @@ final class LibraryService: @unchecked Sendable {
         var fromSnapshot: IndexSnapshot.Body?
         var summary = ScanSummary()
         var cloud: [CloudMessage] = []
+        var foundNotes: [FoundNote] = []
         var thumbnailIds: [Int64: String] = [:]
         var from: Int64 = 0
         var newest: Int64 = 0
@@ -399,6 +400,10 @@ final class LibraryService: @unchecked Sendable {
                     fromSnapshot = snapshot
                     break scanLoop
                 }
+                if TrashLog.isNote(caption) {
+                    foundNotes.append(FoundNote(messageId: message.id, date: message.date, caption: caption, file: doc.document.document))
+                    continue
+                }
                 guard CaptionCodec.isLelvo(caption) else { continue }
                 do {
                     let meta = try CaptionCodec.decode(caption, captionKey: captionKey)
@@ -416,11 +421,14 @@ final class LibraryService: @unchecked Sendable {
         }
 
         thumbnails.record(thumbnailIds, chatId: chatId)
+        // Before the scan position moves: a note that couldn't be downloaded is read again by the next scan.
+        try await readNotes(foundNotes)
         if let fromSnapshot {
             // Newer messages read above win over the snapshot's copy of the same message.
             let read = Set(cloud.map(\.messageId))
             cloud += fromSnapshot.messages.map(\.message).filter { !read.contains($0.messageId) }
             try merge(cloud: cloud, full: false, summary: &summary)
+            try applyTrashNotes(messagesSeen: false)
             if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
             appLog("Library restored from the index snapshot up to message \(fromSnapshot.upto): \(summary.items) items, \(summary.messages) newer messages read; checking the whole channel next")
             // The channel is the truth: a full scan in the background catches anything deleted since the snapshot.
@@ -428,6 +436,14 @@ final class LibraryService: @unchecked Sendable {
             return summary
         }
         try merge(cloud: cloud, full: full, summary: &summary)
+        if full {
+            // Notes no longer in the channel: removed by a device whose 30 days were over, or in the Telegram app.
+            store.setMeta(Self.lastFullScanAtKey, String(Foundation.Date().timeIntervalSince1970))
+            let inChannel = Set(foundNotes.map(\.messageId))
+            // Only up to where this scan read: a note sent during the scan is newer, and dropping it would undo that delete.
+            try store.removeTrashNotes(messageIds: try store.trashNotes().map(\.messageId).filter { !inChannel.contains($0) && $0 <= newest })
+        }
+        try applyTrashNotes(messagesSeen: full)
         if full { UserDefaults.standard.set(summary.orphans.map { NSNumber(value: $0) }, forKey: Self.duplicatesKey) }
         if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
         if full {
@@ -437,6 +453,121 @@ final class LibraryService: @unchecked Sendable {
         }
         appLog("Library scan (\(full ? "full" : "recent")): \(summary.messages) messages, \(summary.items) items, \(summary.incomplete) incomplete, \(summary.orphans.count) duplicates")
         return summary
+    }
+
+    // MARK: - Recently Deleted across devices (docs/CLOUD_FORMAT.md §7.2)
+
+    private static let lastFullScanAtKey = "lastChannelFullScanAt"
+
+    private struct FoundNote {
+        let messageId: Int64
+        let date: Int
+        let caption: String
+        let file: File
+    }
+
+    /// Brings this device up to date before a decision that depends on it. Throws when that can't be done.
+    func catchUp() async throws {
+        // Opening the chat makes TDLib ask Telegram what changed while it wasn't listening.
+        if let chatId { await td.openChat(chatId) }
+        let last = store.meta(Self.lastFullScanAtKey).flatMap(Double.init).map(Foundation.Date.init(timeIntervalSince1970:))
+        try await scan(full: TrashLog.needsFullScan(lastFullScan: last, now: Foundation.Date()))
+    }
+
+    /// Downloads notes this device hasn't read. A network failure throws; a note that is damaged or from a newer version
+    /// is skipped, which changes nothing.
+    private func readNotes(_ found: [FoundNote]) async throws {
+        let known = Set(try store.trashNotes().map(\.messageId))
+        for note in found where !known.contains(note.messageId) {
+            guard isEncrypted == note.caption.hasPrefix(TrashLog.encryptedPrefix),
+                  let caption = TrashLog.parseCaption(note.caption, captionKey: captionKey) else {
+                AppLog.shared.warn("Skipped a Recently Deleted note that can't be read")
+                continue
+            }
+            let path: URL
+            do {
+                path = try await td.download(fileId: note.file.id, priority: 32)
+            } catch {
+                let mapped = error.asTD
+                guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind else { throw mapped }
+                try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
+                return try await readNotes(found)
+            }
+            defer { Task { await td.deleteLocalCopy(fileId: note.file.id) } }
+            var data = try Data(contentsOf: path)
+            if isEncrypted {
+                guard let master = keys?.master, let opened = try? FileCrypto.decrypt(data: data, masterKey: master) else {
+                    AppLog.shared.warn("Skipped a Recently Deleted note that can't be opened")
+                    continue
+                }
+                data = opened
+            }
+            guard let body = TrashLog.read(data, caption: caption) else {
+                AppLog.shared.warn("Skipped a Recently Deleted note that doesn't check out")
+                continue
+            }
+            try store.addTrashNote(TrashLog.Note(messageId: note.messageId, date: Foundation.Date(timeIntervalSince1970: TimeInterval(note.date)),
+                                                 op: body.op, ids: body.ids))
+        }
+    }
+
+    /// Makes the index follow the newest note of each item. Notes stay stored, so one that arrived before its photo, or
+    /// during its upload, takes effect later. Changes this device hasn't sent yet are newer than any note.
+    func applyTrashNotes(messagesSeen: Bool) throws {
+        let earlier = try store.trashNotes()
+        guard !earlier.isEmpty else { return }
+        // This order, as a send may finish meanwhile: an item's change is queued with it, and its note is stored before the
+        // row goes. So each item read here is either in `waiting` or its note is in `notes`.
+        let items = try store.items(ids: Array(TrashLog.latest(earlier).keys))
+        let waiting = try chatId.map { Set(try store.queuedTrashChanges(chatId: $0).values.flatMap { $0 }) } ?? []
+        let notes = try store.trashNotes()
+        let newest = TrashLog.latest(notes)
+        var changed: [MediaItem] = []
+        var removed = 0
+        for item in items where newest[item.id] != nil && !waiting.contains(item.id) {
+            guard let note = newest[item.id] else { continue }
+            let action = TrashLog.action(for: item, note: note, messagesSeen: messagesSeen)
+            if action == .remove {
+                try store.forgetDeletedItem(item)
+                removed += 1
+                continue
+            }
+            var updated = item
+            if TrashLog.apply(action, to: &updated) { changed.append(updated) }
+        }
+        try store.upsert(changed)
+        if !changed.isEmpty || removed > 0 { appLog("Recently Deleted synced: \(changed.count) items updated, \(removed) removed") }
+    }
+
+    /// Sends one note and records it. Only a note Telegram confirmed with the expected size counts.
+    func sendTrashNote(_ op: TrashLog.Op, itemIds: [String], chatId: Int64) async throws {
+        // These ids belong to that library; a switch while this waited must not send them to the new one.
+        guard self.chatId == chatId else { throw LibraryError.noLibrary }
+        guard isUnlocked else { throw LibraryError.locked }
+        let plain = try TrashLog.encode(TrashLog.Body(op: op, ids: itemIds))
+        let caption = try TrashLog.caption(.init(n: itemIds.count, h: IndexCodec.sha256Hex(plain)), captionKey: captionKey)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("note-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent(isEncrypted ? "recently-deleted.cge" : "recently-deleted.json")
+        if isEncrypted {
+            guard let master = keys?.master else { throw LibraryError.locked }
+            try FileCrypto.encrypt(data: plain, masterKey: master).write(to: url)
+        } else {
+            try plain.write(to: url)
+        }
+        let size = try CloudUploader.size(of: url)
+        let message = try await td.sendDocument(chatId: chatId, fileURL: url, caption: caption, thumbnail: nil)
+        guard case .messageDocument(let doc) = message.content, doc.document.document.size == size else {
+            try? await td.deleteMessages(chatId: chatId, ids: [message.id])
+            throw TDServiceError.notReady
+        }
+        // Switched during the send: the index now belongs to the other library, whose message ids mean something else.
+        guard self.chatId == chatId else { throw LibraryError.noLibrary }
+        try store.addTrashNote(TrashLog.Note(messageId: message.id, date: Foundation.Date(timeIntervalSince1970: TimeInterval(message.date)),
+                                             op: op, ids: itemIds))
+        await td.deleteLocalCopy(fileId: doc.document.document.id)
+        appLog("Sent a Recently Deleted note: \(op.rawValue), \(itemIds.count) items")
     }
 
     // MARK: - Live changes from the other device
@@ -485,6 +616,12 @@ final class LibraryService: @unchecked Sendable {
             defer { pendingDeletes.removeAll(); deletesScheduled = false }
             return pendingDeletes
         }
+        let notesBefore = (try? store.trashNotes().count) ?? 0
+        try? store.removeTrashNotes(messageIds: ids)
+        // A note went: the other device recovered or deleted these items, so this one must follow.
+        if ((try? store.trashNotes().count) ?? 0) < notesBefore {
+            Task.detached(priority: .utility) { await TrashSync.shared.followOtherDevice() }
+        }
         guard let items = try? store.allItems() else { return }
         var changed: [MediaItem] = []
         var removed = 0
@@ -493,7 +630,7 @@ final class LibraryService: @unchecked Sendable {
             case .unchanged: break
             case .update(let rebuilt): changed.append(rebuilt)
             case .remove:
-                try? store.delete(id: item.id)
+                if item.status == .trashed { try? store.forgetDeletedItem(item) } else { try? store.delete(id: item.id) }
                 removed += 1
             }
         }
@@ -597,12 +734,13 @@ final class LibraryService: @unchecked Sendable {
         for var item in result.items {
             if let local = existing[item.id] {
                 item = item.keepingLocalState(from: local)
-                if local.status == .trashed, item.status == .backedUp {
+                // Incomplete ones too: Recently Deleted can hold an item missing a part.
+                if local.status == .trashed {
                     // In Recently Deleted on this device: the messages are still there on purpose.
                     item.status = .trashed
                     item.trashedAt = local.trashedAt
                 }
-                if item.status != .backedUp, local.status == .uploading || local.status == .queued {
+                if item.status != .backedUp, local.status == .uploading || local.status == .queued, !item.isStrandedInCloud {
                     // Still being uploaded by this device: keep the queue state, update known parts.
                     item.status = local.status
                     item.lastError = local.lastError
@@ -614,7 +752,7 @@ final class LibraryService: @unchecked Sendable {
             // Items that vanished from the channel: keep phone-linked ones as failed so they re-upload.
             let seen = Set(result.items.map(\.id))
             // Deleted elsewhere while in Recently Deleted here: nothing left to recover.
-            for item in existing.values where !seen.contains(item.id) && item.status == .trashed { try store.delete(id: item.id) }
+            for item in existing.values where !seen.contains(item.id) && item.status == .trashed { try store.forgetDeletedItem(item) }
             for item in existing.values where !seen.contains(item.id) && item.cloudParts != nil && item.status == .backedUp {
                 if item.localIdentifier != nil {
                     var missing = item

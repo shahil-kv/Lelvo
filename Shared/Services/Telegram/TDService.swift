@@ -141,6 +141,24 @@ final class TDService: @unchecked Sendable {
 
     var isReady: Bool { auth == .ready }
 
+    private var connected = false
+
+    /// Posted when the session ended outside this app: removed in Telegram → Devices, or revoked by Telegram.
+    static let sessionEndedElsewhere = Notification.Name("TDService.sessionEndedElsewhere")
+    private var sessionWatch = SessionWatch()
+
+    /// The time according to Telegram, for decisions a wrong device clock must not be able to make. Nil unless connected
+    /// within `timeout`: before that, TDLib's own value can still be based on an old clock difference.
+    func telegramTime(timeout: TimeInterval = 0) async -> Foundation.Date? {
+        let deadline = Foundation.Date().addingTimeInterval(timeout)
+        while !lock.withLock({ connected }) {
+            guard Foundation.Date() < deadline else { return nil }
+            guard (try? await Task.sleep(nanoseconds: 1_000_000_000)) != nil else { return nil }
+        }
+        guard case .optionValueInteger(let option)? = try? await client?.getOption(name: "unix_time"), option.value.rawValue > 0 else { return nil }
+        return Foundation.Date(timeIntervalSince1970: TimeInterval(option.value.rawValue))
+    }
+
     @discardableResult
     func observeAuth(_ handler: @escaping (AuthStep) -> Void) -> UUID {
         let id = UUID()
@@ -214,7 +232,8 @@ final class TDService: @unchecked Sendable {
             self?.handle(data, client: client)
         }
         _ = try? newClient.execute(query: DTO(SetLogVerbosityLevel(newVerbosityLevel: 1)))
-        lock.lock(); client = newClient; loadedChats.removeAll(); lock.unlock()
+        // Connected belongs to the client before: until this one connects, its time can rest on an old clock difference.
+        lock.lock(); client = newClient; connected = false; loadedChats.removeAll(); lock.unlock()
         setAuth(.starting)
     }
 
@@ -251,6 +270,15 @@ final class TDService: @unchecked Sendable {
             // A client being replaced (sign out, other account) must not drive the sign-in screens or clear the new one.
             guard isCurrent(client) else { return }
             handleAuth(u.authorizationState, client: client)
+        case .updateConnectionState(let u):
+            guard isCurrent(client) else { return }
+            // Updating is connected too: it can last a while after a long time offline, and Recover waits for this.
+            let online: Bool
+            switch u.state {
+            case .connectionStateReady, .connectionStateUpdating: online = true
+            default: online = false
+            }
+            lock.withLock { connected = online }
         case .updateMessageSendSucceeded(let u):
             finishSend(oldId: u.oldMessageId, result: .success(u.message))
         case .updateMessageSendFailed(let u):
@@ -329,13 +357,27 @@ final class TDService: @unchecked Sendable {
         case .authorizationStateWaitOtherDeviceConfirmation(let s): setAuth(.waitOtherDevice(link: s.link))
         case .authorizationStateWaitRegistration, .authorizationStateWaitPremiumPurchase: setAuth(.waitRegistration)
         case .authorizationStateReady:
+            lock.withLock { sessionWatch.ready() }
             setAuth(.ready)
             appLog("Telegram session ready")
             networkChanged(to: NetworkStatus.shared.kind)
-        case .authorizationStateLoggingOut, .authorizationStateClosing: setAuth(.loggingOut)
+        case .authorizationStateLoggingOut:
+            lock.withLock { sessionWatch.loggingOut() }
+            setAuth(.loggingOut)
+        case .authorizationStateClosing: setAuth(.loggingOut)
         case .authorizationStateClosed:
-            lock.withLock { if self.client === client { self.client = nil } }
+            let endedElsewhere: Bool = lock.withLock {
+                if self.client === client {
+                    self.client = nil
+                    connected = false
+                }
+                return sessionWatch.closed()
+            }
             setAuth(.closed)
+            if endedElsewhere {
+                appLog("The Telegram session was ended outside this app")
+                NotificationCenter.default.post(name: Self.sessionEndedElsewhere, object: nil)
+            }
         }
     }
 
@@ -391,6 +433,7 @@ final class TDService: @unchecked Sendable {
     }
 
     func logOut() async {
+        lock.withLock { sessionWatch.ownSignOut() }
         _ = try? await requireClient().logOut()
     }
 
@@ -962,10 +1005,70 @@ final class TDService: @unchecked Sendable {
     func deleteMessages(chatId: Int64, ids: [Int64]) async throws {
         await ensureChat(chatId)
         guard !ids.isEmpty else { return }
+        // TDLib quietly skips messages it doesn't have in memory and still answers OK, and without a message database it
+        // drops them soon after a scan: the photos stayed in the channel while the app counted them as deleted. Load them
+        // first. Missing messages come back as nulls, which TDLibKit can't decode; only Telegram's own errors count here.
+        do { _ = try await requireClient().getMessages(chatId: chatId, messageIds: ids) } catch let error as TDLibKit.Error {
+            throw error.asTD
+        } catch {}
         lock.withLock { ownDeletes.formUnion(ids) }
         do { _ = try await requireClient().deleteMessages(chatId: chatId, messageIds: ids, revoke: true) } catch {
             lock.withLock { ownDeletes.subtract(ids) }
             throw error.asTD
+        }
+    }
+
+    /// Which of these messages are still in the channel. Asks for up to 100 at once, so Recover All on thousands of photos
+    /// stays a few requests. `getMessages` answers with nulls for missing messages, which TDLibKit's `[Message]` can't
+    /// decode, so a batch with one missing is halved until it's found, paced. Only "not found" means gone; anything else
+    /// throws, so a passing error can't make a photo look deleted.
+    func existingMessages(chatId: Int64, ids: [Int64]) async throws -> Set<Int64> {
+        await ensureChat(chatId)
+        var found = Set<Int64>()
+        let unique = Array(Set(ids)).sorted()
+        for start in stride(from: 0, to: unique.count, by: CloudTrash.maxMessagesPerDelete) {
+            let batch = Array(unique[start..<min(start + CloudTrash.maxMessagesPerDelete, unique.count)])
+            if start > 0 { try await Task.sleep(nanoseconds: 200_000_000) }
+            let there = try await BatchProbe.present(in: batch, allThere: { part in
+                if part.count < batch.count { try await Task.sleep(nanoseconds: 100_000_000) }
+                return try await self.allMessagesExist(chatId: chatId, ids: part)
+            }, isThere: { id in
+                try await Task.sleep(nanoseconds: 100_000_000)
+                return try await self.messageExists(chatId: chatId, id: id)
+            })
+            found.formUnion(there)
+        }
+        return found
+    }
+
+    private func allMessagesExist(chatId: Int64, ids: [Int64]) async throws -> Bool {
+        while true {
+            do {
+                _ = try await requireClient().getMessages(chatId: chatId, messageIds: ids)
+                return true
+            } catch let error as TDLibKit.Error {
+                let mapped = error.asTD
+                guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind else { throw mapped }
+                try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
+            } catch is TDServiceError {
+                throw TDServiceError.notReady
+            } catch {
+                return false
+            }
+        }
+    }
+
+    private func messageExists(chatId: Int64, id: Int64) async throws -> Bool {
+        while true {
+            do {
+                _ = try await requireClient().getMessage(chatId: chatId, messageId: id)
+                return true
+            } catch {
+                let mapped = error.asTD
+                if case TDServiceError.telegram(404, _)? = mapped as? TDServiceError { return false }
+                guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind else { throw mapped }
+                try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
+            }
         }
     }
 
@@ -1004,6 +1107,7 @@ final class TDService: @unchecked Sendable {
 
     /// Wipes the TDLib session and files (used by "Sign out & reset").
     func destroyLocalData() async {
+        lock.withLock { sessionWatch.ownSignOut() }
         let old = lock.withLock { client }
         _ = try? await old?.destroy()
         await waitUntilClosed(old)

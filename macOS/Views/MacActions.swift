@@ -3,68 +3,6 @@ import AppKit
 import Photos
 import LelvoCore
 
-/// Progress and result messages shown as a floating pill at the bottom of the window.
-@MainActor
-final class ToastCenter: ObservableObject {
-    struct Toast: Equatable {
-        enum Style { case progress, success, failure, info }
-        var style: Style
-        var title: String
-        var detail: String?
-        var progress: Double?
-    }
-
-    @Published private(set) var current: Toast?
-    private var hideTask: Task<Void, Never>?
-
-    func progress(_ title: String, detail: String? = nil, fraction: Double? = nil) {
-        hideTask?.cancel()
-        current = Toast(style: .progress, title: title, detail: detail, progress: fraction)
-    }
-
-    func show(_ style: Toast.Style, _ title: String, detail: String? = nil, seconds: Double = 3.5) {
-        hideTask?.cancel()
-        current = Toast(style: style, title: title, detail: detail)
-        hideTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            current = nil
-        }
-    }
-
-    func dismiss() {
-        hideTask?.cancel()
-        current = nil
-    }
-}
-
-struct ToastView: View {
-    let toast: ToastCenter.Toast
-
-    var body: some View {
-        HStack(spacing: 12) {
-            switch toast.style {
-            case .progress:
-                if let p = toast.progress { ProgressView(value: p).progressViewStyle(.circular).controlSize(.small) }
-                else { ProgressView().controlSize(.small) }
-            case .success: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.title3)
-            case .failure: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.title3)
-            case .info: Image(systemName: "info.circle.fill").foregroundStyle(.tint).font(.title3)
-            }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(toast.title).font(.callout.weight(.semibold))
-                if let detail = toast.detail { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
-        .overlay(Capsule().strokeBorder(.separator.opacity(0.5)))
-        .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
-        .frame(maxWidth: 520)
-    }
-}
-
 /// Sharing, exporting and the other file-based actions for one or more gallery entries.
 @MainActor
 enum MacActions {

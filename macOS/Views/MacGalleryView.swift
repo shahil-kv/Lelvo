@@ -16,7 +16,7 @@ struct MacGalleryView: View {
     @EnvironmentObject private var activity: BackupActivity
     @EnvironmentObject private var index: MacLibraryIndex
     @AppStorage(MacPrefs.tileSize) private var tileSize: Double = 150
-    @StateObject private var toast = ToastCenter()
+    @ObservedObject private var toast = ToastCenter.shared
 
     @State private var flat: [GalleryEntry] = []
     @State private var sections: [GallerySection] = []

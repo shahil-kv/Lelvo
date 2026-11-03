@@ -5,7 +5,7 @@
 #   Packages/  LelvoCore (format, crypto, index, queue) with its unit tests
 name: Lelvo
 options:
-  bundleIdPrefix: com.shahil-kv
+  bundleIdPrefix: app.lelvo
   deploymentTarget:
     iOS: "17.0"
     macOS: "15.0"
@@ -49,7 +49,7 @@ targets:
       - package: TDLibKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.lelvo
+        PRODUCT_BUNDLE_IDENTIFIER: app.lelvo.ios
         PRODUCT_NAME: Lelvo
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -88,9 +88,9 @@ targets:
           - fetch
           - processing
         BGTaskSchedulerPermittedIdentifiers:
-          - com.shahil-kv.lelvo.backup.processing
-          - com.shahil-kv.lelvo.index.refresh
-          - com.shahil-kv.lelvo.backup.continued
+          - app.lelvo.ios.backup.processing
+          - app.lelvo.ios.index.refresh
+          - app.lelvo.ios.backup.continued
         UIFileSharingEnabled: false
         LSSupportsOpeningDocumentsInPlace: false
 
@@ -108,7 +108,7 @@ targets:
       - package: TDLibKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.lelvo.mac
+        PRODUCT_BUNDLE_IDENTIFIER: app.lelvo.mac
         PRODUCT_NAME: Lelvo
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -147,7 +147,7 @@ targets:
       - package: LelvoCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.lelvo.tests
+        PRODUCT_BUNDLE_IDENTIFIER: app.lelvo.tests
         GENERATE_INFOPLIST_FILE: YES
 
   LelvoUITests:
@@ -159,7 +159,7 @@ targets:
       - target: Lelvo
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.shahil-kv.lelvo.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: app.lelvo.uitests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: Lelvo
 

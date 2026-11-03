@@ -4,16 +4,16 @@ import SwiftUI
 
 /// Debug builds only: lets a script on this Mac snapshot the main window and drive a few UI actions,
 /// without Screen Recording or Accessibility permissions.
-///   snapshot: post "com.shahil-kv.lelvo.debug.snapshot" with object = output PNG path
-///   action:   post "com.shahil-kv.lelvo.debug.action" with object = "go:library|go:backup|open:<n>|key:left|key:right|key:escape"
+///   snapshot: post "app.lelvo.mac.debug.snapshot" with object = output PNG path
+///   action:   post "app.lelvo.mac.debug.action" with object = "go:library|go:backup|open:<n>|key:left|key:right|key:escape"
 enum DebugHooks {
     @MainActor static func install() {
         let center = DistributedNotificationCenter.default()
-        center.addObserver(forName: .init("com.shahil-kv.lelvo.debug.snapshot"), object: nil, queue: .main) { note in
+        center.addObserver(forName: .init("app.lelvo.mac.debug.snapshot"), object: nil, queue: .main) { note in
             guard let path = note.object as? String else { return }
             MainActor.assumeIsolated { snapshot(to: URL(fileURLWithPath: path)) }
         }
-        center.addObserver(forName: .init("com.shahil-kv.lelvo.debug.action"), object: nil, queue: .main) { note in
+        center.addObserver(forName: .init("app.lelvo.mac.debug.action"), object: nil, queue: .main) { note in
             guard let action = note.object as? String else { return }
             MainActor.assumeIsolated { perform(action) }
         }

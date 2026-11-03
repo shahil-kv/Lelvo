@@ -266,6 +266,22 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     /// Can the app download this original again?
     public var isViewableFromCloud: Bool { status == .backedUp && sizeClass == .normal }
 
+    /// Some of its messages are in the channel.
+    public var hasCloudParts: Bool { cloudParts?.values.contains { !$0.isEmpty } == true }
+
+    /// Incomplete in the channel with no photo on this device to upload from, so a retry here can't help. Another device
+    /// may still have the photo; here it can only be left as it is or deleted.
+    public var isStrandedInCloud: Bool { localIdentifier == nil && hasCloudParts && status != .backedUp && status != .trashed }
+
+    /// The photo left this device while the item waited in the queue. Complete in the channel, it's simply backed up (a
+    /// re-check for an edit can end here); otherwise it's failed, where it can be seen and deleted.
+    public mutating func photoLeftDevice() {
+        localIdentifier = nil
+        chosen = nil
+        editCheck = nil
+        status = isCompleteInCloud ? .backedUp : .failed
+    }
+
     /// Caption written next to each upload so a future version can rebuild the index from chat history.
     public func caption(for role: UploadRole) -> String {
         var parts = ["#cloudgallery", "id:\(id)", "role:\(role.rawValue)"]

@@ -84,7 +84,8 @@ public enum LibraryIndexer {
         guard item.status != .uploading, item.status != .queued else { return .unchanged }
         if var rebuilt = build(knownMessages(of: item, excluding: deleted)).items.first(where: { $0.id == item.id }) {
             rebuilt = rebuilt.keepingLocalState(from: item)
-            if item.status == .trashed, rebuilt.status == .backedUp {
+            // Incomplete ones too: part of the item going doesn't take it out of Recently Deleted.
+            if item.status == .trashed {
                 rebuilt.status = .trashed
                 rebuilt.trashedAt = item.trashedAt
             }

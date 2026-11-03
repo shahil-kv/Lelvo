@@ -1,0 +1,7 @@
+{
+  "body" : "{\"ids\":[\"0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10\"],\"op\":\"del\",\"v\":1}",
+  "captionNonceHex" : "b0b0b0b0b0b0b0b0b0b0b0b0",
+  "encryptedCaption" : "CGT1E:sLCwsLCwsLCwsLCwATSoCi3YZmvoi66NycgqnNgOAZPFx4ruAJ2vbzxphd5KpJqEerewWeT2uDmMi6V8RQEw08BSDE0IZAKELXnxhDyJtRyX8HKjBzkxwCxTz0grJZOb6BlTjuSA0wWPiXMdmubHCA==",
+  "masterHex" : "49d49c25f597846209f0d92e7770ab64e1c75e94b4ce6c509265ee67175d2a1e",
+  "plainCaption" : "CGT1:{\"h\":\"2c82f8788c3eb9191ab17b0c4beca99c0f5d38ed4d91ee528fb40cf7a18c8192\",\"n\":1,\"v\":1}"
+}

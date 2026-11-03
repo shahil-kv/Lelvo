@@ -10,7 +10,6 @@ struct RecentlyDeletedView: View {
     @State private var busy = false
     @State private var alert: GalleryAlert?
 
-    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 2)]
     private var selected: [MediaItem] { items.filter { selection.contains($0.id) } }
 
     var body: some View {
@@ -19,15 +18,16 @@ struct RecentlyDeletedView: View {
                 ContentUnavailableView("No Recently Deleted Items", systemImage: "trash",
                                        description: Text("Items you delete from your backup stay here for 30 days before they're removed from your Telegram library."))
             } else {
-                ScrollView {
+                VStack(spacing: 0) {
                     Text("Items stay here for 30 days, then they're removed from your Telegram library. Photos still on this \(Device.name) aren't affected.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                    LazyVGrid(columns: columns, spacing: 2) {
-                        ForEach(items) { item in tile(item) }
+                    TrashGrid(items: items, selecting: selecting, selection: $selection) { id in
+                        if !selecting { selecting = true }
+                        if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
                     }
                 }
                 .safeAreaInset(edge: .bottom) { actionBar }
@@ -64,39 +64,6 @@ struct RecentlyDeletedView: View {
         return n == 1 ? "Delete this item from your Telegram library?" : "Delete \(n) items from your Telegram library?"
     }
 
-    private func tile(_ item: MediaItem) -> some View {
-        let isSelected = selection.contains(item.id)
-        let days = CloudTrash.daysLeft(item)
-        return Color.tileBackground
-            .aspectRatio(1, contentMode: .fit)
-            .overlay { TrashThumbnail(item: item) }
-            .clipped()
-            .overlay(alignment: .bottomLeading) {
-                Text(days == 1 ? "1 day" : "\(days) days")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.6), radius: 2)
-                    .padding(5)
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if selecting {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle(isSelected ? Color.accentColor : .white)
-                        .background(Circle().fill(isSelected ? .white : .black.opacity(0.2)))
-                        .padding(5)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if !selecting { selecting = true }
-                if isSelected { selection.remove(item.id) } else { selection.insert(item.id) }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(item.kind == .video ? "Video" : "Photo"), \(Format.date(item.creationDate, style: .long, time: .short)), \(days) days left")
-            .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
     private var actionBar: some View {
         let targets = selecting && !selection.isEmpty ? selected : items
         let all = !(selecting && !selection.isEmpty)
@@ -115,13 +82,15 @@ struct RecentlyDeletedView: View {
     private func reload() async {
         items = await Task.detached(priority: .userInitiated) { GalleryActions.trashedItems() }.value
         selection.formIntersection(items.map(\.id))
+        // Emptied from another device: the button that ends selecting is gone with the items.
+        if items.isEmpty { selecting = false }
     }
 
     private func recover(_ targets: [MediaItem]) async {
         busy = true
         defer { busy = false }
         do {
-            try await Task.detached(priority: .userInitiated) { _ = try GalleryActions.recover(targets) }.value
+            try await Task.detached(priority: .userInitiated) { _ = try await GalleryActions.recover(targets) }.value
             Haptics.success()
             selection.removeAll()
             selecting = false
@@ -142,6 +111,41 @@ struct RecentlyDeletedView: View {
             Haptics.error()
             alert = GalleryAlert(title: "Couldn't delete", message: error.localizedDescription)
         }
+    }
+}
+
+/// One tile of Recently Deleted. Tapping and swiping are the grid's (`TrashGrid`, one for each platform).
+struct TrashTile: View {
+    let item: MediaItem
+    let selecting: Bool
+    let isSelected: Bool
+
+    var body: some View {
+        let days = CloudTrash.daysLeft(item)
+        Color.tileBackground
+            .aspectRatio(1, contentMode: .fit)
+            .overlay { TrashThumbnail(item: item).id(item.id) }
+            .clipped()
+            .overlay(alignment: .bottomLeading) {
+                Text(days == 1 ? "1 day" : "\(days) days")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.6), radius: 2)
+                    .padding(5)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if selecting {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(isSelected ? Color.accentColor : .white)
+                        .background(Circle().fill(isSelected ? .white : .black.opacity(0.2)))
+                        .padding(5)
+                }
+            }
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(item.kind == .video ? "Video" : "Photo"), \(Format.date(item.creationDate, style: .long, time: .short)), \(days == 1 ? "1 day" : "\(days) days") left")
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

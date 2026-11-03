@@ -93,6 +93,13 @@ public final class LibraryStore: @unchecked Sendable {
         ALTER TABLE search ADD COLUMN utility INTEGER NOT NULL DEFAULT 0;
         DELETE FROM search;
         """,
+        // 3 → 4: Recently Deleted across devices (#20): notes read from the channel, notes waiting to be sent, and photos
+        // that stay on this device but must not be backed up again.
+        """
+        CREATE TABLE IF NOT EXISTS trash_notes (message_id TEXT PRIMARY KEY, json TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS trash_outbox (item_id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, op TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS no_backup (key TEXT PRIMARY KEY);
+        """,
     ]
 
     /// The database's schema version (`PRAGMA user_version`).
@@ -393,8 +400,182 @@ public final class LibraryStore: @unchecked Sendable {
 
     public func deleteAll() throws {
         lock.lock(); defer { lock.unlock() }
-        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search;")
+        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search; DELETE FROM trash_notes; DELETE FROM trash_outbox; DELETE FROM no_backup;")
         notifyChanged(ids: nil)
+    }
+
+    // MARK: - Recently Deleted across devices (#20)
+
+    public func trashNotes() throws -> [TrashLog.Note] {
+        try withReadStatement("SELECT json FROM trash_notes;") { s in
+            var notes: [TrashLog.Note] = []
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let c = sqlite3_column_text(s, 0), let note = try? JSONDecoder().decode(TrashLog.Note.self, from: Data(String(cString: c).utf8)) {
+                    notes.append(note)
+                }
+            }
+            return notes
+        }
+    }
+
+    public func addTrashNote(_ note: TrashLog.Note) throws {
+        let json = String(decoding: try JSONEncoder().encode(note), as: UTF8.self)
+        try writeAll("INSERT OR REPLACE INTO trash_notes (message_id, json) VALUES (?, ?);", rows: [[String(note.messageId), json]])
+    }
+
+    /// Changes an item's Recently Deleted state and queues its note in one transaction. Written apart, a scan between the
+    /// two sees a change with no note waiting, and follows the channel: that undid the user's delete or recover.
+    /// `chatId` nil: no note, for when notes aren't being sent. A change that didn't take queues nothing.
+    @discardableResult
+    public func changeTrashState(id: String, op: TrashLog.Op, chatId: Int64?, _ change: (inout MediaItem) -> Void) throws -> MediaItem? {
+        lock.lock(); defer { lock.unlock() }
+        guard var item = try writerItem(id: id) else { return nil }
+        let wasTrashed = item.status == .trashed
+        change(&item)
+        let changed = wasTrashed != (item.status == .trashed)
+        try exec("BEGIN IMMEDIATE;")
+        do {
+            try insert(item)
+            if changed, let chatId {
+                try withStatement("INSERT OR REPLACE INTO trash_outbox (item_id, chat_id, op) VALUES (?, ?, ?);", bind: { s in
+                    bindText(s, 1, id)
+                    bindText(s, 2, String(chatId))
+                    bindText(s, 3, op.rawValue)
+                }) { s in
+                    guard sqlite3_step(s) == SQLITE_DONE else { throw StoreError.sqlite(String(cString: sqlite3_errmsg(db))) }
+                }
+            }
+            try exec("COMMIT;")
+        } catch {
+            try? exec("ROLLBACK;")
+            throw error
+        }
+        notifyChanged(ids: [id])
+        return item
+    }
+
+    /// Drops rows for changes no longer sent. Test builds queued `gone`; nothing would ever clear those, and they'd keep
+    /// their items from being deleted and the sender waking up.
+    public func dropRetiredTrashChanges() throws {
+        try writeAll("DELETE FROM trash_outbox WHERE op = ?;", rows: [[TrashLog.Op.gone.rawValue]])
+    }
+
+    /// All or nothing, and a failed write is reported: a lost outbox row would quietly undo the user's delete.
+    private func writeAll(_ sql: String, rows: [[String]]) throws {
+        guard !rows.isEmpty else { return }
+        lock.lock(); defer { lock.unlock() }
+        try exec("BEGIN IMMEDIATE;")
+        do {
+            for row in rows {
+                try Self.run(sql, on: db, cache: \.statements, of: self, bind: { s in
+                    for (i, value) in row.enumerated() { bindText(s, Int32(i + 1), value) }
+                }) { s in
+                    guard sqlite3_step(s) == SQLITE_DONE else { throw StoreError.sqlite(String(cString: sqlite3_errmsg(db))) }
+                }
+            }
+            try exec("COMMIT;")
+        } catch {
+            try? exec("ROLLBACK;")
+            throw error
+        }
+    }
+
+    public func removeTrashNotes(messageIds: some Collection<Int64>) throws {
+        try writeAll("DELETE FROM trash_notes WHERE message_id = ?;", rows: messageIds.map { [String($0)] })
+    }
+
+    /// Queues a change to send. One row per item: only its latest change matters.
+    public func queueTrashChange(_ op: TrashLog.Op, itemIds: some Collection<String>, chatId: Int64) throws {
+        try writeAll("INSERT OR REPLACE INTO trash_outbox (item_id, chat_id, op) VALUES (?, ?, ?);",
+                     rows: itemIds.map { [$0, String(chatId), op.rawValue] })
+    }
+
+    /// Changes waiting to be sent to this library, by action. Each library has its own, so a switch can't send them to
+    /// the wrong channel.
+    public func queuedTrashChanges(chatId: Int64) throws -> [TrashLog.Op: [String]] {
+        try withReadStatement("SELECT item_id, op FROM trash_outbox WHERE chat_id = ? ORDER BY item_id;", bind: { bindText($0, 1, String(chatId)) }) { s in
+            var result: [TrashLog.Op: [String]] = [:]
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let a = sqlite3_column_text(s, 0), let b = sqlite3_column_text(s, 1), let op = TrashLog.Op(rawValue: String(cString: b)) {
+                    result[op, default: []].append(String(cString: a))
+                }
+            }
+            return result
+        }
+    }
+
+    /// Clears sent changes. Only rows still holding `op`: the user may have changed their mind during the send.
+    public func clearTrashChanges(_ op: TrashLog.Op, itemIds: some Collection<String>) throws {
+        try writeAll("DELETE FROM trash_outbox WHERE item_id = ? AND op = ?;", rows: itemIds.map { [$0, op.rawValue] })
+    }
+
+    private static func offBackupKey(sha256: String, editHash: String?) -> String {
+        "h:" + sha256 + (editHash.map { "|" + $0 } ?? "")
+    }
+
+    /// Removes an item whose cloud copy is gone. A photo still on this device stays there, shows as on the phone only and
+    /// isn't uploaded again by itself (nor is another copy of it). "Back up" on it undoes that.
+    public func forgetDeletedItem(_ item: MediaItem) throws {
+        var keys = Set<String>()
+        if let id = item.localIdentifier { keys.insert("l:" + id) }
+        if !item.sha256.isEmpty { keys.insert(Self.offBackupKey(sha256: item.sha256, editHash: item.roleHashes?["e"])) }
+        let aliased: [String] = try withReadStatement("SELECT local_id FROM aliases WHERE item_id = ?;", bind: { bindText($0, 1, item.id) }) { s in
+            var ids: [String] = []
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let c = sqlite3_column_text(s, 0) { ids.append(String(cString: c)) }
+            }
+            return ids
+        }
+        keys.formUnion(aliased.map { "l:" + $0 })
+        try writeAll("INSERT OR REPLACE INTO no_backup (key) VALUES (?);", rows: keys.map { [$0] })
+        try delete(id: item.id)
+    }
+
+    public func keepOffBackup(localIdentifier: String) throws {
+        try writeAll("INSERT OR REPLACE INTO no_backup (key) VALUES (?);", rows: [["l:" + localIdentifier]])
+    }
+
+    public func allowBackup(localIdentifier: String) throws {
+        try writeAll("DELETE FROM no_backup WHERE key = ?;", rows: [["l:" + localIdentifier]])
+    }
+
+    /// Assets that automatic backup must leave alone.
+    public func offBackupLocalIdentifiers() throws -> Set<String> {
+        try withReadStatement("SELECT key FROM no_backup WHERE key LIKE 'l:%';") { s in
+            var set = Set<String>()
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let c = sqlite3_column_text(s, 0) { set.insert(String(String(cString: c).dropFirst(2))) }
+            }
+            return set
+        }
+    }
+
+    /// Everything `no_backup` holds. `deleteAll` clears it, and only this device knows it, so it's kept with its library.
+    public func offBackupKeys() throws -> [String] {
+        try withReadStatement("SELECT key FROM no_backup;") { s in
+            var keys: [String] = []
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let c = sqlite3_column_text(s, 0) { keys.append(String(cString: c)) }
+            }
+            return keys
+        }
+    }
+
+    public func restoreOffBackupKeys(_ keys: [String]) throws {
+        try writeAll("INSERT OR REPLACE INTO no_backup (key) VALUES (?);", rows: keys.map { [$0] })
+    }
+
+    /// Whether this content was deleted from the cloud and must not be uploaded again by itself. The same original with
+    /// a different edit is a different photo, as in `Deduplicator.isSamePhoto`.
+    public func isOffBackup(sha256: String, editHash: String? = nil) throws -> Bool {
+        let exact = Self.offBackupKey(sha256: sha256, editHash: editHash)
+        if editHash != nil {
+            return try withReadStatement("SELECT 1 FROM no_backup WHERE key = ?;", bind: { bindText($0, 1, exact) }) { sqlite3_step($0) == SQLITE_ROW }
+        }
+        return try withReadStatement("SELECT 1 FROM no_backup WHERE key = ? OR key LIKE ?;", bind: {
+            bindText($0, 1, exact)
+            bindText($0, 2, exact + "|%")
+        }) { sqlite3_step($0) == SQLITE_ROW }
     }
 
     // MARK: - Search (#14)

@@ -12,7 +12,7 @@ udid=$(xcrun simctl list devices -j | python3 -c "import json,sys;print(next((d[
 xcrun simctl boot "$udid" 2>/dev/null || true
 xcrun simctl bootstatus "$udid" -b >/dev/null
 [ -f build/.website-shots-media ] || { xcrun simctl addmedia "$udid" "$media"/*.jpg "$media"/*.mp4; touch build/.website-shots-media; }
-xcrun simctl privacy "$udid" grant photos com.shahil-kv.lelvo
+xcrun simctl privacy "$udid" grant photos app.lelvo.ios
 xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularMode active --cellularBars 4 --wifiBars 3
 out="$(pwd)/build/website-shots"; rm -rf "$out"; mkdir -p "$out"
 [ -d Lelvo.xcodeproj ] || xcodegen generate --quiet

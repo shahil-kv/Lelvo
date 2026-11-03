@@ -8,7 +8,7 @@ udid=$(xcrun simctl list devices -j | python3 -c "import json,sys;print(next((d[
 [ -n "$udid" ] || { echo "Run Scripts/website-shots.sh once first to create the simulator with sample photos" >&2; exit 1; }
 xcrun simctl boot "$udid" 2>/dev/null || true
 xcrun simctl bootstatus "$udid" -b >/dev/null
-xcrun simctl privacy "$udid" grant photos com.shahil-kv.lelvo
+xcrun simctl privacy "$udid" grant photos app.lelvo.ios
 xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularMode active --cellularBars 4 --wifiBars 3
 xcrun simctl ui "$udid" appearance dark
 out="$(pwd)/build/onboarding-shots"; rm -rf "$out"; mkdir -p "$out"

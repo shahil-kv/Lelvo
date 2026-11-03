@@ -6,13 +6,13 @@ import LelvoCore
 struct MacBackupView: View {
     @EnvironmentObject private var activity: BackupActivity
     @EnvironmentObject private var navigation: MacNavigation
+    @EnvironmentObject private var index: MacLibraryIndex
     @StateObject private var stats = BackupStatsModel()
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.backupPaused) private var paused = false
     @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
     @State private var rescanning = false
-    @State private var rescanResult: String?
     @Environment(\.openWindow) private var openWindow
     @State private var debugPage: String?
 
@@ -30,7 +30,7 @@ struct MacBackupView: View {
                 countRow("On This Mac", stats.onDevice, Device.symbol, .gray) { navigation.selection = .library }
                 countRow("Backed Up", stats.backedUp, "checkmark.icloud.fill", .green) { navigation.selection = .library }
                 countRow("Only in Cloud", stats.cloudOnly, "icloud.fill", .cyan) { navigation.selection = .cloudOnly }
-                countRow("Not Backed Up", stats.notQueued + stats.pending, "icloud.slash.fill", .orange) { navigation.selection = .notBackedUp }
+                countRow("Not Backed Up", index.counts[.notBackedUp] ?? 0, "icloud.slash.fill", .orange) { navigation.selection = .notBackedUp }
                 NavigationLink {
                     FailedItemsView()
                 } label: {
@@ -59,7 +59,6 @@ struct MacBackupView: View {
                         iconLabel("Re-scan Telegram Library", "arrow.clockwise", .teal)
                         Spacer()
                         if rescanning { ProgressView().controlSize(.small) }
-                        else if let rescanResult { Text(rescanResult).foregroundStyle(.secondary) }
                     }
                     .contentShape(Rectangle())
                 }
@@ -92,12 +91,12 @@ struct MacBackupView: View {
 
     private var state: Status {
         if activity.isRunning { return .running }
-        if stats.pending + stats.notQueued > 0 { return .notBackedUp }
+        if stats.left > 0 { return .notBackedUp }
         return stats.failed > 0 ? .failures : .complete
     }
 
     private var statusRow: some View {
-        let left = activity.isRunning && activity.total > 0 ? activity.remaining : stats.pending + stats.notQueued
+        let left = activity.isRunning && activity.total > 0 ? activity.remaining : stats.left
         let (icon, tint, title): (String, Color, String) = {
             switch state {
             case .complete: return ("checkmark.icloud.fill", .green, "Backup Complete")
@@ -157,14 +156,26 @@ struct MacBackupView: View {
 
     @ViewBuilder private var action: some View {
         if activity.isRunning {
-            Button("Pause") { AppEnvironment.shared.engine.pause() }
-                .controlSize(.large)
-        } else if stats.pending + stats.notQueued > 0 {
+            Button("Pause") {
+                AppEnvironment.shared.engine.pause()
+                ToastCenter.shared.show(.info, "Pausing the backup")
+            }
+            .controlSize(.large)
+        } else if activity.isStarting {
+            Button {} label: {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Starting…")
+                }
+            }
+            .controlSize(.large)
+            .disabled(true)
+        } else if stats.left > 0 {
             Button(paused ? "Resume" : "Back Up Now") { ContinuedBackup.start(everything: true) }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .keyboardShortcut("b", modifiers: .command)
-        } else if stats.failed > 0 {
+        } else if stats.retryable > 0 {
             Button("Retry") {
                 Task {
                     await Task.detached { AppEnvironment.shared.engine.retryFailed() }.value
@@ -221,15 +232,8 @@ struct MacBackupView: View {
 
     private func rescan() {
         rescanning = true
-        rescanResult = nil
         Task {
-            do {
-                let s = try await AppEnvironment.shared.library.scan(full: true)
-                _ = await Task.detached { AppEnvironment.shared.engine.relinkRestoredItems() }.value
-                rescanResult = "\(s.items.formatted()) items"
-            } catch {
-                rescanResult = "Couldn't re-scan"
-            }
+            await LibraryRescan.run()
             stats.refresh()
             rescanning = false
         }
