@@ -16,7 +16,7 @@ REPO = "https://github.com/shahil-kv/Lelvo/blob/main/"
 
 PAGES = [
     ("PRIVACY.md", "privacy",
-     "Lelvo's privacy policy: Lelvo has no servers and collects nothing. Your photos go from your device to your own Telegram account."),
+     "Lelvo's privacy policy: Lelvo has no servers and never receives your data. Your photos go from your device to your own Telegram account."),
     ("docs/CHANGELOG.md", "changelog", "What's new in each version of Lelvo for iPhone and Mac."),
 ]
 

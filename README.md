@@ -256,7 +256,7 @@ More in **[docs/FAQ.md](docs/FAQ.md)**. Still stuck? See **[SUPPORT.md](SUPPORT.
 
 ## Privacy
 
-Lelvo has no servers and collects nothing: no analytics, no crash reporting, no tracking. Your phone number
+Lelvo has no servers and we never receive your data: no analytics, no crash reporting, no tracking. Your phone number
 and login code go only to Telegram. Your Telegram session, app keys and encryption key stay in this device's
 Keychain. Logs stay on the device unless you choose to share them, and phone numbers, keys and IDs are removed from
 them first. Full policy: **[PRIVACY.md](PRIVACY.md)**.
