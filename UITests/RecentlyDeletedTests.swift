@@ -99,8 +99,9 @@ final class RecentlyDeletedTests: XCTestCase {
             let confirm = app.alerts.buttons["Delete from Backup"]
             XCTAssertTrue(confirm.waitForExistence(timeout: 5))
             confirm.tap()
+            // The viewer can close by itself after a delete, between a check and a tap, so tap only if it stays open.
             let close = app.buttons["Close"]
-            if close.waitForExistence(timeout: 3) { close.tap() }
+            if close.exists, !close.waitForNonExistence(timeout: 3) { close.tap() }
             XCTAssertTrue(grid.cells.firstMatch.waitForExistence(timeout: 10))
         }
         app.buttons["Collections"].firstMatch.tap()
