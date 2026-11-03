@@ -302,6 +302,10 @@ final class OnboardingModel: ObservableObject {
     func choose(_ channel: LibraryService.ChannelChoice) {
         run {
             let header = try await self.env.library.useExisting(chatId: channel.id)
+            // Signed in again after the session ended elsewhere: this library's choices were kept for this moment.
+            let env = self.env
+            let waiting = await Task.detached(priority: .userInitiated) { LibrarySnapshots.restoreChoices(chatId: channel.id, store: env.store) }.value
+            if waiting { TrashSync.shared.schedule() }
             if header.encrypted { self.step = .unlock } else { self.step = .scanning; self.scan() }
         }
     }

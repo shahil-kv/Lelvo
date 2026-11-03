@@ -195,12 +195,29 @@ So that a new device doesn't have to read every message, writers may upload an *
 - Readers that don't know snapshots ignore them: the caption doesn't start with `CG1:` or `CG1E:`.
 - Writers keep one: after a new snapshot is confirmed, the previous one is deleted.
 
+### 7.2 Recently Deleted notes (optional)
+
+So that Recently Deleted is the same on every device, writers record each change as a **note**: one small document message, added and never edited.
+
+- Its caption is `CGT1:` followed by compact JSON `{"h":…,"n":…,"v":1}`, or in E2E libraries `CGT1E:` followed by Base64 of `nonce(12) ‖ AES-256-GCM(ck, nonce, json, aad = UTF-8("CGT1E")) ‖ tag(16)` (`ck` as in §6.3). `n` is the number of ids, `h` the SHA-256 (lowercase hex) of the document's plaintext.
+- The document is compact JSON `{"ids":[…],"op":…,"v":1}`, CGFE-encrypted (§6.2) in E2E libraries. `ids` are item ids (§3.1). `op` is `del` (the items moved to Recently Deleted) or `recover` (the items came back).
+- For each item, the note with the **highest message id** wins. Readers ignore a note that doesn't check out, or has a newer `v` or an unknown `op`: when in doubt, keep data.
+- An item whose newest note is `del` is in Recently Deleted. Its 30 days start at the **message date** Telegram gave the note, not at a device's clock.
+- A note may arrive before its item, or during its upload. Readers keep notes and apply them once the item is complete.
+- After 30 days, or when the user chooses, a device deletes the item's messages. For the 30-day cleanup it must first read newer notes, know Telegram's time, and confirm the note is still in the channel; if not, it keeps the item. Deleting twice is harmless.
+- **Nothing stays behind.** A `del` note is deleted as soon as each of its items is deleted for good or has a newer note. A `recover` note is deleted as soon as no older `del` note still lists its items.
+- A reader's item in Recently Deleted that no `del` note in the channel keeps there must not get a new note, which could delete a photo the user recovered. If its messages are gone, the item is deleted. If they're still there, it's a normal backup again.
+- Writers group changes and send at most one note a minute.
+- Because notes go early, a device that wasn't listening can miss a delete altogether, so readers read the whole channel at least once a week. Until then the item fails to open, and checks right before deleting a phone copy (§8) still protect the photo.
+- Readers that don't know notes ignore them: the caption doesn't start with `CG1:` or `CG1E:`. They show the item as a normal backup until its messages are deleted.
+- Test vector: `docs/test-vectors/trashlog1.json`.
+
 ## 8. Writing rules
 
 - An item is "backed up" only after Telegram confirms every required message (`updateMessageSendSucceeded`) and each document's size equals the uploaded stream size (or part size).
 - De-duplicate before uploading: platform asset ID first, then `h` of the `o` resource against the local index (which mirrors the channel).
 - Respect `FLOOD_WAIT_X` by waiting X seconds. Run at most 2 uploads at once. Use one account only.
-- Deleting from the cloud deletes every message of the item (all resources and parts).
+- Deleting from the cloud first moves the item to Recently Deleted (§7.2). Deleting it for good deletes every message of the item (all resources and parts).
 
 ## 9. Compatibility with the v1.0 iOS bot format
 

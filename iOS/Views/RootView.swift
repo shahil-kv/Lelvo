@@ -29,6 +29,7 @@ struct RootView: View {
                 .environmentObject(memories)
                 .task(id: gallery.revision) { if gallery.loaded { await memories.refresh(entries: gallery.entries, revision: gallery.revision) } }
                 .safeAreaInset(edge: .top, spacing: 0) { if DemoMode.isActive { DemoBanner() } }
+                .toastHost(bottomPadding: 64)
                 .fullScreenCover(isPresented: $model.needsSignIn) {
                     OnboardingView().environmentObject(model)
                 }

@@ -77,7 +77,9 @@ final class AppEnvironment: @unchecked Sendable {
         for _ in 0..<40 where engine.isRunning { try? await Task.sleep(nanoseconds: 250_000_000) }
         if let current = library.chatId { LibrarySnapshots.save(chatId: current, items: (try? store.allItems()) ?? []) }
         lap("backup paused, current index saved")
+        await TrashSync.shared.sendBeforeLeaving()
         let previousChat = library.chatId
+        if let previousChat { LibrarySnapshots.saveChoices(chatId: previousChat, store: store) }
         reader.forgetCaches()
         library.forget()
         let header: LibraryHeader
@@ -94,6 +96,7 @@ final class AppEnvironment: @unchecked Sendable {
         }
         lap("header read")
         try store.deleteAll()
+        if LibrarySnapshots.restoreChoices(chatId: chatId, store: store) { TrashSync.shared.schedule() }
         if let saved = LibrarySnapshots.load(chatId: chatId), !saved.isEmpty {
             try store.upsert(saved)
             lap("saved index restored (\(saved.count) items)")
@@ -119,6 +122,8 @@ final class AppEnvironment: @unchecked Sendable {
     func createLibraryAndSwitch(title: String, passphrase: String?) async throws -> RecoveryKey? {
         engine.pause()
         for _ in 0..<40 where engine.isRunning { try? await Task.sleep(nanoseconds: 250_000_000) }
+        await TrashSync.shared.sendBeforeLeaving()
+        if let current = library.chatId { LibrarySnapshots.saveChoices(chatId: current, store: store) }
         try store.deleteAll()
         reader.forgetCaches()
         library.forget()
@@ -128,13 +133,17 @@ final class AppEnvironment: @unchecked Sendable {
     }
 
     /// Wipes local state (sign out / reset). The Telegram channel is not touched.
-    func resetEverything() async {
+    /// `keepingChoices`: the user didn't ask for this (the session ended elsewhere), so signing in to the same library
+    /// again must not undo their deletes.
+    func resetEverything(keepingChoices: Bool = false) async {
         appLog("Reset this \(Device.name): signing out and removing Lelvo's local data")
         DemoMode.exit()
         // Stop uploads before the session goes; the paused flag is wiped with the other settings below.
         engine.pause()
         // The second copy's folder isn't touched; only the setting goes, with the others below.
         secondCopy.cancelRun()
+        await TrashSync.shared.sendBeforeLeaving()
+        if keepingChoices, let current = library.chatId { LibrarySnapshots.saveChoices(chatId: current, store: store) }
         await td.logOut()
         await td.destroyLocalData()
         try? store.deleteAll()
@@ -145,7 +154,7 @@ final class AppEnvironment: @unchecked Sendable {
         try? FileManager.default.removeItem(at: stagingDirectory)
         try? FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
         let kept = KeychainStore.wipe()
-        LibrarySnapshots.removeAll()
+        LibrarySnapshots.removeAll(keepingChoices: keepingChoices)
         // Every setting, not a list of them: anything left made the next start skip sign-in steps.
         if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
         if kept.isEmpty {
@@ -187,5 +196,43 @@ enum LibrarySnapshots {
         return try? JSONDecoder().decode([MediaItem].self, from: data)
     }
 
-    static func removeAll() { try? FileManager.default.removeItem(at: directory) }
+    /// What only this device knows about a library and the index can't rebuild from the channel: photos deleted from the
+    /// backup on purpose, and changes not sent yet. A lost recover would let an older delete note put the photo back.
+    private struct Choices: Codable {
+        var offBackup: [String]
+        var waiting: [String: [String]]
+    }
+
+    private static let choicesPrefix = "choices-"
+    private static func choicesURL(_ chatId: Int64) -> URL { directory.appendingPathComponent("\(choicesPrefix)\(chatId).json") }
+
+    static func saveChoices(chatId: Int64, store: LibraryStore) {
+        guard let offBackup = try? store.offBackupKeys(), let waiting = try? store.queuedTrashChanges(chatId: chatId) else { return }
+        guard !offBackup.isEmpty || !waiting.isEmpty else {
+            try? FileManager.default.removeItem(at: choicesURL(chatId))
+            return
+        }
+        let choices = Choices(offBackup: offBackup, waiting: Dictionary(uniqueKeysWithValues: waiting.map { ($0.key.rawValue, $0.value) }))
+        guard let data = try? JSONEncoder().encode(choices) else { return }
+        try? data.write(to: choicesURL(chatId), options: .atomic)
+    }
+
+    /// Returns whether changes are waiting to be sent.
+    @discardableResult
+    static func restoreChoices(chatId: Int64, store: LibraryStore) -> Bool {
+        guard let data = try? Data(contentsOf: choicesURL(chatId)), let choices = try? JSONDecoder().decode(Choices.self, from: data) else { return false }
+        try? store.restoreOffBackupKeys(choices.offBackup)
+        var waiting = false
+        for (op, ids) in choices.waiting {
+            guard let op = TrashLog.Op(rawValue: op), !ids.isEmpty, (try? store.queueTrashChange(op, itemIds: ids, chatId: chatId)) != nil else { continue }
+            waiting = true
+        }
+        return waiting
+    }
+
+    static func removeAll(keepingChoices: Bool = false) {
+        guard keepingChoices else { try? FileManager.default.removeItem(at: directory); return }
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for file in files where !file.lastPathComponent.hasPrefix(choicesPrefix) { try? FileManager.default.removeItem(at: file) }
+    }
 }

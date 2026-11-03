@@ -180,6 +180,7 @@ struct MainWindowView: View {
         switch navigation.selection ?? .library {
         case .backup:
             NavigationStack { MacBackupView() }
+                .toastHost()
         case .recentlyDeleted:
             NavigationStack { RecentlyDeletedView() }
         case .search:

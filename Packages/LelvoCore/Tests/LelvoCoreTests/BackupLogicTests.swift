@@ -382,6 +382,202 @@ import LelvoCore
         #expect(decoded.status == .trashed)
         #expect(decoded.trashedAt == Date(timeIntervalSince1970: 5))
     }
+
+    func stranded() -> MediaItem {
+        var item = MediaItem(localIdentifier: nil, sha256: "h", filename: "IMG_2.HEIC", kind: .photo, creationDate: nil, fileSize: 10, status: .failed)
+        item.setParts([RemoteFile(messageId: 2, fileId: "f", fileUniqueId: "u", size: 10)], role: "o", expected: 1)
+        item.encrypted = true
+        return item
+    }
+
+    @Test func anIncompleteItemWithNoPhoneCopyIsStranded() {
+        #expect(stranded().isStrandedInCloud)
+        var queued = stranded()
+        queued.status = .queued
+        #expect(queued.isStrandedInCloud, "A retry can't help it either")
+        #expect(!backedUp().isStrandedInCloud)
+        var onPhone = stranded()
+        onPhone.localIdentifier = "A"
+        #expect(!onPhone.isStrandedInCloud, "It can upload from the phone")
+        var nothingSent = stranded()
+        nothingSent.cloudParts = nil
+        #expect(!nothingSent.isStrandedInCloud)
+    }
+
+    @Test func aStrandedItemCanGoToRecentlyDeletedAndBack() {
+        var item = stranded()
+        CloudTrash.trash(&item, now: Date(timeIntervalSince1970: 5))
+        #expect(item.status == .trashed)
+        #expect(!item.isStrandedInCloud)
+        CloudTrash.recover(&item)
+        #expect(item.status == .failed, "Still incomplete")
+    }
+
+    @Test func aDeleteNoteMovesAStrandedItemToo() {
+        let item = stranded()
+        let note = TrashLog.Note(messageId: 9, date: Date(timeIntervalSince1970: 5), op: .delete, ids: [item.id])
+        #expect(TrashLog.action(for: item, note: note, messagesSeen: true) == .trash(note.date))
+    }
+
+    @Test func losingAPartKeepsItInRecentlyDeleted() {
+        var item = stranded()
+        item.setParts([RemoteFile(messageId: 3, fileId: "t", fileUniqueId: "ut", size: 1)], role: "t", expected: 1)
+        CloudTrash.trash(&item, now: Date(timeIntervalSince1970: 5))
+        guard case .update(let after) = LibraryIndexer.afterDeleting([3], from: item) else { return }
+        #expect(after.status == .trashed)
+        #expect(after.trashedAt == Date(timeIntervalSince1970: 5))
+    }
+
+    @Test func aFastDeviceClockDoesNotExpireEarly() {
+        var item = backedUp()
+        let deleted = Date(timeIntervalSince1970: 1_000_000)
+        CloudTrash.trash(&item, now: deleted)
+        let telegram = deleted.addingTimeInterval(2 * 86400)
+        let fastDevice = deleted.addingTimeInterval(60 * 86400)
+        #expect(CloudTrash.isExpired(item, now: fastDevice))
+        #expect(!CloudTrash.isExpired(item, now: CloudTrash.expiryClock(device: fastDevice, telegram: telegram)!))
+    }
+
+    @Test func aSlowDeviceClockDoesNotExpireEarly() {
+        let telegram = Date(timeIntervalSince1970: 100 * 86400)
+        let slowDevice = Date(timeIntervalSince1970: 40 * 86400)
+        var item = backedUp()
+        CloudTrash.trash(&item, now: CloudTrash.deletedAt(device: slowDevice, telegram: telegram))
+        #expect(item.trashedAt == telegram)
+        #expect(!CloudTrash.isExpired(item, now: CloudTrash.expiryClock(device: telegram.addingTimeInterval(86400), telegram: telegram.addingTimeInterval(86400))!))
+    }
+
+    @Test func noTelegramTimeMeansNoExpiry() {
+        #expect(CloudTrash.expiryClock(device: Date(), telegram: nil) == nil)
+    }
+
+    @Test func deletedAtFallsBackToTheDeviceClockOffline() {
+        let device = Date(timeIntervalSince1970: 7)
+        #expect(CloudTrash.deletedAt(device: device, telegram: nil) == device)
+    }
+
+    func item(messages: Int, firstId: Int64) -> MediaItem {
+        var item = MediaItem(localIdentifier: "A\(firstId)", sha256: "h", filename: "IMG.HEIC", kind: .photo, creationDate: nil, fileSize: 10, status: .trashed)
+        let parts = (0..<messages).map { RemoteFile(messageId: firstId + Int64($0), fileId: "f", fileUniqueId: "u", size: 10) }
+        item.setParts(parts, role: "o", expected: messages)
+        return item
+    }
+
+    @Test func fiftyItemsGoInOneBatch() {
+        let items = (0..<50).map { item(messages: 1, firstId: Int64($0)) }
+        #expect(CloudTrash.deleteBatches(items).map(\.count) == [50])
+    }
+
+    @Test func batchesStayWithinTheMessageLimitAndKeepItemsWhole() {
+        let items = [item(messages: 60, firstId: 0), item(messages: 60, firstId: 100), item(messages: 40, firstId: 200)]
+        let batches = CloudTrash.deleteBatches(items)
+        #expect(batches.map { $0.map(\.id) } == [[items[0].id], [items[1].id, items[2].id]])
+        #expect(batches.allSatisfy { $0.flatMap(\.allMessageIds).count <= CloudTrash.maxMessagesPerDelete })
+    }
+
+    @Test func anItemOverTheLimitGoesAlone() {
+        let items = [item(messages: 1, firstId: 0), item(messages: 150, firstId: 100), item(messages: 1, firstId: 500)]
+        #expect(CloudTrash.deleteBatches(items).map(\.count) == [1, 1, 1])
+        #expect(CloudTrash.deleteBatches([]).isEmpty)
+    }
+}
+
+@Suite struct BackupCountsTests {
+    func item(_ status: ItemStatus, local: String? = "A", chosen: Bool? = nil, cloud: Bool = false) -> MediaItem {
+        var item = MediaItem(localIdentifier: local, sha256: "h", filename: "IMG.HEIC", kind: .photo, creationDate: nil, fileSize: 10, status: status)
+        item.chosen = chosen
+        if cloud { item.setParts([RemoteFile(messageId: 1, fileId: "f", fileUniqueId: "u", size: 10)], role: "o", expected: 2) }
+        return item
+    }
+
+    func compute(queued: [MediaItem] = [], failed: [MediaItem] = [], candidates: [String] = [], known: Set<String> = [],
+                 offBackup: Set<String> = [], auto: Bool = false) -> BackupCounts {
+        BackupCounts.compute(queued: queued, failed: failed, candidates: candidates, known: known, offBackup: offBackup, autoBackup: auto)
+    }
+
+    @Test func nothingIsCountedTwiceWithAutomaticBackupOn() {
+        let c = compute(queued: [item(.queued)], candidates: ["B", "C"], auto: true)
+        #expect(c.activeQueue == 1)
+        #expect(c.notQueued == 2)
+        #expect(c.left == 3)
+        #expect(c.pending(autoBackup: true) == 3)
+    }
+
+    @Test func withoutAutomaticBackupOnlyPickedItemsAreActive() {
+        let c = compute(queued: [item(.queued, chosen: true), item(.queued)], candidates: ["B"])
+        #expect(c.activeQueue == 1)
+        #expect(c.notQueued == 2)
+        #expect(c.left == 3)
+        #expect(c.pending(autoBackup: false) == 1)
+    }
+
+    @Test func photosDeletedFromTheBackupAreNotLeftToDo() {
+        let c = compute(candidates: ["A", "B"], offBackup: ["A"], auto: true)
+        #expect(c.left == 1)
+    }
+
+    @Test func photosAlreadyKnownAreNotLeftToDo() {
+        #expect(compute(candidates: ["A", "B"], known: ["A", "B"]).left == 0)
+    }
+
+    /// What was on screen: "3 not backed up", an empty list, and Failed at 0.
+    @Test func incompleteItemsWithNoPhotoHereCountAsFailedNotAsLeftToDo() {
+        let stuck = item(.queued, local: nil, chosen: true, cloud: true)
+        let c = compute(queued: [stuck, stuck, stuck])
+        #expect(c.left == 0)
+        #expect(c.failed == 3)
+        #expect(c.retryable == 0)
+    }
+
+    @Test func onlyFailuresARetryCanHelpAreRetryable() {
+        let c = compute(failed: [item(.failed), item(.failed, local: nil, cloud: true)])
+        #expect(c.failed == 2)
+        #expect(c.retryable == 1)
+    }
+}
+
+@Suite struct SessionWatchTests {
+    @Test func aSessionRemovedElsewhereIsNoticed() {
+        var watch = SessionWatch()
+        watch.ready()
+        watch.loggingOut()
+        let ended = watch.closed()
+        #expect(ended)
+    }
+
+    @Test func signingOutHereIsNot() {
+        var watch = SessionWatch()
+        watch.ready()
+        watch.ownSignOut()
+        watch.loggingOut()
+        let ended = watch.closed()
+        #expect(!ended)
+    }
+
+    @Test func aRestartIsNot() {
+        var watch = SessionWatch()
+        watch.ready()
+        let ended = watch.closed()
+        #expect(!ended)
+    }
+
+    @Test func aSignOutThatDidNothingDoesNotHideALaterRemoval() {
+        var watch = SessionWatch()
+        watch.ownSignOut()
+        watch.ready()
+        watch.loggingOut()
+        let ended = watch.closed()
+        #expect(ended)
+    }
+
+    @Test func itCountsOnlyOnce() {
+        var watch = SessionWatch()
+        watch.loggingOut()
+        let first = watch.closed()
+        let second = watch.closed()
+        #expect(first)
+        #expect(!second)
+    }
 }
 
 @Suite struct HashReuseTests {
@@ -558,5 +754,28 @@ import LelvoCore
         let items = [item("oldVideo", .video, day: 2), item("newVideo", .video, day: 8), item("oldPhoto", .photo, day: 3),
                      item("live", .livePhoto, day: 7), halfDone, editCheck]
         #expect(UploadOrder.sorted(items).map(\.filename) == ["halfDone", "editCheck", "live", "oldPhoto", "newVideo", "oldVideo"])
+    }
+}
+
+@Suite struct RescanReportTests {
+    @Test func nothingChangedSaysSo() {
+        let report = RescanReport(itemsBefore: 3, itemsAfter: 3, incomplete: 0, duplicates: 0)
+        #expect(report.upToDate)
+        #expect(report.title == "Everything is up to date")
+        #expect(report.detail == "3 items in your Telegram library.")
+    }
+
+    @Test func newAndMissingItemsAreCounted() {
+        #expect(RescanReport(itemsBefore: 3, itemsAfter: 4, incomplete: 0, duplicates: 0).detail == "1 new item.")
+        let fewer = RescanReport(itemsBefore: 3, itemsAfter: 1, incomplete: 0, duplicates: 0)
+        #expect(fewer.title == "Library updated")
+        #expect(fewer.detail == "2 items gone.")
+    }
+
+    @Test func problemsAreNotUpToDateEvenWithTheSameCount() {
+        let report = RescanReport(itemsBefore: 3, itemsAfter: 3, incomplete: 1, duplicates: 2)
+        #expect(!report.upToDate)
+        #expect(report.title == "Library checked")
+        #expect(report.detail == "1 incomplete, 2 duplicate uploads.")
     }
 }

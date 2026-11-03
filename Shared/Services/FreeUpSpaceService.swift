@@ -72,7 +72,12 @@ final class FreeUpSpaceService: @unchecked Sendable {
 
     /// Deletes verified items from the photo library. Their records stay, so they remain in the gallery as cloud items.
     func delete(_ items: [MediaItem]) async throws -> Int {
-        let safe = items.filter { item in
+        // A photo may have been deleted from the backup on another device since this list was made. If that can't be
+        // checked, nothing goes, and the current state of each item decides, not the state when it was listed.
+        do { try await env.library.catchUp() } catch { throw TrashError.needsConnection }
+        guard !env.library.needsRepairScan else { throw TrashError.needsConnection }
+        let current = (try? env.store.items(ids: items.map(\.id))) ?? []
+        let safe = current.filter { item in
             guard isFreshlyVerified(item), item.sizeClass == .normal, item.status == .backedUp else { return false }
             guard let id = item.localIdentifier, let asset = env.photos.asset(localIdentifier: id) else { return false }
             return !hasUnbackedChanges(item, asset: asset)

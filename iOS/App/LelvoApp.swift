@@ -44,7 +44,7 @@ struct LelvoApp: App {
                 guard model.onboardingComplete else { return }
                 env.td.start()
                 Task { await env.enforceCacheLimits() }
-                Task.detached(priority: .utility) { await GalleryActions.emptyExpiredTrash() }
+                Task.detached(priority: .utility) { await TrashSync.shared.onOpen() }
                 env.search.indexInForeground()
                 Task.detached(priority: .utility) {
                     guard env.library.needsRepairScan, (try? await env.td.waitUntilReady(timeout: 30)) != nil else { return }
@@ -66,6 +66,7 @@ struct LelvoApp: App {
                 // Cheap no-op unless restored items are still unlinked (e.g. right after a reinstall).
                 Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
             case .background:
+                Task.detached(priority: .userInitiated) { await TrashSync.shared.send() }
                 env.search.stopForeground()
                 env.originalsCache.flush()
                 env.thumbnailCache.flush()

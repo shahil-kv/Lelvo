@@ -9,6 +9,9 @@ import LelvoCore
 final class BackupActivity: ObservableObject {
     static let shared = BackupActivity()
     @Published var isRunning = false
+    /// A backup was asked for and `isRunning` isn't true yet. iOS can take seconds to start the system task, and with nothing
+    /// changing on screen people tapped again.
+    @Published var isStarting = false
     @Published var done = 0
     @Published var total = 0
     /// Per upload lane: the file being uploaded and its byte progress (two uploads run in parallel).
@@ -141,6 +144,39 @@ final class BackupEngine: @unchecked Sendable {
     static let uploadSpacing: TimeInterval = 1.5
     private var nextUploadStart = Date.distantPast
 
+    private var uploadSlots = UploadSlots(limit: BackupEngine.maxConcurrentUploads)
+
+    private func acquireLaneSlot() async {
+        while !gate.withLock({ uploadSlots.acquireForLane() }) { try? await Task.sleep(nanoseconds: 200_000_000) }
+    }
+
+    /// Sends a Recently Deleted note as one of the two uploads, keeping the pacing and any `FLOOD_WAIT` Telegram asked for.
+    /// A `FLOOD_WAIT` from the note holds the backup too, and the note is tried again once it's over.
+    func withNoteSlot(_ send: () async throws -> Void) async throws {
+        while true {
+            while !gate.withLock({ uploadSlots.acquireForNote() }) {
+                do { try await Task.sleep(nanoseconds: 200_000_000) } catch {
+                    gate.withLock { uploadSlots.stopWaitingForNote() }
+                    throw error
+                }
+            }
+            defer { gate.withLock { uploadSlots.release() } }
+            let wait = gate.withLock { pausedUntil }.timeIntervalSinceNow
+            if wait > 0 {
+                try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                continue
+            }
+            await paceUploadStart()
+            do {
+                try await send()
+                return
+            } catch {
+                guard case .floodWait(let s)? = (error as? TDServiceError)?.kind else { throw error }
+                gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+            }
+        }
+    }
+
     private func paceUploadStart() async {
         let wait: TimeInterval = gate.withLock {
             let slot = max(Date(), nextUploadStart)
@@ -225,7 +261,8 @@ final class BackupEngine: @unchecked Sendable {
     @discardableResult
     func enqueueNewAssets(force: Bool = false, among ids: Set<String>? = nil) -> Int {
         guard force || Prefs.autoBackup else { return 0 }
-        let known = (try? env.store.knownLocalIdentifiers()) ?? []
+        // Deleted from the cloud on purpose while still on this device: on the phone only until the user backs it up.
+        let known = ((try? env.store.knownLocalIdentifiers()) ?? []).union((try? env.store.offBackupLocalIdentifiers()) ?? [])
         let fresh = env.photos.backupCandidates(among: ids).filter { !known.contains($0.localIdentifier) }
         let items = fresh.map(makeItem)
         try? env.store.upsert(items)
@@ -236,6 +273,10 @@ final class BackupEngine: @unchecked Sendable {
     /// `PhotoChangeScan.queuedButDeleted`). Only queue rows go; backed-up items and the cloud copies are untouched.
     @discardableResult
     func dropDeletedQueuedItems() -> Int {
+        // Queued by an earlier Retry with no photo here to upload: back to failed, where the counts and the list agree.
+        if !DemoMode.isActive, let stuck = try? env.store.items(status: .queued).filter(\.isStrandedInCloud), !stuck.isEmpty {
+            try? env.store.upsert(stuck.map { var i = $0; i.status = .failed; i.chosen = nil; return i })
+        }
         guard PhotoLibraryService.hasAccess, !DemoMode.isActive else { return 0 }
         let queued = (try? env.store.items(status: .queued)) ?? []
         let ids = queued.compactMap(\.localIdentifier)
@@ -243,7 +284,8 @@ final class BackupEngine: @unchecked Sendable {
         let present = env.photos.existingIdentifiers(ids)
         let gone = PhotoChangeScan.queuedButDeleted(queued, present: present, libraryIsEmpty: env.photos.fetchAllAssets().count == 0)
         // The list was read before the photo check; an upload may have started since, so only rows still queued go.
-        let dropped = gone.filter { (try? env.store.deleteIfQueued(id: $0.id)) == true }.count
+        // Part of an upload stays in the channel: `process` shows those as failed, so they can be deleted.
+        let dropped = gone.filter { !$0.hasCloudParts && (try? env.store.deleteIfQueued(id: $0.id)) == true }.count
         if dropped > 0 { appLog("Dropped \(dropped) queued items deleted from the phone") }
         return dropped
     }
@@ -338,12 +380,14 @@ final class BackupEngine: @unchecked Sendable {
     func enqueue(localIdentifiers: [String]) -> Int {
         var items: [MediaItem] = []
         for id in localIdentifiers {
+            try? env.store.allowBackup(localIdentifier: id)
             if var existing = try? env.store.item(localIdentifier: id) {
                 guard existing.status != .backedUp else { continue }
                 if existing.status == .trashed {
                     // Still in the channel (Recently Deleted): backing it up again is just recovering it.
-                    CloudTrash.recover(&existing)
-                    items.append(existing)
+                    if (try? env.store.changeTrashState(id: existing.id, op: .recover, chatId: TrashSync.shared.noteChatId) { CloudTrash.recover(&$0) }) != nil {
+                        TrashSync.shared.schedule()
+                    }
                     continue
                 }
                 if existing.status == .failed { existing.job = JobMachine.reduce(existing.job, .retry) }
@@ -391,19 +435,35 @@ final class BackupEngine: @unchecked Sendable {
             summary.error = "Backup is paused. Open Lelvo and tap Back up now to resume."
             return summary
         }
-        if DemoMode.isActive { return userStarted ? await runDemo(progress: progress) : summary }
-        if let reason = await blocker() { summary.error = reason.localizedDescription; return summary }
+        if DemoMode.isActive {
+            guard userStarted else { return summary }
+            await publish { $0.isStarting = false }
+            let demo = await runDemo(progress: progress)
+            await announce(demo)
+            return demo
+        }
+        if let reason = await blocker() {
+            // Waiting for Wi-Fi, no access to Photos…: a tap has to say so, or the button looks broken.
+            summary.error = reason.localizedDescription
+            await publish { $0.isStarting = false }
+            if userStarted { await announce(summary) }
+            return summary
+        }
         let alreadyRunning: Bool = gate.withLock {
             if running { return true }
             running = true
             return false
         }
-        if alreadyRunning { summary.error = StopReason.alreadyRunning.localizedDescription; return summary }
+        if alreadyRunning {
+            summary.error = StopReason.alreadyRunning.localizedDescription
+            await publish { $0.isStarting = false }
+            return summary
+        }
         defer { gate.withLock { running = false; laneTask = nil } }
         let isCancelled: @Sendable () -> Bool = { [weak self] in callerCancelled() || (self?.isPauseRequested ?? false) }
         gate.withLock { pauseRequested = false }
 
-        await publish { $0.isRunning = true; $0.message = "Connecting to Telegram…" }
+        await publish { $0.isRunning = true; $0.isStarting = false; $0.message = "Connecting to Telegram…" }
         do {
             try await env.td.waitUntilReady(timeout: 25)
         } catch {
@@ -462,8 +522,10 @@ final class BackupEngine: @unchecked Sendable {
                             break
                         }
                         await waitForFloodPause(isCancelled: isCancelled)
+                        await acquireLaneSlot()
                         await paceUploadStart()
                         let outcome = await process(item, lane: lane, isCancelled: isCancelled)
+                        gate.withLock { uploadSlots.release() }
                         if outcome == .retryLater, await queue.requeue(item) {
                             // Slowed down or a temporary network error: try again later in this same run.
                             continue
@@ -499,7 +561,19 @@ final class BackupEngine: @unchecked Sendable {
         let final = summary
         await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.lanes = [:]; a.notice = nil }
         appLog("Backup run finished: \(summary.text)")
+        if userStarted { await announce(final) }
         return summary
+    }
+
+    /// Tells the person who tapped Back up how it ended, also when there was nothing to do.
+    @MainActor private func announce(_ summary: Summary) {
+        if summary.error != nil {
+            ToastCenter.shared.show(.info, summary.text, seconds: 5)
+        } else if summary.uploaded == 0, summary.alreadyBackedUp == 0, summary.failed == 0, summary.remaining == 0 {
+            ToastCenter.shared.show(.success, "Everything is backed up")
+        } else {
+            ToastCenter.shared.show(summary.failed > 0 ? .failure : .success, summary.text)
+        }
     }
 
     /// App Review demo: "uploads" the demo's waiting items with real progress in the UI, without any network.
@@ -545,7 +619,7 @@ final class BackupEngine: @unchecked Sendable {
 
     /// Moves every failed item back to pending (the "Retry failed" button).
     func retryFailed() {
-        guard let failed = try? env.store.items(status: .failed) else { return }
+        guard let failed = try? env.store.items(status: .failed).filter({ !$0.isStrandedInCloud }) else { return }
         // Retrying is an explicit choice: these upload even when the rest of the queue is left alone.
         try? env.store.upsert(failed.map { var i = $0; i.job = JobMachine.reduce(i.job, .retry); i.chosen = true; return i })
     }
@@ -595,6 +669,17 @@ final class BackupEngine: @unchecked Sendable {
     private func process(_ queued: MediaItem, lane: Int, isCancelled: @escaping @Sendable () -> Bool) async -> Outcome {
         guard var item = try? env.store.item(id: queued.id), item.status == .queued || item.status == .uploading else { return .skipped }
         guard let localId = item.localIdentifier, let asset = env.photos.asset(localIdentifier: localId) else {
+            // Without access to Photos every photo looks deleted: leave the item alone until access comes back.
+            if item.localIdentifier != nil, !PhotoLibraryService.hasAccess { return .skipped }
+            if item.hasCloudParts {
+                // Part of it is in the channel: dropping the row hid it until the next scan brought it back as failed.
+                // The photo left this device: without its id the item can't be retried for ever, and can be deleted.
+                item.localIdentifier = nil
+                item.status = .failed
+                item.chosen = nil
+                save(item)
+                return .failed
+            }
             // Deleted from the phone before it was uploaded: nothing left to back up.
             try? env.store.delete(id: item.id)
             return .skipped
@@ -650,6 +735,17 @@ final class BackupEngine: @unchecked Sendable {
                 try env.store.delete(id: item.id)
                 try Deduplicator(store: env.store).link(localIdentifier: localId, to: twin, existingAssetIsMissing: missing)
                 return .duplicate
+            }
+            // Another copy of a photo deleted from the cloud (iCloud Photos puts it on every device): it stays on this device
+            // but isn't uploaded again unless the user asks. After the check above: a copy of one still backed up links to it.
+            if item.cloudParts == nil, item.chosen != true,
+               try env.store.isOffBackup(sha256: primaryHash, editHash: editedHash) || env.store.items(sha256: primaryHash).contains(where: {
+                   $0.id != item.id && $0.status == .trashed && Deduplicator.isSamePhoto(editHash: editedHash, as: $0)
+               }) {
+                try env.store.delete(id: item.id)
+                try env.store.keepOffBackup(localIdentifier: localId)
+                appLog("\(exp.primaryFilename) was deleted from your backup, so it wasn't uploaded again")
+                return .skipped
             }
             item.sha256 = primaryHash
             item.filename = exp.primaryFilename

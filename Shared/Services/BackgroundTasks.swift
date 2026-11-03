@@ -6,9 +6,9 @@ import UIKit
 /// BGProcessingTask for overnight catch-up, BGAppRefreshTask for index sync, and (iOS 26+)
 /// BGContinuedProcessingTask so a user-started backup keeps running with system progress UI.
 enum BackgroundTasks {
-    static let processingId = "com.shahil-kv.lelvo.backup.processing"
-    static let refreshId = "com.shahil-kv.lelvo.index.refresh"
-    static let continuedId = "com.shahil-kv.lelvo.backup.continued"
+    static let processingId = "app.lelvo.ios.backup.processing"
+    static let refreshId = "app.lelvo.ios.index.refresh"
+    static let continuedId = "app.lelvo.ios.backup.continued"
 
     /// Must run before the app finishes launching.
     static func register() {
@@ -89,7 +89,7 @@ enum BackgroundTasks {
 /// photos and refreshes the index every hour (it respects Wi-Fi only / charging only through the engine).
 enum BackgroundTasks {
     private static let scheduler: NSBackgroundActivityScheduler = {
-        let s = NSBackgroundActivityScheduler(identifier: "com.shahil-kv.lelvo.mac.hourly")
+        let s = NSBackgroundActivityScheduler(identifier: "app.lelvo.mac.hourly")
         s.repeats = true
         s.interval = 60 * 60
         s.tolerance = 10 * 60
@@ -184,6 +184,8 @@ enum ContinuedBackup {
     @MainActor static var foregroundTask: Task<Void, Never>?
     /// A user-started backup that iOS ended before it finished; resumed when Lelvo is next on screen.
     @MainActor private static var resumePending = false
+    /// iOS started the task asked for by the last `start`.
+    @MainActor private static var continuedTaskBegan = false
 
     /// Called when Lelvo comes to the front (and after iOS ends a backup): starts the unfinished one again.
     @MainActor
@@ -204,6 +206,16 @@ enum ContinuedBackup {
     /// (photos chosen with Back up, retries) are uploaded.
     @MainActor
     static func start(everything: Bool = false) {
+        // Already on its way. A second request is what used to make the second tap "work": iOS refused it, and the fallback
+        // ran the backup in the app.
+        let activity = BackupActivity.shared
+        guard !activity.isRunning, !activity.isStarting else { return }
+        activity.isStarting = true
+        Task { @MainActor in
+            // Every path clears this; never leave the button stuck if one doesn't.
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            activity.isStarting = false
+        }
         includeNew = everything
         #if os(iOS) && !targetEnvironment(macCatalyst)
         if #available(iOS 26.0, *) {
@@ -216,6 +228,15 @@ enum ContinuedBackup {
             do {
                 try BGTaskScheduler.shared.submit(request)
                 appLog("Submitted continued-processing backup")
+                continuedTaskBegan = false
+                // iOS can accept the request and never run it, which left "Back up now" doing nothing.
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    guard !continuedTaskBegan, foregroundTask == nil, !AppEnvironment.shared.engine.isRunning else { return }
+                    BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: BackgroundTasks.continuedId)
+                    AppLog.shared.warn("iOS didn't start the continued-processing backup; running in app")
+                    runInForeground()
+                }
                 return
             } catch {
                 AppLog.shared.warn("Continued processing unavailable (\(error.localizedDescription)); running in app")
@@ -248,6 +269,7 @@ enum ContinuedBackup {
     #if os(iOS) && !targetEnvironment(macCatalyst)
     @available(iOS 26.0, *)
     static func handle(_ task: BGContinuedProcessingTask) {
+        Task { @MainActor in continuedTaskBegan = true }
         let flag = CancelFlag()
         let started = Date()
         let note = ProgressNote()

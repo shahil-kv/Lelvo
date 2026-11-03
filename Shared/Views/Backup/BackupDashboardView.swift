@@ -10,6 +10,10 @@ final class BackupStatsModel: ObservableObject {
     @Published var cloudOnly = 0
     @Published var onDevice = 0
     @Published var notQueued = 0
+    /// Everything "Back Up Now" would upload.
+    @Published var left = 0
+    /// Failed items a retry can help.
+    @Published var retryable = 0
     private var observer: NSObjectProtocol?
     private var pendingRefresh: Task<Void, Never>?
 
@@ -38,35 +42,40 @@ final class BackupStatsModel: ObservableObject {
             // Photos deleted in the Photos app while queued would otherwise count as left to back up.
             env.engine.dropDeletedQueuedItems()
             let counts = (try? env.store.counts()) ?? [:]
-            // Without automatic backup, only picked items are "left to back up"; older queued ones count as not in the cloud.
             let queued = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
-            let activeQueue = Prefs.autoBackup ? queued.count : queued.filter { $0.chosen == true }.count
-            let idleQueue = queued.count - activeQueue
+            let failedItems = (try? env.store.items(status: .failed)) ?? []
+            let autoBackup = Prefs.autoBackup
             let all = (try? env.store.items(status: .backedUp)) ?? []
-            var onDevice = 0, notQueued = 0, cloudOnly = 0
+            var onDevice = 0, cloudOnly = 0
+            var work: BackupCounts
             if DemoMode.isActive {
                 // App Review demo: the sample items waiting for "Back up now" stand in for this iPhone's photos.
-                notQueued = DemoMode.pendingItems().count
-                onDevice = notQueued
+                work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup)
+                work.notQueued = DemoMode.pendingItems().count
+                onDevice = work.notQueued
                 cloudOnly = all.count
             } else if PhotoLibraryService.hasAccess {
                 let assets = env.photos.fetchAllAssets()
                 onDevice = assets.count
-                let known = (try? env.store.knownLocalIdentifiers()) ?? []
-                notQueued = env.photos.backupCandidates().filter { !known.contains($0.localIdentifier) }.count + idleQueue
+                work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: env.photos.backupCandidates().map(\.localIdentifier),
+                                            known: (try? env.store.knownLocalIdentifiers()) ?? [],
+                                            offBackup: (try? env.store.offBackupLocalIdentifiers()) ?? [], autoBackup: autoBackup)
                 let present = env.photos.existingIdentifiers(all.compactMap(\.localIdentifier))
                 cloudOnly = all.filter { $0.localIdentifier.map { !present.contains($0) } ?? true }.count
             } else {
+                work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup)
                 cloudOnly = all.count
             }
-            let (onDeviceCount, notQueuedCount, cloudOnlyCount) = (onDevice, notQueued, cloudOnly)
+            let (onDeviceCount, cloudOnlyCount, result) = (onDevice, cloudOnly, work)
             await MainActor.run {
                 self.backedUp = counts[.backedUp] ?? 0
-                self.pending = activeQueue + (Prefs.autoBackup ? notQueuedCount : 0)
-                self.failed = counts[.failed] ?? 0
+                self.pending = result.pending(autoBackup: autoBackup)
+                self.failed = result.failed
+                self.retryable = result.retryable
                 self.cloudOnly = cloudOnlyCount
                 self.onDevice = onDeviceCount
-                self.notQueued = notQueuedCount
+                self.notQueued = result.notQueued
+                self.left = result.left
             }
         }
     }
@@ -90,10 +99,22 @@ struct BackupDashboardView: View {
                         Button(role: .destructive) {
                             Haptics.tap()
                             AppEnvironment.shared.engine.pause()
+                            ToastCenter.shared.show(.info, "Pausing the backup")
                         } label: {
                             Label("Pause backup", systemImage: "pause.circle.fill").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
+                        .listRowSeparator(.hidden)
+                    } else if activity.isStarting {
+                        Button {} label: {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Starting backup…")
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(true)
                         .listRowSeparator(.hidden)
                     } else if stats.pending > 0 || stats.notQueued > 0 {
                         Button {
@@ -109,7 +130,7 @@ struct BackupDashboardView: View {
                             Label("Paused. Shortcuts and overnight backups won't run until you resume.", systemImage: "pause.circle")
                                 .font(.footnote).foregroundStyle(.orange)
                         }
-                    } else if stats.failed > 0 {
+                    } else if stats.retryable > 0 {
                         Button {
                             Haptics.tap()
                             Task {
@@ -117,7 +138,7 @@ struct BackupDashboardView: View {
                                 ContinuedBackup.start()
                             }
                         } label: {
-                            Label("Retry \(stats.failed) failed", systemImage: "arrow.clockwise")
+                            Label("Retry \(stats.retryable) failed", systemImage: "arrow.clockwise")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
@@ -209,8 +230,9 @@ struct BackupDashboardView: View {
                     NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
                     #endif
                     Button {
+                        Haptics.tap()
                         Task {
-                            _ = try? await AppEnvironment.shared.library.scan(full: true)
+                            await LibraryRescan.run()
                             stats.refresh()
                         }
                     } label: { Label("Re-scan the Telegram library", systemImage: "arrow.triangle.2.circlepath") }
@@ -287,18 +309,33 @@ struct BackupDashboardView: View {
 /// Every failed item with its reason, and a Retry button. No silent failures (#22).
 struct FailedItemsView: View {
     @State private var items: [MediaItem] = []
+    @State private var confirmingStranded = false
+    @State private var alert: GalleryAlert?
+
+    private var stranded: [MediaItem] { items.filter(\.isStrandedInCloud) }
 
     var body: some View {
         Form {
             if !items.isEmpty {
-                Section {
-                    Button {
-                        Task {
-                            await Task.detached { AppEnvironment.shared.engine.retryFailed() }.value
-                            await load()
-                            ContinuedBackup.start()
+                if stranded.count < items.count {
+                    Section {
+                        Button {
+                            Task {
+                                await Task.detached { AppEnvironment.shared.engine.retryFailed() }.value
+                                await load()
+                                ContinuedBackup.start()
+                            }
+                        } label: { Label("Retry all failed", systemImage: "arrow.clockwise") }
+                    }
+                }
+                if !stranded.isEmpty {
+                    Section {
+                        Button(role: .destructive) { confirmingStranded = true } label: {
+                            Label("Move \(stranded.count) to Recently Deleted", systemImage: "trash")
                         }
-                    } label: { Label("Retry all failed", systemImage: "arrow.clockwise") }
+                    } footer: {
+                        Text("Part of \(stranded.count == 1 ? "this item is" : "these items are") missing from your Telegram library, and \(stranded.count == 1 ? "it isn't" : "they aren't") on this \(Device.name). Back up from the device that has \(stranded.count == 1 ? "it" : "them"), or delete what's left.")
+                    }
                 }
                 Section("\(items.count) failed") {
                     ForEach(items) { item in
@@ -306,7 +343,7 @@ struct FailedItemsView: View {
                             FailedThumbnail(localIdentifier: item.localIdentifier)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(item.filename).lineLimit(1)
-                                Text(item.lastError ?? "Unknown error").font(.caption).foregroundStyle(.red)
+                                Text(item.isStrandedInCloud ? "Incomplete in your Telegram library" : item.lastError ?? "Unknown error").font(.caption).foregroundStyle(.red)
                                 Text("\(Format.date(item.creationDate, style: .medium, time: .none)) · \(item.attempts) attempt(s)")
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
@@ -335,6 +372,20 @@ struct FailedItemsView: View {
         }
         .navigationTitle("Failed Uploads")
         .task { await load() }
+        .confirmationDialog("Move \(stranded.count) incomplete item\(stranded.count == 1 ? "" : "s") to Recently Deleted?", isPresented: $confirmingStranded, titleVisibility: .visible) {
+            Button("Move to Recently Deleted", role: .destructive) {
+                let targets = stranded
+                Task {
+                    do { try await GalleryActions.deleteFromCloud(targets) } catch {
+                        alert = GalleryAlert(title: "Couldn't delete", message: error.localizedDescription)
+                    }
+                    await load()
+                }
+            }
+        } message: {
+            Text("What's left of them stays there for 30 days, then it's deleted from your Telegram library.")
+        }
+        .alert(item: $alert) { Alert(title: Text($0.title), message: Text($0.message)) }
     }
 
     /// Off the main thread: the store can be busy with upload checkpoints.

@@ -10,7 +10,7 @@ final class AppLog: @unchecked Sendable {
     enum Level: String { case info = "INFO", warn = "WARN", error = "ERROR" }
 
     private let queue = DispatchQueue(label: "lelvo.log")
-    private let osLog = Logger(subsystem: "com.shahil-kv.lelvo", category: "app")
+    private let osLog = Logger(subsystem: "app.lelvo", category: "app")
     private let maxBytes = 1_000_000
     let fileURL: URL
     private let formatter: ISO8601DateFormatter = {
@@ -101,7 +101,7 @@ enum AppPaths {
     private static func scoped(_ directory: FileManager.SearchPathDirectory) -> URL {
         let base = FileManager.default.urls(for: directory, in: .userDomainMask)[0]
         #if os(macOS)
-        let dir = base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.shahil-kv.lelvo.mac", isDirectory: true)
+        let dir = base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "app.lelvo.mac", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
         #else

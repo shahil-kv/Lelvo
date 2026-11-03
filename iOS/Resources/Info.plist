@@ -4,9 +4,9 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.shahil-kv.lelvo.backup.processing</string>
-		<string>com.shahil-kv.lelvo.index.refresh</string>
-		<string>com.shahil-kv.lelvo.backup.continued</string>
+		<string>app.lelvo.ios.backup.processing</string>
+		<string>app.lelvo.ios.index.refresh</string>
+		<string>app.lelvo.ios.backup.continued</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>

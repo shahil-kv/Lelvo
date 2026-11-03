@@ -15,7 +15,7 @@ Simulator and unit tests miss real bugs (stalls, TDLib timing). The app log on t
    seek to the middle, switch to mobile data").
 6. Copy the log out of the app container (`Library/Application Support/Logs/lelvo.log`) with
    `xcrun devicectl device copy from --device <id> --domain-type appDataContainer --domain-identifier <bundle id> --source "Library/Application Support/Logs/lelvo.log" --destination build/devicelogs/lelvo.log`
-   (bundle id `com.shahil-kv.lelvo`), then `grep` the relevant lines. Don't dump the whole log.
+   (bundle id `app.lelvo.ios`), then `grep` the relevant lines. Don't dump the whole log.
 7. If the bug fails silently, add an `appLog` line for it so the next report shows it.
 
 Report what the log showed, with the lines that prove the fix. Push only after the owner confirms.

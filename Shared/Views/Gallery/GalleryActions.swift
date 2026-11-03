@@ -61,50 +61,123 @@ enum GalleryActions {
     /// messages stay in the channel for `CloudTrash.retention`, so a mistaken delete can be undone.
     static func deleteFromCloud(_ items: [MediaItem]) async throws {
         let env = AppEnvironment.shared
+        let telegram = await env.td.telegramTime()
+        logClockGap(telegram)
+        let deletedAt = CloudTrash.deletedAt(device: Date(), telegram: telegram)
+        var moved = 0
         for item in items {
-            try env.store.update(id: item.id) { CloudTrash.trash(&$0) }
+            guard try env.store.changeTrashState(id: item.id, op: .delete, chatId: TrashSync.shared.noteChatId, { CloudTrash.trash(&$0, now: deletedAt) })?.status == .trashed else { continue }
+            moved += 1
             appLog("Moved \(item.filename) to Recently Deleted")
         }
+        if moved > 0 { TrashSync.shared.schedule() }
     }
 
-    /// Recovers the items, except ones whose messages are being deleted right now. Returns how many came back.
+    /// How far this device's clock is from Telegram's: explains a wrong "days left", and shows the clock check works.
+    private static func logClockGap(_ telegram: Date?) {
+        guard let telegram else { appLog("Telegram's time isn't known yet"); return }
+        appLog("Telegram's time differs from this device by \(Int(Date().timeIntervalSince(telegram))) s")
+    }
+
+    /// Recovers the items, except ones whose messages are being deleted right now or are already gone. Needs a connection:
+    /// another device may have deleted them for good, and only Telegram can tell. Returns how many came back.
     @discardableResult
-    static func recover(_ items: [MediaItem]) throws -> Int {
+    static func recover(_ items: [MediaItem]) async throws -> Int {
         let env = AppEnvironment.shared
-        var recovered = 0
-        for item in items {
+        if !DemoMode.isActive {
+            guard await env.td.telegramTime(timeout: 10) != nil else { throw TrashError.needsConnection }
+            // A connection lost from here on could wait for ever, with the screen busy.
+            do { try await withDeadline(seconds: 120) { try await env.library.catchUp() } } catch { throw TrashError.needsConnection }
+        }
+        var recovered = 0, gone = 0, busy = 0
+        var back = 0
+        let current = try items.compactMap { try env.store.item(id: $0.id) }
+        gone += items.count - current.count
+        // Recovered on another device in the meantime.
+        recovered += current.filter { $0.status != .trashed }.count
+        let trashed = current.filter { $0.status == .trashed }
+        var inChannel = Set<Int64>()
+        if !DemoMode.isActive {
+            // Without a library nothing is known about these messages, which mustn't read as "they're gone".
+            guard let chatId = env.library.chatId else { throw TrashError.needsConnection }
+            let ids = trashed.flatMap(\.allMessageIds)
+            do { inChannel = try await withDeadline(seconds: 120) { try await env.td.existingMessages(chatId: chatId, ids: ids) } }
+            catch { throw TrashError.needsConnection }
+        }
+        let noteChat = TrashSync.shared.noteChatId
+        for item in trashed {
+            if !DemoMode.isActive, TrashLog.allMessagesGone(item, existing: inChannel) {
+                try env.store.forgetDeletedItem(item)
+                gone += 1
+                continue
+            }
             // Holding the gate means a deletion can't start on this item while it's recovered, and vice versa.
             let done = try TrashGate.shared.ifNotDeleting(item.id) {
-                try env.store.update(id: item.id) { CloudTrash.recover(&$0) }
+                try env.store.changeTrashState(id: item.id, op: .recover, chatId: noteChat) { CloudTrash.recover(&$0) }
             }
-            if done { recovered += 1 }
+            if done {
+                back += 1
+                recovered += 1
+            } else {
+                busy += 1
+            }
         }
-        appLog("Recovered \(recovered) items from Recently Deleted")
-        if recovered < items.count { throw TrashError.alreadyDeleting }
+        if back > 0 { TrashSync.shared.schedule() }
+        appLog("Recovered \(recovered) items from Recently Deleted, \(gone) were already gone")
+        if gone > 0 { throw TrashError.alreadyGone(gone) }
+        if busy > 0 { throw TrashError.alreadyDeleting }
         return recovered
     }
 
     /// Deletes every message of the trashed items (all resources and parts) from the channel. Only items still in
-    /// Recently Deleted when their turn comes can go (`onlyIfExpired` for the 30-day cleanup); anything recovered
-    /// meanwhile is left alone.
-    static func deletePermanently(_ items: [MediaItem], onlyIfExpired: Bool = false) async throws {
+    /// Recently Deleted when their turn comes can go (`expiredBy` for the 30-day cleanup: only items expired at that
+    /// time); anything recovered meanwhile is left alone. Goes in batches, paced like uploads.
+    static func deletePermanently(_ items: [MediaItem], expiredBy: Date? = nil) async throws {
         let env = AppEnvironment.shared
         guard !items.isEmpty else { return }
         if !DemoMode.isActive { try await env.td.waitUntilReady(timeout: 20) }
-        for item in items {
-            // Re-read under the gate: the user may have recovered it since the list was made.
-            guard let current = TrashGate.shared.claim(item.id, {
-                (try? env.store.item(id: item.id)).flatMap { $0.status == .trashed && (!onlyIfExpired || CloudTrash.isExpired($0)) ? $0 : nil }
-            }) else { continue }
-            defer { TrashGate.shared.release(item.id) }
-            if !DemoMode.isActive {
-                guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
-                try await env.td.deleteMessages(chatId: chatId, ids: current.allMessageIds)
+        for (index, batch) in CloudTrash.deleteBatches(items).enumerated() {
+            if index > 0, !DemoMode.isActive { try await Task.sleep(nanoseconds: UInt64(BackupEngine.uploadSpacing * 1_000_000_000)) }
+            while true {
+                do {
+                    try await deleteBatch(batch, expiredBy: expiredBy)
+                    break
+                } catch {
+                    // The gate is released while waiting, so Recover still works, and the batch is checked again afterwards.
+                    guard case .floodWait(let seconds)? = (error as? TDServiceError)?.kind else { throw error }
+                    try await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+                }
             }
-            try env.store.delete(id: current.id)
-            env.thumbnailCache.remove(CloudMediaService.thumbnailKey(current))
-            appLog("Deleted \(current.filename) from cloud")
         }
+        // Nothing stays behind: the notes for these photos go with them.
+        await TrashSync.shared.removeFinishedNotes()
+    }
+
+    private static func deleteBatch(_ batch: [MediaItem], expiredBy: Date?) async throws {
+        let env = AppEnvironment.shared
+        // Re-read under the gate: the user may have recovered these since the list was made.
+        let claimed: [MediaItem] = batch.compactMap { item in
+            TrashGate.shared.claim(item.id) {
+                (try? env.store.item(id: item.id)).flatMap { current in
+                    guard current.status == .trashed else { return nil }
+                    if let expiredBy, !CloudTrash.isExpired(current, now: expiredBy) { return nil }
+                    return current
+                }
+            }
+        }
+        defer { claimed.forEach { TrashGate.shared.release($0.id) } }
+        guard !claimed.isEmpty else { return }
+        if !DemoMode.isActive {
+            guard let chatId = env.library.chatId else { throw LibraryError.noLibrary }
+            try await env.td.deleteMessages(chatId: chatId, ids: claimed.flatMap(\.allMessageIds))
+        }
+        for item in claimed {
+            try env.store.forgetDeletedItem(item)
+            env.thumbnailCache.remove(CloudMediaService.thumbnailKey(item))
+            appLog("Deleted \(item.filename) from cloud")
+        }
+        // A delete note that hadn't gone yet has nothing left to say.
+        try env.store.clearTrashChanges(.delete, itemIds: claimed.map(\.id))
     }
 
     /// Items in Recently Deleted, most recently deleted first.
@@ -113,18 +186,50 @@ enum GalleryActions {
             .sorted { ($0.trashedAt ?? .distantPast) > ($1.trashedAt ?? .distantPast) }
     }
 
-    /// Deletes items whose 30 days in Recently Deleted are over. Quietly retried next time on failure.
+    /// Deletes items whose 30 days in Recently Deleted are over. Keeps everything unless Telegram's time is known, this
+    /// device is up to date, and a note in the channel still says the item was deleted. Quietly retried next time on failure.
     static func emptyExpiredTrash() async {
-        let expired = trashedItems().filter { CloudTrash.isExpired($0) }
-        guard !expired.isEmpty, AppEnvironment.shared.isConfigured || DemoMode.isActive else { return }
-        do { try await deletePermanently(expired, onlyIfExpired: true) }
-        catch { AppLog.shared.warn("Emptying Recently Deleted failed: \(error.localizedDescription)") }
+        let env = AppEnvironment.shared
+        if DemoMode.isActive {
+            try? await deletePermanently(trashedItems().filter { CloudTrash.isExpired($0) }, expiredBy: Date())
+            return
+        }
+        guard env.isConfigured, env.library.isUnlocked else { return }
+        // Nothing due by this device's clock means nothing is due at all: the earlier clock decides.
+        guard trashedItems().contains(where: { CloudTrash.isExpired($0) }) else { return }
+        let telegram = await env.td.telegramTime(timeout: 30)
+        logClockGap(telegram)
+        guard let now = CloudTrash.expiryClock(device: Date(), telegram: telegram) else {
+            appLog("Kept Recently Deleted as it is: Telegram's time isn't known yet")
+            return
+        }
+        do {
+            // A recover on another device must be seen before anything goes. Items no note keeps here anymore follow Telegram.
+            try await env.library.catchUp()
+            guard !env.library.needsRepairScan, let chatId = env.library.chatId else { return }
+            try await TrashSync.shared.followTelegram()
+            let newest = TrashLog.latest(try env.store.trashNotes())
+            let waiting = Set(try env.store.queuedTrashChanges(chatId: chatId).values.flatMap { $0 })
+            let due = trashedItems().filter { CloudTrash.isExpired($0, now: now) && (!TrashSync.sendsNotes || TrashLog.mayPurge($0, latest: newest[$0.id], waiting: waiting)) }
+            try await deletePermanently(due, expiredBy: now)
+        } catch {
+            AppLog.shared.warn("Emptying Recently Deleted failed: \(error.localizedDescription)")
+        }
     }
 }
 
 enum TrashError: LocalizedError {
     case alreadyDeleting
-    var errorDescription: String? { "Some items were already being removed from your Telegram library and couldn't be recovered." }
+    case alreadyGone(Int)
+    case needsConnection
+    var errorDescription: String? {
+        switch self {
+        case .alreadyDeleting: return "Some items were already being removed from your Telegram library and couldn't be recovered."
+        case .alreadyGone(let count): return count == 1 ? "This photo was already deleted from your Telegram library on another device, so it can't be recovered."
+            : "\(count) photos were already deleted from your Telegram library on another device, so they can't be recovered."
+        case .needsConnection: return "Couldn't reach Telegram. Check your connection and try again."
+        }
+    }
 }
 
 /// Keeps recovering and permanently deleting the same item from overlapping (the 30-day cleanup runs in the

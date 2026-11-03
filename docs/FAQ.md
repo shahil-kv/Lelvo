@@ -291,7 +291,7 @@ account. With automatic backup on, it checks every hour while Lelvo is open, eve
 Until releases are notarized, right-click the app in Applications → **Open** → **Open**, once.
 
 **Where does it keep its files?**
-`~/Library/Application Support/com.shahil-kv.lelvo.mac` and `~/Library/Caches/com.shahil-kv.lelvo.mac`.
+`~/Library/Application Support/app.lelvo.mac` and `~/Library/Caches/app.lelvo.mac`.
 
 ---
 

@@ -83,7 +83,7 @@ publish their own code anyway, so the project keeps every contribution publishab
 ### 1.2 Name and branding 🔧📝
 
 - ✅ Name: **Lelvo** (24 October 2026). No app of that name on the US, Indian or UK App Store; replaces the
-      upstream name CloudGallery everywhere: app, bundle IDs (`com.shahil-kv.lelvo`, `.mac`), repository.
+      upstream name CloudGallery everywhere: app, bundle IDs (`app.lelvo.ios`, `.mac`), repository.
 - [ ] 📝 Search the name in the trademark databases before submitting (class 9): [USPTO](https://tmsearch.uspto.gov),
       [WIPO Global Brand Database](https://branddb.wipo.int), [IP India](https://ipindiaonline.gov.in/eregister/).
 - [ ] 📝 Reserve **Lelvo** in App Store Connect as soon as the developer account exists (Phase 5).
@@ -291,11 +291,11 @@ What the policy covers, for reference:
 
 ### 5.1 Create the app
 
-- [ ] Register the bundle ID `com.shahil-kv.lelvo` in developer.apple.com → Identifiers. Enable only the
+- [ ] Register the bundle ID `app.lelvo.ios` in developer.apple.com → Identifiers. Enable only the
       capabilities the app uses (Background Modes are Info.plist-only; no Push, no iCloud unless used).
 - [ ] App Store Connect → My Apps → **+** → New App: platform iOS, the new name, primary language, bundle ID, SKU
       (e.g. `photobackup-ios-1`).
-- [ ] Separate Mac app (`com.shahil-kv.lelvo.mac`): a separate submission later with its own checklist run
+- [ ] Separate Mac app (`app.lelvo.mac`): a separate submission later with its own checklist run
       (sandbox entitlements, notarization not needed for the Mac App Store). Ship iOS first.
 
 ### 5.2 App information
