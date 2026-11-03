@@ -69,12 +69,18 @@ final class NativeGridTests: XCTestCase {
 
     func testLongPressStartsSelectingAndSwipeSelects() {
         waitForGrid()
-        grid.cells.element(boundBy: 0).press(forDuration: 0.6)
+        // Four tiles in one row: the demo library's dates follow the clock, so a new day can start after any tile.
+        let frames = (0..<30).map { grid.cells.element(boundBy: $0) }.prefix { $0.exists }.map(\.frame)
+        let rowStart = frames.indices.first { i in
+            i + 3 < frames.count && frames[i + 3].minY == frames[i].minY
+        }
+        guard let rowStart else { return XCTFail("A row of four tiles should be on screen") }
+        grid.cells.element(boundBy: rowStart).press(forDuration: 0.6)
         XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 5), "Long-press starts selecting")
         XCTAssertTrue(app.staticTexts["1"].waitForExistence(timeout: 5))
         // Photos' swipe-to-select: drag across a row.
-        let from = grid.cells.element(boundBy: 1).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let to = grid.cells.element(boundBy: 3).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let from = grid.cells.element(boundBy: rowStart + 1).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let to = grid.cells.element(boundBy: rowStart + 3).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         from.press(forDuration: 0.05, thenDragTo: to)
         XCTAssertTrue(app.staticTexts["4"].waitForExistence(timeout: 5), "The first tile and the three swiped over")
         shot("07-swipe-select")
@@ -84,16 +90,31 @@ final class NativeGridTests: XCTestCase {
     func testSwipeSelectsEveryTileBetweenAcrossRows() {
         waitForGrid()
         app.buttons["Select"].tap()
-        // Mostly sideways, so it selects instead of scrolling; ends one row down, three tiles along.
-        let from = grid.cells.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let to = grid.cells.element(boundBy: 7).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        // Ends at the far end of the next row, so the drag is mostly sideways and selects instead of scrolling. That needs a
+        // next row of at least three tiles: the demo library's dates follow the clock, so which tile starts a new day changes.
+        let frames = (0..<30).map { grid.cells.element(boundBy: $0) }.prefix { $0.exists }.map(\.frame)
+        var start: Int?, nextRow = 0, last = 0
+        for i in frames.indices where i == 0 || frames[i].minY != frames[i - 1].minY {
+            let row = frames[i...].prefix { $0.minY == frames[i].minY }.count
+            let next = frames[(i + row)...].prefix { $0.minY == frames[i + row].minY }.count
+            if i + row < frames.count, next >= 3, i + row + next < frames.count {
+                start = i
+                nextRow = i + row
+                last = i + row + next - 1
+                break
+            }
+        }
+        guard let start else { return XCTFail("Two rows to swipe across should be on screen") }
+        let from = grid.cells.element(boundBy: start).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let to = grid.cells.element(boundBy: last).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         from.press(forDuration: 0.05, thenDragTo: to)
-        XCTAssertTrue(app.staticTexts["8"].waitForExistence(timeout: 5), "Every tile between, in timeline order, like Photos")
+        let count = last - start + 1
+        XCTAssertTrue(app.staticTexts["\(count)"].waitForExistence(timeout: 5), "Every tile between, in timeline order, like Photos")
         shot("07b-swipe-across-rows")
-        // Starting on a selected tile deselects.
-        let back = grid.cells.element(boundBy: 1).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        back.press(forDuration: 0.05, thenDragTo: grid.cells.element(boundBy: 2).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
-        XCTAssertTrue(app.staticTexts["6"].waitForExistence(timeout: 5), "A swipe from a selected tile deselects")
+        // Starting on a selected tile deselects. Two tiles side by side, as a short diagonal would scroll.
+        let back = grid.cells.element(boundBy: nextRow).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        back.press(forDuration: 0.05, thenDragTo: grid.cells.element(boundBy: nextRow + 1).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        XCTAssertTrue(app.staticTexts["\(count - 2)"].waitForExistence(timeout: 5), "A swipe from a selected tile deselects")
         app.buttons["Done"].tap()
     }
 
