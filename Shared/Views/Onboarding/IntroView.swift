@@ -125,9 +125,9 @@ struct IntroView: View {
             }
 
             if current == .hook {
-                // Telegram API terms 2.2: say the app uses the Telegram API (and isn't Telegram's own).
-                Text("Uses the Telegram API. Not affiliated with Telegram.")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                // Telegram API terms 2.2 ask for this to be prominent in the intro, so it can't be small tertiary text.
+                Text("Lelvo uses the Telegram API and is part of the Telegram ecosystem. Not affiliated with Telegram.")
+                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
         }
         .padding(.horizontal, 24)

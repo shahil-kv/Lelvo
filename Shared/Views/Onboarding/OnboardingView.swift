@@ -987,7 +987,7 @@ private struct PhoneScreen: View {
 
     var body: some View {
         OnboardingPage(icon: "phone.fill", title: "Your phone number",
-                       subtitle: "Use the number of your Telegram account. We'll send a code to your Telegram app.",
+                       subtitle: "Use the number of your Telegram account. It goes only to Telegram, which sends a code to your Telegram app.",
                        m: m, button: .init(title: "Continue", enabled: m.phoneIsValid) { m.submitPhone() }) {
             VStack(spacing: 0) {
                 Button { pickingCountry = true } label: {
