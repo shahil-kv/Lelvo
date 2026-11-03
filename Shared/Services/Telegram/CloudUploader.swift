@@ -27,6 +27,8 @@ struct NotEnoughSpaceError: LocalizedError {
 /// Only one part is on disk at a time next to the export: encrypted files are encrypted straight into each part.
 final class CloudUploader: @unchecked Sendable {
     private let td: TDService
+    /// Runs right before each part is sent.
+    var beforeSend: (@Sendable () async throws -> Void)?
     private let library: LibraryService
     private let staging: URL
 
@@ -110,6 +112,8 @@ final class CloudUploader: @unchecked Sendable {
             let resumePoint = encryptor?.resumePoint(plaintextHash: resource.meta.h)
 
             let base = Int64(index) * layout.partSize
+            // Exporting and encrypting can take minutes: a FLOOD_WAIT may have started since this item was picked up.
+            try await beforeSend?()
             let message = try await td.sendDocument(chatId: chatId, fileURL: partURL, caption: caption,
                                                     thumbnail: index == 0 && !encrypted ? thumbnail : nil) { sent, _ in
                 progress(base + sent, streamSize)

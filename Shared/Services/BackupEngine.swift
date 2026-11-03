@@ -557,6 +557,7 @@ final class BackupEngine: @unchecked Sendable {
         if !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
             await completeEarlierBackups(deadline: deadline, isCancelled: isCancelled)
             await makeEarlierScreenCopies(deadline: deadline, isCancelled: isCancelled)
+            await waitForFloodPause(isCancelled: isCancelled)
             await env.library.writeSnapshotIfDue()
         }
 
@@ -660,6 +661,13 @@ final class BackupEngine: @unchecked Sendable {
             reason = still
         }
         return reason
+    }
+
+    /// Holds a send until any `FLOOD_WAIT` is over. Other uploads wait for the same pause, so keeping the upload slot
+    /// meanwhile doesn't hold anything back.
+    func waitBeforeSending() async throws {
+        await waitForFloodPause(isCancelled: { Task.isCancelled || isPauseRequested })
+        if Task.isCancelled || isPauseRequested { throw CancellationError() }
     }
 
     private func waitForFloodPause(isCancelled: () -> Bool) async {
