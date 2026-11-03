@@ -9,6 +9,8 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   whole library there, up to date, in Year/Month folders. Nothing is ever deleted from it, and an unplugged drive
   just pauses until you connect it again.
 - **New icon:** a sunset photo folded into an L, with a padlock for your private library.
+- **Swipe to select, like Photos (iPhone):** in Select mode, swipe sideways across your photos to select everything
+  between, across rows. Hold near the top or bottom edge to keep scrolling. Starting on a selected photo deselects.
 
 ## 0.2.0, 2026-10-31
 

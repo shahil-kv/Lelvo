@@ -3,7 +3,7 @@ import UIKit
 import LelvoCore
 
 /// The iPhone photo grid on UICollectionView, like Photos: recycled cells, thumbnails loaded ahead of the scroll,
-/// pinch to change columns, Photos' own swipe-to-select, long-press to start selecting, and the viewer opening
+/// pinch to change columns, swipe-to-select as in Photos, long-press to start selecting, and the viewer opening
 /// with the system zoom transition from the tapped tile (iOS 18+). Everything around it stays SwiftUI.
 struct NativePhotoGrid: UIViewRepresentable {
     let entries: [GalleryEntry]
@@ -44,6 +44,12 @@ struct NativePhotoGrid: UIViewRepresentable {
         let press = UILongPressGestureRecognizer(target: c, action: #selector(Coordinator.longPressed(_:)))
         press.minimumPressDuration = 0.4
         cv.addGestureRecognizer(press)
+        // The grid scrolls only once a swipe across the tiles has been ruled out.
+        let swipe = UIPanGestureRecognizer(target: c, action: #selector(Coordinator.swiped(_:)))
+        swipe.maximumNumberOfTouches = 1
+        swipe.delegate = c
+        cv.addGestureRecognizer(swipe)
+        cv.panGestureRecognizer.require(toFail: swipe)
         c.attach(cv)
         return cv
     }
@@ -55,7 +61,7 @@ struct NativePhotoGrid: UIViewRepresentable {
     // MARK: - Coordinator
 
     @MainActor
-    final class Coordinator: NSObject, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching {
+    final class Coordinator: NSObject, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching, UIGestureRecognizerDelegate {
         var parent: NativePhotoGrid
         private weak var collectionView: UICollectionView?
         private var dataSource: UICollectionViewDiffableDataSource<String, String>?
@@ -113,15 +119,17 @@ struct NativePhotoGrid: UIViewRepresentable {
         private func configure(_ cell: PhotoCell, _ entry: GalleryEntry) {
             let side = cell.bounds.width > 0 ? cell.bounds.width : (collectionView?.bounds.width ?? 390) / CGFloat(max(appliedColumns, 1))
             cell.configure(entry, side: side, pixels: ThumbnailPipeline.bucket(side * (collectionView?.traitCollection.displayScale ?? 3)),
-                           selecting: parent.selecting, selected: parent.selection.contains(entry.id))
+                           selecting: parent.selecting, selected: (swipe?.selection ?? parent.selection).contains(entry.id))
         }
 
         // MARK: Updates from SwiftUI
 
         func update(_ p: NativePhotoGrid) {
             parent = p
-            // Mid-pinch (fingers down or settling) changes wait until it lands.
-            guard let cv = collectionView, !pinchActive, settleLink == nil else { return }
+            // Select mode ended under the finger (Done, or an action finished): the swipe must not bring the selection back.
+            if swipe != nil, !p.selecting { endSwipe(publish: false); return }
+            // Mid-pinch (fingers down or settling) or mid-swipe, changes wait until it lands.
+            guard let cv = collectionView, !pinchActive, settleLink == nil, swipe == nil else { return }
             if p.columns != appliedColumns {
                 // Columns picked from the menu: the tile at the top stays where it is.
                 let keep = screenPosition(of: topVisibleItem(cv), in: cv)
@@ -264,11 +272,6 @@ struct NativePhotoGrid: UIViewRepresentable {
             reconfigure(indexPath)
         }
 
-        /// Photos' swipe-to-select: drag across tiles (one finger while selecting, or two fingers any time).
-        func collectionView(_ collectionView: UICollectionView, shouldBeginMultipleSelectionInteractionAt indexPath: IndexPath) -> Bool { parent.selecting }
-
-        func collectionView(_ collectionView: UICollectionView, didBeginMultipleSelectionInteractionAt indexPath: IndexPath) {}
-
         private func reconfigure(_ ip: IndexPath) {
             guard let cell = collectionView?.cellForItem(at: ip) as? PhotoCell, let id = dataSource?.itemIdentifier(for: ip), let e = entries[id] else { return }
             configure(cell, e)
@@ -278,6 +281,118 @@ struct NativePhotoGrid: UIViewRepresentable {
             guard g.state == .began, !parent.selecting, let cv = collectionView,
                   let ip = cv.indexPathForItem(at: g.location(in: cv)), let id = dataSource?.itemIdentifier(for: ip), let e = entries[id] else { return }
             parent.onLongPress(e)
+        }
+
+        // MARK: Swipe to select, like Photos
+
+        /// A sideways swipe selects, an up-and-down one scrolls. Once it has begun the finger can go anywhere, and at the
+        /// top or bottom edge the grid scrolls under it. Tiles change at once; SwiftUI (the whole screen, and a walk over
+        /// every entry for the selection bar) hears about it a few times a second, because every tile would drop frames.
+        private var swipe: SwipeSelection?
+        private var swipeSectionStarts: [Int] = []
+        private var swipeLink: CADisplayLink?
+        private var swipeLastTick: CFTimeInterval = 0
+        private var swipePublished: CFTimeInterval = 0
+        private var swipeUnpublished = false
+        private var swipeStartY: CGFloat = 0
+        private var swipeCanScroll = false
+        private weak var swipePan: UIPanGestureRecognizer?
+
+        func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+            guard let pan = g as? UIPanGestureRecognizer, let cv = collectionView, parent.selecting, !pinchActive, settleLink == nil else { return false }
+            let v = pan.velocity(in: cv)
+            guard abs(v.x) > abs(v.y) else { return false }
+            return cv.indexPathForItem(at: swipeStart(pan, in: cv)) != nil
+        }
+
+        /// Where the finger came down: the recogniser only starts after it has moved a little.
+        private func swipeStart(_ pan: UIPanGestureRecognizer, in cv: UICollectionView) -> CGPoint {
+            let p = pan.location(in: cv), t = pan.translation(in: cv)
+            return CGPoint(x: p.x - t.x, y: p.y - t.y)
+        }
+
+        @objc func swiped(_ g: UIPanGestureRecognizer) {
+            guard let cv = collectionView else { return }
+            switch g.state {
+            case .began:
+                beginSwipe(g, in: cv)
+            case .ended:
+                moveSwipe(to: g.location(in: cv), in: cv)
+                endSwipe(publish: true)
+            case .cancelled, .failed:
+                endSwipe(publish: true)
+            default:
+                break // The display link follows the finger, also while it rests and the grid scrolls under it.
+            }
+        }
+
+        private func beginSwipe(_ g: UIPanGestureRecognizer, in cv: UICollectionView) {
+            guard let ds = dataSource, let ip = cv.indexPathForItem(at: swipeStart(g, in: cv)) else { return }
+            let snapshot = ds.snapshot()
+            var total = 0
+            swipeSectionStarts = snapshot.sectionIdentifiers.map { id in
+                defer { total += snapshot.numberOfItems(inSection: id) }
+                return total
+            }
+            swipe = SwipeSelection(order: snapshot.itemIdentifiers, anchor: swipeSectionStarts[ip.section] + ip.item, selection: parent.selection)
+            swipePan = g
+            swipeStartY = g.location(in: cv).y - cv.contentOffset.y
+            swipeCanScroll = false
+            swipeUnpublished = true
+            swipePublished = 0
+            swipeLastTick = CACurrentMediaTime()
+            reconfigure(ip)
+            moveSwipe(to: g.location(in: cv), in: cv)
+            Haptics.selection()
+            let link = CADisplayLink(target: self, selector: #selector(swipeTick(_:)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            link.add(to: .main, forMode: .common)
+            swipeLink = link
+        }
+
+        @objc private func swipeTick(_ link: CADisplayLink) {
+            guard let cv = collectionView, let pan = swipePan, swipe != nil else { return }
+            let now = CACurrentMediaTime()
+            let dt = min(1.0 / 30, now - swipeLastTick)
+            swipeLastTick = now
+            let fingerY = pan.location(in: cv).y - cv.contentOffset.y
+            // Starting near an edge must not scroll until the finger has really moved up or down.
+            if abs(fingerY - swipeStartY) > 24 { swipeCanScroll = true }
+            if swipeCanScroll {
+                let speed = SwipeSelection.autoScrollSpeed(fingerY: fingerY, top: cv.adjustedContentInset.top,
+                                                           bottom: cv.bounds.height - cv.adjustedContentInset.bottom)
+                if speed != 0 { setOffset(cv.contentOffset.y + speed * dt, in: cv) }
+            }
+            moveSwipe(to: pan.location(in: cv), in: cv)
+            if swipeUnpublished, now - swipePublished >= 0.1, let swipe {
+                swipeUnpublished = false
+                swipePublished = now
+                parent.selection = swipe.selection
+            }
+        }
+
+        private func moveSwipe(to point: CGPoint, in cv: UICollectionView) {
+            // Off the sides or over the bars still means the nearest tile on screen.
+            let visible = cv.bounds.inset(by: cv.adjustedContentInset)
+            let p = CGPoint(x: min(visible.maxX - 1, max(visible.minX + 1, point.x)), y: min(visible.maxY - 1, max(visible.minY + 1, point.y)))
+            // A header, or the gap at the end of a row: stay on the last tile.
+            guard let ip = cv.indexPathForItem(at: p), let start = swipeSectionStarts[safe: ip.section],
+                  let changed = swipe?.move(to: start + ip.item), !changed.isEmpty, let ds = dataSource else { return }
+            swipeUnpublished = true
+            let ids = Set(changed)
+            for ip in cv.indexPathsForVisibleItems {
+                if let id = ds.itemIdentifier(for: ip), ids.contains(id) { reconfigure(ip) }
+            }
+        }
+
+        private func endSwipe(publish: Bool) {
+            guard let finished = swipe else { return }
+            swipeLink?.invalidate()
+            swipeLink = nil
+            swipe = nil
+            swipeSectionStarts = []
+            if publish { parent.selection = finished.selection }
+            update(parent)
         }
 
         // MARK: Pinch to change columns, like Photos
