@@ -59,31 +59,103 @@ redirecting, because older builds still link to it.
 
 ## Your workflow, start to finish
 
-What's left is mostly yours (accounts, App Store Connect, testing on a device). In order:
+Do these in order and tick each one. The Phases below hold the details and the text to copy. This gives the app its
+best chance with the reviewer, but only Apple decides.
 
-1. **Join the Apple Developer Program** (Phase 0). Wait for the approval email (usually 1–2 days).
-2. **Telegram key for the App Store build:** create it on a spare Telegram account (Phase 0), put it in
-   `Config/Secrets.xcconfig`, and save it for CI:
-   `! gh secret set TD_API_ID -R shahil-kv/Lelvo` and `! gh secret set TD_API_HASH -R shahil-kv/Lelvo`.
-3. **Buy `lelvo.app`** and update the links (see above).
-4. **Trademark search** for "Lelvo" in class 9 (Phase 1.2).
-5. **App Store Connect:** register the bundle ID, create the app, fill in app information, age rating, privacy
-   label, trader status, URLs and listing text (Phase 5). All text is ready below; copy it in.
-6. **API key for uploads:** App Store Connect → Users and Access → Integrations → App Store Connect API → generate a
-   key with the *App Manager* role. Then save four secrets:
-   `! gh secret set APPLE_TEAM_ID -R shahil-kv/Lelvo`, `! gh secret set ASC_KEY_ID -R shahil-kv/Lelvo`,
-   `! gh secret set ASC_ISSUER_ID -R shahil-kv/Lelvo`, and the key file itself:
-   `! gh secret set ASC_KEY_P8 -R shahil-kv/Lelvo < ~/Downloads/AuthKey_XXXXXXXXXX.p8`.
-7. **First TestFlight build:** GitHub → Actions → Release → Run workflow from `main` (app: ios, channel: beta, version 1.0.0).
-   It archives, signs and uploads to App Store Connect; the build shows in TestFlight 10–30 minutes later.
-   (Or archive in Xcode: Product → Archive → Distribute → App Store Connect.)
-8. **Test the TestFlight build on your iPhone** (Phase 3.5 list), including the demo: sign out, enter
-   `+1 555 010 0199`, code `24680`.
-9. **Record the real-flow video** (Phase 2.2) and screenshots (Phase 5.5; the demo library gives clean photos).
-10. **Ask App Review to approve the demo mode** (Phase 2.1). Do this before any external TestFlight submission.
-11. **External TestFlight** with a few testers (Phase 6), then **submit for review** (Phase 7) with the review
-    notes from Phase 2.3.
-12. **After approval:** release manually and watch crashes for a week (Phase 9).
+### Stage A — Get the code onto `main`
+
+- [x] 1. Merge PR #80 (done 3 November 2026).
+- [ ] 2. Merge the App Store PR (`release/app-store-review`). The website's privacy page goes live with it.
+
+### Stage B — Accounts and keys
+
+- [ ] 3. Join the [Apple Developer Program](https://developer.apple.com/programs/) as an Individual ($99/year). Your
+      legal name is shown as the seller. Wait for the approval email (usually 1–2 days, sometimes longer).
+- [ ] 4. Create the Telegram key on a spare Telegram account (Phase 0). Put it in `Config/Secrets.xcconfig`, then run
+      `! gh secret set TD_API_ID -R shahil-kv/Lelvo` and `! gh secret set TD_API_HASH -R shahil-kv/Lelvo`.
+- [ ] 5. Keep that account active, and set its "If away for" time to the maximum (Phase 9).
+- [ ] 6. Buy `lelvo.app`, point it at the site, and update `AppLinks.privacyPolicy` and the Phase 4 URLs. Keep the old
+      address redirecting. Apple doesn't require this, so skip it if it would delay you, but the link is in the build.
+- [ ] 7. Search "Lelvo" in class 9 on WIPO and IP India (Phase 1.2).
+- [ ] 8. Confirm every merged contributor signed the CLA (Phase 1.1).
+- [ ] 9. Search the App Store on your iPhone for "Telegram storage", "Telegram backup" and "Telegram cloud". Note any
+      similar apps, and don't claim Lelvo is the first or only one.
+
+### Stage C — App Store Connect setup
+
+- [ ] 10. Register the bundle ID `app.lelvo.ios`, then create the app: name Lelvo, SKU `lelvo-ios-1` (Phase 5.1).
+- [ ] 11. Category Photo & Video, secondary Utilities. Content rights: yes, third-party content, and you have the rights
+      (Phase 5.2).
+- [ ] 12. Age rating questionnaire (Phase 5.2). Expected result: 4+.
+- [ ] 13. Price: Free. Availability: **switch off France** (Phase 3.6).
+- [ ] 14. Confirm whether the US encryption report applies to you (Phase 3.6).
+- [ ] 15. Choose EU trader status, or leave the EU out of v1 (Phase 5.2).
+- [ ] 16. App Privacy: declare phone number, photos or videos, and user ID, all App Functionality, linked, not tracking
+      (Phase 5.3). Add the Privacy Policy URL (Phase 4).
+- [ ] 17. Paste the subtitle, keywords, promotional text and description, and add the support and marketing URLs
+      (Phase 5.4). Keep the Telegram disclosure first in the description.
+- [ ] 18. Open all three URLs on a phone while signed out of GitHub.
+
+### Stage D — First build, tested by you (no Apple review)
+
+- [ ] 19. Make the upload key and save the four secrets (Phase 6 → RELEASING.md → TestFlight):
+      `! gh secret set APPLE_TEAM_ID -R shahil-kv/Lelvo`, `! gh secret set ASC_KEY_ID -R shahil-kv/Lelvo`,
+      `! gh secret set ASC_ISSUER_ID -R shahil-kv/Lelvo`,
+      `! gh secret set ASC_KEY_P8 -R shahil-kv/Lelvo < ~/Downloads/AuthKey_XXXXXXXXXX.p8`.
+- [ ] 20. Upload: GitHub → Actions → Release → Run workflow from `main` (app: ios, channel: beta, version 1.0.0). It also
+      publishes an unsigned IPA on GitHub. If it fails, use Xcode: Product → Archive → Distribute → App Store Connect.
+- [ ] 21. Wait 10–30 minutes, fix anything Apple emails you about, and generate the Privacy Report (Phase 3.1).
+- [ ] 22. Install it from TestFlight on your iPhone, and add a trusted tester to internal testing if you want one. Warn
+      them to keep their photos in Apple Photos and not to use Free Up Space yet.
+- [ ] 23. **Demo test on a clean install:** delete the app, reinstall, enter `+1 555 010 0199` and code `24680`, then try
+      every tab and video playback, as a reviewer would.
+- [ ] 24. **IPv6-only test:** Internet Sharing with "Create NAT64 network", then sign-in, backup and viewer (Phase 3.5).
+- [ ] 25. Work through every other Phase 3.5 test: permissions denied, limited and full; airplane mode; kill mid-backup;
+      large library; dark mode; largest text; VoiceOver.
+- [ ] 26. Real flow with a spare Telegram account: sign in, create a library, back up, see it in Telegram, then reinstall
+      and restore. Also try an encrypted library, and Free Up Space on a couple of test items.
+- [ ] 27. Open it once on an iPad simulator or iPad, because reviewers may test there (Phase 3.3).
+- [ ] 28. Tap every button: nothing broken, empty or unfinished (Phase 3.4). Fix what you find, upload a new build, and
+      repeat the tests the fix could affect.
+
+### Stage E — Ask before Apple reviews anything
+
+- [ ] 29. Send App Review the demo mode message (Phase 2.1) and **wait for the answer**. Save the case number. If they
+      refuse, use the fallback in Phase 2.1.
+- [ ] 30. Record the 1–2 minute real-flow video using test photos only, and upload it unlisted (Phase 2.2).
+- [ ] 31. Optional: ask Telegram whether a backup app is fine (Phase 1.3), and keep any reply.
+- [ ] 32. Fill the date, case number and video link into the review notes (Phase 2.3). Add your name, phone and email
+      under App Review Information.
+
+### Stage F — External TestFlight (Apple's first look)
+
+- [ ] 33. Add 2–5 testers and submit for review with the same notes (Phase 6). If Apple raises a problem, fix it here.
+- [ ] 34. Have testers try a fresh sign-in, 500+ items, restore on another device, and an encrypted library. Fix any
+      serious bug before going further.
+
+### Stage G — Submit to the App Store
+
+- [ ] 35. Take 3–10 iPhone 6.9" screenshots from real screens with demo photos (Phase 5.5). No Telegram logo or paper
+      plane symbol.
+- [ ] 36. Final check, and don't submit until all of these are true:
+      - Apple's demo mode answer is in the notes, and the demo works on this exact build.
+      - The IPv6 test passed on this build, and there are no crashes in TestFlight.
+      - Privacy label, privacy manifests and privacy policy all agree.
+      - The description doesn't say "unlimited", "free storage", "never lose", or mention Android.
+      - France is off, and the URLs open.
+      - The current guidelines have been re-read, since they change.
+- [ ] 37. Select the build, set "What's New" to "First release.", choose **Manually release this version**, and submit
+      (Phase 7). Stay reachable by phone and email, and answer within hours.
+
+### Stage H — If Apple rejects it
+
+- [ ] 38. Read the guideline and details in App Store Connect. Find the matching reply in Phase 8, fix the actual issue,
+      answer politely and resubmit. Appeal only if the reviewer misunderstood the app.
+
+### Stage I — After approval
+
+- [ ] 39. Release when you're ready. It can take up to 24 hours to appear.
+- [ ] 40. Watch crashes for a week and keep the demo mode working, because every update is reviewed again (Phase 9).
 
 ---
 
