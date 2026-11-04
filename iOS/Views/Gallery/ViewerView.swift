@@ -17,9 +17,10 @@ struct ViewerView: View {
     @State private var message: GalleryAlert?
     @State private var busy = false
     @State private var confirmDelete = false
-    /// Saving a cloud item downloads its original: progress (0…1) and the task, so it can be cancelled.
-    @State private var saveProgress: Double?
-    @State private var saveTask: Task<Void, Never>?
+    /// Saving or sharing can download the whole original, which can take minutes: what shows on screen, and the task
+    /// so it can be cancelled.
+    @State private var transfer: Transfer?
+    @State private var transferTask: Task<Void, Never>?
     @StateObject private var videos = ViewerVideoSessions()
     @State private var prefetcher = NeighbourPrefetcher()
     @Environment(\.dismiss) private var dismiss
@@ -70,7 +71,7 @@ struct ViewerView: View {
         .overlay(alignment: .bottom) { if !chromeHidden { bottomBar.transition(.opacity) } }
         .overlay { if busy { ProgressView().tint(.white).scaleEffect(1.4) } }
         // Under the top bar, where it covers neither the picture's centre nor the video controls.
-        .overlay(alignment: .top) { if let saveProgress { saveBanner(saveProgress).padding(.top, 58).transition(.opacity) } }
+        .overlay(alignment: .top) { if let transfer { transferBanner(transfer).padding(.top, 58).transition(.opacity) } }
         .statusBarHidden(chromeHidden)
         .background(CloseObserver())
         .sheet(isPresented: $showInfo) {
@@ -126,17 +127,18 @@ struct ViewerView: View {
         HStack {
             // Tap shares what's shown (the edit, like Photos); touch and hold offers the untouched original.
             Menu {
-                Button("Share Original", systemImage: "doc.on.doc") { Task { await shareCurrent(original: true) } }
+                Button("Share Original", systemImage: "doc.on.doc") { transferTask = Task { await shareCurrent(original: true) } }
             } label: {
                 Image(systemName: "square.and.arrow.up")
             } primaryAction: {
-                Task { await shareCurrent() }
+                transferTask = Task { await shareCurrent() }
             }
+            .disabled(transfer != nil)
             .accessibilityLabel("Share")
             Spacer()
             if let current, current.isCloudOnly, current.item?.isViewableFromCloud == true {
-                Button { saveTask = Task { await saveCurrent() } } label: { Image(systemName: "square.and.arrow.down") }
-                    .disabled(saveProgress != nil)
+                Button { transferTask = Task { await saveCurrent() } } label: { Image(systemName: "square.and.arrow.down") }
+                    .disabled(transfer != nil)
                     .accessibilityLabel("Save to Photos")
                 Spacer()
             }
@@ -193,18 +195,39 @@ struct ViewerView: View {
 
     private func shareCurrent(original: Bool = false) async {
         guard let current else { return }
-        busy = true
-        defer { busy = false }
-        do { share = ShareItems(urls: [try await GalleryActions.shareableFile(for: current, original: original)]) }
-        catch { message = GalleryAlert(title: "Can't share", message: error.localizedDescription) }
+        let started = Transfer(verb: "Preparing to share", total: current.isCloudOnly ? current.item?.fileSize ?? 0 : 0)
+        transfer = started
+        defer { finish(started) }
+        do {
+            let url = try await GalleryActions.shareableFile(for: current, original: original) { p in report(p, to: started) }
+            try Task.checkCancellation()
+            share = ShareItems(urls: [url])
+        } catch is CancellationError {
+            // The user cancelled.
+        } catch {
+            if Task.isCancelled { return }
+            message = GalleryAlert(title: "Can't share", message: error.localizedDescription)
+        }
+    }
+
+    private nonisolated func report(_ progress: Double, to started: Transfer) {
+        Task { @MainActor in if transfer?.id == started.id { transfer?.progress = progress } }
+    }
+
+    /// After a cancel, a new save can already be under way by the time the old one winds down.
+    private func finish(_ started: Transfer) {
+        guard transfer?.id == started.id else { return }
+        transfer = nil
+        transferTask = nil
     }
 
     private func saveCurrent() async {
         guard let item = current?.item else { return }
-        saveProgress = 0
-        defer { saveProgress = nil; saveTask = nil }
+        let started = Transfer(verb: "Saving original", total: item.fileSize)
+        transfer = started
+        defer { finish(started) }
         do {
-            try await GalleryActions.saveToPhotos(item) { p in Task { @MainActor in if saveProgress != nil { saveProgress = p } } }
+            try await GalleryActions.saveToPhotos(item) { p in report(p, to: started) }
             Haptics.success()
             message = GalleryAlert(title: "Saved", message: "Saved to your photo library.")
         } catch is CancellationError {
@@ -231,23 +254,33 @@ struct ViewerView: View {
     }
 
     /// The original downloads from Telegram (it can be large): a slim bar showing how far it is, with a way to stop it.
-    private func saveBanner(_ progress: Double) -> some View {
-        let total = current?.item?.fileSize ?? 0
-        return VStack(spacing: 7) {
+    /// Until the first progress arrives it spins, so the tap is answered at once.
+    private func transferBanner(_ transfer: Transfer) -> some View {
+        VStack(spacing: 7) {
             HStack(spacing: 8) {
-                Image(systemName: "arrow.down.circle").font(.subheadline.weight(.semibold))
-                Text("Saving original \(Int(progress * 100))%").font(.subheadline.weight(.semibold))
+                if transfer.progress == nil {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.down.circle").font(.subheadline.weight(.semibold))
+                }
+                Text(transfer.progress.map { "\(transfer.verb) \(Int($0 * 100))%" } ?? transfer.verb)
+                    .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 8)
-                if total > 0 {
-                    Text("\(Format.bytes(Int64(Double(total) * progress))) / \(Format.bytes(total))")
+                if let progress = transfer.progress, transfer.total > 0 {
+                    Text("\(Format.bytes(Int64(Double(transfer.total) * progress))) / \(Format.bytes(transfer.total))")
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
-                Button { saveTask?.cancel() } label: {
+                Button {
+                    appLog("Viewer: cancelled \(transfer.verb) at \(Int((transfer.progress ?? 0) * 100))%")
+                    transferTask?.cancel()
+                    self.transfer = nil
+                    transferTask = nil
+                } label: {
                     Image(systemName: "xmark.circle.fill").font(.title3).symbolRenderingMode(.hierarchical)
                 }
-                .accessibilityLabel("Cancel saving")
+                .accessibilityLabel("Cancel")
             }
-            ProgressView(value: progress).tint(.white)
+            if let progress = transfer.progress { ProgressView(value: progress).tint(.white) }
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 14)
@@ -255,6 +288,13 @@ struct ViewerView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
         .environment(\.colorScheme, .dark)
         .padding(.horizontal, 16)
+    }
+
+    private struct Transfer {
+        let id = UUID()
+        let verb: String
+        let total: Int64
+        var progress: Double?
     }
 }
 

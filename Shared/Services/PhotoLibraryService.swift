@@ -108,7 +108,7 @@ enum PhotoLibraryError: LocalizedError {
         switch self {
         case .noOriginalResource: return "This item has no original file to back up."
         case .assetMissing: return "The photo is no longer in your library."
-        case .notAuthorized: return "Lelvo doesn't have access to your photo library."
+        case .notAuthorized: return "Lelvo doesn't have access to your photo library. Allow access in Settings, then try again."
         }
     }
 }
