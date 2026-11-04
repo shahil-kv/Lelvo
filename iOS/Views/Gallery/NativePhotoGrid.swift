@@ -144,10 +144,10 @@ struct NativePhotoGrid: UIViewRepresentable {
             if p.dataVersion != appliedVersion {
                 // Regrouping (day ↔ month after a pinch) moves headers around; the tile at the top stays exactly where
                 // it is on screen, which also holds while a finger is scrolling.
-                let keep = p.grouping != appliedGrouping ? screenPosition(of: topVisibleItem(cv), in: cv) : nil
+                let regrouping = p.grouping != appliedGrouping
                 appliedVersion = p.dataVersion
                 appliedGrouping = p.grouping
-                apply(p.sections) { [weak self] in self?.restore(keep, in: cv) }
+                apply(p.sections, in: cv, keepTopTile: regrouping)
             }
             if p.selecting != appliedSelecting {
                 appliedSelecting = p.selecting
@@ -163,14 +163,17 @@ struct NativePhotoGrid: UIViewRepresentable {
             }
         }
 
-        private func apply(_ list: [GallerySection], then done: @escaping @MainActor () -> Void) {
+        private func apply(_ list: [GallerySection], in cv: UICollectionView, keepTopTile: Bool) {
             GridSnapshot.build(list, task: &snapshotBuild) { [weak self] built in
                 guard let self else { return }
+                // Taken here, not when the build started: a large library builds in the background, and the user may
+                // have scrolled since.
+                let keep = keepTopTile ? self.screenPosition(of: self.topVisibleItem(cv), in: cv) : nil
                 self.entries = built.entries
                 self.sections = built.sections
                 self.sectionIds = built.sectionIds
                 self.dataSource?.apply(built.snapshot, animatingDifferences: false)
-                done()
+                self.restore(keep, in: cv)
                 // Same ids with new content (e.g. a backup finished): update visible tiles and headers in place.
                 self.refreshVisible()
                 self.preloadVisibleVideos()

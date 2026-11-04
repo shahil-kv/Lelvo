@@ -133,11 +133,14 @@ enum UITestSupport {
             try? store.upsert(items)
             return
         }
-        // `-UITestDemoKeep`: open the library the last run made, to measure a normal launch instead of the seeding.
-        if args.contains("-UITestDemoKeep"), let existing = try? store.allItems(), !existing.isEmpty { return }
-        let now = Date()
         // `-UITestDemoCount N` (benchmarks): a bigger library; default 300 for the UI tests.
-        let count = args.firstIndex(of: "-UITestDemoCount").flatMap { args.indices.contains($0 + 1) ? Int(args[$0 + 1]) : nil } ?? 300
+        let requested = args.firstIndex(of: "-UITestDemoCount").flatMap { args.indices.contains($0 + 1) ? Int(args[$0 + 1]) : nil }
+        // `-UITestDemoKeep`: open the library the last run made, to measure a normal launch instead of the seeding. If a
+        // size was asked for, only one of that size counts, or a benchmark would quietly measure a small library.
+        if args.contains("-UITestDemoKeep"), let existing = try? store.allItems(), !existing.isEmpty,
+           requested == nil || existing.count == requested { return }
+        let now = Date()
+        let count = requested ?? 300
         let items = (0..<count).map { i -> MediaItem in
             var item = MediaItem(localIdentifier: nil, sha256: String(format: "%064d", i), filename: "IMG_\(1000 + i).HEIC",
                                  kind: i % 7 == 0 ? .video : .photo, creationDate: now.addingTimeInterval(Double(-i) * 9_000),
