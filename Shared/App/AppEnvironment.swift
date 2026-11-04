@@ -66,6 +66,19 @@ final class AppEnvironment: @unchecked Sendable {
         thumbnailCache.setCapacity(Prefs.thumbnailCacheBytes)
         originalsCache.setCapacity(Prefs.mediaCacheBytes)
         if td.isReady { await td.optimizeStorage(maxBytes: Prefs.mediaCacheBytes) }
+        await Task.detached(priority: .utility) { Self.removeOldShareCopies() }.value
+    }
+
+    /// Sharing copies the whole file so it carries its real name, and the system can't say when the share ended. A
+    /// few big videos would otherwise sit in temporary storage. A day leaves any share in progress alone.
+    private static func removeOldShareCopies(olderThan age: TimeInterval = 24 * 60 * 60) {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        let found = (try? fm.contentsOfDirectory(at: fm.temporaryDirectory, includingPropertiesForKeys: keys)) ?? []
+        for url in found where url.lastPathComponent.hasPrefix("Share-") {
+            let date = (try? url.resourceValues(forKeys: Set(keys)))?.contentModificationDate
+            if let date, Date().timeIntervalSince(date) > age { try? fm.removeItem(at: url) }
+        }
     }
 
     /// Moves to another library channel: stops the backup, swaps the local index for the chosen library's, and
