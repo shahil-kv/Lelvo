@@ -607,10 +607,13 @@ final class BackupEngine: @unchecked Sendable {
             a.isRunning = true; a.done = 0; a.total = total; a.uploaded = 0; a.failed = 0; a.lanes = [:]
             a.message = total == 0 ? "Everything is backed up." : "Backing up \(total) items…"
         }
-        for (i, original) in items.enumerated() {
+        var stopped = false
+        demo: for (i, original) in items.enumerated() {
             let lane = "\(i % Self.maxConcurrentUploads)"
             let size = original.fileSize
             for step in 1...10 {
+                // App Review tries Pause too; the items not done yet stay waiting.
+                if Prefs.backupPaused { stopped = true; break demo }
                 try? await Task.sleep(nanoseconds: 120_000_000)
                 await publish { $0.lanes[lane] = BackupActivity.LaneProgress(name: original.filename, sent: size * Int64(step) / 10, total: size) }
             }
@@ -618,10 +621,17 @@ final class BackupEngine: @unchecked Sendable {
             item.uploadedAt = Date()
             item.verifiedAt = Date()
             save(item)
+            DemoMode.markUploaded(item)
             summary.uploaded += 1
             progress?(i + 1, total)
             let done = i + 1
             await publish { a in a.done = done; a.uploaded = done; a.lanes[lane] = nil }
+        }
+        if stopped {
+            let final = summary
+            await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.lanes = [:] }
+            appLog("Demo backup paused")
+            return summary
         }
         DemoMode.pendingUploaded()
         if total > 0 { UserDefaults.standard.set(Date(), forKey: Prefs.Key.lastBackupAt) }

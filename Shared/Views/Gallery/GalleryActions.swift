@@ -6,7 +6,7 @@ import LelvoCore
 enum GalleryActions {
     /// A file with the item's real name, ready for the share sheet: what Photos shows (the edit, if any), like Photos;
     /// `original`: the untouched original instead, like "Export Unmodified Original" in Photos for Mac.
-    static func shareableFile(for entry: GalleryEntry, original: Bool = false) async throws -> URL {
+    static func shareableFile(for entry: GalleryEntry, original: Bool = false, progress: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
         let env = AppEnvironment.shared
         if let asset = entry.asset {
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Share-\(UUID().uuidString)", isDirectory: true)
@@ -23,8 +23,8 @@ enum GalleryActions {
             return named
         }
         guard let item = entry.item else { throw PhotoLibraryError.assetMissing }
-        if original { return try env.media.shareableCopy(of: try await env.media.original(for: item), filename: item.filename) }
-        let cached = try await env.media.displayed(for: item)
+        if original { return try env.media.shareableCopy(of: try await env.media.original(for: item, progress: progress), filename: item.filename) }
+        let cached = try await env.media.displayed(for: item, progress: progress)
         return try env.media.shareableCopy(of: cached, filename: CloudMediaService.displayedFilename(item))
     }
 
@@ -40,6 +40,7 @@ enum GalleryActions {
         var files: [String: URL] = [:]
         defer { for url in files.values { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) } }
         for role in plan.downloads {
+            try Task.checkCancellation()
             do {
                 files[role] = try await env.media.restoreFile(for: item, role: role, progress: role == "o" ? progress : nil)
             } catch where role != "o" && role != "pv" {
@@ -47,6 +48,7 @@ enum GalleryActions {
                 AppLog.shared.warn("Restoring \(item.filename) without its \(role): \(error.localizedDescription)")
             }
         }
+        try Task.checkCancellation()
         var albums = plan.albums
         if let md = files["md"], let extra = try? ExtraMetadata.decode(Data(contentsOf: md)), let all = extra.a { albums = all }
         let took = Date().timeIntervalSince(started)

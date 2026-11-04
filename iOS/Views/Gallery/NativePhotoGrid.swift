@@ -98,6 +98,9 @@ struct NativePhotoGrid: UIViewRepresentable {
 
         // MARK: Setup
 
+        private var snapshotBuild: Task<Void, Never>?
+        private var sectionIds: [String] = []
+
         func attach(_ cv: UICollectionView) {
             collectionView = cv
             let cell = UICollectionView.CellRegistration<PhotoCell, String> { [weak self] cell, _, id in
@@ -105,7 +108,7 @@ struct NativePhotoGrid: UIViewRepresentable {
                 self.configure(cell, entry)
             }
             let header = UICollectionView.SupplementaryRegistration<PhotoSectionHeader>(elementKind: UICollectionView.elementKindSectionHeader) { [weak self] view, _, ip in
-                guard let self, let id = self.dataSource?.snapshot().sectionIdentifiers[safe: ip.section], let s = self.sections[id] else { return }
+                guard let self, let id = self.sectionIds[safe: ip.section], let s = self.sections[id] else { return }
                 view.configure(title: s.title, count: s.entries.count, large: self.parent.grouping != .day)
             }
             let ds = UICollectionViewDiffableDataSource<String, String>(collectionView: cv) { cv, ip, id in
@@ -141,11 +144,10 @@ struct NativePhotoGrid: UIViewRepresentable {
             if p.dataVersion != appliedVersion {
                 // Regrouping (day ↔ month after a pinch) moves headers around; the tile at the top stays exactly where
                 // it is on screen, which also holds while a finger is scrolling.
-                let keep = p.grouping != appliedGrouping ? screenPosition(of: topVisibleItem(cv), in: cv) : nil
+                let regrouping = p.grouping != appliedGrouping
                 appliedVersion = p.dataVersion
-                apply(p.sections)
-                restore(keep, in: cv)
                 appliedGrouping = p.grouping
+                apply(p.sections, in: cv, keepTopTile: regrouping)
             }
             if p.selecting != appliedSelecting {
                 appliedSelecting = p.selecting
@@ -155,28 +157,27 @@ struct NativePhotoGrid: UIViewRepresentable {
             syncSelection(cv)
             if p.scrubToken != appliedScrub {
                 appliedScrub = p.scrubToken
-                if let id = p.scrubTarget, let s = dataSource?.snapshot().indexOfSection(id) {
+                if let id = p.scrubTarget, let s = sectionIds.firstIndex(of: id) {
                     scrollToSection(s, in: cv)
                 }
             }
         }
 
-        private func apply(_ list: [GallerySection]) {
-            var snapshot = NSDiffableDataSourceSnapshot<String, String>()
-            var entries: [String: GalleryEntry] = [:]
-            var sections: [String: GallerySection] = [:]
-            snapshot.appendSections(list.map(\.id))
-            for s in list {
-                sections[s.id] = s
-                snapshot.appendItems(s.entries.map(\.id), toSection: s.id)
-                for e in s.entries { entries[e.id] = e }
+        private func apply(_ list: [GallerySection], in cv: UICollectionView, keepTopTile: Bool) {
+            GridSnapshot.build(list, task: &snapshotBuild) { [weak self] built in
+                guard let self else { return }
+                // Taken here, not when the build started: a large library builds in the background, and the user may
+                // have scrolled since.
+                let keep = keepTopTile ? self.screenPosition(of: self.topVisibleItem(cv), in: cv) : nil
+                self.entries = built.entries
+                self.sections = built.sections
+                self.sectionIds = built.sectionIds
+                self.dataSource?.apply(built.snapshot, animatingDifferences: false)
+                self.restore(keep, in: cv)
+                // Same ids with new content (e.g. a backup finished): update visible tiles and headers in place.
+                self.refreshVisible()
+                self.preloadVisibleVideos()
             }
-            self.entries = entries
-            self.sections = sections
-            dataSource?.apply(snapshot, animatingDifferences: false)
-            // Same ids with new content (e.g. a backup finished): update visible tiles and headers in place.
-            refreshVisible()
-            preloadVisibleVideos()
         }
 
         private func refreshVisible() {
@@ -185,7 +186,7 @@ struct NativePhotoGrid: UIViewRepresentable {
                 guard let cell = cv.cellForItem(at: ip) as? PhotoCell, let id = ds.itemIdentifier(for: ip), let e = entries[id] else { continue }
                 configure(cell, e)
             }
-            let ids = ds.snapshot().sectionIdentifiers
+            let ids = sectionIds
             for ip in cv.indexPathsForVisibleSupplementaryElements(ofKind: UICollectionView.elementKindSectionHeader) {
                 guard let header = cv.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader, at: ip) as? PhotoSectionHeader,
                       let id = ids[safe: ip.section], let s = sections[id] else { continue }

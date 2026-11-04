@@ -7,6 +7,8 @@ import LelvoCore
 final class SearchModel: ObservableObject {
     @Published var query = ""
     @Published private(set) var results: Set<String> = []
+    /// Still looking for the current text, so an empty `results` doesn't mean "no results" yet.
+    @Published private(set) var isPending = false
     @Published private(set) var places: [String] = []
     @Published private(set) var months: [String] = []
     /// What was searched before, newest first (kept on this device only).
@@ -69,6 +71,17 @@ final class SearchModel: ObservableObject {
         UserDefaults.standard.set(recent, forKey: Self.recentKey)
     }
 
+    /// The Search key: keeps the search if it finds something. Results arrive a moment after the last letter, so a
+    /// quick press has to wait for them, or it's judged by the previous letters' results.
+    func submit() {
+        let text = query, running = task
+        Task {
+            await running?.value
+            guard text == query, !results.isEmpty else { return }
+            remember(text)
+        }
+    }
+
     func clearRecent() {
         recent = []
         UserDefaults.standard.removeObject(forKey: Self.recentKey)
@@ -77,7 +90,8 @@ final class SearchModel: ObservableObject {
     func run() {
         task?.cancel()
         let text = query
-        guard !SearchMatcher.words(text).isEmpty else { results = []; return }
+        guard !SearchMatcher.words(text).isEmpty else { results = []; isPending = false; return }
+        isPending = true
         let index = self.index
         task = Task {
             try? await Task.sleep(nanoseconds: 120_000_000)
@@ -86,6 +100,7 @@ final class SearchModel: ObservableObject {
             guard !Task.isCancelled, text == query else { return }
             let set = Set(found)
             if set != results { results = set }
+            isPending = false
         }
     }
 

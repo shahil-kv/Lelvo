@@ -133,6 +133,7 @@ struct BackupDashboardView: View {
                     } else if stats.retryable > 0 {
                         Button {
                             Haptics.tap()
+                            ToastCenter.shared.show(.info, "Retrying \(stats.retryable) failed")
                             Task {
                                 await Task.detached { AppEnvironment.shared.engine.retryFailed() }.value
                                 ContinuedBackup.start()
@@ -225,7 +226,6 @@ struct BackupDashboardView: View {
                 Section("Tools") {
                     NavigationLink { FreeUpSpaceView() } label: { Label("Free up space", systemImage: "internaldrive") }
                     NavigationLink { SaveAllToPhotosView() } label: { Label("Save all to Photos", systemImage: "square.and.arrow.down.on.square") }
-                    NavigationLink { DuplicatesView() } label: { Label("Duplicates", systemImage: "square.on.square") }
                     #if os(iOS)
                     NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
                     #endif
@@ -570,7 +570,7 @@ struct DuplicatesView: View {
                 }
                 HStack {
                     // Photos not backed up are never chosen for you: select them one by one if you mean it.
-                    Button("Select all but the best") {
+                    Button("Select extras to delete") {
                         selectedSimilar = Set(similar.flatMap { g in
                             g.entries.filter { $0.id != g.best && !(($0.asset != nil) && $0.item?.status != .backedUp) }.map(\.id)
                         })
@@ -592,8 +592,9 @@ struct DuplicatesView: View {
         let notBackedUp = entry.asset != nil && entry.item?.status != .backedUp
         return SimilarThumb(entry: entry)
             .overlay(alignment: .topTrailing) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selected ? Color.accentColor : .white).padding(4)
+                // A selected photo here is one to delete, so it says so: a tick next to "Best" read as "keep these".
+                Image(systemName: selected ? "trash.circle.fill" : "circle")
+                    .foregroundStyle(selected ? Color.red : .white).padding(4)
             }
             .overlay(alignment: .bottomLeading) {
                 if isBest {
@@ -607,6 +608,7 @@ struct DuplicatesView: View {
                 }
             }
             .onTapGesture { if selected { selectedSimilar.remove(id) } else { selectedSimilar.insert(id) } }
+            .accessibilityValue(selected ? "Will be deleted" : "")
             .accessibilityLabel("\(isBest ? "Best photo" : "Photo")\(notBackedUp ? ", not backed up" : "")\(entry.asset == nil ? ", only in the cloud" : "")\(selected ? ", selected" : "")")
             .accessibilityAddTraits(.isButton)
     }

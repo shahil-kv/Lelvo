@@ -12,6 +12,7 @@ final class CloudMediaService: @unchecked Sendable {
     /// Thumbnails being downloaded: 8 at a time, tiles on screen first (`PriorityGate`).
     private let gate = PriorityGate(limit: 8)
     private let inflight = InflightRegistry()
+    private let originals = SharedWork<URL>()
 
     init(environment: AppEnvironment) {
         self.env = environment
@@ -67,12 +68,19 @@ final class CloudMediaService: @unchecked Sendable {
         let ext = (name as NSString).pathExtension.lowercased()
         let key = Self.originalKey(item, role: r)
         env.originalsCache.setCapacity(Prefs.mediaCacheBytes)
-        return try await inflight.run(key) { [self] in
+        // Someone is following it (saving, sharing): top priority, and they can stop it.
+        let priority = progress != nil ? 32 : 16
+        return try await originals.run(key, progress: progress) { [self] report in
             if let cached = env.originalsCache.url(for: key) { return cached }
             try await env.td.waitUntilReady(timeout: 30)
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            try await env.reader.download(item, role: r, to: tmp, progress: progress)
-            return try env.originalsCache.store(file: tmp, for: key, ext: ext.isEmpty ? "bin" : ext)
+            do {
+                try await env.reader.download(item, role: r, to: tmp, priority: priority, progress: report)
+                return try env.originalsCache.store(file: tmp, for: key, ext: ext.isEmpty ? "bin" : ext)
+            } catch {
+                try? FileManager.default.removeItem(at: tmp)
+                throw error
+            }
         }
     }
 

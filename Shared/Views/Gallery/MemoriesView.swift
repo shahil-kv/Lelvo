@@ -114,16 +114,14 @@ struct MemoriesView<Destination: View>: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
-                ForEach(model.cards) { card in
-                    Button { playing = card } label: { MemoryCard(card: card, cover: model.entries[card.memory.cover]) }
-                        .buttonStyle(.plain)
-                        .contextMenu { Button { showingAll = card } label: { Label("Show All Photos", systemImage: "square.grid.2x2") } }
-                        .accessibilityLabel("\(card.title), \(card.subtitle)")
-                        .accessibilityHint("Plays the memory")
-                }
-            }
-            .padding(16)
+            #if os(macOS)
+            // A window is far wider than a phone: one full-width card would fill the screen with a single cover.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 320, maximum: 460), spacing: 16)], spacing: 16) { cards }
+                .padding(16)
+            #else
+            LazyVStack(spacing: 16) { cards }
+                .padding(16)
+            #endif
         }
         .overlay {
             if model.loaded && model.cards.isEmpty {
@@ -141,6 +139,16 @@ struct MemoriesView<Destination: View>: View {
         #else
         .sheet(item: $playing) { card in story(card).frame(minWidth: 760, minHeight: 560) }
         #endif
+    }
+
+    private var cards: some View {
+        ForEach(model.cards) { card in
+            Button { playing = card } label: { MemoryCard(card: card, cover: model.entries[card.memory.cover]) }
+                .buttonStyle(.plain)
+                .contextMenu { Button { showingAll = card } label: { Label("Show All Photos", systemImage: "square.grid.2x2") } }
+                .accessibilityLabel("\(card.title), \(card.subtitle)")
+                .accessibilityHint("Plays the memory")
+        }
     }
 
     private func story(_ card: MemoriesModel.Card) -> some View {
@@ -218,6 +226,8 @@ struct MemoryStoryView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var index = 0
     @State private var images: [Int: PlatformImage] = [:]
+    /// Photos that wouldn't load (no connection, say). The story says so and moves on instead of spinning forever.
+    @State private var failed: Set<Int> = []
     @State private var elapsed: Double = 0
     @State private var holding = false
     @State private var paused = false
@@ -236,6 +246,9 @@ struct MemoryStoryView: View {
                         .scaleEffect(1 + 0.06 * elapsed / Self.seconds)
                         .id(index)
                         .transition(.opacity)
+                } else if failed.contains(index) {
+                    Label("This photo couldn't load", systemImage: "exclamationmark.icloud")
+                        .font(.subheadline).foregroundStyle(.white)
                 } else {
                     ProgressView().tint(.white)
                 }
@@ -283,10 +296,10 @@ struct MemoryStoryView: View {
                     Text(card.subtitle).font(.caption)
                 }
                 Spacer()
-                Button { paused.toggle() } label: { Image(systemName: paused ? "play.fill" : "pause.fill") }
+                Button { paused.toggle() } label: { Image(systemName: paused ? "play.fill" : "pause.fill").frame(width: 44, height: 44).contentShape(Rectangle()) }
                     .accessibilityLabel(paused ? "Play" : "Pause")
                 Button("Show All", action: showAll)
-                Button { dismiss() } label: { Image(systemName: "xmark") }
+                Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle()) }
                     .accessibilityLabel("Close")
                     .keyboardShortcut(.cancelAction)
             }
@@ -324,7 +337,7 @@ struct MemoryStoryView: View {
     private func play() async {
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: UInt64(Self.tick * 1_000_000_000))
-            guard !paused, !holding, images[index] != nil else { continue }
+            guard !paused, !holding, images[index] != nil || failed.contains(index) else { continue }
             elapsed += Self.tick
             if elapsed >= Self.seconds { move(1) }
         }
@@ -340,7 +353,7 @@ struct MemoryStoryView: View {
     /// This photo and the next two, so moving on never waits; photos far behind are let go.
     private func preload() async {
         for i in [index, index + 1, index + 2] where entries.indices.contains(i) && images[i] == nil {
-            if let image = await Self.image(for: entries[i]) { images[i] = image }
+            if let image = await Self.image(for: entries[i]) { images[i] = image } else { failed.insert(i) }
         }
         images = images.filter { abs($0.key - index) <= 3 }
     }

@@ -59,6 +59,19 @@ import LelvoCore
         #expect(index.search("café") == ["c"])
     }
 
+    @Test func aWholeWordAlsoFindsWhatVisionCallsIt() {
+        let index = SearchIndex(entries: [(id: "a", words: SearchMatcher.words("ocean people")),
+                                          (id: "b", words: SearchMatcher.words("hill 2024")),
+                                          (id: "c", words: SearchMatcher.words("bench"))])
+        #expect(index.search("beach") == ["a"])
+        #expect(index.search("sea") == ["a"])
+        #expect(index.search("beach people") == ["a"])
+        #expect(index.search("beach 2024").isEmpty)
+        #expect(index.search("mountains") == ["b"])
+        #expect(index.search("be") == ["c"], "A part of a word only finds words starting with it")
+        #expect(SearchMatcher.matches(query: ["beach"], known: ["ocean"]))
+    }
+
     @Test func missingWordsFindNothing() {
         #expect(index.search("cat").isEmpty)
         #expect(index.search("beach cat").isEmpty)

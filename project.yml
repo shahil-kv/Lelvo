@@ -137,6 +137,47 @@ targets:
         com.apple.security.personal-information.photos-library: true
         com.apple.security.network.client: true
 
+  # The Mac app under another bundle id, for UI tests only. Its settings, files and keychain entries are its own, and
+  # it has no Telegram API id, so tests can neither touch the real app's data nor reach Telegram.
+  LelvoMacTestApp:
+    type: application
+    platform: macOS
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
+    sources:
+      - path: macOS
+      - path: Shared
+    dependencies:
+      - package: LelvoCore
+      - package: TDLibKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.lelvo.mac.uitest
+        PRODUCT_NAME: LelvoTest
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: macOS/Info.plist
+        CODE_SIGN_IDENTITY: "-"
+        COMBINE_HIDPI_IMAGES: YES
+        TD_API_ID: ""
+        TD_API_HASH: ""
+
+  LelvoMacUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: MacUITests
+    dependencies:
+      - target: LelvoMacTestApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.lelvo.mac.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: LelvoMacTestApp
+        CODE_SIGN_IDENTITY: "-"
+
   LelvoTests:
     type: bundle.unit-test
     platform: iOS
@@ -163,6 +204,16 @@ targets:
         TEST_TARGET_NAME: Lelvo
 
 schemes:
+  LelvoMacTests:
+    build:
+      targets:
+        LelvoMacTestApp: all
+        LelvoMacUITests: [test]
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - LelvoMacUITests
   LelvoMac:
     build:
       targets:

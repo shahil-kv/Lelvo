@@ -65,7 +65,11 @@ struct MacPhotoGrid: NSViewRepresentable {
         scroll.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         scroll.contentView.postsBoundsChangedNotifications = true
         context.coordinator.observeScrolling(scroll.contentView)
-        DispatchQueue.main.async { cv.window?.makeFirstResponder(cv) }
+        DispatchQueue.main.async {
+            // Search shows this grid after the first letter; taking the keyboard then would lose the rest of the word.
+            guard let window = cv.window, !(window.firstResponder is NSText) else { return }
+            window.makeFirstResponder(cv)
+        }
         return scroll
     }
 
@@ -111,7 +115,7 @@ struct MacPhotoGrid: NSViewRepresentable {
             ds.supplementaryViewProvider = { [weak self] cv, kind, indexPath in
                 let view = cv.makeSupplementaryView(ofKind: kind, withIdentifier: GridHeader.identifier, for: indexPath)
                 if let self, let header = view as? GridHeader,
-                   let sectionId = self.dataSource?.snapshot().sectionIdentifiers[safe: indexPath.section],
+                   let sectionId = self.sectionIds[safe: indexPath.section],
                    let section = self.sections[sectionId] {
                     self.configure(header, section)
                 }
@@ -178,22 +182,20 @@ struct MacPhotoGrid: NSViewRepresentable {
             }
         }
 
+        private var snapshotBuild: Task<Void, Never>?
+        private var sectionIds: [String] = []
+
         private func apply(_ list: [GallerySection]) {
-            var entries: [String: GalleryEntry] = [:]
-            var sections: [String: GallerySection] = [:]
-            var snapshot = NSDiffableDataSourceSnapshot<String, String>()
-            snapshot.appendSections(list.map(\.id))
-            for s in list {
-                sections[s.id] = s
-                snapshot.appendItems(s.entries.map(\.id), toSection: s.id)
-                for e in s.entries { entries[e.id] = e }
+            GridSnapshot.build(list, task: &snapshotBuild) { [weak self] built in
+                guard let self else { return }
+                self.entries = built.entries
+                self.sections = built.sections
+                self.sectionIds = built.sectionIds
+                self.dataSource?.apply(built.snapshot, animatingDifferences: false)
+                // Same ids with new content (backup status changed): update the visible tiles in place.
+                self.refreshVisible()
+                self.refreshHeaders()
             }
-            self.entries = entries
-            self.sections = sections
-            dataSource?.apply(snapshot, animatingDifferences: false)
-            // Same ids with new content (backup status changed): update the visible tiles in place.
-            refreshVisible()
-            refreshHeaders()
         }
 
         private func refreshVisible() {
@@ -207,8 +209,8 @@ struct MacPhotoGrid: NSViewRepresentable {
         }
 
         private func refreshHeaders() {
-            guard let cv = collectionView, let ds = dataSource else { return }
-            let ids = ds.snapshot().sectionIdentifiers
+            guard let cv = collectionView else { return }
+            let ids = sectionIds
             for ip in cv.indexPathsForVisibleSupplementaryElements(ofKind: NSCollectionView.elementKindSectionHeader) {
                 guard let header = cv.supplementaryView(forElementKind: NSCollectionView.elementKindSectionHeader, at: ip) as? GridHeader,
                       let id = ids[safe: ip.section], let section = sections[id] else { continue }
@@ -388,6 +390,7 @@ final class GridLayout: NSCollectionViewFlowLayout {
     var onColumns: ((Int) -> Void)?
     private(set) var side: CGFloat = 150
     private var columns = 0
+    private var laidOutWidth: CGFloat = 0
 
     override init() {
         super.init()
@@ -400,12 +403,13 @@ final class GridLayout: NSCollectionViewFlowLayout {
 
     override func prepare() {
         if let cv = collectionView {
-            let width = max(cv.bounds.width - Self.gutter * 2, 100)
+            laidOutWidth = Self.availableWidth(in: cv)
+            let width = max(laidOutWidth - Self.gutter * 2, 100)
             let cols = max(1, Int((width + Self.spacing) / (tileSize + Self.spacing)))
             side = max(24, floor((width - Self.spacing * CGFloat(cols - 1)) / CGFloat(cols)))
             itemSize = NSSize(width: side, height: side)
             sectionInset = NSEdgeInsets(top: 0, left: Self.gutter, bottom: 14, right: Self.gutter)
-            headerReferenceSize = NSSize(width: cv.bounds.width, height: 46)
+            headerReferenceSize = NSSize(width: laidOutWidth, height: 46)
             if cols != columns {
                 columns = cols
                 let report = onColumns
@@ -416,8 +420,14 @@ final class GridLayout: NSCollectionViewFlowLayout {
     }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
-        if let cv = collectionView, cv.bounds.width != newBounds.width { return true }
+        if let cv = collectionView, Self.availableWidth(in: cv) != laidOutWidth { return true }
         return super.shouldInvalidateLayout(forBoundsChange: newBounds)
+    }
+
+    /// The scroll view's content width, because the grid's own bounds still include the scroller when "always show
+    /// scroll bars" is on. Sizing from those leaves one column too few, and flow layout spreads the row to fill.
+    private static func availableWidth(in cv: NSCollectionView) -> CGFloat {
+        cv.enclosingScrollView?.contentSize.width ?? cv.bounds.width
     }
 }
 
@@ -523,6 +533,7 @@ final class ThumbnailView: NSView {
         check.shadow = shadow
         for v in [duration, live, badge, check] as [NSView] { addSubview(v) }
         layer?.addSublayer(ringLayer)
+        setAccessibilityElement(true)
         setAccessibilityRole(.button)
     }
 

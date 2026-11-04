@@ -43,8 +43,11 @@ struct MacBackupView: View {
 
             Section {
                 Toggle(isOn: $autoBackup) { iconLabel("Back Up Automatically", "arrow.triangle.2.circlepath", .accentColor) }
+                    .accessibilityLabel("Back Up Automatically")
                 Toggle(isOn: $wifiOnly) { iconLabel("Wi-Fi Only", "wifi", .accentColor) }
+                    .accessibilityLabel("Wi-Fi Only")
                 Toggle(isOn: $chargingOnly) { iconLabel("Only on Power Adapter", "powerplug.fill", .green) }
+                    .accessibilityLabel("Only on Power Adapter")
             } header: { Text("Options") } footer: {
                 Text(autoBackup ? "While Lelvo is open, even with its window closed, new photos are backed up every hour."
                                 : "Nothing uploads on its own. Use Back Up Now, or select photos and choose Back Up.")
@@ -177,6 +180,7 @@ struct MacBackupView: View {
                 .keyboardShortcut("b", modifiers: .command)
         } else if stats.retryable > 0 {
             Button("Retry") {
+                ToastCenter.shared.show(.info, "Retrying \(stats.retryable) failed")
                 Task {
                     await Task.detached { AppEnvironment.shared.engine.retryFailed() }.value
                     ContinuedBackup.start()

@@ -40,8 +40,21 @@ struct MacGalleryView: View {
     static let tileRange: ClosedRange<Double> = 64...380
 
     private var grouping: GalleryModel.Grouping { tileSize >= 110 ? .day : (tileSize >= 76 ? .month : .year) }
-    private var selectedEntries: [GalleryEntry] { selection.compactMap { positions[$0] }.sorted().map { flat[$0] } }
+    /// The selection in timeline order, kept up to date by `refreshSelected`, because the toolbar and the bar ask on every
+    /// redraw.
+    @State private var selectedEntries: [GalleryEntry] = []
+    @State private var selectedActions = EntryActions(entries: [])
     private var viewerEntry: GalleryEntry? { viewerId.flatMap { positions[$0] }.map { flat[$0] } }
+
+    private func refreshSelected() {
+        selectedEntries = selection.count == flat.count ? flat : selection.compactMap { positions[$0] }.sorted().map { flat[$0] }
+        selectedActions = EntryActions(entries: selectedEntries)
+    }
+
+    /// What the toolbar's actions apply to.
+    private var targetActions: EntryActions {
+        selecting && viewerEntry == nil ? selectedActions : EntryActions(entries: targets)
+    }
 
     /// The item(s) the toolbar, inspector and menus act on: the viewer's item, else the selection.
     private var targets: [GalleryEntry] {
@@ -76,6 +89,7 @@ struct MacGalleryView: View {
         .navigationTitle(viewerEntry.map { Format.date($0.date, style: .long, time: .none) } ?? item.title)
         .navigationSubtitle(subtitle)
         .toolbar { toolbar }
+        .onChange(of: selection) { _, _ in refreshSelected() }
         .inspector(isPresented: $showInfo) {
             MacInfoPanel(entries: targets)
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 400)
@@ -227,7 +241,7 @@ struct MacGalleryView: View {
     // MARK: - Selection bar
 
     private var selectionBar: some View {
-        let actions = EntryActions(entries: selectedEntries)
+        let actions = selectedActions
         return HStack(spacing: 6) {
             Button { endSelecting() } label: { Image(systemName: "xmark").frame(width: 22, height: 22) }
                 .buttonStyle(.borderless)
@@ -263,6 +277,7 @@ struct MacGalleryView: View {
             .frame(width: 28)
             .disabled(actions.inCloud.isEmpty && actions.onMac.isEmpty)
             .help("Delete")
+            .accessibilityLabel("Delete")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -304,7 +319,7 @@ struct MacGalleryView: View {
                     .disabled(flat.isEmpty)
             }
             backupButton
-            let actions = EntryActions(entries: targets)
+            let actions = targetActions
             Button { Task { await MacActions.share(targets, toast: toast) } } label: { Label("Share", systemImage: "square.and.arrow.up") }
                 .disabled(targets.isEmpty)
                 .help("Share")
@@ -329,7 +344,7 @@ struct MacGalleryView: View {
     }
 
     @ViewBuilder private var backupButton: some View {
-        let actions = EntryActions(entries: targets)
+        let actions = targetActions
         if !actions.notBackedUp.isEmpty {
             Button { Task { await MacActions.backUp(actions.notBackedUp, toast: toast) } } label: {
                 Label(actions.notBackedUp.count == 1 ? "Back Up" : "Back Up \(actions.notBackedUp.count)", systemImage: "icloud.and.arrow.up")
@@ -412,6 +427,7 @@ struct MacGalleryView: View {
         photoCount = flat.count - videoCount
         dataVersion += 1
         selection = selection.filter { positions[$0] != nil }
+        refreshSelected()
         if let v = viewerId, positions[v] == nil { viewerId = nil }
         ready = true
     }

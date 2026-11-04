@@ -114,7 +114,7 @@ final class MediaReader: @unchecked Sendable {
 
     /// Writes the whole plaintext resource to `destination` in 8 MiB steps (photos, share, save to library).
     /// `evict`: drop TDLib's cached copy afterwards (bulk export shouldn't fill the phone).
-    func download(_ item: MediaItem, role: String, to destination: URL, evict: Bool = false, progress: (@Sendable (Double) -> Void)? = nil) async throws {
+    func download(_ item: MediaItem, role: String, to destination: URL, evict: Bool = false, priority: Int = 16, progress: (@Sendable (Double) -> Void)? = nil) async throws {
         defer {
             if evict {
                 let ps = parts(item, role: role)
@@ -127,9 +127,9 @@ final class MediaReader: @unchecked Sendable {
         // Fast path: a single unencrypted part — let TDLib fetch it in one go and copy it out.
         let ps = parts(item, role: role)
         if !isEncrypted(item), ps.count == 1 {
-            // Someone is waiting (saving, sharing): top priority and live progress.
+            // With `progress` the download can be followed and cancelled.
             let report: (@Sendable (Int64, Int64) -> Void)? = progress.map { p in { @Sendable done, total in p(Double(done) / Double(max(total, 1))) } }
-            let path = try await td.download(fileId: try await tdFileId(for: ps[0]), priority: report != nil ? 32 : 16, progress: report)
+            let path = try await td.download(fileId: try await tdFileId(for: ps[0]), priority: priority, progress: report)
             try fm.copyItem(at: path, to: destination)
             progress?(1)
             return
