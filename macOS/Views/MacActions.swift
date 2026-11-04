@@ -27,13 +27,23 @@ enum MacActions {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
-    /// Prepares originals (downloading cloud items) with progress in the toast; returns the files that worked.
+    /// Prepares originals (downloading cloud items) with progress in the toast; returns the files that worked, or
+    /// nothing if the user stopped it (run inside `ToastCenter.runStoppable`).
     static func prepareFiles(_ entries: [GalleryEntry], toast: ToastCenter, verb: String, originals: Bool = false) async -> [URL] {
         var urls: [URL] = []
         var failures = 0
+        let count = max(entries.count, 1)
         for (i, entry) in entries.enumerated() {
-            toast.progress("\(verb) \(i + 1) of \(entries.count)…", fraction: Double(i) / Double(max(entries.count, 1)))
-            do { urls.append(try await GalleryActions.shareableFile(for: entry, original: originals)) } catch { failures += 1 }
+            if Task.isCancelled { return [] }
+            toast.progress("\(verb) \(i + 1) of \(entries.count)…", fraction: Double(i) / Double(count))
+            do {
+                urls.append(try await GalleryActions.shareableFile(for: entry, original: originals) { p in
+                    Task { @MainActor in toast.update(fraction: (Double(i) + p) / Double(count)) }
+                })
+            } catch {
+                if Task.isCancelled { return [] }
+                failures += 1
+            }
         }
         if failures > 0 {
             toast.show(.failure, "\(failures) item\(failures == 1 ? "" : "s") couldn't be downloaded", detail: "Check your connection and try again.")
@@ -44,15 +54,18 @@ enum MacActions {
     }
 
     static func share(_ entries: [GalleryEntry], toast: ToastCenter) async {
-        let urls = await prepareFiles(entries, toast: toast, verb: "Preparing")
-        share(urls)
+        await toast.runStoppable {
+            let urls = await prepareFiles(entries, toast: toast, verb: "Preparing")
+            if !Task.isCancelled { share(urls) }
+        }
     }
 
     /// Exports originals (with their real names and dates) into a folder the user picks.
     /// `originals`: the untouched originals instead of what Photos shows, like "Export Unmodified Original" in Photos.
     static func export(_ entries: [GalleryEntry], toast: ToastCenter, originals: Bool = false) async {
         guard !entries.isEmpty, let folder = chooseFolder(message: "Choose where to export \(entries.count) item\(entries.count == 1 ? "" : "s").") else { return }
-        let files = await prepareFiles(entries, toast: toast, verb: "Exporting", originals: originals)
+        var files: [URL] = []
+        await toast.runStoppable { files = await prepareFiles(entries, toast: toast, verb: "Exporting", originals: originals) }
         let fm = FileManager.default
         var moved = 0
         for file in files {
@@ -74,16 +87,30 @@ enum MacActions {
     static func saveToPhotos(_ entries: [GalleryEntry], toast: ToastCenter) async {
         let items = entries.filter(\.isCloudOnly).compactMap(\.item).filter(\.isViewableFromCloud)
         guard !items.isEmpty else { return }
-        var saved = 0
-        var lastError: String?
-        for (i, item) in items.enumerated() {
-            toast.progress("Saving to Photos \(i + 1) of \(items.count)…", fraction: Double(i) / Double(items.count))
-            do { try await GalleryActions.saveToPhotos(item); saved += 1 } catch { lastError = error.localizedDescription }
-        }
-        if let lastError {
-            toast.show(.failure, "Saved \(saved), \(items.count - saved) failed", detail: lastError)
-        } else {
-            toast.show(.success, "Saved \(saved) item\(saved == 1 ? "" : "s") to Photos")
+        await toast.runStoppable {
+            var saved = 0
+            var lastError: String?
+            let count = Double(items.count)
+            for (i, item) in items.enumerated() {
+                if Task.isCancelled { break }
+                toast.progress("Saving to Photos \(i + 1) of \(items.count)…", fraction: Double(i) / count)
+                do {
+                    try await GalleryActions.saveToPhotos(item) { p in
+                        Task { @MainActor in toast.update(fraction: (Double(i) + p) / count) }
+                    }
+                    saved += 1
+                } catch {
+                    if Task.isCancelled { break }
+                    lastError = error.localizedDescription
+                }
+            }
+            if Task.isCancelled {
+                if saved > 0 { toast.show(.info, "Stopped. \(saved) saved to Photos") }
+            } else if let lastError {
+                toast.show(.failure, "Saved \(saved), \(items.count - saved) failed", detail: lastError)
+            } else {
+                toast.show(.success, "Saved \(saved) item\(saved == 1 ? "" : "s") to Photos")
+            }
         }
     }
 
@@ -122,10 +149,30 @@ enum MacActions {
 /// Which actions apply to a set of entries (menus, toolbar and the selection bar share this).
 struct EntryActions {
     let entries: [GalleryEntry]
+    // Worked out once: with 100,000 selected, filtering again for every button froze the window on Select All.
+    let downloadable: [GalleryEntry]
+    let notBackedUp: [GalleryEntry]
+    let inCloud: [GalleryEntry]
+    let onMac: [GalleryEntry]
+    let unsafeOnMac: Int
 
-    var downloadable: [GalleryEntry] { entries.filter { $0.isCloudOnly && $0.item?.isViewableFromCloud == true } }
-    var notBackedUp: [GalleryEntry] { entries.filter { $0.asset != nil && [.phoneOnly, .failed, .waiting].contains($0.badge) } }
-    var inCloud: [GalleryEntry] { entries.filter { $0.item?.status == .backedUp } }
-    var onMac: [GalleryEntry] { entries.filter { $0.asset != nil } }
-    var unsafeOnMac: Int { onMac.filter { $0.badge != .backedUp }.count }
+    init(entries: [GalleryEntry]) {
+        self.entries = entries
+        var downloadable: [GalleryEntry] = [], notBackedUp: [GalleryEntry] = []
+        var inCloud: [GalleryEntry] = [], onMac: [GalleryEntry] = []
+        var unsafeOnMac = 0
+        for entry in entries {
+            if entry.isCloudOnly, entry.item?.isViewableFromCloud == true { downloadable.append(entry) }
+            if entry.item?.status == .backedUp { inCloud.append(entry) }
+            guard entry.asset != nil else { continue }
+            onMac.append(entry)
+            if [.phoneOnly, .failed, .waiting].contains(entry.badge) { notBackedUp.append(entry) }
+            if entry.badge != .backedUp { unsafeOnMac += 1 }
+        }
+        self.downloadable = downloadable
+        self.notBackedUp = notBackedUp
+        self.inCloud = inCloud
+        self.onMac = onMac
+        self.unsafeOnMac = unsafeOnMac
+    }
 }

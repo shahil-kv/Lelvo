@@ -12,14 +12,36 @@ final class ToastCenter: ObservableObject {
         var title: String
         var detail: String?
         var progress: Double?
+        var canStop = false
     }
 
     @Published private(set) var current: Toast?
     private var hideTask: Task<Void, Never>?
+    private var stoppable: Task<Void, Never>?
 
     func progress(_ title: String, detail: String? = nil, fraction: Double? = nil) {
         hideTask?.cancel()
-        current = Toast(style: .progress, title: title, detail: detail, progress: fraction)
+        current = Toast(style: .progress, title: title, detail: detail, progress: fraction, canStop: stoppable != nil)
+    }
+
+    /// Moves the bar of the progress on screen. Does nothing once it's gone, so a late update can't bring it back.
+    func update(fraction: Double) {
+        guard current?.style == .progress else { return }
+        current?.progress = fraction
+    }
+
+    /// Runs slow work whose progress pill offers a stop button. Cancelling reaches `work` as task cancellation.
+    func runStoppable(_ work: @escaping @MainActor () async -> Void) async {
+        let task = Task { @MainActor in await work() }
+        stoppable = task
+        await task.value
+        if stoppable == task { stoppable = nil }
+    }
+
+    func stop() {
+        stoppable?.cancel()
+        stoppable = nil
+        dismiss()
     }
 
     func show(_ style: Toast.Style, _ title: String, detail: String? = nil, seconds: Double = 3.5) {
@@ -41,6 +63,7 @@ final class ToastCenter: ObservableObject {
 
 struct ToastView: View {
     let toast: ToastCenter.Toast
+    var stop: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 12) {
@@ -55,6 +78,13 @@ struct ToastView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(toast.title).font(.callout.weight(.semibold))
                 if let detail = toast.detail { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+            }
+            if toast.canStop {
+                Button(action: stop) {
+                    Image(systemName: "xmark.circle.fill").font(.title3).symbolRenderingMode(.hierarchical)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop")
             }
         }
         .padding(.horizontal, 16)
@@ -73,11 +103,11 @@ private struct ToastHost: ViewModifier {
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
             if let toast = center.current {
-                ToastView(toast: toast)
+                ToastView(toast: toast) { center.stop() }
                     .padding(.horizontal, 16)
                     .padding(.bottom, bottomPadding)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .allowsHitTesting(false)
+                    .allowsHitTesting(toast.canStop)
             }
         }
         .animation(.snappy, value: center.current)
