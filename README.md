@@ -301,5 +301,3 @@ and change it, and copies you distribute must stay under the same license with t
 accepted under the [Contributor License Agreement](CLA.md). The Lelvo name and icon are covered by
 [TRADEMARKS.md](TRADEMARKS.md). Third-party licenses: [NOTICE.md](NOTICE.md).
 
-Inspired by [AKS-Labs/CloudGallery](https://github.com/AKS-Labs/CloudGallery) and Whitehole, earlier projects that
-back up photos to Telegram. This codebase is a separate, from-scratch implementation for Apple platforms.

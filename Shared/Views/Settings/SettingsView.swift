@@ -247,10 +247,9 @@ struct AboutView: View {
                 NavigationLink { AcknowledgementsView() } label: { Label("Acknowledgements", systemImage: "heart.text.square") }
             } header: { Text("Free and open source") }
             Section {
-                Text("Inspired by **AKS-Labs/CloudGallery** and **Whitehole**, earlier projects that back up photos to Telegram.")
                 Text("Lelvo uses the Telegram API. It isn't made, endorsed or supported by Telegram.")
                     .foregroundStyle(.secondary)
-            } header: { Text("Credits") }
+            } header: { Text("Telegram") }
         }
         .navigationTitle("About")
     }
