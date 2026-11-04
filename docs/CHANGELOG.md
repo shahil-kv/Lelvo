@@ -5,6 +5,19 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 
 ## Unreleased
 
+- **Stop a download:** the × on a video or photo download now stops it straight away, and Share shows progress on
+  iPhone, so you can see it working instead of tapping again. On Mac, Share, Export and Save to Photos show progress
+  with a stop button.
+- **Better search:** searching "beach" also finds shore, ocean, sand and coast, and other common words work the same
+  way. On Mac, the Search page has a new design, and letters are no longer lost while the results appear.
+- **Clearer Similar:** the button now says "Select extras to delete", and photos that will be deleted show a red
+  trash icon.
+- **Backup page (iPhone):** Duplicates now has one button, in Collections, and Retry says what it did.
+- **Memories:** Pause now responds to a tap, and a photo that can't load says so and moves on.
+- **Large libraries:** big photo grids now update without holding up the screen, and temporary share copies are
+  cleaned up after a day.
+- **Mac grid:** photos sit evenly when scroll bars are always shown, and VoiceOver can now read each photo.
+
 - **Picture in Picture removed:** videos now stop when you leave Lelvo. AirPlay and playback speed stay.
 - **Keep a second copy (Mac):** pick a folder on an external drive, a NAS or your Mac once, and Lelvo keeps your
   whole library there, up to date, in Year/Month folders. Nothing is ever deleted from it, and an unplugged drive
