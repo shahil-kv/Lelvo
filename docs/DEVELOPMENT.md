@@ -26,6 +26,7 @@ Shared/                      compiled into both apps
 Packages/LelvoCore/   platform-independent core: caption format, encryption, index, job queue, cache
 UITests/                     iOS UI tests (demo library, no Telegram account needed)
 website/                     the website: plain HTML, CSS and JS; Cloudflare deploys it on every push to main
+website-worker.js            redirects www and the old workers.dev address to lelvo.app
 Scripts/build.sh             command-line builds and tests
 ```
 

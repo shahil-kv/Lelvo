@@ -5,26 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lelvo: free photo backup to your own Telegram</title>
   <meta name="description" content="Lelvo backs up every photo and video, in original quality, to a private channel in your own Telegram account. Free and open source, for iPhone and Mac. No servers, no tracking.">
-  <link rel="canonical" href="https://lelvo.mshahilkv.workers.dev/">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="author" content="Shahil">
+  <link rel="canonical" href="https://lelvo.app/">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://lelvo.mshahilkv.workers.dev/">
+  <meta property="og:url" content="https://lelvo.app/">
   <meta property="og:title" content="Lelvo: free photo backup to your own Telegram">
   <meta property="og:description" content="Original-quality photo and video backup to a private channel in your own Telegram account. Free and open source, for iPhone and Mac.">
-  <meta property="og:image" content="https://lelvo.mshahilkv.workers.dev/og.png">
+  <meta property="og:image" content="https://lelvo.app/og.png">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Lelvo: free photo backup to your own Telegram">
   <meta name="twitter:description" content="Original-quality photo and video backup to a private channel in your own Telegram account. Free and open source, for iPhone and Mac.">
-  <meta name="twitter:image" content="https://lelvo.mshahilkv.workers.dev/og.png">
+  <meta name="twitter:image" content="https://lelvo.app/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Your photos. Your Telegram. Lelvo sends photos from an iPhone into a private Lelvo Library channel.">
   <meta property="og:site_name" content="Lelvo">
   <script type="application/ld+json">
-  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Lelvo",
-   "description": "Backs up every photo and video, in original quality, to a private channel in your own Telegram account.",
-   "url": "https://lelvo.mshahilkv.workers.dev/", "applicationCategory": "UtilitiesApplication",
-   "operatingSystem": "iOS 17 or later, macOS 15 or later", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
-   "image": "https://lelvo.mshahilkv.workers.dev/og.png", "license": "https://www.gnu.org/licenses/gpl-3.0.html", "sameAs": ["https://github.com/shahil-kv/Lelvo"]}
+  {"@context": "https://schema.org", "@graph": [{"@type": "WebSite", "@id": "https://lelvo.app/#website", "url": "https://lelvo.app/", "name": "Lelvo", "inLanguage": "en", "publisher": {"@id": "https://lelvo.app/#org"}}, {"@type": "Organization", "@id": "https://lelvo.app/#org", "name": "Lelvo", "url": "https://lelvo.app/", "logo": "https://lelvo.app/icon-512.png", "founder": {"@id": "https://lelvo.app/#founder"}, "sameAs": ["https://github.com/shahil-kv/Lelvo"]}, {"@type": "Person", "@id": "https://lelvo.app/#founder", "name": "Shahil", "jobTitle": "Founder", "url": "https://shahilkv.in", "worksFor": {"@id": "https://lelvo.app/#org"}, "sameAs": ["https://shahilkv.in", "https://github.com/shahil-kv"]}, {"@type": "SoftwareApplication", "@id": "https://lelvo.app/#app", "name": "Lelvo", "description": "Backs up every photo and video, in original quality, to a private channel in your own Telegram account.", "url": "https://lelvo.app/", "applicationCategory": "UtilitiesApplication", "operatingSystem": "iOS 17 or later, macOS 15 or later", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "isAccessibleForFree": true, "image": "https://lelvo.app/og.png", "license": "https://www.gnu.org/licenses/gpl-3.0.html", "author": {"@id": "https://lelvo.app/#founder"}, "publisher": {"@id": "https://lelvo.app/#org"}, "featureList": ["Original-quality photo and video backup", "Private channel in your own Telegram account", "Optional end-to-end encryption", "One timeline for device and cloud items", "Restore on a new device", "Free up space on your phone"], "sameAs": ["https://github.com/shahil-kv/Lelvo"]}, {"@type": "FAQPage", "@id": "https://lelvo.app/#faq", "mainEntity": [{"@type": "Question", "name": "Can Telegram see my photos?", "acceptedAnswer": {"@type": "Answer", "text": "In a Standard library, files are encrypted on the way and stored like any Telegram cloud chat, which isn't end-to-end encrypted (Telegram FAQ). In an End-to-end encrypted library, Lelvo encrypts every file and its details on your device first, so Telegram only ever holds files it can't open."}}, {"@type": "Question", "name": "Is the storage really unlimited?", "acceptedAnswer": {"@type": "Answer", "text": "Telegram describes its cloud storage as unlimited, with files up to 2 GB each, or 4 GB with Telegram Premium (Terms of Service, FAQ). That's Telegram's offer, not a promise Lelvo can make, and Telegram can change it. Lelvo splits bigger files into parts on its own."}}, {"@type": "Question", "name": "Is this allowed by Telegram?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Telegram opens its API to third-party apps under the Telegram API Terms of Service. Lelvo follows them: it uses its own app key, says clearly that it uses the Telegram API, doesn't put \"Telegram\" in its name or use Telegram's logo, and doesn't change how Telegram works for anyone else."}}, {"@type": "Question", "name": "Can my account get banned for this?", "acceptedAnswer": {"@type": "Answer", "text": "Backing up your own photos to your own private channel is ordinary use. Bans come from breaking Telegram's Terms of Service, such as spam or scams. Lelvo only posts to your private channel, uploads at most two files at a time with a pause between them, and waits whenever Telegram asks it to slow down."}}, {"@type": "Question", "name": "How do I restore on a new phone?", "acceptedAnswer": {"@type": "Answer", "text": "Install Lelvo, sign in with the same Telegram account and pick your library. Dates, places, albums and Live Photos come back, and photos already on the phone aren't uploaded again."}}, {"@type": "Question", "name": "What if I delete the channel, or messages in it?", "acceptedAnswer": {"@type": "Answer", "text": "A deleted channel takes every file in it, and it can't be restored by Lelvo or anyone else. Photos still on your phone are safe: after a re-scan they show as not backed up, and Retry uploads them again. Please don't delete or edit messages in the library channel by hand."}}, {"@type": "Question", "name": "Can Lelvo delete photos from my phone?", "acceptedAnswer": {"@type": "Answer", "text": "Only when you ask, and iOS always asks you to confirm. Free up space offers only photos that Lelvo has just checked are complete in Telegram and unchanged since their backup."}}, {"@type": "Question", "name": "Is it really free? Who pays for it?", "acceptedAnswer": {"@type": "Answer", "text": "Lelvo is free and open source under the GPL-3.0, and every feature stays free. Your storage is your own Telegram account's, so there's no plan to buy. Making Lelvo isn't free, though: the Apple developer membership costs $99 a year, plus test devices, the website and a lot of evenings. If Lelvo saves you a storage plan, a small contribution keeps it going."}}]}]}
   </script>
   <meta name="theme-color" content="#F4F5F7">
   <link rel="preload" href="fonts/BricolageGrotesque-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -269,6 +267,7 @@
             <li><a href="./#features"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M6 16l4-4.5 3 3 2-2 3 3.5"/></svg>Features</a></li>
             <li><a href="./#how"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M4 12h16M4 18h7"/></svg>How it works</a></li>
             <li><a href="./#faq"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-.9.6-1.5 1.1-1.5 2.2M12 17h.01"/></svg>Questions</a></li>
+            <li><a href="about"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg>About</a></li>
             <li><a href="changelog"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Changelog</a></li>
           </ul>
         </div>
@@ -292,7 +291,7 @@
           </ul>
         </div>
       </nav>
-      <p class="footer-legal">Lelvo is free software under the <a href="https://github.com/shahil-kv/Lelvo/blob/main/LICENSE">GPL-3.0</a>. It uses the Telegram API and isn't made or endorsed by Telegram. Sample photos from <a href="https://unsplash.com">Unsplash</a>.</p>
+      <p class="footer-legal">Made by <a rel="author" href="https://shahilkv.in">Shahil</a>. Lelvo is free software under the <a href="https://github.com/shahil-kv/Lelvo/blob/main/LICENSE">GPL-3.0</a>. It uses the Telegram API and isn't made or endorsed by Telegram. Sample photos from <a href="https://unsplash.com">Unsplash</a>.</p>
     </div>
   </footer>
 </body>
