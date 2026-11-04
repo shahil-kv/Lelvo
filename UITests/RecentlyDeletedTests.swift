@@ -87,6 +87,52 @@ final class RecentlyDeletedTests: XCTestCase {
         wait(for: [back], timeout: 15)
     }
 
+    /// Select, Done, Recover and Delete for one item, then Delete All, which asks first.
+    func testEveryRecentlyDeletedButton() {
+        openDemoLibrary()
+        let grid = app.collectionViews["galleryGrid"]
+        XCTAssertTrue(grid.cells.firstMatch.waitForExistence(timeout: 15))
+        for _ in 0..<2 {
+            grid.cells.element(boundBy: 0).tap()
+            let delete = app.buttons["Delete from cloud"]
+            XCTAssertTrue(delete.waitForExistence(timeout: 10))
+            delete.tap()
+            app.alerts.buttons["Delete from Backup"].tap()
+            sleep(2)
+            if app.buttons["Close"].exists { app.buttons["Close"].tap() }
+        }
+        app.buttons["Collections"].firstMatch.tap()
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Recently Deleted, 2")).firstMatch
+        for _ in 0..<6 where !row.isHittable { app.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+
+        let select = app.buttons["Select"]
+        XCTAssertTrue(select.waitForExistence(timeout: 10))
+        select.tap()
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 5), "Select switches to Done")
+        app.buttons["Done"].tap()
+        XCTAssertTrue(select.waitForExistence(timeout: 5))
+
+        select.tap()
+        let tile = app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "30 days left")).firstMatch
+        XCTAssertTrue(tile.waitForExistence(timeout: 10))
+        tile.tap()
+        XCTAssertTrue(app.buttons["Recover"].waitForExistence(timeout: 5), "With a selection the bar acts on it")
+        app.buttons["Recover"].tap()
+        let one = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label ENDSWITH %@", "30 days left"),
+                                            object: tile)
+        wait(for: [one], timeout: 10)
+        sleep(1)
+
+        app.buttons["Delete All"].tap()
+        let confirm = app.buttons["Delete from Telegram"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Delete All asks first")
+        screenshot("recently-deleted-confirm")
+        confirm.tap()
+        XCTAssertTrue(app.staticTexts["No Recently Deleted Items"].waitForExistence(timeout: 15), "Deleting empties it")
+    }
+
     func testSwipeSelectsInRecentlyDeleted() {
         openDemoLibrary()
         let grid = app.collectionViews["galleryGrid"]

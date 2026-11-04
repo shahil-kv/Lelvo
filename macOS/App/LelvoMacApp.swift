@@ -3,7 +3,6 @@ import LelvoCore
 
 final class MacAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        UITestSupport.prepareIfNeeded()
         #if DEBUG
         DebugHooks.install()
         #endif
@@ -30,6 +29,11 @@ struct LelvoMacApp: App {
     @StateObject private var navigation = MacNavigation.shared
     @AppStorage(MacPrefs.showMenuBarExtra) private var showMenuBarExtra = true
     @Environment(\.scenePhase) private var scenePhase
+
+    // Before anything reads the settings it may reset: AppModel copies them when first used.
+    init() {
+        UITestSupport.prepareIfNeeded()
+    }
 
     var body: some Scene {
         Window("Lelvo", id: MacNavigation.mainWindowId) {

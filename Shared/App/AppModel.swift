@@ -133,6 +133,8 @@ enum UITestSupport {
             try? store.upsert(items)
             return
         }
+        // `-UITestDemoKeep`: open the library the last run made, to measure a normal launch instead of the seeding.
+        if args.contains("-UITestDemoKeep"), let existing = try? store.allItems(), !existing.isEmpty { return }
         let now = Date()
         // `-UITestDemoCount N` (benchmarks): a bigger library; default 300 for the UI tests.
         let count = args.firstIndex(of: "-UITestDemoCount").flatMap { args.indices.contains($0 + 1) ? Int(args[$0 + 1]) : nil } ?? 300
@@ -148,6 +150,11 @@ enum UITestSupport {
             item.longitude = (trip ? 73.82 : 76.26) + jitter
             item.setParts([RemoteFile(messageId: Int64(i + 1), fileId: "demo", fileUniqueId: "demo\(i)", size: 2_000_000)],
                           role: "o", expected: 1)
+            // `-UITestDemoAlbums`: favourites and albums, so those Collections rows exist.
+            if args.contains("-UITestDemoAlbums") {
+                item.favorite = i % 11 == 0
+                item.albums = ["Family \(i % 5 + 1)"]
+            }
             return item
         }
         try? store.deleteAll()

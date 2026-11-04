@@ -9,7 +9,9 @@ enum KeychainStore {
         case tdApiId, tdApiHash, tdDatabaseKey, e2eMasterKey
     }
 
-    private static let service = "app.lelvo"
+    /// The Mac test app (`LelvoMacTestApp`) resets itself on every run. A Mac's keychain is shared between apps, so
+    /// it needs entries of its own, or it would wipe the real app's sign-in.
+    private static let service = Bundle.main.bundleIdentifier?.hasSuffix(".uitest") == true ? "app.lelvo.uitest" : "app.lelvo"
 
     private static func query(_ key: Key) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

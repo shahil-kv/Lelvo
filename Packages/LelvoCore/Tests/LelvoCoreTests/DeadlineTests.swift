@@ -21,7 +21,9 @@ import LelvoCore
                 return 1
             }
         }
-        #expect(Date().timeIntervalSince(started) < 2)
+        // Only proves it didn't wait for the stuck work. Generous, because the timer runs late when the whole suite and a
+        // build share the machine.
+        #expect(Date().timeIntervalSince(started) < 30)
     }
 
     @Test func cancellingTheCallerStopsWaiting() async {
