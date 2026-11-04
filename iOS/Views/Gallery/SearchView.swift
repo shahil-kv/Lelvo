@@ -24,7 +24,7 @@ struct SearchView: View {
             .settingsButton()
             .searchable(text: $search.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Places, dates, things, text")
             .onChange(of: search.query) { _, _ in search.run() }
-            .onSubmit(of: .search) { if !search.results.isEmpty { search.remember(search.query) } }
+            .onSubmit(of: .search) { search.submit() }
             .task(id: gallery.revision) { search.update(entries: gallery.entries) }
             .task { search.load() }
         }

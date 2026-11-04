@@ -24,10 +24,30 @@ public enum SearchMatcher {
         return out
     }
 
-    /// Whether every query word starts one of `known` (already passed through `words`).
+    /// What people type for things Vision names differently: it often calls a beach "ocean" or "shore" and never says
+    /// "sea". Used for whole words only, so typing "be" doesn't bring up the ocean.
+    private static let alternatives: [String: [String]] = [
+        "beach": ["shore", "ocean", "sand", "coast"],
+        "beaches": ["beach", "shore", "ocean", "sand", "coast"],
+        "sea": ["ocean", "shore", "beach"],
+        "ocean": ["sea", "shore"],
+        "mountains": ["mountain", "hill"],
+        "mountain": ["hill"],
+        "bike": ["motorcycle", "bicycle"],
+        "car": ["vehicle"],
+        "kid": ["child"],
+        "kids": ["child"],
+        "pet": ["dog", "cat"],
+        "pets": ["dog", "cat"]
+    ]
+
+    /// A query word and the other words that count as it.
+    public static func variants(of term: String) -> [String] { [term] + (alternatives[term] ?? []) }
+
+    /// Whether every query word, or a word that counts as it, starts one of `known` (already passed through `words`).
     public static func matches(query: [String], known: [String]) -> Bool {
         guard !query.isEmpty else { return false }
-        return query.allSatisfy { term in known.contains { $0.hasPrefix(term) } }
+        return query.allSatisfy { term in variants(of: term).contains { v in known.contains { $0.hasPrefix(v) } } }
     }
 
     /// The words Vision found, cleaned for storage: classification identifiers use underscores ("sea_lion"), and long
@@ -79,7 +99,8 @@ public struct SearchIndex: Sendable {
         guard !terms.isEmpty else { return [] }
         var result: Set<Int32>?
         // The rarest word first keeps the intersections small.
-        for term in terms.map(matches).sorted(by: { $0.count < $1.count }) {
+        let found = terms.map { SearchMatcher.variants(of: $0).reduce(into: Set<Int32>()) { $0.formUnion(matches($1)) } }
+        for term in found.sorted(by: { $0.count < $1.count }) {
             result = result.map { $0.intersection(term) } ?? term
             if result?.isEmpty == true { return [] }
         }

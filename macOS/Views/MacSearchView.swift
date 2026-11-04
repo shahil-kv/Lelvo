@@ -8,21 +8,21 @@ struct MacSearchView: View {
 
     var body: some View {
         Group {
-            if search.isSearching {
-                if search.results.isEmpty {
-                    EmptyStateView(systemImage: "magnifyingglass", title: "No Results",
-                                   message: "Try a place, a month or year, or something in the photo.")
-                } else {
-                    MacGalleryView(item: .search, filter: .matching(title: search.query, ids: search.results))
-                }
+            if !search.isSearching {
+                MacSearchSuggestions(search: search)
+            } else if !search.results.isEmpty {
+                MacGalleryView(item: .search, filter: .matching(title: search.query, ids: search.results))
+            } else if search.isPending {
+                Color.clear
             } else {
-                SearchSuggestions(search: search)
+                EmptyStateView(systemImage: "magnifyingglass", title: "No Results",
+                               message: "Try a place, a month or year, or something in the photo.")
             }
         }
         .navigationTitle("Search")
         .searchable(text: $search.query, placement: .toolbar, prompt: "Places, dates, things, text")
         .onChange(of: search.query) { _, _ in search.run() }
-        .onSubmit(of: .search) { if !search.results.isEmpty { search.remember(search.query) } }
+        .onSubmit(of: .search) { search.submit() }
         .task(id: gallery.revision) { search.update(entries: gallery.entries) }
         .task { search.load() }
     }
