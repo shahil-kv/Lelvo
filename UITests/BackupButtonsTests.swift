@@ -71,6 +71,26 @@ final class BackupButtonsTests: XCTestCase {
         XCTAssertFalse(resume.waitForExistence(timeout: 3), "Resume starts it again")
     }
 
+    /// Resume carries on from the first unfinished item, not from the start of the list.
+    func testResumeSkipsWhatPauseAlreadyFinished() {
+        let backUp = app.buttons["Back up now"]
+        XCTAssertTrue(backUp.waitForExistence(timeout: 10))
+        backUp.tap()
+        let pause = app.buttons["Pause backup"]
+        XCTAssertTrue(pause.waitForExistence(timeout: 15))
+        sleep(4)  // Each sample item takes 1.2 s.
+        pause.tap()
+        let resume = app.buttons["Resume backup"]
+        XCTAssertTrue(resume.waitForExistence(timeout: 20))
+        resume.tap()
+        // The count shows "2 of 4 done": anything below the full 6 means the finished ones were left out.
+        func progress(_ pattern: String) -> XCUIElement {
+            app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", pattern)).firstMatch
+        }
+        XCTAssertTrue(progress(".* of [1-5] done.*").waitForExistence(timeout: 5), "Only the unfinished items are left")
+        XCTAssertFalse(progress(".* of 6 done.*").exists, "The finished items aren't uploaded again")
+    }
+
     func testKeepAwakeSwitch() {
         let toggle = app.switches["Keep iPhone awake while backing up"]
         for _ in 0..<4 where !toggle.isHittable { app.swipeUp() }

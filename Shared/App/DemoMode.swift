@@ -12,6 +12,7 @@ enum DemoMode {
 
     private static let activeKey = "demoMode"
     private static let pendingKey = "demoModePending"
+    private static let uploadedKey = "demoModeUploaded"
     private static let idPrefix = "demo-"
 
     static var isActive: Bool { UserDefaults.standard.bool(forKey: activeKey) }
@@ -33,6 +34,7 @@ enum DemoMode {
     static func enter(store: LibraryStore) {
         UserDefaults.standard.set(true, forKey: activeKey)
         UserDefaults.standard.set(true, forKey: pendingKey)
+        UserDefaults.standard.removeObject(forKey: uploadedKey)
         try? store.deleteAll()
         try? store.upsert(entries().filter { $0.pending != true }.map(item))
         appLog("Demo mode: sample library loaded")
@@ -41,15 +43,26 @@ enum DemoMode {
     /// Items "on the phone" that the simulated backup uploads; empty once it has run.
     static func pendingItems() -> [MediaItem] {
         guard UserDefaults.standard.bool(forKey: pendingKey) else { return [] }
-        return entries().filter { $0.pending == true }.map(item)
+        let uploaded = Set(UserDefaults.standard.stringArray(forKey: uploadedKey) ?? [])
+        return entries().filter { $0.pending == true }.map(item).filter { !uploaded.contains($0.id) }
     }
 
-    static func pendingUploaded() { UserDefaults.standard.set(false, forKey: pendingKey) }
+    /// One item finished, so a run that's paused and resumed carries on after it.
+    static func markUploaded(_ item: MediaItem) {
+        let uploaded = UserDefaults.standard.stringArray(forKey: uploadedKey) ?? []
+        UserDefaults.standard.set(uploaded + [item.id], forKey: uploadedKey)
+    }
+
+    static func pendingUploaded() {
+        UserDefaults.standard.set(false, forKey: pendingKey)
+        UserDefaults.standard.removeObject(forKey: uploadedKey)
+    }
 
     /// Sign out: back to a normal, empty app.
     static func exit() {
         UserDefaults.standard.removeObject(forKey: activeKey)
         UserDefaults.standard.removeObject(forKey: pendingKey)
+        UserDefaults.standard.removeObject(forKey: uploadedKey)
     }
 
     // MARK: - Manifest

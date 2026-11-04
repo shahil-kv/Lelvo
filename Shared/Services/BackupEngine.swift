@@ -621,6 +621,7 @@ final class BackupEngine: @unchecked Sendable {
             item.uploadedAt = Date()
             item.verifiedAt = Date()
             save(item)
+            DemoMode.markUploaded(item)
             summary.uploaded += 1
             progress?(i + 1, total)
             let done = i + 1
