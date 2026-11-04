@@ -3,8 +3,9 @@
 
     PRIVACY.md         → website/privacy.html    (the App Store privacy policy URL)
     docs/CHANGELOG.md  → website/changelog.html
+    docs/ABOUT.md      → website/about.html
 
-Run from the repository root after editing either file:  python3 Scripts/website-pages.py
+Run from the repository root after editing any of them:  python3 Scripts/website-pages.py
 Handles the Markdown these files use: headings, paragraphs, bullet lists, bold, inline code and links.
 """
 import html
@@ -18,6 +19,8 @@ PAGES = [
     ("PRIVACY.md", "privacy",
      "Lelvo's privacy policy: Lelvo has no servers and never receives your data. Your photos go from your device to your own Telegram account."),
     ("docs/CHANGELOG.md", "changelog", "What's new in each version of Lelvo for iPhone and Mac."),
+    ("docs/ABOUT.md", "about",
+     "Lelvo is a free, open source photo backup for iPhone and Mac, made by Shahil. Your originals go to a private channel in your own Telegram account."),
 ]
 
 

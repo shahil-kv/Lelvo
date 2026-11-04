@@ -5,6 +5,7 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 
 ## Unreleased
 
+- **New web address:** the website is now [lelvo.app](https://lelvo.app), with a new About page.
 - **Stop a download:** the × on a video or photo download now stops it straight away, and Share shows progress on
   iPhone, so you can see it working instead of tapping again. On Mac, Share, Export and Save to Photos show progress
   with a stop button.
@@ -50,8 +51,8 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - **Sign-in starts at your phone number** in every build; a build without Telegram app keys asks for them after.
 - **iPhone only** for now (it still runs on iPad in iPhone mode), and a **demo library** for App Review that never
   connects to Telegram.
-- New website pages: [changelog](https://lelvo.mshahilkv.workers.dev/changelog) and
-  [privacy policy](https://lelvo.mshahilkv.workers.dev/privacy).
+- New website pages: [changelog](https://lelvo.app/changelog) and
+  [privacy policy](https://lelvo.app/privacy).
 - **Fast cloud videos:** each video you back up also gets a small fast version (about a tenth of the size), so it
   plays at once from your Telegram library. The quality button in the viewer switches to the original at any time,
   and older videos can get one with Make Fast Version. Cloud videos seek instantly, keep playing when you switch

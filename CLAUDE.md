@@ -47,5 +47,5 @@ in `.claude/skills/`. Personal settings go in `CLAUDE.local.md` (ignored by git)
 - Stale `CloudGalleryCore` folders under `.build/` are from the old name. Ignore them.
 - `marketing/` is excluded through `.git/info/exclude`. Never commit it.
 - Don't relaunch the app on the owner's iPhone without asking. They may be using it.
-- After `docs/CHANGELOG.md` or `PRIVACY.md` changes, `website/*.html` must be regenerated in the same commit. A hook
+- After `docs/CHANGELOG.md`, `docs/ABOUT.md` or `PRIVACY.md` changes, `website/*.html` must be regenerated in the same commit. A hook
   runs `python3 Scripts/website-pages.py` for you; check its output.

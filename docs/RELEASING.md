@@ -6,7 +6,8 @@ Store launch makes it 1.0.0. MINOR for new features, PATCH for fixes only.
 ## Steps
 
 1. **Check `main` is green** in CI, and that **[CHANGELOG.md](CHANGELOG.md)** "Unreleased" describes the changes for
-   users. Move them under the new version and date in the same pull request.
+   users. Move them under the new version and date in the same pull request, and run
+   `python3 Scripts/website-pages.py`, so [lelvo.app/changelog](https://lelvo.app/changelog) updates when it merges.
 2. **Test on real devices** with a real (spare) Telegram account, on the oldest and newest supported OS:
    - fresh install → sign in → create a library → back up photos, a Live Photo and a video;
    - view and stream from the cloud, share, save to Photos;
@@ -34,6 +35,15 @@ It refuses to run off `main`, refuses a malformed version, and refuses a tag tha
 of `0.2.0` as you like, then run it once as `stable`.
 
 5. **Check the release page** and edit the notes into a short summary for users if needed.
+
+## Website
+
+Merging to `main` deploys [lelvo.app](https://lelvo.app) (Cloudflare, [WEBSITE.md](WEBSITE.md)), so the site can go live
+before the app does. Don't promise a feature or link to a download on the site until the release is out.
+
+The app opens its privacy policy at `https://lelvo.app/privacy` (`Shared/Support/AppLinks.swift`). Older builds link to
+`lelvo.mshahilkv.workers.dev`, so `website-worker.js` has to keep redirecting that address, and the page paths have to
+stay the same.
 
 ## App keys in releases
 

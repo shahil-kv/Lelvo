@@ -38,12 +38,11 @@ Each rejection and resubmission restarts the wait. Allow at least a week from fi
 ## Do you need a domain?
 
 **No.** Apple needs a working Privacy Policy URL and Support URL, and doesn't check who owns the domain or the bundle
-ID prefix. `lelvo.mshahilkv.workers.dev` is enough to pass review.
+ID prefix.
 
-**Still buy `lelvo.app` before the first build you submit.** The privacy link is compiled into the app
-(`Shared/Support/AppLinks.swift`), and bundle IDs (`app.lelvo.*`) can't change after the first release. Once it's
-bought: point it at the site, update `AppLinks.privacyPolicy` and the URLs in Phase 4, and keep the old address
-redirecting, because older builds still link to it.
+**`lelvo.app` is bought and serves the site.** The privacy link is compiled into the app
+(`Shared/Support/AppLinks.swift`), and bundle IDs (`app.lelvo.*`) can't change after the first release. The old
+`lelvo.mshahilkv.workers.dev` address redirects to it and has to keep doing so, because older builds link to it.
 
 ## The five things most likely to block approval
 
@@ -65,7 +64,7 @@ best chance with the reviewer, but only Apple decides.
 ### Stage A — Get the code onto `main`
 
 - [x] 1. Merge PR #80 (done 3 November 2026).
-- [ ] 2. Merge the App Store PR (`release/app-store-review`). The website's privacy page goes live with it.
+- [x] 2. Merge the App Store PR (`release/app-store-review`, done 3 November 2026).
 
 ### Stage B — Accounts and keys
 
@@ -74,8 +73,8 @@ best chance with the reviewer, but only Apple decides.
 - [ ] 4. Create the Telegram key on a spare Telegram account (Phase 0). Put it in `Config/Secrets.xcconfig`, then run
       `! gh secret set TD_API_ID -R shahil-kv/Lelvo` and `! gh secret set TD_API_HASH -R shahil-kv/Lelvo`.
 - [ ] 5. Keep that account active, and set its "If away for" time to the maximum (Phase 9).
-- [ ] 6. Buy `lelvo.app`, point it at the site, and update `AppLinks.privacyPolicy` and the Phase 4 URLs. Keep the old
-      address redirecting. Apple doesn't require this, so skip it if it would delay you, but the link is in the build.
+- [x] 6. Buy `lelvo.app`, point it at the site, and update `AppLinks.privacyPolicy` and the Phase 4 URLs. Keep the old
+      address redirecting.
 - [ ] 7. Search "Lelvo" in class 9 on WIPO and IP India (Phase 1.2).
 - [ ] 8. Confirm every merged contributor signed the CLA (Phase 1.1).
 - [ ] 9. Search the App Store on your iPhone for "Telegram storage", "Telegram backup" and "Telegram cloud". Note any
@@ -421,15 +420,13 @@ adopted by a standards body nor published. [Apple's table](https://developer.app
 
 ## Phase 4 — Privacy policy and support pages ✅
 
-Both are live (Cloudflare, deployed on every push to main):
+All three are live (the website is deployed by Cloudflare on every push to main):
 
-- **Privacy Policy URL:** https://lelvo.mshahilkv.workers.dev/privacy (built from [PRIVACY.md](../PRIVACY.md) by
+- **Privacy Policy URL:** https://lelvo.app/privacy (built from [PRIVACY.md](../PRIVACY.md) by
   `Scripts/website-pages.py`; the app's About screen links here).
 - **Support URL:** https://github.com/shahil-kv/Lelvo/blob/main/SUPPORT.md (contact email, FAQ, how to report a
   problem).
-- **Marketing URL:** https://lelvo.mshahilkv.workers.dev
-
-Replace these with `lelvo.app` addresses once the domain is live.
+- **Marketing URL:** https://lelvo.app
 
 - ✅ The policy covers what 5.1.1(i) lists: who we are, what's collected, how it's used, who receives it, how long it's
   kept, how to delete it and how to stop sharing. Apple also asks you to confirm third parties give equal protection.
@@ -614,7 +611,7 @@ If a reply doesn't help, you can appeal to the App Review Board (App Store Conne
 | GPL-3.0 + CLA, acknowledgements in About | ✅ Phase 1.1 |
 | New app name | ✅ Lelvo |
 | Original icon | ✅ Phase 1.2 |
-| `lelvo.app` bought, links updated | ⬜ not required by Apple; do before the first submitted build |
+| `lelvo.app` bought, links updated | ✅ done |
 | Reviewer demo mode (Release build, real sample media) | ✅ Phase 2.1 · ⬜ test on TestFlight |
 | Apple's prior approval of the demo mode | ⬜ Phase 2.1 |
 | No Picture in Picture, no `audio` background mode | ✅ Phase 3.2 |

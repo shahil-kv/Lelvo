@@ -95,9 +95,11 @@ run `python3 Scripts/website-pages.py`. Full details: [docs/RELEASING.md](docs/R
 
 ## Website
 
-`website/` is deployed by Cloudflare on every push to `main` (connected in the Cloudflare dashboard, no GitHub
-secret). `privacy.html` and `changelog.html` are generated: edit `PRIVACY.md` or `docs/CHANGELOG.md`, then run
-`python3 Scripts/website-pages.py`. Screenshots: `Scripts/website-shots.sh`.
+`website/` is served at [lelvo.app](https://lelvo.app) and deployed by Cloudflare on every push to `main` (connected in
+the Cloudflare dashboard, no GitHub secret). `website-worker.js` redirects `www.lelvo.app` and the old `workers.dev`
+address to it. `privacy.html`, `changelog.html` and `about.html` are generated: edit `PRIVACY.md`, `docs/CHANGELOG.md`
+or `docs/ABOUT.md`, then run `python3 Scripts/website-pages.py`. Screenshots: `Scripts/website-shots.sh`. Search setup:
+[docs/WEBSITE.md](docs/WEBSITE.md).
 
 ## Services and apps connected to the repository
 

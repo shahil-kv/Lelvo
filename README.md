@@ -14,7 +14,7 @@ Browse it all in one fast timeline on iPhone and Mac.**
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-3DA639"></a>
 </p>
 
-**Website: [lelvo.mshahilkv.workers.dev](https://lelvo.mshahilkv.workers.dev)**
+**Website: [lelvo.app](https://lelvo.app)**
 
 It's not about free storage. It's about ownership: your photos live in a channel you own, in an account you
 already have, and you can open them without Lelvo. No servers, no accounts of our own, no analytics, no ads.
