@@ -14,6 +14,8 @@ final class BackupStatsModel: ObservableObject {
     @Published var left = 0
     /// Failed items a retry can help.
     @Published var retryable = 0
+    /// Photos here that the user deleted from the backup.
+    @Published var removedFromBackup = 0
     private var observer: NSObjectProtocol?
     private var pendingRefresh: Task<Void, Never>?
 
@@ -46,7 +48,7 @@ final class BackupStatsModel: ObservableObject {
             let failedItems = (try? env.store.items(status: .failed)) ?? []
             let autoBackup = Prefs.autoBackup
             let all = (try? env.store.items(status: .backedUp)) ?? []
-            var onDevice = 0, cloudOnly = 0
+            var onDevice = 0, cloudOnly = 0, removed = 0
             var work: BackupCounts
             if DemoMode.isActive {
                 // App Review demo: the sample items waiting for "Back up now" stand in for this iPhone's photos.
@@ -62,11 +64,12 @@ final class BackupStatsModel: ObservableObject {
                                             offBackup: (try? env.store.offBackupLocalIdentifiers()) ?? [], autoBackup: autoBackup)
                 let present = env.photos.existingIdentifiers(all.compactMap(\.localIdentifier))
                 cloudOnly = all.filter { $0.localIdentifier.map { !present.contains($0) } ?? true }.count
+                removed = RemovedFromBackupModel.photos().count
             } else {
                 work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup)
                 cloudOnly = all.count
             }
-            let (onDeviceCount, cloudOnlyCount, result) = (onDevice, cloudOnly, work)
+            let (onDeviceCount, cloudOnlyCount, removedCount, result) = (onDevice, cloudOnly, removed, work)
             await MainActor.run {
                 self.backedUp = counts[.backedUp] ?? 0
                 self.pending = result.pending(autoBackup: autoBackup)
@@ -76,6 +79,7 @@ final class BackupStatsModel: ObservableObject {
                 self.onDevice = onDeviceCount
                 self.notQueued = result.notQueued
                 self.left = result.left
+                self.removedFromBackup = removedCount
             }
         }
     }
@@ -221,6 +225,11 @@ struct BackupDashboardView: View {
                     NavigationLink { FailedItemsView() } label: {
                         statRow("Failed", stats.failed, "exclamationmark.icloud.fill", stats.failed > 0 ? .red : .secondary)
                     }
+                    if stats.removedFromBackup > 0 {
+                        NavigationLink { RemovedFromBackupView() } label: {
+                            statRow("Removed from backup", stats.removedFromBackup, "icloud.slash", .secondary)
+                        }
+                    }
                 }
 
                 Section("Tools") {
@@ -283,7 +292,7 @@ struct BackupDashboardView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.headline)
-                Text(state == .complete ? "Everything on this \(Device.name) is backed up"
+                Text(state == .complete ? "Everything\(stats.removedFromBackup > 0 ? " else" : "") on this \(Device.name) is backed up"
                      : state == .notBackedUp ? "Back up now uploads them all, or choose photos in Photos and tap Back up."
                      : "To your Telegram library")
                     .font(.subheadline).foregroundStyle(.secondary)
@@ -394,7 +403,7 @@ struct FailedItemsView: View {
     }
 }
 
-private struct FailedThumbnail: View {
+struct FailedThumbnail: View {
     let localIdentifier: String?
     @State private var image: PlatformImage?
 

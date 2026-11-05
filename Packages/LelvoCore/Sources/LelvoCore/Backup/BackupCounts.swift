@@ -35,4 +35,17 @@ public struct BackupCounts: Equatable, Sendable {
         counts.retryable = failed.filter { !$0.isStrandedInCloud }.count
         return counts
     }
+
+    /// Photos on this device the user deleted from the backup, which a backup skips until they choose to back them up.
+    /// - Parameters:
+    ///   - trashed: items in Recently Deleted.
+    ///   - offBackup: photos whose backup is gone for good.
+    ///   - known: local ids the index already has, in any state.
+    ///   - present: the local ids still on this device.
+    public static func removedFromBackup(trashed: [MediaItem], offBackup: Set<String>, known: Set<String>, present: Set<String>) -> [String] {
+        let inTrash = Set(trashed.compactMap(\.localIdentifier))
+        // In the index and not in the trash means it's back in the library, whatever an older mark says.
+        let gone = offBackup.subtracting(known)
+        return inTrash.union(gone).intersection(present).sorted()
+    }
 }

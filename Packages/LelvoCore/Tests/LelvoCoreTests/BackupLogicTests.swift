@@ -540,6 +540,35 @@ import LelvoCore
         #expect(c.left == 1)
     }
 
+    func removed(trashed: [MediaItem] = [], offBackup: Set<String> = [], known: Set<String> = [], present: Set<String>) -> [String] {
+        BackupCounts.removedFromBackup(trashed: trashed, offBackup: offBackup, known: known, present: present)
+    }
+
+    @Test func photosInRecentlyDeletedAndStillHereAreRemovedFromTheBackup() {
+        #expect(removed(trashed: [item(.trashed, local: "A")], known: ["A"], present: ["A"]) == ["A"])
+    }
+
+    @Test func photosDeletedForGoodAndStillHereAreRemovedFromTheBackup() {
+        #expect(removed(offBackup: ["A"], present: ["A"]) == ["A"])
+    }
+
+    @Test func removedPhotosNoLongerOnThisDeviceAreNotListed() {
+        #expect(removed(trashed: [item(.trashed, local: "A")], offBackup: ["B"], known: ["A"], present: []).isEmpty)
+    }
+
+    /// Recovered on another device: the item is back in the index, and an old "leave it alone" mark mustn't list it.
+    @Test func photosBackInTheLibraryAreNotListed() {
+        #expect(removed(offBackup: ["A"], known: ["A"], present: ["A"]).isEmpty)
+    }
+
+    @Test func aPhotoIsListedOnce() {
+        #expect(removed(trashed: [item(.trashed, local: "A")], offBackup: ["A"], known: ["A"], present: ["A"]) == ["A"])
+    }
+
+    @Test func trashedItemsWithNoPhotoAreNotListed() {
+        #expect(removed(trashed: [item(.trashed, local: nil)], present: ["A"]).isEmpty)
+    }
+
     @Test func photosAlreadyKnownAreNotLeftToDo() {
         #expect(compute(candidates: ["A", "B"], known: ["A", "B"]).left == 0)
     }
