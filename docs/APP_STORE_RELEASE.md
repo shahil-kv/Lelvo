@@ -46,13 +46,14 @@ ID prefix.
 
 ## The five things most likely to block approval
 
-1. **Demo mode needs Apple's prior approval** (Guideline 2.1(a), Phase 2.1). This is the biggest risk. Ask before
-   submitting.
+1. **Demo mode needs Apple's prior approval** (Guideline 2.1(a), Phase 2.1). This is the biggest risk. The review notes
+   ask for it openly, and external TestFlight gives the first answer.
 2. **Telegram's disclosure must be prominent in the listing** (API terms 2.2, Phase 5.4). Telegram can ask stores to
    remove an app that ignores a violation for 10 days (terms 4.2).
 3. **The privacy label** must be entered as decided (Phase 5.3), matching the privacy manifests.
 4. **France** must be switched off by hand in availability (Phase 3.6).
-5. **The CI upload has never run** (Phase 6). Expect the first run to need a fix, and allow time for it.
+5. **The CI upload has never run** (Phase 6). Builds so far were uploaded from Xcode. Expect the first CI run to need a
+   fix, and allow time for it.
 
 ---
 
@@ -68,21 +69,23 @@ best chance with the reviewer, but only Apple decides.
 
 ### Stage B — Accounts and keys
 
-- [ ] 3. Join the [Apple Developer Program](https://developer.apple.com/programs/) as an Individual ($99/year). Your
+- [x] 3. Join the [Apple Developer Program](https://developer.apple.com/programs/) as an Individual ($99/year). Your
       legal name is shown as the seller. Wait for the approval email (usually 1–2 days, sometimes longer).
-- [ ] 4. Create the Telegram key on a spare Telegram account (Phase 0). Put it in `Config/Secrets.xcconfig`, then run
+- [x] 4. Create the Telegram key on a spare Telegram account (Phase 0). Put it in `Config/Secrets.xcconfig`, then run
       `! gh secret set TD_API_ID -R shahil-kv/Lelvo` and `! gh secret set TD_API_HASH -R shahil-kv/Lelvo`.
 - [ ] 5. Keep that account active, and set its "If away for" time to the maximum (Phase 9).
 - [x] 6. Buy `lelvo.app`, point it at the site, and update `AppLinks.privacyPolicy` and the Phase 4 URLs. Keep the old
       address redirecting.
-- [ ] 7. Search "Lelvo" in class 9 on WIPO and IP India (Phase 1.2).
+- [x] 7. Search "Lelvo" in class 9 on WIPO and IP India (Phase 1.2). Done 5 November 2026: no exact match. Closest is
+      LeLIVE in India, class 9. Consider asking a trademark agent before the public release.
 - [ ] 8. Confirm every merged contributor signed the CLA (Phase 1.1).
 - [ ] 9. Search the App Store on your iPhone for "Telegram storage", "Telegram backup" and "Telegram cloud". Note any
       similar apps, and don't claim Lelvo is the first or only one.
 
 ### Stage C — App Store Connect setup
 
-- [ ] 10. Register the bundle ID `app.lelvo.ios`, then create the app: name Lelvo, SKU `lelvo-ios-1` (Phase 5.1).
+- [x] 10. Register the bundle ID `app.lelvo.ios`, then create the app. The name Lelvo was taken, so the App Store name is
+      `Lelvo: Photo Backup`, SKU `lelvo-ios-1`. The home screen name stays Lelvo (Phase 5.1).
 - [ ] 11. Category Photo & Video, secondary Utilities. Content rights: yes, third-party content, and you have the rights
       (Phase 5.2).
 - [ ] 12. Age rating questionnaire (Phase 5.2). Expected result: 4+.
@@ -108,7 +111,8 @@ best chance with the reviewer, but only Apple decides.
       them to keep their photos in Apple Photos and not to use Free Up Space yet.
 - [ ] 23. **Demo test on a clean install:** delete the app, reinstall, enter `+1 555 010 0199` and code `24680`, then try
       every tab and video playback, as a reviewer would.
-- [ ] 24. **IPv6-only test:** Internet Sharing with "Create NAT64 network", then sign-in, backup and viewer (Phase 3.5).
+- [x] 24. **IPv6-only test:** Internet Sharing with "Create NAT64 network" (Phase 3.5). The demo must work. Real sign-in
+      must behave like official Telegram on the same network: on 5 November 2026 both failed to connect.
 - [ ] 25. Work through every other Phase 3.5 test: permissions denied, limited and full; airplane mode; kill mid-backup;
       large library; dark mode; largest text; VoiceOver.
 - [ ] 26. Real flow with a spare Telegram account: sign in, create a library, back up, see it in Telegram, then reinstall
@@ -119,12 +123,12 @@ best chance with the reviewer, but only Apple decides.
 
 ### Stage E — Ask before Apple reviews anything
 
-- [ ] 29. Send App Review the demo mode message (Phase 2.1) and **wait for the answer**. Save the case number. If they
-      refuse, use the fallback in Phase 2.1.
-- [ ] 30. Record the 1–2 minute real-flow video using test photos only, and upload it unlisted (Phase 2.2).
+- [x] 29. Ask for approval of the demo mode in the external TestFlight review notes (Phase 2.1, 2.3). If Apple refuses,
+      use the fallback in Phase 2.1.
+- [x] 30. Record the 1–2 minute real-flow video using test photos only, and upload it unlisted (Phase 2.2).
 - [ ] 31. Optional: ask Telegram whether a backup app is fine (Phase 1.3), and keep any reply.
-- [ ] 32. Fill the date, case number and video link into the review notes (Phase 2.3). Add your name, phone and email
-      under App Review Information.
+- [x] 32. Fill the video link into the review notes (Phase 2.3), on TestFlight → Test Information. Its submission form
+      has no Review Notes box. Add your name, phone and email there too.
 
 ### Stage F — External TestFlight (Apple's first look)
 
@@ -205,7 +209,8 @@ publish their own code anyway, so the project keeps every contribution publishab
 - [ ] 📝 Search the name in the trademark databases before submitting (class 9). US search found no marks; still to
       check: [WIPO Global Brand Database](https://branddb.wipo.int) (includes EU marks) and
       [IP India](https://ipindiaonline.gov.in/eregister/). `lelvo.io` is an unrelated dating site with the same name.
-- [ ] 📝 Reserve **Lelvo** in App Store Connect as soon as the developer account exists (Phase 5).
+- [x] 📝 Reserved `Lelvo: Photo Backup` in App Store Connect, because **Lelvo** was taken. The subtitle must not repeat
+      "photo backup"; update the template in Phase 5.4 before pasting it.
 - [ ] 📝 **Must not contain "Telegram"** in the app name, subtitle, icon or keywords (Telegram API terms 2.3;
       Apple 5.2.1 — trademark). Saying "works with your Telegram account" in the description is fine.
 - ✅ App icon: original artwork, a sunset photo folded into an L with a padlock. 1024 × 1024, no transparency. No
@@ -249,15 +254,10 @@ Guideline 2.1(a) expects a demo account. A built-in demo mode is allowed only "i
 account due to legal or security obligations" and **"with prior approval by Apple"**, and it must show the app's full
 features. So having the demo isn't enough:
 
-- [ ] 📝 **Get approval before the first external TestFlight or App Store submission.** Ask through
-      [Contact App Review](https://developer.apple.com/contact/app-store/) and keep the reply and any case number:
-      ```
-      Lelvo signs in with the user's own Telegram account. Telegram sends a one-time code to that
-      account's Telegram app or by SMS, so we can't give you a fixed password or a static code, and
-      sharing login codes goes against Telegram's security guidance. We would like approval to use a
-      built-in demo mode, unlocked with a test phone number, that shows every feature with sample media.
-      We can also send a video of the real sign-in and backup. Is this acceptable?
-      ```
+- [x] 📝 **Ask in the review notes (2.3).** Contact App Review's "technical question" option only leads to paid code-level
+      support, so it isn't a way to ask. Beta App Review on external TestFlight gives the first answer, and an
+      [App Review appointment](https://developer.apple.com/distribute/app-review/) is optional. Keep Apple's reply.
+- [ ] 📝 Never write that App Review approved the demo mode until Apple has said so.
 - [ ] 📝 If Apple refuses: offer a real spare Telegram account and arrange a time when you can pass on the code live
       during review, and ask App Review which arrangement they accept.
 
@@ -282,13 +282,17 @@ features. So having the demo isn't enough:
       library → back up a few photos → see them in the channel in the official Telegram app → restore on another
       device or after reinstall. Upload it (unlisted YouTube, or a Drive link) and link it in the review notes.
 
-### 2.3 Review notes (paste into App Store Connect → App Review Information → Notes) 📝
+### 2.3 Review notes (paste into TestFlight → Test Information → Review Notes, and App Review Information → Notes) 📝
 
 ```
 This app backs up the user's own photos and videos to a private channel in the user's own
 Telegram account, using the official Telegram API (TDLib). We run no servers of our own.
 
-DEMO ACCESS (approved by App Review on <date>, case <number>; no Telegram account needed):
+WHY THIS IS A DEMO MODE: Real sign-in uses a one-time code sent by Telegram to that account's
+Telegram app or by SMS. We don't control these codes, so we can't give you a fixed password or
+code for a real account. We are asking you to approve this built-in demo mode for review.
+
+DEMO ACCESS (no Telegram account needed):
 1. Tap "Continue with Telegram".
 2. Enter the phone number +1 555 010 0199 (type it with the +1, or pick United States
    and enter 5550100199), then tap Continue.
@@ -301,6 +305,8 @@ In demo mode nothing is uploaded and no Telegram connection is made.
 
 REAL FLOW: signing in with a real number sends the login code to that account's Telegram app.
 A video of the real sign-in and backup is here: <link>
+Private details in the video are blurred. If you need to test with a real account, contact us and
+we'll arrange a time to pass you the login code live for a spare test account.
 
 Telegram allows third-party apps through its API (https://core.telegram.org/api/terms);
 the app follows those terms (own api_id, disclosure on the welcome screen). Each user signs in
@@ -380,8 +386,9 @@ screenshots become mandatory.
 
 ### 3.5 Network and stability 🧪
 
-- [ ] 🧪 **IPv6-only network.** App Review uses one. On a Mac: System Settings → Sharing → Internet Sharing with
-      "Create NAT64 network", and connect the iPhone to it. Test sign-in, backup, viewer.
+- [x] 🧪 **IPv6-only network.** App Review uses one. On a Mac: System Settings → Sharing → hold Option and open Internet
+      Sharing, turn on "Create NAT64 network", and connect the iPhone by Wi-Fi or USB with Wi-Fi and cellular off. The demo
+      must work. Compare real sign-in with official Telegram on the same network.
 - [ ] 🧪 Airplane mode, then back online: no crash, clear message, backup resumes.
 - [ ] 🧪 Photos permission: denied, limited ("Select Photos…"), full. Every case shows a sensible screen, and denying
       doesn't trap the user (5.1.1(iv): don't force the permission; allow using the app as a viewer of the cloud
@@ -607,13 +614,13 @@ If a reply doesn't help, you can appeal to the App Review Board (App Store Conne
 | Encryption Info.plist key | ✅ set (`false`) |
 | Photo permission strings | ✅ done |
 | Background task identifiers | ✅ done |
-| Separate Telegram account for api_id | ⬜ Phase 0 |
+| Separate Telegram account for api_id | ✅ Phase 0 |
 | GPL-3.0 + CLA, acknowledgements in About | ✅ Phase 1.1 |
 | New app name | ✅ Lelvo |
 | Original icon | ✅ Phase 1.2 |
 | `lelvo.app` bought, links updated | ✅ done |
-| Reviewer demo mode (Release build, real sample media) | ✅ Phase 2.1 · ⬜ test on TestFlight |
-| Apple's prior approval of the demo mode | ⬜ Phase 2.1 |
+| Reviewer demo mode (Release build, real sample media) | ✅ Phase 2.1, tested on TestFlight |
+| Apple's prior approval of the demo mode | ⏳ asked in the external TestFlight notes |
 | No Picture in Picture, no `audio` background mode | ✅ Phase 3.2 |
 | Privacy manifests list phone number, photos, user ID | ✅ Phase 5.3 · ⬜ enter the same in App Store Connect |
 | France left out | ✅ decided · ⬜ switch off in App Store Connect (Phase 3.6) |
@@ -624,4 +631,4 @@ If a reply doesn't help, you can appeal to the App Review Board (App Store Conne
 | Privacy policy + support pages | ✅ live (Phase 4) |
 | TestFlight upload from CI | ✅ workflow ready · ⬜ App Store Connect secrets (step 6 of the workflow) |
 | App Store Connect listing, privacy label, screenshots | ⬜ Phase 5 |
-| TestFlight external beta passed | ⬜ Phase 6 |
+| TestFlight external beta passed | ⏳ build 3 submitted 5 November 2026 |
