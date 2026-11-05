@@ -248,15 +248,17 @@ final class PhotosButtonsTests: XCTestCase {
 
     func testSelectionBarDeleteFromBackupConfirms() {
         openDemoLibrary()
-        let before = grid.cells.count
         app.buttons["Select"].tap()
         grid.cells.element(boundBy: 1).tap()
         app.buttons["Delete from cloud"].tap()
         let confirm = app.alerts.buttons["Delete from Backup"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Delete asks first")
         confirm.tap()
-        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "count == %d", before - 1), object: grid.cells)
-        wait(for: [gone], timeout: 15)
+        // The grid only has cells for what's on screen, and a delete can show more of them, so check where the item went.
+        app.buttons["Collections"].firstMatch.tap()
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Recently Deleted, 1")).firstMatch
+        for _ in 0..<4 where !row.isHittable { app.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
     }
 
     /// The demo library is all cloud items, so the phone-only actions have nothing to act on.

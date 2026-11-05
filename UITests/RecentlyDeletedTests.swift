@@ -65,9 +65,6 @@ final class RecentlyDeletedTests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         XCTAssertTrue(app.alerts.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Recently Deleted")).firstMatch.exists)
         confirm.tap()
-        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "count == %d", before - 1), object: grid.cells)
-        wait(for: [gone], timeout: 15)
-
         // It waits in Collections → Recently Deleted with 30 days left.
         app.buttons["Collections"].firstMatch.tap()
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Recently Deleted, 1")).firstMatch
