@@ -6,6 +6,8 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 ## Unreleased
 
 - **New web address:** the website is now [lelvo.app](https://lelvo.app), with a new About page.
+- **Removed from backup:** photos you deleted from your backup but kept on your iPhone or Mac now have their own row
+  on the Backup page. Back them up from there whenever you like. They never upload again on their own.
 - **Stop a download:** the × on a video or photo download now stops it straight away, and Share shows progress on
   iPhone, so you can see it working instead of tapping again. On Mac, Share, Export and Save to Photos show progress
   with a stop button.

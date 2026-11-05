@@ -36,6 +36,13 @@ struct MacBackupView: View {
                 } label: {
                     iconLabel("Failed", "exclamationmark.icloud.fill", stats.failed > 0 ? .red : .gray, value: stats.failed)
                 }
+                if stats.removedFromBackup > 0 {
+                    NavigationLink {
+                        RemovedFromBackupView()
+                    } label: {
+                        iconLabel("Removed from Backup", "icloud.slash", .gray, value: stats.removedFromBackup)
+                    }
+                }
             } header: { Text("Library") } footer: {
                 Button("What the icons on photos mean") { openWindow(id: MacNavigation.legendWindowId) }
                     .buttonStyle(.link)
@@ -145,7 +152,7 @@ struct MacBackupView: View {
     private var subtitle: String {
         switch state {
         case .running: return activity.notice ?? activity.message ?? "Uploading originals to your Telegram library."
-        case .complete: return "Everything in Photos on this Mac is in your Telegram library."
+        case .complete: return "Everything\(stats.removedFromBackup > 0 ? " else" : "") in Photos on this Mac is in your Telegram library."
         case .failures: return "Everything else is safe. Retry, or open Failed to see why."
         case .notBackedUp: return paused ? "Paused. Automatic backups wait until you resume." : "Back Up Now uploads them all."
         }

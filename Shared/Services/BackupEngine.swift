@@ -386,9 +386,11 @@ final class BackupEngine: @unchecked Sendable {
     }
 
     /// "Back up" on chosen photos: queues them regardless of the backup selection (and retries failed ones).
+    /// Returns how many are on their way back, recovered from Recently Deleted included.
     @discardableResult
     func enqueue(localIdentifiers: [String]) -> Int {
         var items: [MediaItem] = []
+        var recoveredCount = 0
         for id in localIdentifiers {
             try? env.store.allowBackup(localIdentifier: id)
             if var existing = try? env.store.item(localIdentifier: id) {
@@ -399,7 +401,10 @@ final class BackupEngine: @unchecked Sendable {
                     let recovered = try? TrashGate.shared.ifNotDeleting(existing.id) {
                         try env.store.changeTrashState(id: existing.id, op: .recover, chatId: TrashSync.shared.noteChatId) { CloudTrash.recover(&$0) }
                     }
-                    if recovered == true { TrashSync.shared.schedule() }
+                    if recovered == true {
+                        recoveredCount += 1
+                        TrashSync.shared.schedule()
+                    }
                     continue
                 }
                 if existing.status == .failed { existing.job = JobMachine.reduce(existing.job, .retry) }
@@ -412,7 +417,7 @@ final class BackupEngine: @unchecked Sendable {
             }
         }
         try? env.store.upsert(items)
-        return items.count
+        return items.count + recoveredCount
     }
 
     private func makeItem(_ asset: PHAsset) -> MediaItem {

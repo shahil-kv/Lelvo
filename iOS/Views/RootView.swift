@@ -28,7 +28,7 @@ struct RootView: View {
                 .environmentObject(gallery)
                 .environmentObject(memories)
                 .task(id: gallery.revision) { if gallery.loaded { await memories.refresh(entries: gallery.entries, revision: gallery.revision) } }
-                .safeAreaInset(edge: .top, spacing: 0) { if DemoMode.isActive { DemoBanner() } }
+                .modifier(DemoBannerAbove())
                 .toastHost(bottomPadding: 64)
                 .fullScreenCover(isPresented: $model.needsSignIn) {
                     OnboardingView().environmentObject(model)
@@ -46,6 +46,17 @@ struct RootView: View {
     }
 }
 
+/// Stacks the banner above the tabs. A top safe area inset on a TabView doesn't move each tab's navigation bar down,
+/// so the banner covered the toolbar buttons.
+private struct DemoBannerAbove: ViewModifier {
+    func body(content: Content) -> some View {
+        VStack(spacing: 0) {
+            if DemoMode.isActive { DemoBanner() }
+            content
+        }
+    }
+}
+
 /// Always visible in the App Review demo, so the sample library is never mistaken for a real one.
 private struct DemoBanner: View {
     var body: some View {
@@ -54,7 +65,7 @@ private struct DemoBanner: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
-            .background(Color(uiColor: .secondarySystemBackground))
+            .background(Color(uiColor: .secondarySystemBackground).ignoresSafeArea(edges: .top))
             .accessibilityIdentifier("demoBanner")
     }
 }
