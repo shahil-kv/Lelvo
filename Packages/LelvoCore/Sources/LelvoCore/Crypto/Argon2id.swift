@@ -22,6 +22,17 @@ public enum Argon2id {
         public static let standard = Parameters(iterations: 3, memoryKiB: 256 * 1024)
         /// Readers refuse less than this (the OWASP minimum is 19 MiB with 2 passes).
         public static let minimumMemoryKiB: UInt32 = 19 * 1024
+        /// Unlocking refuses more than this. The cost comes from the channel header, so without a ceiling an edited
+        /// header could ask for gigabytes (the system ends the app) or billions of passes (it never finishes).
+        /// Four times `standard` in memory, over three times in passes.
+        public static let maximumMemoryKiB: UInt32 = 1024 * 1024
+        public static let maximumIterations: UInt32 = 10
+
+        /// True when this cost is one Lelvo agrees to compute.
+        public var isWithinLimits: Bool {
+            iterations >= 1 && iterations <= Self.maximumIterations
+                && memoryKiB >= Self.minimumMemoryKiB && memoryKiB <= Self.maximumMemoryKiB
+        }
     }
 
     public static func derive(passphrase: String, salt: Data, parameters: Parameters, length: Int = 32) throws -> Data {
