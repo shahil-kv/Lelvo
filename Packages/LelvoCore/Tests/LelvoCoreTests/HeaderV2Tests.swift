@@ -34,6 +34,23 @@ import Testing
         #expect(try replaced.unlock(passphrase: "pw").map(master) == master(keys))
     }
 
+    /// A header edited to ask for an extreme cost is refused before any work, and still counts as encrypted.
+    @Test func unlockingRefusesACostBeyondTheLimits() throws {
+        var (header, _, _) = try LibraryHeader.newLibrary(passphrase: "pw", argon: cheap)
+        header.argon = Argon2id.Parameters(iterations: 1, memoryKiB: Argon2id.Parameters.maximumMemoryKiB + 1)
+        #expect(throws: CryptoError.derivationFailed) { try header.unlock(passphrase: "pw") }
+        header.argon = Argon2id.Parameters(iterations: Argon2id.Parameters.maximumIterations + 1, memoryKiB: cheap.memoryKiB)
+        #expect(throws: CryptoError.derivationFailed) { try header.unlock(passphrase: "pw") }
+        #expect(LibraryHeader.parse(header.messageText)?.encrypted == true)
+        #expect(Argon2id.Parameters.standard.isWithinLimits)
+
+        var v1 = LibraryHeader(encrypted: true, iterations: UInt32.max, salt: KeyDerivation.randomSalt(),
+                               keyCheck: KeyDerivation.randomSalt())
+        #expect(throws: CryptoError.derivationFailed) { try v1.unlock(passphrase: "pw") }
+        v1.iterations = E2EKeys.defaultIterations
+        #expect(try v1.unlock(passphrase: "pw") == nil) // in range: just the wrong passphrase
+    }
+
     /// Upgrading keeps the master key, so every file and caption written under format 1 still opens.
     @Test func upgradingFormat1KeepsEverythingReadable() throws {
         let (v1, keys) = try LibraryHeader.newEncrypted(passphrase: "pw", iterations: E2EKeys.minimumIterations)

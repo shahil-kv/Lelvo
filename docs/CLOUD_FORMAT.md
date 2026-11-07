@@ -122,7 +122,8 @@ CG1:{"v":1,"id":"0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10","r":"o","k":"v","h":"9f86
 **Header format 2** (new libraries; format 1 libraries are upgraded to it):
 - The master key is 32 random bytes (an upgraded library keeps the master key it had). It is stored only locked:
   - `pk = Argon2id(password = NFC-UTF-8(passphrase), salt = s, t, m, p, tagLength = 32)` (RFC 9106, version 0x13).
-    New libraries use `t = 3`, `m = 262144` (256 MiB), `p = 1` and a random 16-byte salt. Readers refuse `m < 19456`.
+    New libraries use `t = 3`, `m = 262144` (256 MiB), `p = 1` and a random 16-byte salt. Readers refuse `m < 19456`, and refuse to unlock with
+    `m > 1048576` (1 GiB) or `t > 10`, which no Lelvo writes.
   - `wk = nonce(12) ‖ AES-256-GCM(pk, nonce, master, aad = UTF-8("Memvo master key v2 passphrase")) ‖ tag(16)`.
   - Recovery key: 32 random bytes, shown to the user as RFC 4648 base32 without padding in 13 groups of 4 joined by
     `-` (52 characters). Readers accept any case, spaces or dashes, and read `0`, `1`, `8` as `O`, `I`, `B`.
@@ -140,7 +141,7 @@ CG1:{"v":1,"id":"0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10","r":"o","k":"v","h":"9f86
 
 **Header format 1:**
 - `master = PBKDF2-HMAC-SHA256(password = NFC-UTF-8(passphrase), salt = s, iterations = it, dkLen = 32)`.
-- Libraries used `it = 600000` and a random 16-byte salt. Readers accept any `it ≥ 100000`.
+- Libraries used `it = 600000` and a random 16-byte salt. Readers accept any `it ≥ 100000`, and refuse to unlock with `it > 10000000`.
 - Key check: `kc = HMAC-SHA256(master, UTF-8("CloudGallery key check v1"))[0..<16]`. A wrong passphrase is detected by comparing `kc` before any decryption.
 
 **Both:** the master key is stored only in the platform's secure storage (the Keychain on Apple platforms). Without

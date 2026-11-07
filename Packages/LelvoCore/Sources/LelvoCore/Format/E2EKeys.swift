@@ -5,6 +5,9 @@ import CryptoKit
 public struct E2EKeys: Sendable {
     public static let defaultIterations: UInt32 = 600_000
     public static let minimumIterations: UInt32 = 100_000
+    /// Unlocking refuses more than this: the count comes from the channel header, and billions of PBKDF2 rounds would
+    /// keep the app busy for hours. Libraries were made with `defaultIterations`.
+    public static let maximumIterations: UInt32 = 10_000_000
 
     public let master: SymmetricKey
     public var captionKey: SymmetricKey {
@@ -205,13 +208,16 @@ public struct LibraryHeader: Equatable, Sendable {
         return (header, recovery)
     }
 
-    /// The keys for this passphrase, or nil when it's wrong.
+    /// The keys for this passphrase, or nil when it's wrong. Throws `derivationFailed` when the header asks for a cost
+    /// beyond what Lelvo computes; the header still counts as encrypted, so nothing treats the channel as unencrypted.
     public func unlock(passphrase: String) throws -> E2EKeys? {
         if version == 2 {
             guard let argon, let lockedByPassphrase else { return nil }
+            guard argon.isWithinLimits else { throw CryptoError.derivationFailed }
             let key = SymmetricKey(data: try Argon2id.derive(passphrase: passphrase, salt: salt, parameters: argon))
             return MasterKeyLock.open(lockedByPassphrase, with: key, purpose: .passphrase).map(E2EKeys.init(master:))
         }
+        guard iterations <= E2EKeys.maximumIterations else { throw CryptoError.derivationFailed }
         let keys = try E2EKeys.derive(passphrase: passphrase, salt: salt, iterations: iterations)
         return keys.keyCheck == keyCheck ? keys : nil
     }
