@@ -1,7 +1,9 @@
 import SwiftUI
+import Photos
 import LelvoCore
 
 struct FreeUpSpaceView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var candidates: [MediaItem] = []
     @State private var verified: [MediaItem] = []
     @State private var verifying = false
@@ -9,6 +11,10 @@ struct FreeUpSpaceView: View {
     @State private var cancelFlag = CancelFlag()
     @State private var deleting = false
     @State private var result: GalleryAlert?
+    /// What the last removal freed, shown in place (rolling up) instead of in an alert.
+    @State private var freed: (count: Int, bytes: Int64)?
+    @State private var shownBytes: Int64 = 0
+    @State private var burst: CatchingMark.Burst?
     /// The list takes a while on a big library (each photo is looked up in Photos). The button works during it.
     @State private var loadTask: Task<Void, Never>?
 
@@ -17,12 +23,25 @@ struct FreeUpSpaceView: View {
     var body: some View {
         Form {
             Section {
-                Label {
-                    Text("Remove photos and videos from this \(Device.name) that are already safely backed up, to get storage back. They stay in Lelvo, and you can save any of them back anytime.")
-                        .fixedSize(horizontal: false, vertical: true)
-                } icon: {
-                    Image(systemName: "internaldrive.fill").foregroundStyle(.tint)
+                VStack(spacing: 12) {
+                    CatchingMark(status: freed == nil ? .idle : .complete, width: 84, burst: burst)
+                        .padding(.top, 6)
+                    if let freed {
+                        Text(Format.bytes(shownBytes))
+                            .font(.system(.largeTitle, design: .rounded, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.tint)
+                            .contentTransition(.numericText(value: Double(shownBytes)))
+                        Text("Freed from \(freed.count.formatted()) item\(freed.count == 1 ? "" : "s"). They're still in your Telegram library and in Lelvo. Empty Recently Deleted in Photos to get the space back now.")
+                            .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    } else {
+                        Text("Remove photos and videos from this \(Device.name) that are already safely backed up, to get storage back. They stay in Lelvo, and you can save any of them back anytime.")
+                            .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .combine)
             }
 
             Section {
@@ -82,7 +101,6 @@ struct FreeUpSpaceView: View {
             Button("Stop", role: .cancel) { cancelFlag.cancel() }
         } else {
             Button {
-                Haptics.tap()
                 Task { await verify() }
             } label: { Label("Check what's safe to remove", systemImage: "checkmark.shield") }
         }
@@ -155,20 +173,59 @@ struct FreeUpSpaceView: View {
     private func delete() async {
         deleting = true
         defer { deleting = false }
+        let toRemove = verified
+        // Thumbnails first: once iOS has deleted the photos, they can't be drawn for the animation any more.
+        let preview = await previewImages(toRemove)
         do {
-            let count = try await service.delete(verified)
-            guard count > 0 else {
+            let deleted = try await service.delete(toRemove)
+            guard !deleted.isEmpty else {
                 result = GalleryAlert(title: "Nothing was removed", message: "These items changed since the check. Check again and try once more.")
                 verified = []
                 load()
                 return
             }
+            let gone = toRemove.filter { $0.localIdentifier.map(deleted.contains) ?? false }
             Haptics.success()
-            result = GalleryAlert(title: "Removed \(count) item(s) from \(Device.name)",
-                                  message: "They are still in your Telegram backup and in Lelvo. Open Photos → Recently Deleted and choose Delete All to free the space now.")
+            showFreed(count: gone.count, bytes: FreeUpSpaceService.bytes(of: gone),
+                      images: preview.filter { deleted.contains($0.id) }.map(\.image))
+            verified = []
             load()
+        } catch let error as NSError where error.domain == PHPhotosErrorDomain && error.code == PHPhotosError.userCancelled.rawValue {
+            // Cancelled in iOS's own prompt: nothing happened, nothing to say.
         } catch {
+            Haptics.error()
             result = GalleryAlert(title: "Nothing was deleted", message: error.localizedDescription)
         }
+    }
+
+    /// Counts the freed space up over about 0.7 s, while the photos fly into the cloud.
+    private func showFreed(count: Int, bytes: Int64, images: [PlatformImage]) {
+        shownBytes = 0
+        withAnimation(Motion.standard) { freed = (count, bytes) }
+        if !images.isEmpty { burst = CatchingMark.Burst(images: images) }
+        Task {
+            let steps = 14
+            for step in 1...steps {
+                try? await Task.sleep(for: .milliseconds(50))
+                let eased = 1 - pow(1 - Double(step) / Double(steps), 3)
+                withAnimation(Motion.tap) { shownBytes = Int64(Double(bytes) * eased) }
+            }
+        }
+    }
+
+    /// Small images of the first few items, loaded off the main actor. Skipped when the animation won't play.
+    private func previewImages(_ items: [MediaItem]) async -> [(id: String, image: PlatformImage)] {
+        guard Motion.decorative(reduceMotion: reduceMotion) else { return [] }
+        let ids = items.prefix(8).compactMap(\.localIdentifier)
+        return await Task.detached(priority: .userInitiated) {
+            let photos = AppEnvironment.shared.photos
+            var out: [(id: String, image: PlatformImage)] = []
+            for id in ids {
+                guard let asset = photos.asset(localIdentifier: id),
+                      let image = await photos.image(for: asset, targetSize: CGSize(width: 120, height: 120), mode: .fastFormat) else { continue }
+                out.append((id, image))
+            }
+            return out
+        }.value
     }
 }

@@ -29,6 +29,8 @@ struct LelvoMacApp: App {
     @StateObject private var navigation = MacNavigation.shared
     @AppStorage(MacPrefs.showMenuBarExtra) private var showMenuBarExtra = true
     @Environment(\.scenePhase) private var scenePhase
+    /// True for this process launch only: the opening plays once, not each time the window is reopened.
+    @State private var launching = !UITestSupport.isRunning
 
     // Before anything reads the settings it may reset: AppModel copies them when first used.
     init() {
@@ -41,6 +43,7 @@ struct LelvoMacApp: App {
                 .environmentObject(model)
                 .environmentObject(navigation)
                 .environmentObject(BackupActivity.shared)
+                .launchOverlay(isLaunching: $launching)
         }
         .defaultSize(width: 1320, height: 860)
         .windowToolbarStyle(.unified(showsTitle: true))

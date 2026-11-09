@@ -31,7 +31,9 @@ enum GalleryActions {
     /// Puts a cloud item back into Photos as it was (`RestorePlan`): the untouched original with its edit shown and
     /// revertible, the RAW of a RAW + JPEG pair, the Live Photo's video, favourite, hidden, date, place and albums. Then
     /// links it so it isn't uploaded again. `progress` (0…1) follows the download of the original, the slow part.
-    static func saveToPhotos(_ item: MediaItem, progress: (@Sendable (Double) -> Void)? = nil) async throws {
+    /// Returns the new asset's local identifier.
+    @discardableResult
+    static func saveToPhotos(_ item: MediaItem, progress: (@Sendable (Double) -> Void)? = nil) async throws -> String? {
         let env = AppEnvironment.shared
         let started = Date()
         let status = PhotoLibraryService.authorizationStatus
@@ -54,9 +56,44 @@ enum GalleryActions {
         let took = Date().timeIntervalSince(started)
         appLog(String(format: "Downloaded %@ to save: %@ in %.0f s (%@/s)", item.filename, Format.bytes(item.fileSize), took,
                       Format.bytes(Int64(Double(item.fileSize) / max(took, 0.1)))))
-        if let newId = try await env.photos.restore(item, plan: plan, files: files, albums: albums) {
-            try env.store.update(id: item.id) { $0.localIdentifier = newId }
+        let newId = try await env.photos.restore(item, plan: plan, files: files, albums: albums)
+        if let newId { try env.store.update(id: item.id) { $0.localIdentifier = newId } }
+        return newId
+    }
+
+    /// Adds the entries to an album in Photos. Items only in the Telegram library are saved to Photos first, since an
+    /// album can only hold what's in the photo library. The album lives in Photos on this device (and in iCloud Photos
+    /// if it's on); album names reach the Telegram library only with items backed up after they were added.
+    static func addToAlbum(_ entries: [GalleryEntry], albumId: String,
+                           progress: (@MainActor (Int) -> Void)? = nil) async throws -> (added: Int, failed: Int) {
+        let env = AppEnvironment.shared
+        var ids = entries.compactMap { $0.asset?.localIdentifier }
+        var failed = 0
+        for entry in entries where entry.isCloudOnly {
+            try Task.checkCancellation()
+            guard let item = entry.item, item.isViewableFromCloud else { failed += 1; continue }
+            await progress?(ids.count)
+            do {
+                if let id = try await saveToPhotos(item) { ids.append(id) } else { failed += 1 }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                failed += 1
+                AppLog.shared.warn("Couldn't save \(item.filename) for an album: \(error.localizedDescription)")
+            }
         }
+        try await env.photos.add(ids, toAlbum: albumId)
+        return (ids.count, failed)
+    }
+
+    /// Removes the entries from this device and moves their backups to Recently Deleted (kept 30 days). The device
+    /// copies go first, through the system's own confirmation: if the user cancels it, nothing is deleted anywhere.
+    static func deleteEverywhere(_ entries: [GalleryEntry]) async throws -> (device: Int, cloud: Int) {
+        let deviceIds = entries.compactMap { $0.asset?.localIdentifier }
+        if !deviceIds.isEmpty { try await AppEnvironment.shared.photos.deleteAssets(deviceIds) }
+        let cloud = entries.compactMap(\.item).filter { $0.status == .backedUp }
+        if !cloud.isEmpty { try await deleteFromCloud(cloud) }
+        return (deviceIds.count, cloud.count)
     }
 
     /// Moves the items to Recently Deleted: hidden everywhere and no longer counted as backed up, but their

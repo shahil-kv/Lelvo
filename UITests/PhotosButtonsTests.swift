@@ -144,7 +144,10 @@ final class PhotosButtonsTests: XCTestCase {
         openDemoLibrary()
         app.buttons["Select"].tap()
         grid.cells.element(boundBy: 1).tap()
-        app.buttons["Save"].tap()
+        app.buttons["More"].tap()
+        let save = app.buttons["Save 1 to iPhone"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5), "Saving cloud items is in the ••• menu")
+        save.tap()
         XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 20), "Save says how it went")
         screenshot("selection-save-answer")
     }
@@ -154,10 +157,9 @@ final class PhotosButtonsTests: XCTestCase {
         let before = grid.cells.count
         app.buttons["Select"].tap()
         grid.cells.element(boundBy: 1).tap()
-        app.buttons["Delete from cloud"].tap()
-        let cancel = app.alerts.buttons["Cancel"]
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "Delete asks first")
-        cancel.tap()
+        app.buttons["Delete"].tap()
+        XCTAssertTrue(app.buttons["Delete Everywhere"].waitForExistence(timeout: 5), "Delete asks where first")
+        dismissDeleteChoice()
         XCTAssertEqual(grid.cells.count, before, "Cancel deletes nothing")
     }
 
@@ -246,13 +248,13 @@ final class PhotosButtonsTests: XCTestCase {
         XCTAssertEqual(app.otherElements.matching(identifier: "ActivityListView").count, 1)
     }
 
-    func testSelectionBarDeleteFromBackupConfirms() {
+    func testSelectionBarDeleteEverywhereMovesToRecentlyDeleted() {
         openDemoLibrary()
         app.buttons["Select"].tap()
         grid.cells.element(boundBy: 1).tap()
-        app.buttons["Delete from cloud"].tap()
-        let confirm = app.alerts.buttons["Delete from Backup"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Delete asks first")
+        app.buttons["Delete"].tap()
+        let confirm = app.buttons["Delete Everywhere"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Delete asks where first")
         confirm.tap()
         // The grid only has cells for what's on screen, and a delete can show more of them, so check where the item went.
         app.buttons["Collections"].firstMatch.tap()
@@ -266,7 +268,63 @@ final class PhotosButtonsTests: XCTestCase {
         openDemoLibrary()
         app.buttons["Select"].tap()
         grid.cells.element(boundBy: 1).tap()
-        XCTAssertFalse(app.buttons["Delete from iPhone"].isEnabled, "Nothing here is on the iPhone")
-        XCTAssertFalse(app.buttons["Back up 0 to the cloud"].isEnabled, "Nothing here needs backing up")
+        app.buttons["Delete"].tap()
+        XCTAssertTrue(app.buttons["Delete Everywhere"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Remove 1 from This iPhone"].exists, "Nothing here is on the iPhone")
+        screenshot("selection-delete-choice")
+        dismissDeleteChoice()
+    }
+
+    /// Like Photos: picking something hides the tabs, and tapping the count narrows the grid to what's picked.
+    func testShowSelectedNarrowsTheGrid() {
+        openDemoLibrary()
+        app.buttons["Select"].tap()
+        XCTAssertTrue(app.buttons["Collections"].firstMatch.exists, "Nothing picked yet, so the tabs stay")
+        grid.cells.element(boundBy: 1).tap()
+        grid.cells.element(boundBy: 2).tap()
+        let count = app.buttons["2 Selected"]
+        XCTAssertTrue(count.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Collections"].firstMatch.isHittable, "The tabs make way for the selection buttons")
+        XCTAssertFalse(app.buttons["Settings"].exists, "The gear hides while selecting")
+        XCTAssertTrue(app.staticTexts["All selected items are backed up"].exists || app.otherElements["All selected items are backed up"].exists,
+                      "The demo library is all backed up, so there's no Back Up button")
+        count.tap()
+        XCTAssertTrue(grid.cells.count == 2, "Only the picked items show")
+        screenshot("selection-show-selected")
+        count.tap()
+        XCTAssertGreaterThan(grid.cells.count, 2)
+        app.buttons["More"].tap()
+        let selectAll = app.buttons["Select All"]
+        XCTAssertTrue(selectAll.waitForExistence(timeout: 5), "Select All is in the ••• menu")
+        selectAll.tap()
+        XCTAssertFalse(app.buttons["2 Selected"].waitForExistence(timeout: 2), "Everything is picked now")
+    }
+
+    func testSelectionMenuOpensAddToAlbum() {
+        openDemoLibrary()
+        app.buttons["Select"].tap()
+        grid.cells.element(boundBy: 1).tap()
+        grid.cells.element(boundBy: 2).tap()
+        screenshot("selection-bar")
+        app.buttons["More"].tap()
+        let add = app.buttons["Add to Album"]
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "Add to Album is in the ••• menu")
+        screenshot("selection-more-menu")
+        add.tap()
+        XCTAssertTrue(app.buttons["New Album…"].waitForExistence(timeout: 5), "The sheet offers a new album first")
+        screenshot("add-to-album")
+        app.buttons["New Album…"].tap()
+        XCTAssertTrue(app.alerts["New Album"].waitForExistence(timeout: 5), "New Album asks for a name")
+        screenshot("new-album-name")
+        app.alerts.buttons["Cancel"].tap()
+        app.buttons["Cancel"].firstMatch.tap()
+        XCTAssertFalse(app.buttons["New Album…"].waitForExistence(timeout: 2), "Cancel closes the sheet")
+    }
+
+    /// The Delete choice is an action sheet on iPhone; newer iOS shows it as a popover without a Cancel button.
+    private func dismissDeleteChoice() {
+        let cancel = app.buttons["Cancel"]
+        if cancel.exists { cancel.tap() } else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62)).tap() }
+        XCTAssertFalse(app.buttons["Delete Everywhere"].waitForExistence(timeout: 2), "The choice closes")
     }
 }

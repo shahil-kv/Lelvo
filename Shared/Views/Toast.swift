@@ -98,19 +98,33 @@ struct ToastView: View {
 
 private struct ToastHost: ViewModifier {
     @ObservedObject private var center = ToastCenter.shared
+    @GestureState private var drag: CGFloat = 0
     let bottomPadding: CGFloat
 
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
             if let toast = center.current {
+                // Swipe and tap to dismiss apply while it takes touches: only a message with a Stop button does, so
+                // others never block what's under them.
+                let dismissable = toast.style != .progress
                 ToastView(toast: toast) { center.stop() }
                     .padding(.horizontal, 16)
                     .padding(.bottom, bottomPadding)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .offset(y: max(0, drag))
+                    .gesture(DragGesture(minimumDistance: 6)
+                        .updating($drag) { value, state, _ in state = value.translation.height }
+                        .onEnded { value in
+                            if value.translation.height > 24 || value.predictedEndTranslation.height > 60 { center.dismiss() }
+                        }, including: dismissable ? .all : .subviews)
+                    .onTapGesture { if dismissable { center.dismiss() } }
+                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                            removal: .opacity.combined(with: .scale(scale: 0.96))))
+                    // Only a toast with a Stop button takes touches; others let taps through to the buttons under them
+                    // (the floating selection bar sits right there), and still go away on their own.
                     .allowsHitTesting(toast.canStop)
             }
         }
-        .animation(.snappy, value: center.current)
+        .motion(Motion.standard, value: center.current)
     }
 }
 

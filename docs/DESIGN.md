@@ -12,16 +12,16 @@ says what each one is for.
 
 Never edit the generated `:root` block or the `AccentColor.colorset` files by hand.
 
-## Accent: indigo
+## Accent: electric violet
 
 | | Light | Dark |
 |---|---|---|
-| Apps (`AccentColor`) | `#5E4AE3` | `#8B7CFF` |
-| Website (`--signal`) | `#5E4AE3` | `#8B7CFF` |
+| Apps (`AccentColor`) | `#4E01F1` | `#9B7BFF` |
+| Website (`--signal`) | `#4E01F1` | `#9B7BFF` |
 
-Indigo was chosen over the old blue because the old blue was Telegram's own colour and the iOS default tint, which
-made Lelvo look like part of Telegram. Indigo keeps the calm, trustworthy feel of blue, and it doesn't clash with the
-status colours or with people's photos. White text on `#5E4AE3` and `#5E4AE3` on white are both 5.9 : 1 (WCAG AA).
+The accent is the violet of the logo, so buttons, links and the icon read as one brand. It's far from Telegram's blue
+and from the status colours. White text on `#4E01F1` and `#4E01F1` on white are both about 8 : 1, and `#9B7BFF` on
+black is 6.7 : 1, 5.4 : 1 on dark grouped cells (WCAG AA).
 
 The accent marks what you can act on and what is happening now: buttons, toggles, links, selection, the active tab,
 uploads in progress, and setting icons for backup itself. It is never used for status.
@@ -74,11 +74,29 @@ channel card resting on it. Nothing else goes in the hero; it was cut down from 
 because the first screen felt cluttered. Never use Telegram's logo or its look for the channel (Telegram API terms). The header and footer are the same on every page
 (`index.html`, `404.html` and `Scripts/page.template.html`); change all three together.
 
-## App icon
+## Logo and app icon
 
-One sunset print folded into an L: the picture on the upright, the white back of the print along the base, lifted
-off a light lavender tile (`#F7F5FF` to `#E2DCFA`) by a soft shadow. An indigo padlock on the back says the library is
-private. It's original geometry, with no font or stock art. The lock means "your own private channel", so copy next
-to the icon must not promise encryption unless it's on. The source is `design/logo/mark.svg`; `Scripts/app-icon.sh`
-renders both `AppIcon.appiconset` folders and the website icons from it. `website/favicon.svg` is the same drawing with
-rounded corners, and the site header shows it as an image.
+The mark is a camel whose neck flows into a cloud: the camel carries and keeps things, the cloud is where your photos
+are kept. It's drawn in `design/logo/mark.svg` (two paths, `camel` and `cloud`). On the icon it's white on the brand
+gradient, `violet` `#5200FF` at the bottom left to `deep` `#2A1A41` at the top right (`brand` in the tokens). The dark
+icon is the camel in `violet-light` `#9B7BFF` (the app's dark accent) and the cloud in white, on black.
+
+Logo files to hand out are in `design/logo/`, each as SVG and a 1024 PNG:
+
+| File | Use on |
+|---|---|
+| `lelvo-icon` | The app icon: white mark on the brand gradient |
+| `lelvo-icon-dark` | Dark mode: violet camel, white cloud, on black |
+| `lelvo-icon-black` | Single colour: white mark on black |
+| `lelvo-mark-violet` | The mark alone on light backgrounds |
+| `lelvo-mark-white` | The mark alone on violet or photos |
+| `lelvo-mark-dark` | The mark alone on dark backgrounds |
+
+`python3 Scripts/brand-assets.py` draws everything from those two files: the SwiftUI shape and brand colours
+(`Shared/Views/Brand/LelvoMark.swift`), the iOS icon with its dark and tinted versions, the Mac icon, the launch screen
+(the white mark on `launch` `#3A0CA8`) and the website icons, including `website/favicon.svg`, which the site header
+shows as its logo. It needs `resvg` (`brew install resvg`), because Quick Look and ImageMagick drop transparency or
+gradients.
+
+In the apps, use `Brand` colours only for the mark and the big moments (launch, end of setup, backup complete).
+Everyday controls use the accent.

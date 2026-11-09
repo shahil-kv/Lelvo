@@ -103,12 +103,14 @@ enum PhotoLibraryError: LocalizedError {
     case noOriginalResource
     case assetMissing
     case notAuthorized
+    case albumUnavailable
 
     var errorDescription: String? {
         switch self {
         case .noOriginalResource: return "This item has no original file to back up."
         case .assetMissing: return "The photo is no longer in your library."
         case .notAuthorized: return "Lelvo doesn't have access to your photo library. Allow access in Settings, then try again."
+        case .albumUnavailable: return "That album is no longer in Photos. Choose another album or make a new one."
         }
     }
 }
@@ -198,6 +200,51 @@ final class PhotoLibraryService: @unchecked Sendable {
             }
         }
         return result.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    /// The albums the user made that can take more items, newest first like Photos' Add To list, with the local
+    /// identifier of each one's newest item for its cover. Smart and shared albums can't be added to, so they're left out.
+    func editableAlbums() -> [(album: AlbumInfo, coverId: String?)] {
+        var result: [(album: AlbumInfo, coverId: String?, date: Date)] = []
+        let newestFirst = PHFetchOptions()
+        newestFirst.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil).enumerateObjects { c, _, _ in
+            guard c.canPerform(.addContent) else { return }
+            let assets = PHAsset.fetchAssets(in: c, options: newestFirst)
+            result.append((AlbumInfo(id: c.localIdentifier, title: c.localizedTitle ?? "Album", count: assets.count),
+                           assets.firstObject?.localIdentifier, c.startDate ?? .distantPast))
+        }
+        return result.sorted { $0.date > $1.date }.map { ($0.album, $0.coverId) }
+    }
+
+    /// Makes a new empty album and returns its local identifier.
+    func createAlbum(titled title: String) async throws -> String {
+        var id: String?
+        try await PHPhotoLibrary.shared().performChanges {
+            id = PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: title)
+                .placeholderForCreatedAssetCollection.localIdentifier
+        }
+        guard let id else { throw PhotoLibraryError.albumUnavailable }
+        return id
+    }
+
+    /// Adds the assets to the album. Photos ignores any already in it, so nothing is added twice.
+    func add(_ identifiers: [String], toAlbum albumId: String) async throws {
+        guard !identifiers.isEmpty else { return }
+        guard let album = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [albumId], options: nil).firstObject else {
+            throw PhotoLibraryError.albumUnavailable
+        }
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetCollectionChangeRequest(for: album)?.addAssets(assets)
+        }
+    }
+
+    func setFavorite(_ identifiers: [String], _ favorite: Bool) async throws {
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
+        try await PHPhotoLibrary.shared().performChanges {
+            assets.enumerateObjects { a, _, _ in PHAssetChangeRequest(for: a).isFavorite = favorite }
+        }
     }
 
     /// Assets that match the backup selection (media type, screenshots, date range, albums), newest first.

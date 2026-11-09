@@ -332,7 +332,7 @@ struct LibrarySettingsView: View {
                                 onRename: { renameText = c.title; renaming = c })
                         .onTapGesture {
                             guard !current else { return }
-                            Haptics.tap()
+                            Haptics.selection()
                             switchPassphrase = ""
                             switching = c
                         }
@@ -562,9 +562,12 @@ struct ExportLibraryView: View {
     private func start(_ folder: URL) {
         finished = false
         done = 0; skipped = 0; failed = []
-        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter(\.isViewableFromCloud)
-        total = items.count
         running = Task {
+            // Reading every backed-up item is slow on a big library: off the main actor, so the screen stays responsive.
+            let items = await Task.detached(priority: .userInitiated) {
+                ((try? AppEnvironment.shared.store.items(status: .backedUp)) ?? []).filter(\.isViewableFromCloud)
+            }.value
+            total = items.count
             #if os(iOS)
             UIApplication.shared.isIdleTimerDisabled = true
             defer { UIApplication.shared.isIdleTimerDisabled = false }

@@ -8,7 +8,7 @@ the people who make it never receive any of your data.
 ## Who we are
 
 Lelvo is a free, open-source app maintained by [@shahil-kv](https://github.com/shahil-kv) and contributors.
-Contact: [mshahilkv@gmail.com](mailto:mshahilkv@gmail.com), or an issue at
+Contact: [support@lelvo.app](mailto:support@lelvo.app), or an issue at
 [github.com/shahil-kv/Lelvo](https://github.com/shahil-kv/Lelvo/issues). Security problems: [SECURITY.md](SECURITY.md).
 
 ## What we collect
@@ -25,7 +25,7 @@ user ID. They're used only to run the app, never to track you, and they go only 
 If you join the waiting list on the website, your email address and the device you chose are stored in a Google
 Sheet that only the maintainer can open, with the date you joined. They are used once, to tell you when Lelvo is on
 TestFlight and the App Store, and never shared or sold. To be removed, email
-[mshahilkv@gmail.com](mailto:mshahilkv@gmail.com). Google's [privacy policy](https://policies.google.com/privacy)
+[support@lelvo.app](mailto:support@lelvo.app). Google's [privacy policy](https://policies.google.com/privacy)
 applies to the Sheet. The apps never collect your email.
 
 ## Where your data goes

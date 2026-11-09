@@ -86,8 +86,11 @@ final class AppModel: ObservableObject {
 enum UITestSupport {
     #if DEBUG
     static var isDemo: Bool { ProcessInfo.processInfo.arguments.contains("-UITestDemoLibrary") }
+    /// Any UI test or benchmark run. The opening animation is skipped, so its tap-to-skip can't swallow a test's tap.
+    static var isRunning: Bool { ProcessInfo.processInfo.arguments.contains { $0.hasPrefix("-UITest") || $0 == "-autoScrollTest" } }
     #else
     static let isDemo = false
+    static let isRunning = false
     #endif
 
     /// `-TestUploadLimitMiB <n>`: splits uploads above n MiB, so resuming a split upload can be tried with a small video

@@ -18,3 +18,4 @@ paths:
 - The FAQ answers also live in the structured data in `website/index.html`. Change both together.
 - Changelog entries are user-facing: what changed for the user, one bullet, bold lead words, no internal names.
 - Screenshots and images use test photos only, never a real library, phone number or channel link.
+- Animations follow the `polishing-ui` skill: transform and opacity only, `prefers-reduced-motion` respected.

@@ -21,3 +21,4 @@ paths:
   with `-autoScrollTest` if you change cell code.
 - New launch arguments for tests go inside `#if DEBUG`.
 - Check the change in the simulator or on a device; the pull request needs before and after screenshots.
+- Motion, haptics and screen states (loading, empty, error, success): follow the `polishing-ui` skill.

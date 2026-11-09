@@ -37,7 +37,7 @@ struct RootView: View {
                 OnboardingView()
             }
         }
-        .animation(.default, value: model.onboardingComplete)
+        .motion(Motion.standard, value: model.onboardingComplete)
 
         // While a backup runs with Lelvo open, the iPhone doesn't auto-lock: on iOS 26, a locked phone that goes to
         // sleep stops background tasks (an iOS bug Apple has acknowledged), which paused long backups.

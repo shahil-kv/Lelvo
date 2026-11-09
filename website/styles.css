@@ -5,14 +5,14 @@
   --ink: #161B2B;
   --slate: #586276;
   --line: #DCE0E7;
-  --signal: #5E4AE3;
-  --signal-soft: #ECE9FD;
+  --signal: #4E01F1;
+  --signal-soft: #EFE9FF;
   --on-signal: #FFFFFF;
   --verified: #1E8A4C;
-  --band: #1D1846;
-  --band-ink: #F1EFFF;
-  --band-mist: #C3BDEB;
-  --band-link: #B9B0FF;
+  --band: #1C1033;
+  --band-ink: #F3EEFF;
+  --band-mist: #C9BDF0;
+  --band-link: #BBA6FF;
   --bezel: #0E1420;
   --bezel-edge: rgba(14, 20, 32, 0);
   --shadow: rgba(22, 27, 43, 0.22);
@@ -30,11 +30,11 @@
   --ink: #E9ECF2;
   --slate: #9AA4B6;
   --line: #283043;
-  --signal: #8B7CFF;
-  --signal-soft: #231F45;
+  --signal: #9B7BFF;
+  --signal-soft: #241A45;
   --on-signal: #0E121C;
   --verified: #4CC27E;
-  --band: #1A1640;
+  --band: #170D2B;
   --bezel: #05070C;
   --bezel-edge: rgba(255, 255, 255, 0.12);
   --shadow: rgba(0, 0, 0, 0.55);
@@ -300,6 +300,14 @@ main > section.reasons { margin-top: clamp(2.5rem, 5vw, 4rem); }
 
 @media (prefers-reduced-motion: reduce) {
   .tour-step, .tour-phone .phone > img, .button, .faq summary::after { transition: none; }
+}
+
+/* Page to page: a short cross-fade where the browser supports it, nothing otherwise. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.22s; animation-timing-function: var(--ease); }
+  .wordmark .mark { transition: transform 0.4s var(--ease); }
+  .wordmark:hover .mark { transform: rotate(-6deg) scale(1.06); }
 }
 
 /* Smaller screens */

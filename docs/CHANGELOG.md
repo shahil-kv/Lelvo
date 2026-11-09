@@ -5,6 +5,28 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 
 ## Unreleased
 
+- **New look:** a new logo, a camel whose neck flows into a cloud, and a new violet across the app, the app icon
+  (with dark and tinted versions on iPhone) and the website.
+- **Opening:** a cold launch zooms through the logo into your library in under a second. Coming back from another
+  app shows nothing, and a tap skips it.
+- **Backing up:** each photo flies into the logo's cloud the moment Telegram confirms it, the counts roll instead of
+  jumping, and a check appears when everything is safe.
+- **Free up space:** after you confirm, the photos fly into the cloud and the space freed counts up on the page,
+  instead of an alert. Cancelling iOS's prompt no longer shows an error.
+- **End of setup:** once your first photo is safe, a short animation pulls your recent photos into the logo.
+- **Report a problem** and **Suggest a feature** now open an email to the developer instead of Telegram, with the
+  address to copy if no mail app is set up.
+- **Smoother and calmer:** haptics arrive with the touch and only for results and picks, messages at the bottom
+  never block the buttons under them, a library that takes a moment to load shows its grid instead of a spinner, and
+  decorative motion rests in Low Power Mode and with Reduce Motion.
+- **Selecting photos on iPhone, like Photos:** once you pick something, the tabs make way for three floating
+  buttons: Share, Back Up in violet, and Delete. Tap the count at the top to see only what you picked. Select All,
+  Add to Album, Save and Favorite are in the ••• menu with their names. Delete asks in words whether to remove items
+  from this iPhone, delete them from the backup only, or delete them everywhere, and says first if any aren't backed
+  up yet.
+- **Albums:** add photos to an album or make a new one, on iPhone and Mac. Items only in your Telegram library are
+  saved to Photos first.
+- **Fixed:** messages shown while Settings was open on iPhone were hidden behind it.
 - **New web address:** the website is now [lelvo.app](https://lelvo.app), with a new About page.
 - **Removed from backup:** photos you deleted from your backup but kept on your iPhone or Mac now have their own row
   on the Backup page. Back them up from there whenever you like. They never upload again on their own.

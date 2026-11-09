@@ -71,7 +71,8 @@ final class FreeUpSpaceService: @unchecked Sendable {
     }
 
     /// Deletes verified items from the photo library. Their records stay, so they remain in the gallery as cloud items.
-    func delete(_ items: [MediaItem]) async throws -> Int {
+    /// Returns the local identifiers that are really gone from the photo library.
+    func delete(_ items: [MediaItem]) async throws -> Set<String> {
         // A photo may have been deleted from the backup on another device since this list was made. If that can't be
         // checked, nothing goes, and the current state of each item decides, not the state when it was listed.
         do { try await env.library.catchUp() } catch { throw TrashError.needsConnection }
@@ -83,12 +84,12 @@ final class FreeUpSpaceService: @unchecked Sendable {
             return !hasUnbackedChanges(item, asset: asset)
         }
         let ids = safe.compactMap(\.localIdentifier)
-        guard !ids.isEmpty else { return 0 }
+        guard !ids.isEmpty else { return [] }
         try await env.photos.deleteAssets(ids)
         let stillThere = env.photos.existingIdentifiers(ids)
-        let deleted = ids.filter { !stillThere.contains($0) }
+        let deleted = Set(ids.filter { !stillThere.contains($0) })
         appLog("Freed up space: deleted \(deleted.count) items from the photo library")
-        return deleted.count
+        return deleted
     }
 
     static func bytes(of items: [MediaItem]) -> Int64 {

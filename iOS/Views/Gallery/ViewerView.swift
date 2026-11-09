@@ -45,7 +45,7 @@ struct ViewerView: View {
                         ViewerPage(entry: entry, isCurrent: entry.id == currentId, chromeHidden: chromeHidden, zoomed: $zoomed)
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(entry.id)
-                            .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { chromeHidden.toggle() } }
+                            .onTapGesture { withAnimation(Motion.tap) { chromeHidden.toggle() } }
                     }
                 }
                 .scrollTargetLayout()
@@ -672,7 +672,6 @@ struct ZoomableImageView: UIViewRepresentable {
                 let size = CGSize(width: scroll.bounds.width / 2.5, height: scroll.bounds.height / 2.5)
                 scroll.zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height), animated: true)
             }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
     }
 }
@@ -823,12 +822,12 @@ struct PlayerView: UIViewRepresentable {
                 player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
                             toleranceBefore: CMTime(seconds: 0.25, preferredTimescale: 600), toleranceAfter: CMTime(seconds: 0.25, preferredTimescale: 600))
                 onSkip(side)
+                Haptics.selection()
             } else {
                 let point = g.location(in: layerView)
                 let size = CGSize(width: scroll.bounds.width / 2.5, height: scroll.bounds.height / 2.5)
                 scroll.zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height), animated: true)
             }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
     }
     func makeCoordinator() -> Coordinator { Coordinator(zoomed: zoomed) }

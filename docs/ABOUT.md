@@ -31,4 +31,4 @@ Lelvo is made by [Shahil](https://shahilkv.in), its founder. It's free and open 
 line is on [GitHub](https://github.com/shahil-kv/Lelvo).
 
 Questions or ideas? [Ask in Discussions](https://github.com/shahil-kv/Lelvo/discussions) or
-[send an email](mailto:mshahilkv@gmail.com).
+[send an email](mailto:support@lelvo.app).

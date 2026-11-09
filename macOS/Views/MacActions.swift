@@ -122,15 +122,32 @@ enum MacActions {
         toast.show(.info, "Backing up \(n) item\(n == 1 ? "" : "s")", detail: "Progress is in the sidebar and on the Backup page.")
     }
 
-    static func deleteFromCloud(_ entries: [GalleryEntry], toast: ToastCenter) async {
-        let items = entries.compactMap(\.item).filter { $0.status == .backedUp }
-        guard !items.isEmpty else { return }
-        toast.progress("Deleting \(items.count) from your backup…")
+    static func addToAlbum(_ entries: [GalleryEntry], albumId: String, title: String, toast: ToastCenter) async {
+        guard !entries.isEmpty else { return }
+        toast.progress("Adding \(entries.count) to “\(title)”…")
         do {
-            try await GalleryActions.deleteFromCloud(items)
-            toast.show(.success, "Moved \(items.count) to Recently Deleted", detail: "They're removed from your Telegram library after 30 days.")
+            let result = try await GalleryActions.addToAlbum(entries, albumId: albumId)
+            if result.failed > 0 {
+                toast.show(.failure, "Added \(result.added), \(result.failed) couldn't be saved",
+                           detail: "Items only in your Telegram library are saved to Photos first. Check your connection and try again.")
+            } else {
+                toast.show(.success, "Added \(result.added) to “\(title)”", detail: "The album is in Photos on this Mac.")
+            }
         } catch {
-            toast.show(.failure, "Couldn't delete", detail: error.localizedDescription)
+            toast.show(.failure, "Nothing was added", detail: error.localizedDescription)
+        }
+    }
+
+    static func deleteEverywhere(_ entries: [GalleryEntry], toast: ToastCenter) async {
+        guard !entries.isEmpty else { return }
+        do {
+            let result = try await GalleryActions.deleteEverywhere(entries)
+            toast.show(.success, "Deleted \(entries.count) item\(entries.count == 1 ? "" : "s")",
+                       detail: result.cloud > 0 ? "You can get them back from Recently Deleted for 30 days." : nil)
+        } catch let error as NSError where error.domain == PHPhotosErrorDomain && error.code == PHPhotosError.userCancelled.rawValue {
+            // Cancelled in macOS's own confirmation: nothing was deleted anywhere.
+        } catch {
+            toast.show(.failure, "Couldn't delete everything", detail: "\(error.localizedDescription) Check what's left, then try again.", seconds: 5)
         }
     }
 
@@ -140,8 +157,10 @@ enum MacActions {
         do {
             try await AppEnvironment.shared.photos.deleteAssets(ids)
             toast.show(.success, "Moved to Recently Deleted", detail: "Empty Recently Deleted in Photos to free the space.")
+        } catch let error as NSError where error.domain == PHPhotosErrorDomain && error.code == PHPhotosError.userCancelled.rawValue {
+            // Cancelled in macOS's own confirmation: nothing happened.
         } catch {
-            // The user cancelled macOS's confirmation.
+            toast.show(.failure, "Nothing was deleted", detail: "Photos couldn't delete them. Try again from the Photos app.", seconds: 5)
         }
     }
 }
