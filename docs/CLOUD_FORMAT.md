@@ -212,6 +212,20 @@ So that Recently Deleted is the same on every device, writers record each change
 - Readers that don't know notes ignore them: the caption doesn't start with `CG1:` or `CG1E:`. They show the item as a normal backup until its messages are deleted.
 - Test vector: `docs/test-vectors/trashlog1.json`.
 
+### 7.3 Favorites and albums notes (optional)
+
+So that a favorite or an album changed after the backup is the same on every device, and reaches Photos when an item is saved there, writers record each change as a **note**, like §7.2 but with its own prefix.
+
+- Its caption is `CGM1:` followed by compact JSON `{"h":…,"n":…,"v":1}`, or in E2E libraries `CGM1E:` followed by Base64 of `nonce(12) ‖ AES-256-GCM(ck, nonce, json, aad = UTF-8("CGM1E")) ‖ tag(16)`. `n` and `h` as in §7.2.
+- The document is compact JSON with sorted keys, CGFE-encrypted (§6.2) in E2E libraries: `{"ids":[…],"op":"fav","v":1}` or `"unfav"`, and `{"album":"Goa Trip","ids":[…],"op":"album-add","v":1}` or `"album-remove"`. An album is its name as Photos shows it, without surrounding spaces. At most 2000 ids per note.
+- Each note sets one **key** for its items: the favorite, or membership of one album. For each item and key, the note with the **highest message id** wins. A key no note sets keeps the backup's caption (`fav`, `a`, and `md`).
+- Readers ignore a note that doesn't check out, has a newer `v` or an unknown `op`, has an album op without an album, or has `album` on a favorite op: when in doubt, keep data. A note may arrive before its item; readers keep it and apply it once the item is there.
+- Saving an item to Photos (a restore, or "Save to iPhone") applies its current favorite and albums, making albums that don't exist.
+- Writers send changes made after the item's backup only, grouped like §7.2: one note per action and album, at most one note a minute.
+- **Nothing stays behind.** A note is deleted once every item it lists has a newer note for the same key. With more than 200 notes, a writer sends the current state as fresh notes, which makes every older one removable.
+- Readers that don't know these notes skip them without downloading: the caption starts with neither `CG1:`, `CG1E:`, `CGT1:` nor `CGT1E:`.
+- Test vector: `docs/test-vectors/metalog1.json`.
+
 ## 8. Writing rules
 
 - An item is "backed up" only after Telegram confirms every required message (`updateMessageSendSucceeded`) and each document's size equals the uploaded stream size (or part size).
