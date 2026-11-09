@@ -97,7 +97,8 @@ final class MetaSync: @unchecked Sendable {
             return true
         }) else { return }
         defer { lock.withLock { cleaning = false } }
-        let finished = MetaLog.notesToRemove(notes).map(\.messageId)
+        let known = Set(((try? env.store.allItems()) ?? []).map(\.id))
+        let finished = MetaLog.notesToRemove(notes, known: known.isEmpty ? nil : known).map(\.messageId)
         for start in stride(from: 0, to: finished.count, by: CloudTrash.maxMessagesPerDelete) {
             let batch = Array(finished[start..<min(start + CloudTrash.maxMessagesPerDelete, finished.count)])
             if start > 0 { try? await Task.sleep(nanoseconds: UInt64(BackupEngine.uploadSpacing * 1_000_000_000)) }
@@ -121,11 +122,14 @@ final class MetaSync: @unchecked Sendable {
     /// With many notes left, sends the current state as fresh notes, which makes every older one removable. Only right
     /// after the channel was read (`onOpen`), so it can't override a note from another device it hasn't seen.
     private func compactIfLong() async {
-        guard let chatId = env.library.chatId, let notes = try? env.store.metaNotes(), notes.count > MetaLog.compactAbove,
+        guard let chatId = env.library.chatId, (try? env.store.metaNotes().count).map({ $0 > MetaLog.compactAbove }) == true,
               (try? env.store.queuedMetaChanges(chatId: chatId).isEmpty) == true else { return }
         await gate.acquire()
         defer { Task { await gate.release() } }
-        for body in MetaLog.compacted(notes) {
+        // Read the newest messages right before, so a change another device just sent is part of the state written.
+        guard (try? await env.library.scan(full: false)) != nil, let notes = try? env.store.metaNotes(),
+              let all = try? env.store.allItems(), !all.isEmpty else { return }
+        for body in MetaLog.compacted(notes, known: Set(all.map(\.id))) {
             do {
                 try await env.engine.withNoteSlot { [env] in try await env.library.sendMetaNote(body, chatId: chatId) }
             } catch {

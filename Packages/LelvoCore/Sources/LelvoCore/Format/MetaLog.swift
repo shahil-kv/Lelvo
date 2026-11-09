@@ -208,13 +208,24 @@ public enum MetaLog {
 
     // MARK: - Cleaning up
 
-    /// Notes that no longer decide anything: every item they list has a newer note for the same key. Deleting them
-    /// changes nothing, so the channel doesn't fill up. A note that still decides one item stays, whole.
-    public static func notesToRemove(_ notes: [Note]) -> [Note] {
+    /// An item missing from the index this long after its note was deleted for good (Recently Deleted keeps items 30
+    /// days), so the note no longer decides anything for it.
+    public static let goneAfter: TimeInterval = 31 * 24 * 3600
+
+    /// Notes that no longer decide anything, so deleting them changes nothing: every item they list has a newer note
+    /// for the same key, or is gone from the library (`known` is every item in the index, after the channel was read)
+    /// and the note is older than `goneAfter`. A note that still decides one item stays, whole. A newer note about an
+    /// unknown item stays: that item may be uploading on another device.
+    public static func notesToRemove(_ notes: [Note], known: Set<String>? = nil, now: Date = Date()) -> [Note] {
         let newest = latest(notes)
         return notes.filter { note in
             guard let key = note.key else { return true }
-            return note.ids.allSatisfy { (newest[$0]?[key]?.messageId ?? .min) > note.messageId }
+            let old = now.timeIntervalSince(note.date) > goneAfter
+            return note.ids.allSatisfy { id in
+                if (newest[id]?[key]?.messageId ?? .min) > note.messageId { return true }
+                guard let known, old else { return false }
+                return !known.contains(id)
+            }
         }
     }
 
@@ -222,9 +233,11 @@ public enum MetaLog {
     /// changed a little every day doesn't keep a note for each day.
     public static let compactAbove = 200
 
-    /// The current state as notes to send before removing `notes`: every item and key the notes still decide.
-    public static func compacted(_ notes: [Note]) -> [Body] {
-        let state = latest(notes).mapValues { $0.mapValues(\.value) }
+    /// The current state as notes to send before removing `notes`: every item and key the notes still decide, for the
+    /// items still in the library (`known`), so items deleted for good don't live on in fresh notes.
+    public static func compacted(_ notes: [Note], known: Set<String>? = nil) -> [Body] {
+        var state = latest(notes).mapValues { $0.mapValues(\.value) }
+        if let known { state = state.filter { known.contains($0.key) } }
         return bodies(for: state)
     }
 }

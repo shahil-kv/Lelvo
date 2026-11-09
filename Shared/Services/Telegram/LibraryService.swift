@@ -428,14 +428,14 @@ final class LibraryService: @unchecked Sendable {
         thumbnails.record(thumbnailIds, chatId: chatId)
         // Before the scan position moves: a note that couldn't be downloaded is read again by the next scan.
         try await readNotes(foundNotes)
-        try await readMetaNotes(foundMetaNotes)
+        let newMetaIds = try await readMetaNotes(foundMetaNotes)
         if let fromSnapshot {
             // Newer messages read above win over the snapshot's copy of the same message.
             let read = Set(cloud.map(\.messageId))
             cloud += fromSnapshot.messages.map(\.message).filter { !read.contains($0.messageId) }
             try merge(cloud: cloud, full: false, summary: &summary)
             try applyTrashNotes(messagesSeen: false)
-            try applyMetaNotes()
+            try applyMetaNotes(only: nil)
             if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
             appLog("Library restored from the index snapshot up to message \(fromSnapshot.upto): \(summary.items) items, \(summary.messages) newer messages read; checking the whole channel next")
             // The channel is the truth: a full scan in the background catches anything deleted since the snapshot.
@@ -453,8 +453,9 @@ final class LibraryService: @unchecked Sendable {
             try store.removeMetaNotes(messageIds: try store.metaNotes().map(\.messageId).filter { !metaInChannel.contains($0) && $0 <= newest })
         }
         try applyTrashNotes(messagesSeen: full)
-        // After the merge, which takes favorites and albums from the captions: notes and waiting changes go on top.
-        try applyMetaNotes()
+        // After the merge, which takes favorites and albums from the captions: notes and waiting changes go on top. A
+        // recent scan only touches the items it read and the items in new notes; a full scan checks every one.
+        try applyMetaNotes(only: full ? nil : newMetaIds.union(cloud.map(\.meta.id)))
         if full { UserDefaults.standard.set(summary.orphans.map { NSNumber(value: $0) }, forKey: Self.duplicatesKey) }
         if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
         if full {
@@ -585,8 +586,11 @@ final class LibraryService: @unchecked Sendable {
 
     /// Downloads favorites and albums notes this device hasn't read. A network failure throws; a damaged note or one
     /// from a newer version is skipped, which changes nothing.
-    private func readMetaNotes(_ found: [FoundNote]) async throws {
+    /// Returns the items the new notes are about.
+    @discardableResult
+    private func readMetaNotes(_ found: [FoundNote]) async throws -> Set<String> {
         let known = Set(try store.metaNotes().map(\.messageId))
+        var touched = Set<String>()
         for note in found where !known.contains(note.messageId) {
             guard isEncrypted == note.caption.hasPrefix(MetaLog.encryptedPrefix),
                   let caption = MetaLog.parseCaption(note.caption, captionKey: captionKey) else {
@@ -600,7 +604,7 @@ final class LibraryService: @unchecked Sendable {
                 let mapped = error.asTD
                 guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind else { throw mapped }
                 try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
-                return try await readMetaNotes(found)
+                return try await readMetaNotes(found).union(touched)
             }
             defer { Task { await td.deleteLocalCopy(fileId: note.file.id) } }
             var data = try Data(contentsOf: path)
@@ -617,15 +621,21 @@ final class LibraryService: @unchecked Sendable {
             }
             try store.addMetaNote(MetaLog.Note(messageId: note.messageId, date: Foundation.Date(timeIntervalSince1970: TimeInterval(note.date)),
                                                op: body.op, ids: body.ids, album: body.album))
+            touched.formUnion(body.ids)
         }
+        return touched
     }
 
     /// Makes each item's favorite and albums follow its newest notes, with changes this device hasn't sent yet on top.
-    /// Each item is changed in place, so an upload finishing meanwhile isn't undone.
-    func applyMetaNotes() throws {
-        let latest = MetaLog.latest(try store.metaNotes())
+    /// Each item is changed in place, so an upload finishing meanwhile isn't undone. `only`: just these items (and any
+    /// with changes waiting), so a live update while another device backs up doesn't walk every noted item.
+    func applyMetaNotes(only: Set<String>? = nil) throws {
+        let notes = try store.metaNotes()
         let waiting = try chatId.map { try store.queuedMetaChanges(chatId: $0) } ?? [:]
-        let ids = Set(latest.keys).union(waiting.keys)
+        guard !notes.isEmpty || !waiting.isEmpty else { return }
+        let latest = MetaLog.latest(notes)
+        var ids = only.map { $0.intersection(latest.keys) } ?? Set(latest.keys)
+        ids.formUnion(waiting.keys)
         guard !ids.isEmpty else { return }
         var changed = 0
         for item in try store.items(ids: Array(ids)) {

@@ -222,7 +222,7 @@ So that a favorite or an album changed after the backup is the same on every dev
 - Readers ignore a note that doesn't check out, has a newer `v` or an unknown `op`, has an album op without an album, or has `album` on a favorite op: when in doubt, keep data. A note may arrive before its item; readers keep it and apply it once the item is there.
 - Saving an item to Photos (a restore, or "Save to iPhone") applies its current favorite and albums, making albums that don't exist.
 - Writers send changes made after the item's backup only, grouped like §7.2: one note per action and album, at most one note a minute.
-- **Nothing stays behind.** A note is deleted once every item it lists has a newer note for the same key. With more than 200 notes, a writer sends the current state as fresh notes, which makes every older one removable.
+- **Nothing stays behind.** A note is deleted once every item it lists has a newer note for the same key, or, for a note over 31 days old, is no longer in the library (deleted for good) right after the channel was read. With more than 200 notes, a writer reads the newest messages, then sends the current state of the items still in the library as fresh notes, which makes every older one removable.
 - Readers that don't know these notes skip them without downloading: the caption starts with neither `CG1:`, `CG1E:`, `CGT1:` nor `CGT1E:`.
 - Test vector: `docs/test-vectors/metalog1.json`.
 

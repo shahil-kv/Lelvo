@@ -161,6 +161,17 @@ import CryptoKit
         #expect(MetaLog.notesToRemove([note(1, .favorite, ["a"]), note(2, .albumAdd, ["a"], album: "X")]).isEmpty)
     }
 
+    /// A note about items deleted for good would otherwise stay forever: nothing newer is ever written for them.
+    @Test func notesAboutDeletedItemsGoAfterAMonth() {
+        let old = MetaLog.Note(messageId: 1, date: day0, op: .favorite, ids: ["gone", "gone2"])
+        let mixed = MetaLog.Note(messageId: 2, date: day0, op: .albumAdd, ids: ["gone", "here"], album: "X")
+        let soon = day0.addingTimeInterval(10 * 86400), later = day0.addingTimeInterval(40 * 86400)
+        #expect(MetaLog.notesToRemove([old, mixed], known: ["here"], now: soon).isEmpty, "Too new: may be uploading elsewhere")
+        #expect(MetaLog.notesToRemove([old, mixed], known: ["here"], now: later) == [old], "The other still decides an item")
+        #expect(MetaLog.notesToRemove([old, mixed], known: nil, now: later).isEmpty, "Without the index, keep")
+        #expect(MetaLog.compacted([old, mixed], known: ["here"]) == [.init(op: .albumAdd, ids: ["here"], album: "X")])
+    }
+
     @Test func compactingKeepsTheStateAndFreesEveryOldNote() {
         let notes = [note(1, .favorite, ["a", "b"]), note(2, .unfavorite, ["a"]), note(3, .albumAdd, ["a", "c"], album: "X"),
                      note(4, .albumRemove, ["c"], album: "X")]
