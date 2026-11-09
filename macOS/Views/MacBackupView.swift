@@ -118,14 +118,18 @@ struct MacBackupView: View {
         }()
         return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
-                Image(systemName: icon)
-                    .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 52, height: 52)
-                    .background(tint.gradient, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .contentTransition(.symbolEffect(.replace))
+                // The Lelvo mark catches each photo Telegram confirms; the small symbol carries the status.
+                CatchingMark(status: state == .complete ? .complete : state == .running ? .working : state == .failures ? .attention : .idle,
+                             width: 76)
+                    .overlay(alignment: .bottomTrailing) {
+                        if state != .complete && state != .running {
+                            Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(tint)
+                                .background(Circle().fill(.background).padding(-2))
+                                .offset(x: 6, y: 6)
+                        }
+                    }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.title3.weight(.semibold)).contentTransition(.numericText())
+                    Text(title).font(.title3.weight(.semibold)).contentTransition(.numericText()).motion(Motion.standard, value: title)
                     Text(subtitle).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer(minLength: 12)

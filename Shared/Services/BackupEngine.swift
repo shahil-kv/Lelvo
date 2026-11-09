@@ -36,6 +36,14 @@ final class BackupActivity: ObservableObject {
     }
     @Published var uploaded = 0
     @Published var failed = 0
+    /// The last item Telegram confirmed in full, for the Backup screen's photo flying into the cloud. Set only after
+    /// the item is `.backedUp`, never before.
+    @Published var landed: Landed?
+
+    struct Landed: Equatable {
+        let localIdentifier: String
+        let sequence: Int
+    }
     @Published var message: String?
     /// Temporary notice while Telegram's requested pause is in effect; cleared when it ends.
     @Published var notice: String?
@@ -551,7 +559,11 @@ final class BackupEngine: @unchecked Sendable {
                         let done = await counter.record(outcome)
                         let snap = await counter.snapshot()
                         progress?(done, total)
-                        await publish { a in a.done = done; a.uploaded = snap.uploaded + snap.duplicate; a.failed = snap.failed }
+                        let landed = outcome == .uploaded ? item.localIdentifier : nil
+                        await publish { a in
+                            a.done = done; a.uploaded = snap.uploaded + snap.duplicate; a.failed = snap.failed
+                            if let landed { a.landed = BackupActivity.Landed(localIdentifier: landed, sequence: done) }
+                        }
                     }
                 }
             }

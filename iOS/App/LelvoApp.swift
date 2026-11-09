@@ -22,6 +22,8 @@ struct LelvoApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = AppModel.shared
     @Environment(\.scenePhase) private var scenePhase
+    /// True for this process launch only, so the opening plays on a cold launch and never on a return from the background.
+    @State private var launching = !UITestSupport.isRunning
 
     init() {
         UITestSupport.prepareIfNeeded()
@@ -36,6 +38,7 @@ struct LelvoApp: App {
                 .id(model.sessionId)
                 .environmentObject(model)
                 .environmentObject(BackupActivity.shared)
+                .launchOverlay(isLaunching: $launching)
         }
         .onChange(of: scenePhase) { _, phase in
             let env = AppEnvironment.shared

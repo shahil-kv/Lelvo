@@ -89,6 +89,7 @@ struct BackupDashboardView: View {
     @EnvironmentObject private var activity: BackupActivity
     @EnvironmentObject private var app: AppModel
     @StateObject private var stats = BackupStatsModel()
+    @State private var runJustEnded = false
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.backupPaused) private var paused = false
@@ -101,7 +102,6 @@ struct BackupDashboardView: View {
                     statusHeader
                     if activity.isRunning {
                         Button(role: .destructive) {
-                            Haptics.tap()
                             AppEnvironment.shared.engine.pause()
                             ToastCenter.shared.show(.info, "Pausing the backup")
                         } label: {
@@ -122,7 +122,7 @@ struct BackupDashboardView: View {
                         .listRowSeparator(.hidden)
                     } else if stats.pending > 0 || stats.notQueued > 0 {
                         Button {
-                            Haptics.tap()
+                            Haptics.start()
                             ContinuedBackup.start(everything: true)
                         } label: {
                             Label(paused ? "Resume backup" : "Back up now", systemImage: "icloud.and.arrow.up.fill")
@@ -136,7 +136,7 @@ struct BackupDashboardView: View {
                         }
                     } else if stats.retryable > 0 {
                         Button {
-                            Haptics.tap()
+                            Haptics.start()
                             ToastCenter.shared.show(.info, "Retrying \(stats.retryable) failed")
                             Task {
                                 await Task.detached { AppEnvironment.shared.engine.retryFailed() }.value
@@ -153,6 +153,8 @@ struct BackupDashboardView: View {
                         ProgressView(value: Double(activity.done), total: Double(max(activity.total, 1))) {
                             Text("\(activity.done) of \(activity.total) done · \(activity.remaining) left")
                                 .font(.subheadline.monospacedDigit())
+                                .contentTransition(.numericText())
+                                .motion(Motion.standard, value: activity.done)
                         }
                         if let notice = activity.notice {
                             Label(notice, systemImage: "hourglass").font(.caption).foregroundStyle(.orange)
@@ -239,7 +241,6 @@ struct BackupDashboardView: View {
                     NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
                     #endif
                     Button {
-                        Haptics.tap()
                         Task {
                             await LibraryRescan.run()
                             stats.refresh()
@@ -255,6 +256,13 @@ struct BackupDashboardView: View {
             .refreshable { stats.refresh() }
             .onAppear { stats.refresh() }
             .onChange(of: activity.isRunning) { _, _ in stats.refresh() }
+            // One success haptic when a run ends with everything safe, not for each photo.
+            // The counts refresh just after the run ends, so .running → .pending → .complete is still one finished run.
+            .onChange(of: headerState) { old, new in
+                if old == .running { runJustEnded = true }
+                if new == .complete && runJustEnded { Haptics.success() }
+                if new != .running && new != .pending { runJustEnded = false }
+            }
         }
     }
 
@@ -284,24 +292,35 @@ struct BackupDashboardView: View {
             (icon, tint, title) = ("icloud.slash", .secondary,
                                    "\(stats.notQueued) item\(stats.notQueued == 1 ? "" : "s") not in the cloud")
         }
-        return HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 40))
-                .foregroundStyle(tint)
-                .symbolEffect(.pulse, isActive: activity.isRunning)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.headline)
-                Text(state == .complete ? "Everything\(stats.removedFromBackup > 0 ? " else" : "") on this \(Device.name) is backed up"
-                     : state == .notBackedUp ? "Back up now uploads them all, or choose photos in Photos and tap Back up."
-                     : "To your Telegram library")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                if let last = UserDefaults.standard.object(forKey: Prefs.Key.lastBackupAt) as? Date {
-                    Text("Last upload \(Format.relative(last))").font(.caption).foregroundStyle(.secondary)
+        let mark: CatchingMark.Status = switch state {
+        case .complete: .complete
+        case .completeWithFailures: .attention
+        case .running: .working
+        case .pending, .notBackedUp: .idle
+        }
+        return VStack(spacing: 10) {
+            CatchingMark(status: mark)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+            Label {
+                Text(title).font(.headline).multilineTextAlignment(.center)
+                    .contentTransition(.numericText())
+            } icon: {
+                if state == .completeWithFailures || state == .notBackedUp {
+                    Image(systemName: icon).foregroundStyle(tint)
                 }
             }
+            Text(state == .complete ? "Everything\(stats.removedFromBackup > 0 ? " else" : "") on this \(Device.name) is backed up"
+                 : state == .notBackedUp ? "Back up now uploads them all, or choose photos in Photos and tap Back up."
+                 : "To your Telegram library")
+                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if let last = UserDefaults.standard.object(forKey: Prefs.Key.lastBackupAt) as? Date {
+                Text("Last upload \(Format.relative(last))").font(.caption).foregroundStyle(.secondary)
+            }
         }
+        .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
+        .motion(Motion.standard, value: title)
         .accessibilityElement(children: .combine)
     }
 
@@ -413,9 +432,13 @@ struct FailedThumbnail: View {
             .overlay { if let image { Image(platformImage: image).resizable().scaledToFill() } }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .task(id: localIdentifier) {
-                let env = AppEnvironment.shared
-                guard let localIdentifier, let asset = env.photos.asset(localIdentifier: localIdentifier) else { return }
-                image = await env.photos.image(for: asset, targetSize: CGSize(width: 156, height: 156))
+                guard let localIdentifier else { return }
+                // The PhotoKit lookup off the main actor: a long Failed list asks for one per row while scrolling.
+                image = await Task.detached(priority: .userInitiated) {
+                    let photos = AppEnvironment.shared.photos
+                    guard let asset = photos.asset(localIdentifier: localIdentifier) else { return nil }
+                    return await photos.image(for: asset, targetSize: CGSize(width: 156, height: 156))
+                }.value
             }
     }
 }
@@ -714,11 +737,13 @@ private struct DuplicateThumb: View {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .task(id: localIdentifier ?? item.id) {
                 let env = AppEnvironment.shared
-                if let id = localIdentifier, let asset = env.photos.asset(localIdentifier: id) {
-                    image = await env.photos.image(for: asset, targetSize: CGSize(width: size * 3, height: size * 3))
-                } else {
-                    image = try? await env.media.thumbnail(for: item)
-                }
+                let pixels = size * 3
+                // The PhotoKit lookup off the main actor, as in FailedThumbnail.
+                let local: PlatformImage? = await Task.detached(priority: .userInitiated) {
+                    guard let id = localIdentifier, let asset = env.photos.asset(localIdentifier: id) else { return nil }
+                    return await env.photos.image(for: asset, targetSize: CGSize(width: pixels, height: pixels))
+                }.value
+                if let local { image = local } else { image = try? await env.media.thumbnail(for: item) }
             }
     }
 }

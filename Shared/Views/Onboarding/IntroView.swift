@@ -80,7 +80,6 @@ struct IntroView: View {
     private func go(_ delta: Int) {
         let next = page + delta
         guard Page(rawValue: next) != nil else { return }
-        Haptics.tap()
         forward = delta > 0
         withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(duration: 0.45, bounce: 0.1)) { page = next }
     }
@@ -228,8 +227,10 @@ private struct PhotoWall: View {
         GeometryReader { geo in
             let wall = geo.size.width * 1.4
             let width = (wall - spacing * 3) / 4
-            TimelineView(.animation(paused: reduceMotion)) { ctx in
-                let t = reduceMotion ? 0 : ctx.date.timeIntervalSinceReferenceDate
+            // Redrawn every frame, so it rests in Low Power Mode as well as with Reduce Motion.
+            let still = !Motion.decorative(reduceMotion: reduceMotion)
+            TimelineView(.animation(paused: still)) { ctx in
+                let t = still ? 0 : ctx.date.timeIntervalSinceReferenceDate
                 HStack(alignment: .top, spacing: spacing) {
                     ForEach(0..<4, id: \.self) { col in column(col, width: width, time: t) }
                 }
@@ -418,7 +419,7 @@ private struct FeaturesPage: View {
         let f = Self.features[i]
         let on = i == active
         return Button {
-            Haptics.tap()
+            Haptics.selection()
             pausedUntil = Date().addingTimeInterval(6)
             withAnimation(.easeInOut(duration: 0.35)) { active = i }
         } label: {
@@ -480,8 +481,9 @@ private struct PrivacyPage: View {
 
     /// Your device, an empty crossed-out box where a company's server would be, then your Telegram.
     private var flow: some View {
-        TimelineView(.animation(paused: reduceMotion)) { ctx in
-            let p = reduceMotion ? 0.5 : (ctx.date.timeIntervalSinceReferenceDate / 2.6).truncatingRemainder(dividingBy: 1)
+        let still = !Motion.decorative(reduceMotion: reduceMotion)
+        return TimelineView(.animation(paused: still)) { ctx in
+            let p = still ? 0.5 : (ctx.date.timeIntervalSinceReferenceDate / 2.6).truncatingRemainder(dividingBy: 1)
             GeometryReader { geo in
                 let w = geo.size.width
                 HStack(alignment: .top) {
@@ -521,7 +523,7 @@ private struct PrivacyPage: View {
 
     private func choice(title: String, icon: String, selected: Bool, detail: String, action: @escaping () -> Void) -> some View {
         Button {
-            Haptics.tap()
+            Haptics.selection()
             action()
         } label: {
             HStack(alignment: .top, spacing: 12) {
@@ -673,7 +675,6 @@ private struct QuestionsPage: View {
                 HStack {
                     if !showAll {
                         Button {
-                            Haptics.tap()
                             withAnimation(.spring(duration: 0.4)) { showAll = true }
                         } label: {
                             Label("\(Self.items.count - Self.shownFirst) more questions", systemImage: "chevron.down")
@@ -718,7 +719,6 @@ private struct QuestionsPage: View {
         let isOpen = open == i
         return VStack(alignment: .leading, spacing: 0) {
             Button {
-                Haptics.tap()
                 withAnimation(.spring(duration: 0.35, bounce: 0.05)) { open = isOpen ? nil : i }
             } label: {
                 HStack(spacing: 12) {
@@ -997,7 +997,22 @@ struct FirstBackupView: View {
         }
     }
 
-    private var upload: some View {
+    /// The photos for the end-of-setup moment: the recent ones, without the one that was just backed up.
+    private var readyImages: [PlatformImage] {
+        recent.photos.filter { $0.id != selected }.compactMap(\.image)
+    }
+
+    @ViewBuilder private var upload: some View {
+        if finished, readyImages.count >= 4 {
+            LibraryReadyView(images: readyImages, detail: detail)
+                .padding(.top, 10)
+                .transition(.opacity)
+        } else {
+            uploadProgress
+        }
+    }
+
+    private var uploadProgress: some View {
         VStack(spacing: 22) {
             ring.padding(.top, 30)
             VStack(spacing: 10) {
@@ -1016,7 +1031,7 @@ struct FirstBackupView: View {
                 let isSelected = selected == photo.id
                 Button {
                     guard selectable else { return }
-                    Haptics.tap()
+                    Haptics.selection()
                     withAnimation(.spring(duration: 0.25)) { selected = isSelected ? nil : photo.id }
                 } label: {
                     Color.white.opacity(0.08).aspectRatio(1, contentMode: .fit)
@@ -1033,7 +1048,7 @@ struct FirstBackupView: View {
                             if isSelected {
                                 Image(systemName: "checkmark.circle.fill").font(.title2).symbolRenderingMode(.palette)
                                     .foregroundStyle(.white, Color.accentColor).padding(6)
-                                    .transition(.scale.combined(with: .opacity))
+                                    .transition(.scale(scale: 0.6).combined(with: .opacity))
                             }
                         }
                         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -1107,7 +1122,7 @@ struct FirstBackupView: View {
                 .frame(width: 50, height: 50).background(Color.green, in: Circle())
                 .overlay(Circle().stroke(Color.black, lineWidth: 3))
                 .offset(x: 72, y: 72)
-                .scaleEffect(finished ? 1 : 0.01)
+                .scaleEffect(finished ? 1 : 0.6)
                 .opacity(finished ? 1 : 0)
                 .animation(reduceMotion ? nil : .spring(duration: 0.45, bounce: 0.45), value: finished)
         }

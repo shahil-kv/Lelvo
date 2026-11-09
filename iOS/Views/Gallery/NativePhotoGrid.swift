@@ -263,7 +263,7 @@ struct NativePhotoGrid: UIViewRepresentable {
             _ = entry
             guard parent.selecting else { collectionView.deselectItem(at: indexPath, animated: false); return }
             parent.selection.insert(id)
-            Haptics.tap()
+            Haptics.selection()
             reconfigure(indexPath)
         }
 
@@ -443,7 +443,7 @@ struct NativePhotoGrid: UIViewRepresentable {
                     layout.setColumns(appliedColumns)
                 } else if progress >= 1 {
                     // Fully there with the fingers still moving: lock this step in and continue with the next one.
-                    Haptics.tap()
+                    Haptics.selection()
                     commitColumns(target)
                     pinchBase = g.scale
                     pinchTarget = nil
@@ -465,7 +465,7 @@ struct NativePhotoGrid: UIViewRepresentable {
                 let zoomIn = (pinchTarget ?? appliedColumns) < appliedColumns
                 let flick = zoomIn ? g.velocity > 1.5 : g.velocity < -1.5
                 let finish = g.state == .ended && (pinchProgress > 0.35 || flick)
-                if finish { Haptics.tap() }
+                if finish { Haptics.selection() }
                 settleFrom = pinchProgress
                 settleTo = finish ? 1 : 0
                 settleStart = CACurrentMediaTime()

@@ -394,7 +394,7 @@ struct OnboardingView: View {
             .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
                                     removal: .move(edge: .leading).combined(with: .opacity)))
         }
-        .animation(.spring(duration: 0.45, bounce: 0.1), value: m.step)
+        .motion(.spring(duration: 0.45, bounce: 0.1), value: m.step)
         // Our fields draw their own rounded background and focus ring; no system bezel inside them.
         .textFieldStyle(.plain)
         .focusEffectDisabled()
@@ -470,16 +470,10 @@ struct OnboardingView: View {
     private var scanning: some View {
         VStack(spacing: 22) {
             Spacer()
-            ZStack {
-                Circle().fill(Color.accentColor.opacity(0.15)).frame(width: 140, height: 140)
-                    .phaseAnimator([false, true]) { v, on in v.scaleEffect(on ? 1.12 : 0.92).opacity(on ? 0.5 : 1) }
-                        animation: { _ in .easeInOut(duration: 1.1) }
-                Image(systemName: "arrow.clockwise.icloud.fill").font(.system(size: 56)).foregroundStyle(.tint)
-                    .symbolEffect(.pulse)
-            }
+            RestoringMark()
             Text("Restoring your library").font(.title2.bold())
-            Text("\(m.scanned) files found").font(.title3.monospacedDigit()).foregroundStyle(.secondary)
-                .contentTransition(.numericText()).animation(.default, value: m.scanned)
+            Text("\(m.scanned.formatted()) files found").font(.title3.monospacedDigit()).foregroundStyle(.secondary)
+                .contentTransition(.numericText(value: Double(m.scanned))).motion(Motion.standard, value: m.scanned)
             if let error = m.error { ErrorBanner(message: error).padding(.horizontal, 24) }
             Spacer()
         }
@@ -572,7 +566,7 @@ private struct LibraryScreen: View {
                         ForEach(libraries) { c in
                             LibraryCard(title: c.title, encrypted: c.encrypted, selected: c.id == chosen.id,
                                         onRename: { renameText = c.title; renaming = c })
-                                .onTapGesture { Haptics.tap(); selectedId = c.id }
+                                .onTapGesture { Haptics.selection(); selectedId = c.id }
                         }
                         secondaryLinks(showCreate: true)
                     }
@@ -645,7 +639,7 @@ private struct LibraryScreen: View {
                 .inlineNavigationTitle()
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { pickingChannel = false } }
-                    ToolbarItem(placement: .primaryAction) { Button { m.loadChannels() } label: { Image(systemName: "arrow.clockwise") } }
+                    ToolbarItem(placement: .primaryAction) { Button { m.loadChannels() } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Refresh") }
                 }
             }
             .presentationDetents([.medium, .large])
@@ -664,7 +658,7 @@ private struct LibraryScreen: View {
                     Text(m.newLibraryName).font(.body.weight(.semibold))
                 }
                 Spacer()
-                Button("Rename") { Haptics.tap(); editingName = true }.font(.subheadline.weight(.semibold))
+                Button("Rename") { editingName = true }.font(.subheadline.weight(.semibold))
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
             .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -804,7 +798,7 @@ struct EncryptionChoice: View {
     private func option(isEncrypted: Bool, icon: String, title: String, detail: String) -> some View {
         let selected = encrypted == isEncrypted
         return Button {
-            Haptics.tap()
+            Haptics.selection()
             encrypted = isEncrypted
         } label: {
             HStack(alignment: .top, spacing: 14) {
@@ -847,7 +841,7 @@ private struct OnboardingPage<Content: View>: View {
         VStack(spacing: 0) {
             HStack {
                 if m.canGoBack {
-                    Button { Haptics.tap(); m.back() } label: {
+                    Button { m.back() } label: {
                         Image(systemName: "chevron.left").font(.body.weight(.semibold))
                             .frame(width: 40, height: 40).background(Color.white.opacity(0.1), in: Circle())
                     }
@@ -908,7 +902,6 @@ struct PrimaryCapsuleButton: View {
 
     var body: some View {
         Button {
-            Haptics.tap()
             action()
         } label: {
             ZStack {
@@ -1208,5 +1201,26 @@ enum Countries {
     static var defaultDialCode: String {
         let region = Locale.current.region?.identifier ?? "IN"
         return codes.first { $0.0 == region }?.1 ?? "91"
+    }
+}
+
+/// The mark on a slow brand glow while the library is read. The glow is the only motion: with Reduce Motion it stays
+/// still, and the rolling count shows progress either way.
+private struct RestoringMark: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(RadialGradient(colors: [Brand.violet.opacity(0.55), .clear], center: .center, startRadius: 0, endRadius: 110))
+                .frame(width: 220, height: 220)
+                .phaseAnimator(reduceMotion ? [true] : [false, true]) { glow, on in
+                    glow.scaleEffect(on ? 1.06 : 0.9).opacity(on ? 1 : 0.6)
+                } animation: { _ in .easeInOut(duration: 1.6) }
+            LelvoMark().fill(.white)
+                .frame(width: 120, height: 120 / LelvoMark.aspectRatio)
+        }
+        .frame(height: 170)
+        .accessibilityHidden(true)
     }
 }
