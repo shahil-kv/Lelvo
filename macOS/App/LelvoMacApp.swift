@@ -88,7 +88,7 @@ struct LelvoMacApp: App {
             }
             Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
         case .background:
-            Task.detached(priority: .userInitiated) { await TrashSync.shared.send() }
+            Task.detached(priority: .userInitiated) { await TrashSync.shared.send(); await MetaSync.shared.send() }
             env.originalsCache.flush()
             env.thumbnailCache.flush()
         default: break

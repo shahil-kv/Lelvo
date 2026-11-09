@@ -23,7 +23,7 @@ struct AddToAlbumView: View {
                         Label("New Album…", systemImage: "plus.rectangle.on.rectangle")
                     }
                 } footer: {
-                    Text("\(count.formatted()) item\(count == 1 ? "" : "s"). Items only in your Telegram library are saved to Photos first. Albums are in beta: they're kept in Photos on this device and don't reach your other devices yet.")
+                    Text("\(count.formatted()) item\(count == 1 ? "" : "s"). Items only in your Telegram library stay there and join the album in Photos when you save them. Albums are in beta.")
                 }
                 if !albums.isEmpty {
                     Section("My Albums") {

@@ -92,6 +92,7 @@ final class AppEnvironment: @unchecked Sendable {
         if let current = library.chatId { LibrarySnapshots.save(chatId: current, items: (try? store.allItems()) ?? []) }
         lap("backup paused, current index saved")
         await TrashSync.shared.sendBeforeLeaving()
+        await MetaSync.shared.sendBeforeLeaving()
         let previousChat = library.chatId
         if let previousChat { LibrarySnapshots.saveChoices(chatId: previousChat, store: store) }
         reader.forgetCaches()
@@ -137,6 +138,7 @@ final class AppEnvironment: @unchecked Sendable {
         engine.pause()
         for _ in 0..<40 where engine.isRunning { try? await Task.sleep(nanoseconds: 250_000_000) }
         await TrashSync.shared.sendBeforeLeaving()
+        await MetaSync.shared.sendBeforeLeaving()
         if let current = library.chatId { LibrarySnapshots.saveChoices(chatId: current, store: store) }
         try store.deleteAll()
         reader.forgetCaches()
@@ -157,6 +159,7 @@ final class AppEnvironment: @unchecked Sendable {
         // The second copy's folder isn't touched; only the setting goes, with the others below.
         secondCopy.cancelRun()
         await TrashSync.shared.sendBeforeLeaving()
+        await MetaSync.shared.sendBeforeLeaving()
         if keepingChoices, let current = library.chatId { LibrarySnapshots.saveChoices(chatId: current, store: store) }
         await td.logOut()
         await td.destroyLocalData()

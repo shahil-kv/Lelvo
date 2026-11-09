@@ -263,6 +263,12 @@ struct MacGalleryView: View {
                 .disabled(selection.isEmpty)
             barButton("Add to Album", "rectangle.stack.badge.plus") { addingToAlbum = selectedEntries }
                 .disabled(selection.isEmpty)
+            let allFavorite = GalleryActions.allFavorite(selectedEntries)
+            barButton(allFavorite ? "Unfavorite" : "Favorite", allFavorite ? "heart.slash" : "heart") {
+                let chosen = selectedEntries
+                Task { await MacActions.setFavorite(chosen, !allFavorite, toast: toast) }
+            }
+            .disabled(selection.isEmpty)
             if !actions.downloadable.isEmpty {
                 barButton("Save to Photos", "photo.badge.plus") { Task { await MacActions.saveToPhotos(actions.downloadable, toast: toast) } }
             }
@@ -295,6 +301,10 @@ struct MacGalleryView: View {
 
     @ViewBuilder private func deleteButtons(_ actions: EntryActions) -> some View {
         Button("Add to Album…", systemImage: "rectangle.stack.badge.plus") { addingToAlbum = actions.entries }
+        let allFavorite = GalleryActions.allFavorite(actions.entries)
+        Button(allFavorite ? "Unfavorite" : "Favorite", systemImage: allFavorite ? "heart.slash" : "heart") {
+            Task { await MacActions.setFavorite(actions.entries, !allFavorite, toast: toast) }
+        }
         Divider()
         Button("Delete…", systemImage: "trash") { confirmDelete = actions.entries }
             .disabled(actions.inCloud.isEmpty && actions.onMac.isEmpty)
@@ -396,6 +406,10 @@ struct MacGalleryView: View {
                                       symbol: "icloud.and.arrow.up") { Task { await MacActions.backUp(actions.notBackedUp, toast: toast) } })
         }
         items.append(GridMenuItem(title: "Add to Album…", symbol: "rectangle.stack.badge.plus") { addingToAlbum = group })
+        let allFavorite = GalleryActions.allFavorite(group)
+        items.append(GridMenuItem(title: allFavorite ? "Unfavorite" : "Favorite", symbol: allFavorite ? "heart.slash" : "heart") {
+            Task { await MacActions.setFavorite(group, !allFavorite, toast: toast) }
+        })
         items.append(.separator)
         items.append(GridMenuItem(title: "Delete…", symbol: "trash", enabled: !actions.inCloud.isEmpty || !actions.onMac.isEmpty) {
             confirmDelete = group

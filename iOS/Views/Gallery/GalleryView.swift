@@ -328,8 +328,7 @@ struct GalleryView: View {
     private var moreMenu: some View {
         let chosen = selectedEntries
         let downloadable = chosen.filter { $0.isCloudOnly && $0.item?.isViewableFromCloud == true }
-        let onDevice = chosen.compactMap(\.asset)
-        let allFavorite = !onDevice.isEmpty && onDevice.allSatisfy(\.isFavorite)
+        let allFavorite = GalleryActions.allFavorite(chosen)
         let allPicked = !entries.isEmpty && selection.count == entries.count
         return Menu {
             Button {
@@ -345,8 +344,8 @@ struct GalleryView: View {
                     Label("Save \(downloadable.count.formatted()) to iPhone", systemImage: "square.and.arrow.down")
                 }
             }
-            if !onDevice.isEmpty {
-                Button { Task { await setFavorite(onDevice.map(\.localIdentifier), !allFavorite) } } label: {
+            if !chosen.isEmpty {
+                Button { Task { await setFavorite(chosen, !allFavorite) } } label: {
                     Label(allFavorite ? "Unfavorite" : "Favorite", systemImage: allFavorite ? "heart.slash" : "heart")
                 }
             }
@@ -500,19 +499,19 @@ struct GalleryView: View {
         busyMessage = "Adding to \(title)…"
         defer { busyMessage = nil }
         do {
-            let result = try await GalleryActions.addToAlbum(chosen, albumId: albumId)
+            let result = try await GalleryActions.addToAlbum(chosen, albumId: albumId, title: title)
             guard result.added > 0 else {
                 Haptics.error()
                 alert = GalleryAlert(title: "Nothing was added",
-                                     message: "These items couldn't be saved from your Telegram library to Photos. Check your connection, open one to make sure it plays, then try again.")
+                                     message: "These items are still backing up. Add them to the album once they're in your Telegram library.")
                 return
             }
             Haptics.success()
             endSelecting()
             alert = GalleryAlert(title: "Added \(result.added.formatted()) to “\(title)”",
                                  message: result.failed > 0
-                                    ? "\(result.failed.formatted()) couldn't be saved from your Telegram library. Check your connection and try again."
-                                    : "The album is in Photos on this iPhone.")
+                                    ? "\(result.failed.formatted()) are still backing up and weren't added. Add them once they're in your Telegram library."
+                                    : "Items in your Telegram library join the album in Photos when you save them to this iPhone.")
         } catch is CancellationError {
         } catch {
             Haptics.error()
@@ -520,9 +519,9 @@ struct GalleryView: View {
         }
     }
 
-    private func setFavorite(_ ids: [String], _ favorite: Bool) async {
+    private func setFavorite(_ entries: [GalleryEntry], _ favorite: Bool) async {
         do {
-            try await Task.detached { try await AppEnvironment.shared.photos.setFavorite(ids, favorite) }.value
+            try await Task.detached { try await GalleryActions.setFavorite(entries, favorite) }.value
             Haptics.success()
         } catch {
             Haptics.error()

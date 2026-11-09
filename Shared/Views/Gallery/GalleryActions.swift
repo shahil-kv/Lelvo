@@ -52,7 +52,15 @@ enum GalleryActions {
         }
         try Task.checkCancellation()
         var albums = plan.albums
-        if let md = files["md"], let extra = try? ExtraMetadata.decode(Data(contentsOf: md)), let all = extra.a { albums = all }
+        if let md = files["md"], let extra = try? ExtraMetadata.decode(Data(contentsOf: md)), let all = extra.a {
+            // The full list from the backup, then every change made since (§7.3) on top, as the item already has.
+            var copy = item
+            copy.albums = all
+            let latest = MetaLog.latest((try? env.store.metaNotes()) ?? [])
+            let waiting = env.library.chatId.flatMap { try? env.store.queuedMetaChanges(chatId: $0)[item.id] }
+            MetaLog.apply(MetaLog.values(for: item.id, latest: latest, waiting: waiting), to: &copy)
+            albums = copy.albums ?? []
+        }
         let took = Date().timeIntervalSince(started)
         appLog(String(format: "Downloaded %@ to save: %@ in %.0f s (%@/s)", item.filename, Format.bytes(item.fileSize), took,
                       Format.bytes(Int64(Double(item.fileSize) / max(took, 0.1)))))
@@ -61,29 +69,33 @@ enum GalleryActions {
         return newId
     }
 
-    /// Adds the entries to an album in Photos. Items only in the Telegram library are saved to Photos first, since an
-    /// album can only hold what's in the photo library. The album lives in Photos on this device (and in iCloud Photos
-    /// if it's on); album names reach the Telegram library only with items backed up after they were added.
-    static func addToAlbum(_ entries: [GalleryEntry], albumId: String,
-                           progress: (@MainActor (Int) -> Void)? = nil) async throws -> (added: Int, failed: Int) {
+    /// Adds the entries to an album. Items on this device go into the album in Photos at once; items in the Telegram
+    /// library get it there too (a note, docs/CLOUD_FORMAT.md §7.3), so every device shows it and saving one to Photos
+    /// puts it in the album. Nothing is downloaded: an item only in the Telegram library stays there.
+    static func addToAlbum(_ entries: [GalleryEntry], albumId: String, title: String) async throws -> (added: Int, failed: Int) {
         let env = AppEnvironment.shared
-        var ids = entries.compactMap { $0.asset?.localIdentifier }
-        var failed = 0
-        for entry in entries where entry.isCloudOnly {
-            try Task.checkCancellation()
-            guard let item = entry.item, item.isViewableFromCloud else { failed += 1; continue }
-            await progress?(ids.count)
-            do {
-                if let id = try await saveToPhotos(item) { ids.append(id) } else { failed += 1 }
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                failed += 1
-                AppLog.shared.warn("Couldn't save \(item.filename) for an album: \(error.localizedDescription)")
-            }
+        let onDevice = entries.compactMap { $0.asset?.localIdentifier }
+        try await env.photos.add(onDevice, toAlbum: albumId)
+        if let name = MetaLog.albumName(title) {
+            try MetaSync.shared.change(entries.compactMap(\.item), key: .album(name), value: true)
         }
-        try await env.photos.add(ids, toAlbum: albumId)
-        return (ids.count, failed)
+        let cloudOnly = entries.filter(\.isCloudOnly)
+        let cloudRecorded = cloudOnly.filter { $0.item?.status == .backedUp || $0.item?.status == .trashed }.count
+        return (onDevice.count + cloudRecorded, cloudOnly.count - cloudRecorded)
+    }
+
+    /// Marks the entries as favorites, or not. Items on this device change in Photos at once; items in the Telegram
+    /// library get a note, so every device follows and saving one to Photos keeps it a favorite.
+    static func setFavorite(_ entries: [GalleryEntry], _ favorite: Bool) async throws {
+        let env = AppEnvironment.shared
+        let onDevice = entries.compactMap { $0.asset?.localIdentifier }
+        if !onDevice.isEmpty { try await env.photos.setFavorite(onDevice, favorite) }
+        try MetaSync.shared.change(entries.compactMap(\.item), key: .favorite, value: favorite)
+    }
+
+    /// Whether every entry is a favorite, on this device or in the Telegram library.
+    static func allFavorite(_ entries: [GalleryEntry]) -> Bool {
+        !entries.isEmpty && entries.allSatisfy { $0.asset?.isFavorite ?? ($0.item?.favorite == true) }
     }
 
     /// Removes the entries from this device and moves their backups to Recently Deleted (kept 30 days). The device

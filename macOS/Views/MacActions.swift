@@ -126,13 +126,24 @@ enum MacActions {
         guard !entries.isEmpty else { return }
         toast.progress("Adding \(entries.count) to “\(title)”…")
         do {
-            let result = try await GalleryActions.addToAlbum(entries, albumId: albumId)
+            let result = try await GalleryActions.addToAlbum(entries, albumId: albumId, title: title)
             if result.failed > 0 {
-                toast.show(.failure, "Added \(result.added), \(result.failed) couldn't be saved",
-                           detail: "Items only in your Telegram library are saved to Photos first. Check your connection and try again.")
+                toast.show(.failure, "Added \(result.added), \(result.failed) still backing up",
+                           detail: "Add them once they're in your Telegram library.")
             } else {
-                toast.show(.success, "Added \(result.added) to “\(title)”", detail: "The album is in Photos on this Mac.")
+                toast.show(.success, "Added \(result.added) to “\(title)”",
+                           detail: "Items in your Telegram library join the album in Photos when you save them.")
             }
+        } catch {
+            toast.show(.failure, "Nothing was added", detail: error.localizedDescription)
+        }
+    }
+
+    static func setFavorite(_ entries: [GalleryEntry], _ favorite: Bool, toast: ToastCenter) async {
+        guard !entries.isEmpty else { return }
+        do {
+            try await GalleryActions.setFavorite(entries, favorite)
+            toast.show(.success, favorite ? "Added to Favorites" : "Removed from Favorites")
         } catch {
             toast.show(.failure, "Nothing was added", detail: error.localizedDescription)
         }
