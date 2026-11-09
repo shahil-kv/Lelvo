@@ -447,6 +447,7 @@ struct LibrarySettingsView: View {
             do {
                 let s = try await env.library.scan(full: true)
                 env.engine.relinkRestoredItems()
+                _ = await Task.detached { await TrashSync.shared.afterCatchUp() }.value
                 alert = GalleryAlert(title: "Library re-scanned",
                                      message: "\(s.items) items found\(s.incomplete > 0 ? ", \(s.incomplete) incomplete (tap Retry on the Backup tab)" : "")\(s.orphans.isEmpty ? "" : ", \(s.orphans.count) duplicate uploads (see Backup → Duplicates)").")
             } catch { alert = GalleryAlert(title: "Couldn't re-scan", message: error.localizedDescription) }

@@ -86,7 +86,7 @@ import LelvoCore
         let url = tempURL()
         defer { remove(url) }
         let store = try LibraryStore(url: url)
-        #expect(store.schemaVersion == 5)
+        #expect(store.schemaVersion == 6)
         try store.setSearch(key: "A", stamp: "1", words: "beach sunset", things: ["beach", "sunset_sunrise"], score: 0.4)
         try store.setSearch(key: "C", stamp: "1", words: "receipt", utility: true)
         #expect(try store.photoFacts()["A"] == .init(things: ["beach", "sunset_sunrise"], score: 0.4, utility: false))
@@ -154,5 +154,17 @@ import LelvoCore
         #expect(try store.metaNotes() == [note])
         try store.removeMetaNotes(messageIds: [42])
         #expect(try store.metaNotes().isEmpty)
+    }
+
+    @Test func photosFavoritesAreRememberedAndForgotten() throws {
+        let url = tempURL()
+        defer { remove(url) }
+        let store = try LibraryStore(url: url)
+        try store.setPhotosFavorites(["a": true, "b": false])
+        #expect(try store.photosFavorites() == ["a": true, "b": false])
+        try store.setPhotosFavorites(["a": false, "b": nil])
+        #expect(try store.photosFavorites() == ["a": false])
+        try store.deleteAll()
+        #expect(try store.photosFavorites().isEmpty, "A library switch starts over")
     }
 }

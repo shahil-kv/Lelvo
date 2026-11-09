@@ -97,15 +97,26 @@ final class TrashSync: @unchecked Sendable {
             return
         }
         lock.withLock { lastOpenCheck = Date() }
+        await afterCatchUp()
+    }
+
+    /// Everything that needs the channel just read: follow Recently Deleted, send and tidy up notes, and match favorites
+    /// with Photos. On open and on "Re-scan the Telegram library". Returns how many favorites were matched.
+    @discardableResult
+    func afterCatchUp() async -> Int {
         do { try await followTelegram() } catch {
             AppLog.shared.warn("Couldn't check Recently Deleted with Telegram: \(error.localizedDescription)")
-            return
+            return 0
         }
         await send()
         await removeFinishedNotes()
         // The channel was just read, so favorites and albums can send, tidy up and compact safely.
         await MetaSync.shared.onOpen()
+        let favorites = await PhotosFavoriteSync.shared.run()
         await GalleryActions.emptyExpiredTrash()
+        let trash = (try? env.store.trashNotes().count) ?? 0, meta = (try? env.store.metaNotes().count) ?? 0
+        appLog("Notes in your Telegram library: \(meta) favorites and albums, \(trash) Recently Deleted")
+        return favorites.setInPhotos + favorites.sent
     }
 
     /// Per library and not in the index, which a library switch clears: running this twice could put a photo the user
@@ -172,7 +183,9 @@ final class TrashSync: @unchecked Sendable {
             try await followTelegram()
         } catch {
             AppLog.shared.warn("Couldn't follow another device's change: \(error.localizedDescription)")
+            return
         }
+        await PhotosFavoriteSync.shared.run()
     }
 
     /// Deletes every note that has done its job, in batches, so nothing stays in the channel.
