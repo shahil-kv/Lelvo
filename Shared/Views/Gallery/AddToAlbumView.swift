@@ -23,7 +23,7 @@ struct AddToAlbumView: View {
                         Label("New Album…", systemImage: "plus.rectangle.on.rectangle")
                     }
                 } footer: {
-                    Text("\(count.formatted()) item\(count == 1 ? "" : "s"). Items only in your Telegram library are saved to Photos first.")
+                    Text("\(count.formatted()) item\(count == 1 ? "" : "s"). Items only in your Telegram library are saved to Photos first. Albums are in beta: they're kept in Photos on this device and don't reach your other devices yet.")
                 }
                 if !albums.isEmpty {
                     Section("My Albums") {
@@ -37,6 +37,7 @@ struct AddToAlbumView: View {
                 }
             }
             .navigationTitle("Add to Album")
+            .toolbar { ToolbarItem(placement: .principal) { HStack(spacing: 6) { Text("Add to Album").font(.headline); BetaTag() } } }
             .inlineNavigationTitle()
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .alert("New Album", isPresented: $naming) {

@@ -94,9 +94,10 @@ struct AlbumsView: View {
 
     // MARK: - Sections
 
-    private func sectionHeader<Destination: View>(_ title: String, seeAll: (() -> Destination)? = nil) -> some View {
+    private func sectionHeader<Destination: View>(_ title: String, beta: Bool = false, seeAll: (() -> Destination)? = nil) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title).font(.title3.bold()).accessibilityAddTraits(.isHeader)
+            if beta { BetaTag() }
             Spacer()
             if let seeAll { NavigationLink("See All", destination: seeAll) }
         }
@@ -146,7 +147,7 @@ struct AlbumsView: View {
     /// The first four albums (Favorites and Screenshots first); See All opens every one.
     private var albumsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Albums", seeAll: content.albums.count > Self.shown ? { AllAlbumsView(albums: content.albums) } : nil)
+            sectionHeader("Albums", beta: true, seeAll: content.albums.count > Self.shown ? { AllAlbumsView(albums: content.albums) } : nil)
             AlbumGrid(albums: Array(content.albums.prefix(Self.shown)))
         }
     }

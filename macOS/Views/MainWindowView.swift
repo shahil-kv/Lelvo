@@ -228,8 +228,10 @@ struct MacSidebar: View {
                 }
             }
             if !index.albums.isEmpty {
-                Section("Albums", isExpanded: $albumsExpanded) {
+                Section(isExpanded: $albumsExpanded) {
                     ForEach(index.albums) { row(.album($0.title)) }
+                } header: {
+                    HStack(spacing: 6) { Text("Albums"); BetaTag() }
                 }
             }
         }
@@ -243,7 +245,10 @@ struct MacSidebar: View {
 
     private func row(_ item: SidebarItem) -> some View {
         Label {
-            Text(item.title).lineLimit(1)
+            HStack(spacing: 6) {
+                Text(item.title).lineLimit(1)
+                if item == .favorites { BetaTag() }
+            }
         } icon: {
             Image(systemName: item.symbol).foregroundStyle(item.tint)
         }
