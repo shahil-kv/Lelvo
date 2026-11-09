@@ -27,6 +27,11 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 - **Albums and Favorites, in beta:** add photos to an album or make a new one, and favorite them, on iPhone and Mac,
   including photos only in your Telegram library. Every device shows the same albums and favorites, and saving a
   photo to Photos puts it in its albums and Favorites there.
+- **Favorites match Apple Photos:** a favorite you add or remove on one device now changes in Apple Photos on your
+  other devices too, and a heart you tap in the Photos app reaches your other devices. Changes arrive in about 15
+  seconds instead of up to a minute. Re-scan the Telegram library also checks favorites and tidies up.
+- **Photos behind the tab bar (iPhone):** like Photos, your photos now run behind the glass tab bar, with no black
+  strip under it.
 - **Fixed:** messages shown while Settings was open on iPhone were hidden behind it.
 - **New web address:** the website is now [lelvo.app](https://lelvo.app), with a new About page.
 - **Removed from backup:** photos you deleted from your backup but kept on your iPhone or Mac now have their own row

@@ -870,4 +870,10 @@ import LelvoCore
         #expect(report.title == "Library checked")
         #expect(report.detail == "1 incomplete, 2 duplicate uploads.")
     }
+
+    @Test func favoritesBroughtInLineAreCounted() {
+        let report = RescanReport(itemsBefore: 3, itemsAfter: 3, incomplete: 0, duplicates: 0, favoritesMatched: 2)
+        #expect(!report.upToDate)
+        #expect(report.detail == "2 favorites updated.")
+    }
 }

@@ -2,6 +2,25 @@ import SwiftUI
 import UIKit
 import LelvoCore
 
+/// Like Photos, the grid's end runs down behind the floating tab bar instead of stopping above it, so the glass never
+/// sits over an empty black strip (#100). While selecting, the end stays above the selection buttons.
+final class GridCollectionView: UICollectionView {
+    var runsUnderBottomBar = true {
+        didSet { if runsUnderBottomBar != oldValue { applyBottomInset() } }
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        applyBottomInset()
+    }
+
+    /// Cancels the bottom safe area that automatic adjustment adds, so the last row can reach the screen's edge.
+    private func applyBottomInset() {
+        let bottom = runsUnderBottomBar ? -safeAreaInsets.bottom : 0
+        if contentInset.bottom != bottom { contentInset.bottom = bottom }
+    }
+}
+
 /// The iPhone photo grid on UICollectionView, like Photos: recycled cells, thumbnails loaded ahead of the scroll,
 /// pinch to change columns, swipe-to-select as in Photos, long-press to start selecting, and the viewer opening
 /// with the system zoom transition from the tapped tile (iOS 18+). Everything around it stays SwiftUI.
@@ -23,10 +42,13 @@ struct NativePhotoGrid: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    func makeUIView(context: Context) -> UICollectionView {
+    func makeUIView(context: Context) -> GridCollectionView {
         let c = context.coordinator
-        let cv = UICollectionView(frame: .zero, collectionViewLayout: c.layout)
+        let cv = GridCollectionView(frame: .zero, collectionViewLayout: c.layout)
         cv.backgroundColor = .systemBackground
+        // No edge effect behind the tab bar, like Photos: on iOS 27.2 it darkens the photos there to a black strip, even
+        // in its soft style (#100). The glass bar keeps itself readable.
+        if #available(iOS 26.0, *) { cv.bottomEdgeEffect.isHidden = true }
         cv.showsVerticalScrollIndicator = false
         cv.alwaysBounceVertical = true
         cv.allowsMultipleSelection = true
@@ -54,7 +76,8 @@ struct NativePhotoGrid: UIViewRepresentable {
         return cv
     }
 
-    func updateUIView(_ cv: UICollectionView, context: Context) {
+    func updateUIView(_ cv: GridCollectionView, context: Context) {
+        cv.runsUnderBottomBar = !selecting
         context.coordinator.update(self)
     }
 

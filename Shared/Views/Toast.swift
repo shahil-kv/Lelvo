@@ -161,11 +161,14 @@ enum LibraryRescan {
                     if isRunning { toast.progress("Checking your Telegram library…", detail: "\(read.formatted()) messages read") }
                 }
             }
-            let after = await Task.detached {
+            // Also tidies notes and matches favorites with Photos, so a re-scan finds and fixes those too.
+            let (after, favorites) = await Task.detached {
                 env.engine.relinkRestoredItems()
-                return (try? env.store.allItems().count) ?? 0
+                let favorites = await TrashSync.shared.afterCatchUp()
+                return ((try? env.store.allItems().count) ?? 0, favorites)
             }.value
-            let report = RescanReport(itemsBefore: before, itemsAfter: after, incomplete: summary.incomplete, duplicates: summary.orphans.count)
+            let report = RescanReport(itemsBefore: before, itemsAfter: after, incomplete: summary.incomplete, duplicates: summary.orphans.count,
+                                      favoritesMatched: favorites)
             toast.show(report.upToDate ? .success : .info, report.title, detail: report.detail)
             Haptics.success()
         } catch {

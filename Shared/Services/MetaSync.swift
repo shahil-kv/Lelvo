@@ -3,7 +3,7 @@ import LelvoCore
 
 /// Sends favorite and album changes to the channel as notes (docs/CLOUD_FORMAT.md §7.3), so every device and every
 /// save to Photos sees them. Changes wait in the index, so they survive the app closing. A burst shares one note per
-/// action and album, and at most one send goes a minute, through the same slot and `FLOOD_WAIT` pause as uploads.
+/// action and album, and at most one send goes every 10 seconds, through the same slot and `FLOOD_WAIT` pause as uploads.
 final class MetaSync: @unchecked Sendable {
     static let shared = MetaSync()
 
@@ -69,7 +69,7 @@ final class MetaSync: @unchecked Sendable {
         // Only the items just sent: the rest already follow their notes.
         try? env.library.applyMetaNotes(only: Set(queued.keys))
         await removeFinishedNotes()
-        if failed { lock.withLock { lastSent = Date() } }
+        if failed { lock.withLock { lastSent = TrashLog.lastSentAfterFailure(now: Date()) } }
         if failed || (try? env.store.queuedMetaChanges(chatId: chatId).isEmpty) == false { schedule() }
     }
 

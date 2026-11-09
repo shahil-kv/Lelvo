@@ -215,14 +215,23 @@ public enum TrashLog {
         }
     }
 
-    /// How long to wait before the next note may go: 5 seconds so a burst of deletes shares one note, and at most one
-    /// note a minute however slowly someone deletes.
+    /// How long to wait before the next note may go: 5 seconds so a burst of changes shares one note, and at least 10
+    /// seconds between notes however someone taps. A minute was too slow to feel: a favorite changed on the phone took
+    /// up to a minute to reach the Mac (#99). Six notes a minute at most stays far below what Telegram allows a chat,
+    /// and a `FLOOD_WAIT` is still honoured exactly.
     public static let groupingDelay: TimeInterval = 5
-    public static let minimumGap: TimeInterval = 60
+    public static let minimumGap: TimeInterval = 10
+    /// After a failed send (offline, Telegram busy), the next try waits a minute, not 10 seconds.
+    public static let retryAfterFailure: TimeInterval = 60
 
     public static func sendDelay(lastSent: Date?, now: Date) -> TimeInterval {
         guard let lastSent else { return groupingDelay }
         return max(groupingDelay, lastSent.addingTimeInterval(minimumGap).timeIntervalSince(now))
+    }
+
+    /// The `lastSent` to keep after a failed send, so `sendDelay` waits `retryAfterFailure`.
+    public static func lastSentAfterFailure(now: Date) -> Date {
+        now.addingTimeInterval(retryAfterFailure - minimumGap)
     }
 
     /// Notes go as soon as they're finished, so a device that wasn't listening can miss a delete altogether. Only reading

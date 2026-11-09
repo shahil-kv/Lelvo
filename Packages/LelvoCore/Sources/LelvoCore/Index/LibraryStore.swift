@@ -107,6 +107,9 @@ public final class LibraryStore: @unchecked Sendable {
         CREATE TABLE IF NOT EXISTS meta_outbox (item_id TEXT NOT NULL, key TEXT NOT NULL, chat_id TEXT NOT NULL, value INTEGER NOT NULL,
                                                 PRIMARY KEY (item_id, key));
         """,
+        // 5 → 6: the favorite Apple Photos had last time it was checked, per item on this device (#99), to tell a change
+        // made in Photos from one made on another device.
+        "CREATE TABLE IF NOT EXISTS photos_favorite (item_id TEXT PRIMARY KEY, value INTEGER NOT NULL);",
     ]
 
     /// The database's schema version (`PRAGMA user_version`).
@@ -407,7 +410,7 @@ public final class LibraryStore: @unchecked Sendable {
 
     public func deleteAll() throws {
         lock.lock(); defer { lock.unlock() }
-        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search; DELETE FROM trash_notes; DELETE FROM trash_outbox; DELETE FROM no_backup; DELETE FROM meta_notes; DELETE FROM meta_outbox;")
+        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search; DELETE FROM trash_notes; DELETE FROM trash_outbox; DELETE FROM no_backup; DELETE FROM meta_notes; DELETE FROM meta_outbox; DELETE FROM photos_favorite;")
         notifyChanged(ids: nil)
     }
 
@@ -599,6 +602,27 @@ public final class LibraryStore: @unchecked Sendable {
     public func clearMetaChange(itemIds: some Collection<String>, key: MetaLog.Key, value: Bool) throws {
         try writeAll("DELETE FROM meta_outbox WHERE item_id = ? AND key = ? AND value = ?;",
                      rows: itemIds.map { [$0, key.stored, value ? "1" : "0"] })
+    }
+
+    // MARK: - Favorites in Apple Photos (#99)
+
+    /// The favorite Photos had last time it was checked: item id → value.
+    public func photosFavorites() throws -> [String: Bool] {
+        try withReadStatement("SELECT item_id, value FROM photos_favorite;") { s in
+            var result: [String: Bool] = [:]
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let c = sqlite3_column_text(s, 0) { result[String(cString: c)] = sqlite3_column_int64(s, 1) != 0 }
+            }
+            return result
+        }
+    }
+
+    /// Remembers what Photos has now (nil forgets the item).
+    public func setPhotosFavorites(_ values: [String: Bool?]) throws {
+        let set = values.compactMap { id, value in value.map { [id, $0 ? "1" : "0"] } }
+        let forget = values.filter { $0.value == nil }.map { [$0.key] }
+        try writeAll("INSERT OR REPLACE INTO photos_favorite (item_id, value) VALUES (?, ?);", rows: set)
+        try writeAll("DELETE FROM photos_favorite WHERE item_id = ?;", rows: forget)
     }
 
     private static func offBackupKey(sha256: String, editHash: String?) -> String {
