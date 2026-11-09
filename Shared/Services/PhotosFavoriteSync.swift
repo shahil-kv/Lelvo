@@ -95,6 +95,8 @@ final class PhotosFavoriteSync: @unchecked Sendable {
         let options = PHFetchOptions()
         options.predicate = NSPredicate(format: "favorite == YES")
         options.includeHiddenAssets = true
+        // No change tracking: on the Mac, Photos' first set-up of it can take 20 seconds, and every other read waits.
+        options.wantsIncrementalChangeDetails = false
         let assets = PHAsset.fetchAssets(with: options)
         var ids = Set<String>()
         ids.reserveCapacity(assets.count)
@@ -106,6 +108,7 @@ final class PhotosFavoriteSync: @unchecked Sendable {
     private static func favorites(of identifiers: [String]) -> [String: Bool] {
         let options = PHFetchOptions()
         options.includeHiddenAssets = true
+        options.wantsIncrementalChangeDetails = false
         var result: [String: Bool] = [:]
         PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: options).enumerateObjects { asset, _, _ in
             result[asset.localIdentifier] = asset.isFavorite

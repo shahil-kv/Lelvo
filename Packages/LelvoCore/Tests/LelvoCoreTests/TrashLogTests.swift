@@ -195,11 +195,13 @@ import CryptoKit
 
     // MARK: Pacing
 
-    @Test func atMostOneNoteAMinute() {
+    @Test func atMostOneNoteEveryTenSeconds() {
         let now = day0
         #expect(TrashLog.sendDelay(lastSent: nil, now: now) == 5)
-        #expect(TrashLog.sendDelay(lastSent: now.addingTimeInterval(-10), now: now) == 50)
+        #expect(TrashLog.sendDelay(lastSent: now.addingTimeInterval(-2), now: now) == 8)
         #expect(TrashLog.sendDelay(lastSent: now.addingTimeInterval(-300), now: now) == 5)
+        // A failed send waits a minute before the next try.
+        #expect(TrashLog.sendDelay(lastSent: TrashLog.lastSentAfterFailure(now: now), now: now) == 60)
     }
 
     @Test func aFullScanRunsEveryWeek() {
