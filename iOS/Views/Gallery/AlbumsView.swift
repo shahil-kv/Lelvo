@@ -88,6 +88,7 @@ struct AlbumsView: View {
             }
             // Read again on every visit, so an album an app just made (WhatsApp, Instagram…) shows at once.
             .onAppear { Task { await loadAlbums() } }
+            .onReceive(NotificationCenter.default.publisher(for: .albumsChanged)) { _ in Task { await loadAlbums() } }
             .task(id: "\(model.revision)-\(albumsVersion)") { await recompute() }
         }
     }
@@ -233,7 +234,17 @@ struct AlbumsView: View {
             let pinned = ["Screenshots"]
             var albumRows: [Content.Row?] = [row(.favorites, "heart")]
             albumRows += smartTypes.filter { pinned.contains($0.title) }.map { row(.album(title: $0.title, localIds: $0.ids), $0.symbol) }
-            albumRows += albums.map { row(.album(title: $0.title, localIds: $0.ids), "photo.on.rectangle") }
+            // Every album, as Photos shows them: also empty ones (just made) and ones that so far hold only items in the
+            // Telegram library. Their names come from the timeline, so a change shows without reading Photos again.
+            var all = albums
+            let known = Set(all.map(\.title))
+            let cloudNames = Set(entries.compactMap(\.item).flatMap { $0.albums ?? [] }).subtracting(known)
+            all += cloudNames.map { (title: $0, ids: Set<String>()) }
+            all.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            albumRows += all.map { album in
+                let filter = GalleryFilter.album(title: album.title, localIds: album.ids)
+                return row(filter, "photo.on.rectangle") ?? .init(filter: filter, symbol: "photo.on.rectangle", count: 0, cover: nil)
+            }
             c.albums = albumRows.compactMap { $0 }
             var media: [Content.Row?] = [row(.videos, "video"), row(.livePhotos, "livephoto")]
             media += smartTypes.filter { !pinned.contains($0.title) }.map { row(.album(title: $0.title, localIds: $0.ids), $0.symbol) }
@@ -286,10 +297,14 @@ struct AlbumsView: View {
 private struct AlbumGrid: View {
     let albums: [AlbumsView.Content.Row]
     private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
+    @State private var deleting: String?
+    /// Hidden at once after a delete, before the album list is read again.
+    @State private var deleted = Set<String>()
+    @State private var failure: String?
 
     var body: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-            ForEach(albums) { row in
+            ForEach(albums.filter { !deleted.contains($0.id) }) { row in
                 NavigationLink { GalleryView(filter: row.filter, embedInNavigation: false) } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         AlbumCover(entry: row.cover, symbol: row.symbol)
@@ -299,7 +314,42 @@ private struct AlbumGrid: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(row.filter.title), \(row.count) items")
+                .contextMenu {
+                    // Only albums people make: not Favorites or the ones Photos keeps (Screenshots).
+                    if row.symbol == Self.userAlbumSymbol {
+                        Button(role: .destructive) { deleting = row.filter.title } label: { Label("Delete Album", systemImage: "trash") }
+                    }
+                }
             }
+        }
+        .alert("Delete “\(deleting ?? "")”?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("Delete Album", role: .destructive) {
+                guard let title = deleting else { return }
+                Task { await delete(title) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The album is removed from all your devices. The photos stay in your library and your Telegram library.")
+        }
+        .alert("Couldn't delete the album", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(failure ?? "")
+        }
+    }
+
+    static let userAlbumSymbol = "photo.on.rectangle"
+
+    private func delete(_ title: String) async {
+        do {
+            try await Task.detached { try await GalleryActions.deleteAlbum(title) }.value
+            Haptics.success()
+            deleted.insert("\(Self.userAlbumSymbol)|\(title)")
+        } catch let error as NSError where error.domain == PHPhotosErrorDomain && error.code == PHPhotosError.userCancelled.rawValue {
+            // Cancelled in iOS's own confirmation: nothing changed.
+        } catch {
+            Haptics.error()
+            failure = "Photos didn't allow it. Check that Lelvo has full access to your photos, then try again."
         }
     }
 }
@@ -347,6 +397,9 @@ private struct AlbumCover: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            // clipShape only clips the drawing: a tall screenshot filling the square still took taps above it, so
+            // "See All" opened Screenshots. Taps stay inside the square.
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .task(id: entry?.id) {
                 guard let entry else { image = nil; return }
                 for await img in ThumbnailPipeline.shared.images(for: entry, pixels: 400) { image = img }

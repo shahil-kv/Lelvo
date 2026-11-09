@@ -56,10 +56,27 @@ struct AddToAlbumView: View {
         .macSheetSize(width: 400, height: 480)
         .task {
             // Counting each album's items is a PhotoKit fetch: off the main actor.
-            albums = await Task.detached(priority: .userInitiated) { AppEnvironment.shared.photos.editableAlbums() }.value
+            albums = await Task.detached(priority: .userInitiated) { Self.allAlbums() }.value
             loaded = true
         }
     }
+
+    /// Photos' albums, plus albums that so far hold only items in the Telegram library (made on another device, or
+    /// whose Photos album was deleted). Counts include those items, as Lelvo's albums show them.
+    nonisolated private static func allAlbums() -> [(album: AlbumInfo, coverId: String?)] {
+        var list = AppEnvironment.shared.photos.editableAlbums()
+        var cloudOnly: [String: Int] = [:]
+        for item in (try? AppEnvironment.shared.store.allItems()) ?? [] where item.localIdentifier == nil && item.status == .backedUp {
+            for name in item.albums ?? [] { cloudOnly[name, default: 0] += 1 }
+        }
+        list = list.map { (AlbumInfo(id: $0.album.id, title: $0.album.title, count: $0.album.count + (cloudOnly[$0.album.title] ?? 0)), $0.coverId) }
+        let inPhotos = Set(list.map(\.album.title))
+        let extra = cloudOnly.filter { !inPhotos.contains($0.key) }.sorted { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }
+        return list + extra.map { (AlbumInfo(id: Self.cloudOnlyPrefix + $0.key, title: $0.key, count: $0.value), nil) }
+    }
+
+    /// Ids of albums with no Photos album yet. Never a PhotoKit identifier, which has no such prefix.
+    nonisolated private static let cloudOnlyPrefix = "lelvo-cloud-album:"
 
     private func create() async {
         let title = newName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -74,6 +91,12 @@ struct AddToAlbumView: View {
     }
 
     private func pick(_ id: String, _ title: String) {
+        // An album only in the Telegram library gets its Photos album now, so items on this device can join it.
+        guard !id.hasPrefix(Self.cloudOnlyPrefix) else {
+            newName = title
+            Task { await create() }
+            return
+        }
         Haptics.selection()
         dismiss()
         onPick(id, title)
@@ -97,6 +120,7 @@ private struct AlbumRow: View {
             }
             .frame(width: 56, height: 56)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.title).foregroundStyle(.primary)
                 Text(album.count.formatted()).font(.subheadline).foregroundStyle(.secondary).monospacedDigit()

@@ -337,7 +337,12 @@ struct GalleryView: View {
                 Label(allPicked ? "Deselect All" : "Select All", systemImage: allPicked ? "circle" : "checkmark.circle")
             }
             Divider()
-            Button { addingToAlbum = true } label: { Label("Add to Album", systemImage: "rectangle.stack.badge.plus") }
+            // The second line is the menu item's subtitle: these are in beta until they've had more use.
+            Button { addingToAlbum = true } label: {
+                Text("Add to Album")
+                Text("Beta")
+                Image(systemName: "rectangle.stack.badge.plus")
+            }
                 .disabled(chosen.isEmpty)
             if !downloadable.isEmpty {
                 Button { Task { await download(downloadable) } } label: {
@@ -346,7 +351,9 @@ struct GalleryView: View {
             }
             if !chosen.isEmpty {
                 Button { Task { await setFavorite(chosen, !allFavorite) } } label: {
-                    Label(allFavorite ? "Unfavorite" : "Favorite", systemImage: allFavorite ? "heart.slash" : "heart")
+                    Text(allFavorite ? "Unfavorite" : "Favorite")
+                    Text("Beta")
+                    Image(systemName: allFavorite ? "heart.slash" : "heart")
                 }
             }
             Divider()

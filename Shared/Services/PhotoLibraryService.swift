@@ -211,10 +211,25 @@ final class PhotoLibraryService: @unchecked Sendable {
         PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil).enumerateObjects { c, _, _ in
             guard c.canPerform(.addContent) else { return }
             let assets = PHAsset.fetchAssets(in: c, options: newestFirst)
+            // An empty album has no date: it was most likely just made, so it goes first instead of last.
             result.append((AlbumInfo(id: c.localIdentifier, title: c.localizedTitle ?? "Album", count: assets.count),
-                           assets.firstObject?.localIdentifier, c.startDate ?? .distantPast))
+                           assets.firstObject?.localIdentifier, c.startDate ?? .distantFuture))
         }
         return result.sorted { $0.date > $1.date }.map { ($0.album, $0.coverId) }
+    }
+
+    /// Deletes the user's albums with this title, like Delete Album in Photos: the photos stay in the library. Photos
+    /// asks the user to confirm; cancelling throws. Returns how many albums went (0 when Photos has none by that name).
+    func deleteAlbums(titled title: String) async throws -> Int {
+        var found: [PHAssetCollection] = []
+        PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil).enumerateObjects { c, _, _ in
+            if c.localizedTitle == title, c.canPerform(.delete) { found.append(c) }
+        }
+        guard !found.isEmpty else { return 0 }
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetCollectionChangeRequest.deleteAssetCollections(found as NSArray)
+        }
+        return found.count
     }
 
     /// Makes a new empty album and returns its local identifier.

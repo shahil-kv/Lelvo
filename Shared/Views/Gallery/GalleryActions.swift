@@ -79,9 +79,24 @@ enum GalleryActions {
         if let name = MetaLog.albumName(title) {
             try MetaSync.shared.change(entries.compactMap(\.item), key: .album(name), value: true)
         }
+        await MainActor.run { NotificationCenter.default.post(name: .albumsChanged, object: nil) }
         let cloudOnly = entries.filter(\.isCloudOnly)
         let cloudRecorded = cloudOnly.filter { $0.item?.status == .backedUp || $0.item?.status == .trashed }.count
         return (onDevice.count + cloudRecorded, cloudOnly.count - cloudRecorded)
+    }
+
+    /// Deletes an album everywhere, like Delete Album in Photos: the album goes from Photos on this device and, through
+    /// a note, from every device's Lelvo. No photo is deleted, from the device or the Telegram library.
+    static func deleteAlbum(_ title: String) async throws {
+        let env = AppEnvironment.shared
+        // Photos first: if the user cancels its confirmation, nothing changes anywhere.
+        _ = try await env.photos.deleteAlbums(titled: title)
+        if let name = MetaLog.albumName(title) {
+            let members = try env.store.allItems().filter { $0.albums?.contains(name) == true }
+            try MetaSync.shared.change(members, key: .album(name), value: false)
+        }
+        appLog("Deleted an album; its photos stay")
+        await MainActor.run { NotificationCenter.default.post(name: .albumsChanged, object: nil) }
     }
 
     /// Marks the entries as favorites, or not. Items on this device change in Photos at once; items in the Telegram
@@ -309,4 +324,9 @@ final class TrashGate: @unchecked Sendable {
             return true
         }
     }
+}
+
+extension Notification.Name {
+    /// An album was made or items were added to one: album lists read Photos again.
+    static let albumsChanged = Notification.Name("LelvoAlbumsChanged")
 }
