@@ -60,7 +60,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
-    timeout-minutes: 75
+    # Hosted macOS runners take about an hour for the UI tests (run twice on a failure); 75 minutes cut off the
+    # Release build that comes after them.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
