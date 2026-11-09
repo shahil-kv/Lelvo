@@ -86,7 +86,7 @@ import LelvoCore
         let url = tempURL()
         defer { remove(url) }
         let store = try LibraryStore(url: url)
-        #expect(store.schemaVersion == 4)
+        #expect(store.schemaVersion == 5)
         try store.setSearch(key: "A", stamp: "1", words: "beach sunset", things: ["beach", "sunset_sunrise"], score: 0.4)
         try store.setSearch(key: "C", stamp: "1", words: "receipt", utility: true)
         #expect(try store.photoFacts()["A"] == .init(things: ["beach", "sunset_sunrise"], score: 0.4, utility: false))
@@ -113,5 +113,46 @@ import LelvoCore
         #expect(try !store.deleteIfQueued(id: started.id))
         #expect(try store.item(id: queued.id) == nil)
         #expect(try store.item(id: started.id)?.status == .uploading)
+    }
+
+    /// A favorite or album change lands on the item and in the outbox together, and only matching rows are cleared.
+    @Test func metaChangesAreQueuedWithTheItem() throws {
+        let url = tempURL()
+        defer { remove(url) }
+        let store = try LibraryStore(url: url)
+        let a = item(1), b = item(2)
+        try store.upsert([a, b])
+        let changed = try store.changeMeta(ids: [a.id, b.id], key: .album("Goa Trip"), value: true, chatId: 7)
+        #expect(changed.count == 2)
+        #expect(try store.item(id: a.id)?.albums == ["Goa Trip"])
+        try store.changeMeta(ids: [a.id], key: .favorite, value: true, chatId: 7)
+        var queued = try store.queuedMetaChanges(chatId: 7)
+        #expect(queued[a.id] == [.album("Goa Trip"): true, .favorite: true])
+        #expect(try store.queuedMetaChanges(chatId: 8).isEmpty, "Each library keeps its own")
+        // Changed back during a send: the row now holds false, so clearing the sent true leaves it.
+        try store.changeMeta(ids: [a.id], key: .favorite, value: false, chatId: 7)
+        try store.clearMetaChange(itemIds: [a.id], key: .favorite, value: true)
+        queued = try store.queuedMetaChanges(chatId: 7)
+        #expect(queued[a.id]?[.favorite] == false)
+        try store.clearMetaChange(itemIds: [a.id, b.id], key: .album("Goa Trip"), value: true)
+        #expect(try store.queuedMetaChanges(chatId: 7)[b.id] == nil)
+        // Put back after a library switch, before the items are in the index again.
+        try store.queueMetaChanges(["later": [.album("Goa Trip"): true, .favorite: false]], chatId: 7)
+        #expect(try store.queuedMetaChanges(chatId: 7)["later"] == [.album("Goa Trip"): true, .favorite: false])
+        // No library: this device only, nothing queued.
+        try store.changeMeta(ids: [b.id], key: .favorite, value: true, chatId: nil)
+        #expect(try store.item(id: b.id)?.favorite == true)
+        #expect(try store.queuedMetaChanges(chatId: 7)[b.id] == nil)
+    }
+
+    @Test func metaNotesAreKept() throws {
+        let url = tempURL()
+        defer { remove(url) }
+        let store = try LibraryStore(url: url)
+        let note = MetaLog.Note(messageId: 42, date: Date(timeIntervalSince1970: 1000), op: .albumAdd, ids: ["a"], album: "Goa Trip")
+        try store.addMetaNote(note)
+        #expect(try store.metaNotes() == [note])
+        try store.removeMetaNotes(messageIds: [42])
+        #expect(try store.metaNotes().isEmpty)
     }
 }

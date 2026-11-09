@@ -373,6 +373,7 @@ final class LibraryService: @unchecked Sendable {
         var summary = ScanSummary()
         var cloud: [CloudMessage] = []
         var foundNotes: [FoundNote] = []
+        var foundMetaNotes: [FoundNote] = []
         var thumbnailIds: [Int64: String] = [:]
         var from: Int64 = 0
         var newest: Int64 = 0
@@ -404,6 +405,10 @@ final class LibraryService: @unchecked Sendable {
                     foundNotes.append(FoundNote(messageId: message.id, date: message.date, caption: caption, file: doc.document.document))
                     continue
                 }
+                if MetaLog.isNote(caption) {
+                    foundMetaNotes.append(FoundNote(messageId: message.id, date: message.date, caption: caption, file: doc.document.document))
+                    continue
+                }
                 guard CaptionCodec.isLelvo(caption) else { continue }
                 do {
                     let meta = try CaptionCodec.decode(caption, captionKey: captionKey)
@@ -423,12 +428,16 @@ final class LibraryService: @unchecked Sendable {
         thumbnails.record(thumbnailIds, chatId: chatId)
         // Before the scan position moves: a note that couldn't be downloaded is read again by the next scan.
         try await readNotes(foundNotes)
+        // A full scan sees every note again, so it decides afresh whether any can't be read.
+        if full { skippedMetaNotes = false }
+        let newMetaIds = try await readMetaNotes(foundMetaNotes)
         if let fromSnapshot {
             // Newer messages read above win over the snapshot's copy of the same message.
             let read = Set(cloud.map(\.messageId))
             cloud += fromSnapshot.messages.map(\.message).filter { !read.contains($0.messageId) }
             try merge(cloud: cloud, full: false, summary: &summary)
             try applyTrashNotes(messagesSeen: false)
+            try applyMetaNotes(only: nil)
             if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
             appLog("Library restored from the index snapshot up to message \(fromSnapshot.upto): \(summary.items) items, \(summary.messages) newer messages read; checking the whole channel next")
             // The channel is the truth: a full scan in the background catches anything deleted since the snapshot.
@@ -442,8 +451,13 @@ final class LibraryService: @unchecked Sendable {
             let inChannel = Set(foundNotes.map(\.messageId))
             // Only up to where this scan read: a note sent during the scan is newer, and dropping it would undo that delete.
             try store.removeTrashNotes(messageIds: try store.trashNotes().map(\.messageId).filter { !inChannel.contains($0) && $0 <= newest })
+            let metaInChannel = Set(foundMetaNotes.map(\.messageId))
+            try store.removeMetaNotes(messageIds: try store.metaNotes().map(\.messageId).filter { !metaInChannel.contains($0) && $0 <= newest })
         }
         try applyTrashNotes(messagesSeen: full)
+        // After the merge, which takes favorites and albums from the captions: notes and waiting changes go on top. A
+        // recent scan only touches the items it read and the items in new notes; a full scan checks every one.
+        try applyMetaNotes(only: full ? nil : newMetaIds.union(cloud.map(\.meta.id)))
         if full { UserDefaults.standard.set(summary.orphans.map { NSNumber(value: $0) }, forKey: Self.duplicatesKey) }
         if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
         if full {
@@ -570,6 +584,108 @@ final class LibraryService: @unchecked Sendable {
         appLog("Sent a Recently Deleted note: \(op.rawValue), \(itemIds.count) items")
     }
 
+    // MARK: - Favorites and albums across devices (docs/CLOUD_FORMAT.md §7.3)
+
+    /// Downloads favorites and albums notes this device hasn't read. A network failure throws; a damaged note or one
+    /// from a newer version is skipped, which changes nothing.
+    /// Whether the last read skipped a favorites and albums note (damaged, or from a newer version). Compaction waits,
+    /// so it can't overwrite what such a note says.
+    private(set) var skippedMetaNotes = false
+
+    /// Returns the items the new notes are about.
+    @discardableResult
+    private func readMetaNotes(_ found: [FoundNote]) async throws -> Set<String> {
+        let known = Set(try store.metaNotes().map(\.messageId))
+        var touched = Set<String>()
+        for note in found where !known.contains(note.messageId) {
+            guard isEncrypted == note.caption.hasPrefix(MetaLog.encryptedPrefix),
+                  let caption = MetaLog.parseCaption(note.caption, captionKey: captionKey) else {
+                skippedMetaNotes = true
+                AppLog.shared.warn("Skipped a favorites and albums note that can't be read")
+                continue
+            }
+            let path: URL
+            do {
+                path = try await td.download(fileId: note.file.id, priority: 32)
+            } catch {
+                let mapped = error.asTD
+                guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind else { throw mapped }
+                try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
+                return try await readMetaNotes(found).union(touched)
+            }
+            defer { Task { await td.deleteLocalCopy(fileId: note.file.id) } }
+            var data = try Data(contentsOf: path)
+            if isEncrypted {
+                guard let master = keys?.master, let opened = try? FileCrypto.decrypt(data: data, masterKey: master) else {
+                    skippedMetaNotes = true
+                AppLog.shared.warn("Skipped a favorites and albums note that can't be opened")
+                    continue
+                }
+                data = opened
+            }
+            guard let body = MetaLog.read(data, caption: caption) else {
+                skippedMetaNotes = true
+                AppLog.shared.warn("Skipped a favorites and albums note that doesn't check out")
+                continue
+            }
+            try store.addMetaNote(MetaLog.Note(messageId: note.messageId, date: Foundation.Date(timeIntervalSince1970: TimeInterval(note.date)),
+                                               op: body.op, ids: body.ids, album: body.album))
+            touched.formUnion(body.ids)
+        }
+        return touched
+    }
+
+    /// Makes each item's favorite and albums follow its newest notes, with changes this device hasn't sent yet on top.
+    /// Each item is changed in place, so an upload finishing meanwhile isn't undone. `only`: just these items (and any
+    /// with changes waiting), so a live update while another device backs up doesn't walk every noted item.
+    func applyMetaNotes(only: Set<String>? = nil) throws {
+        let notes = try store.metaNotes()
+        let waiting = try chatId.map { try store.queuedMetaChanges(chatId: $0) } ?? [:]
+        guard !notes.isEmpty || !waiting.isEmpty else { return }
+        let latest = MetaLog.latest(notes)
+        var ids = only.map { $0.intersection(latest.keys) } ?? Set(latest.keys)
+        ids.formUnion(waiting.keys)
+        guard !ids.isEmpty else { return }
+        var changed = 0
+        for item in try store.items(ids: Array(ids)) {
+            let values = MetaLog.values(for: item.id, latest: latest, waiting: waiting[item.id])
+            var copy = item
+            guard MetaLog.apply(values, to: &copy) else { continue }
+            _ = try store.update(id: item.id) { MetaLog.apply(values, to: &$0) }
+            changed += 1
+        }
+        if changed > 0 { appLog("Favorites and albums synced: \(changed) items updated") }
+    }
+
+    /// Sends one favorites and albums note and records it. Only a note Telegram confirmed with the expected size counts.
+    func sendMetaNote(_ body: MetaLog.Body, chatId: Int64) async throws {
+        guard self.chatId == chatId else { throw LibraryError.noLibrary }
+        guard isUnlocked else { throw LibraryError.locked }
+        let plain = try MetaLog.encode(body)
+        let caption = try MetaLog.caption(.init(n: body.ids.count, h: IndexCodec.sha256Hex(plain)), captionKey: captionKey)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("note-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent(isEncrypted ? "favorites-albums.cge" : "favorites-albums.json")
+        if isEncrypted {
+            guard let master = keys?.master else { throw LibraryError.locked }
+            try FileCrypto.encrypt(data: plain, masterKey: master).write(to: url)
+        } else {
+            try plain.write(to: url)
+        }
+        let size = try CloudUploader.size(of: url)
+        let message = try await td.sendDocument(chatId: chatId, fileURL: url, caption: caption, thumbnail: nil)
+        guard case .messageDocument(let doc) = message.content, doc.document.document.size == size else {
+            try? await td.deleteMessages(chatId: chatId, ids: [message.id])
+            throw TDServiceError.notReady
+        }
+        guard self.chatId == chatId else { throw LibraryError.noLibrary }
+        try store.addMetaNote(MetaLog.Note(messageId: message.id, date: Foundation.Date(timeIntervalSince1970: TimeInterval(message.date)),
+                                           op: body.op, ids: body.ids, album: body.album))
+        await td.deleteLocalCopy(fileId: doc.document.document.id)
+        appLog("Sent a favorites and albums note: \(body.op.rawValue), \(body.ids.count) items")
+    }
+
     // MARK: - Live changes from the other device
 
     /// Message ids deleted elsewhere, waiting for `applyDeletes`.
@@ -618,6 +734,8 @@ final class LibraryService: @unchecked Sendable {
         }
         let notesBefore = (try? store.trashNotes().count) ?? 0
         try? store.removeTrashNotes(messageIds: ids)
+        // Favorites and albums notes go only once newer ones decide everything they did: nothing to follow.
+        try? store.removeMetaNotes(messageIds: ids)
         // A note went: the other device recovered or deleted these items, so this one must follow.
         if ((try? store.trashNotes().count) ?? 0) < notesBefore {
             Task.detached(priority: .utility) { await TrashSync.shared.followOtherDevice() }

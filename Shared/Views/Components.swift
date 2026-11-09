@@ -93,6 +93,20 @@ enum BackupBadge: Equatable, CaseIterable {
     }
 }
 
+/// Marks a feature that works but isn't finished: Albums and Favorites only reach this device's Photos until they sync
+/// through the Telegram library.
+struct BetaTag: View {
+    var body: some View {
+        Text("Beta")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.accentColor.opacity(0.15), in: Capsule())
+            .accessibilityLabel("Beta")
+    }
+}
+
 struct BadgeView: View {
     let badge: BackupBadge
     /// Tile side in points; the badge stays small (7–10 pt) and scales gently with the grid, like Google Photos.

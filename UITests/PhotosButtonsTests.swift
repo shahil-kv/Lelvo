@@ -307,7 +307,7 @@ final class PhotosButtonsTests: XCTestCase {
         grid.cells.element(boundBy: 2).tap()
         screenshot("selection-bar")
         app.buttons["More"].tap()
-        let add = app.buttons["Add to Album"]
+        let add = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Add to Album")).firstMatch
         XCTAssertTrue(add.waitForExistence(timeout: 5), "Add to Album is in the ••• menu")
         screenshot("selection-more-menu")
         add.tap()

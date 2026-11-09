@@ -24,8 +24,9 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
   Add to Album, Save and Favorite are in the ••• menu with their names. Delete asks in words whether to remove items
   from this iPhone, delete them from the backup only, or delete them everywhere, and says first if any aren't backed
   up yet.
-- **Albums:** add photos to an album or make a new one, on iPhone and Mac. Items only in your Telegram library are
-  saved to Photos first.
+- **Albums and Favorites, in beta:** add photos to an album or make a new one, and favorite them, on iPhone and Mac,
+  including photos only in your Telegram library. Every device shows the same albums and favorites, and saving a
+  photo to Photos puts it in its albums and Favorites there.
 - **Fixed:** messages shown while Settings was open on iPhone were hidden behind it.
 - **New web address:** the website is now [lelvo.app](https://lelvo.app), with a new About page.
 - **Removed from backup:** photos you deleted from your backup but kept on your iPhone or Mac now have their own row

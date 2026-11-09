@@ -103,6 +103,8 @@ final class TrashSync: @unchecked Sendable {
         }
         await send()
         await removeFinishedNotes()
+        // The channel was just read, so favorites and albums can send, tidy up and compact safely.
+        await MetaSync.shared.onOpen()
         await GalleryActions.emptyExpiredTrash()
     }
 

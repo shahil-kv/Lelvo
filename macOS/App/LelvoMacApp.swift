@@ -80,7 +80,11 @@ struct LelvoMacApp: App {
             guard model.onboardingComplete else { return }
             env.td.start()
             Task { await env.enforceCacheLimits() }
-            Task.detached(priority: .utility) { await TrashSync.shared.onOpen() }
+            Task.detached(priority: .utility) {
+                await TrashSync.shared.onOpen()
+                // Also when that stopped early (offline, a FLOOD_WAIT): changes waiting from last time still go.
+                await MetaSync.shared.send()
+            }
             env.search.indexInForeground()
             Task.detached(priority: .utility) {
                 guard env.library.needsRepairScan, (try? await env.td.waitUntilReady(timeout: 30)) != nil else { return }
@@ -88,7 +92,7 @@ struct LelvoMacApp: App {
             }
             Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
         case .background:
-            Task.detached(priority: .userInitiated) { await TrashSync.shared.send() }
+            Task.detached(priority: .userInitiated) { await TrashSync.shared.send(); await MetaSync.shared.send() }
             env.originalsCache.flush()
             env.thumbnailCache.flush()
         default: break

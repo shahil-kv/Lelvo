@@ -104,6 +104,7 @@ enum PhotoLibraryError: LocalizedError {
     case assetMissing
     case notAuthorized
     case albumUnavailable
+    case albumNotDeletable
 
     var errorDescription: String? {
         switch self {
@@ -111,6 +112,7 @@ enum PhotoLibraryError: LocalizedError {
         case .assetMissing: return "The photo is no longer in your library."
         case .notAuthorized: return "Lelvo doesn't have access to your photo library. Allow access in Settings, then try again."
         case .albumUnavailable: return "That album is no longer in Photos. Choose another album or make a new one."
+        case .albumNotDeletable: return "Photos doesn't let apps delete this album, for example a shared album. Delete it in the Photos app."
         }
     }
 }
@@ -211,10 +213,30 @@ final class PhotoLibraryService: @unchecked Sendable {
         PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil).enumerateObjects { c, _, _ in
             guard c.canPerform(.addContent) else { return }
             let assets = PHAsset.fetchAssets(in: c, options: newestFirst)
+            // An empty album has no date: it was most likely just made, so it goes first instead of last.
             result.append((AlbumInfo(id: c.localIdentifier, title: c.localizedTitle ?? "Album", count: assets.count),
-                           assets.firstObject?.localIdentifier, c.startDate ?? .distantPast))
+                           assets.firstObject?.localIdentifier, c.startDate ?? .distantFuture))
         }
         return result.sorted { $0.date > $1.date }.map { ($0.album, $0.coverId) }
+    }
+
+    /// Deletes the user's albums with this title, like Delete Album in Photos: the photos stay in the library. Photos
+    /// asks the user to confirm; cancelling throws. Returns how many albums went (0 when Photos has none by that name).
+    /// Throws `albumNotDeletable` when Photos has the album but won't let an app delete it (shared, synced from a
+    /// computer): then nothing changes anywhere.
+    func deleteAlbums(titled title: String) async throws -> Int {
+        let wanted = MetaLog.albumName(title) ?? title
+        var found: [PHAssetCollection] = [], locked = false
+        PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: nil).enumerateObjects { c, _, _ in
+            guard let t = c.localizedTitle, (MetaLog.albumName(t) ?? t) == wanted else { return }
+            if c.assetCollectionSubtype == .albumRegular && c.canPerform(.delete) { found.append(c) } else { locked = true }
+        }
+        if found.isEmpty && locked { throw PhotoLibraryError.albumNotDeletable }
+        guard !found.isEmpty else { return 0 }
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetCollectionChangeRequest.deleteAssetCollections(found as NSArray)
+        }
+        return found.count
     }
 
     /// Makes a new empty album and returns its local identifier.
@@ -673,10 +695,11 @@ final class PhotoLibraryService: @unchecked Sendable {
     /// The user's albums with these titles (the first of each title), fetched before a change so it can add to them.
     private func albumCollections(titled titles: [String]) -> [String: PHAssetCollection] {
         guard !titles.isEmpty else { return [:] }
-        let wanted = Set(titles)
+        // By name without surrounding spaces, as notes keep them (§7.3), so "Trip " in Photos is the album "Trip".
+        let wanted = Dictionary(titles.map { (MetaLog.albumName($0) ?? $0, $0) }, uniquingKeysWith: { a, _ in a })
         var found: [String: PHAssetCollection] = [:]
         PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil).enumerateObjects { c, _, _ in
-            if let t = c.localizedTitle, wanted.contains(t), found[t] == nil { found[t] = c }
+            if let t = c.localizedTitle, let asked = wanted[MetaLog.albumName(t) ?? t], found[asked] == nil { found[asked] = c }
         }
         return found
     }

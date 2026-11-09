@@ -100,6 +100,13 @@ public final class LibraryStore: @unchecked Sendable {
         CREATE TABLE IF NOT EXISTS trash_outbox (item_id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, op TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS no_backup (key TEXT PRIMARY KEY);
         """,
+        // 4 → 5: favorites and albums across devices (#97): notes read from the channel, and changes waiting to be sent,
+        // one row per item and key (`fav`, or `a:` and an album name) holding the latest value.
+        """
+        CREATE TABLE IF NOT EXISTS meta_notes (message_id TEXT PRIMARY KEY, json TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS meta_outbox (item_id TEXT NOT NULL, key TEXT NOT NULL, chat_id TEXT NOT NULL, value INTEGER NOT NULL,
+                                                PRIMARY KEY (item_id, key));
+        """,
     ]
 
     /// The database's schema version (`PRAGMA user_version`).
@@ -400,7 +407,7 @@ public final class LibraryStore: @unchecked Sendable {
 
     public func deleteAll() throws {
         lock.lock(); defer { lock.unlock() }
-        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search; DELETE FROM trash_notes; DELETE FROM trash_outbox; DELETE FROM no_backup;")
+        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search; DELETE FROM trash_notes; DELETE FROM trash_outbox; DELETE FROM no_backup; DELETE FROM meta_notes; DELETE FROM meta_outbox;")
         notifyChanged(ids: nil)
     }
 
@@ -507,6 +514,91 @@ public final class LibraryStore: @unchecked Sendable {
     /// Clears sent changes. Only rows still holding `op`: the user may have changed their mind during the send.
     public func clearTrashChanges(_ op: TrashLog.Op, itemIds: some Collection<String>) throws {
         try writeAll("DELETE FROM trash_outbox WHERE item_id = ? AND op = ?;", rows: itemIds.map { [$0, op.rawValue] })
+    }
+
+    // MARK: - Favorites and albums across devices (#97)
+
+    public func metaNotes() throws -> [MetaLog.Note] {
+        try withReadStatement("SELECT json FROM meta_notes;") { s in
+            var notes: [MetaLog.Note] = []
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let c = sqlite3_column_text(s, 0), let note = try? JSONDecoder().decode(MetaLog.Note.self, from: Data(String(cString: c).utf8)) {
+                    notes.append(note)
+                }
+            }
+            return notes
+        }
+    }
+
+    public func addMetaNote(_ note: MetaLog.Note) throws {
+        let json = String(decoding: try JSONEncoder().encode(note), as: UTF8.self)
+        try writeAll("INSERT OR REPLACE INTO meta_notes (message_id, json) VALUES (?, ?);", rows: [[String(note.messageId), json]])
+    }
+
+    public func removeMetaNotes(messageIds: some Collection<Int64>) throws {
+        try writeAll("DELETE FROM meta_notes WHERE message_id = ?;", rows: messageIds.map { [String($0)] })
+    }
+
+    /// Sets `key` to `value` on the items and queues the change in one transaction, as `changeTrashState` does: written
+    /// apart, a scan in between would follow the channel and undo the user's change. `chatId` nil: this device only.
+    /// Returns the items that changed.
+    @discardableResult
+    public func changeMeta(ids: some Collection<String>, key: MetaLog.Key, value: Bool, chatId: Int64?) throws -> [MediaItem] {
+        lock.lock(); defer { lock.unlock() }
+        var changed: [MediaItem] = []
+        try exec("BEGIN IMMEDIATE;")
+        do {
+            for id in ids {
+                guard var item = try writerItem(id: id) else { continue }
+                if MetaLog.apply([key: value], to: &item) {
+                    try insert(item)
+                    changed.append(item)
+                }
+                // Queued even when the index already agrees: another device may still have the old value.
+                if let chatId {
+                    try withStatement("INSERT OR REPLACE INTO meta_outbox (item_id, key, chat_id, value) VALUES (?, ?, ?, ?);", bind: { s in
+                        bindText(s, 1, id)
+                        bindText(s, 2, key.stored)
+                        bindText(s, 3, String(chatId))
+                        bindText(s, 4, value ? "1" : "0")
+                    }) { s in
+                        guard sqlite3_step(s) == SQLITE_DONE else { throw StoreError.sqlite(String(cString: sqlite3_errmsg(db))) }
+                    }
+                }
+            }
+            try exec("COMMIT;")
+        } catch {
+            try? exec("ROLLBACK;")
+            throw error
+        }
+        if !changed.isEmpty || chatId != nil { notifyChanged(ids: Set(ids)) }
+        return changed
+    }
+
+    /// Puts waiting changes back after a library switch, before the items are back in the index: they're applied once a
+    /// scan brings the items, and sent like any other.
+    public func queueMetaChanges(_ changes: [String: [MetaLog.Key: Bool]], chatId: Int64) throws {
+        let rows = changes.flatMap { id, keys in keys.map { [id, $0.key.stored, String(chatId), $0.value ? "1" : "0"] } }
+        try writeAll("INSERT OR REPLACE INTO meta_outbox (item_id, key, chat_id, value) VALUES (?, ?, ?, ?);", rows: rows)
+    }
+
+    /// Changes waiting to be sent to this library: item → key → value.
+    public func queuedMetaChanges(chatId: Int64) throws -> [String: [MetaLog.Key: Bool]] {
+        try withReadStatement("SELECT item_id, key, value FROM meta_outbox WHERE chat_id = ?;", bind: { bindText($0, 1, String(chatId)) }) { s in
+            var result: [String: [MetaLog.Key: Bool]] = [:]
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let a = sqlite3_column_text(s, 0), let b = sqlite3_column_text(s, 1), let key = MetaLog.Key(stored: String(cString: b)) {
+                    result[String(cString: a), default: [:]][key] = sqlite3_column_int64(s, 2) != 0
+                }
+            }
+            return result
+        }
+    }
+
+    /// Clears a sent change. Only rows still holding `value`: the user may have changed their mind during the send.
+    public func clearMetaChange(itemIds: some Collection<String>, key: MetaLog.Key, value: Bool) throws {
+        try writeAll("DELETE FROM meta_outbox WHERE item_id = ? AND key = ? AND value = ?;",
+                     rows: itemIds.map { [$0, key.stored, value ? "1" : "0"] })
     }
 
     private static func offBackupKey(sha256: String, editHash: String?) -> String {

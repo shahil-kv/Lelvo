@@ -13,6 +13,8 @@ struct ViewerView: View {
     @State private var chromeHidden = false
     @State private var zoomed = false
     @State private var showInfo = false
+    /// Favorites changed here, shown at once: Photos and the index report the change a moment later.
+    @State private var favoriteOverrides: [String: Bool] = [:]
     @State private var share: ShareItems?
     @State private var message: GalleryAlert?
     @State private var busy = false
@@ -147,6 +149,13 @@ struct ViewerView: View {
                     .accessibilityLabel("Back up to the cloud")
                 Spacer()
             }
+            if let current {
+                let favorite = isFavorite(current)
+                Button { toggleFavorite(current) } label: { Image(systemName: favorite ? "heart.fill" : "heart") }
+                    .accessibilityLabel(favorite ? "Remove from Favorites" : "Add to Favorites")
+                    .disabled(current.asset == nil && current.item?.status != .backedUp)
+                Spacer()
+            }
             Button { showInfo = true } label: { Image(systemName: "info.circle") }
                 .accessibilityLabel("Info")
             Spacer()
@@ -160,6 +169,25 @@ struct ViewerView: View {
         .padding(.top, 28)
         .padding(.bottom, 8)
         .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
+    }
+
+    private func isFavorite(_ entry: GalleryEntry) -> Bool {
+        favoriteOverrides[entry.id] ?? GalleryActions.allFavorite([entry])
+    }
+
+    /// Like the heart in Photos: on this iPhone it changes in Photos, in the Telegram library on every device.
+    private func toggleFavorite(_ entry: GalleryEntry) {
+        let favorite = !isFavorite(entry)
+        favoriteOverrides[entry.id] = favorite
+        Haptics.selection()
+        Task {
+            do {
+                try await Task.detached { try await GalleryActions.setFavorite([entry], favorite) }.value
+            } catch {
+                favoriteOverrides[entry.id] = !favorite
+                Haptics.error()
+            }
+        }
     }
 
     /// Fetches the first few MB of adjacent cloud videos so swiping to them starts playback instantly.
