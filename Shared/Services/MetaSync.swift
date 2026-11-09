@@ -59,16 +59,15 @@ final class MetaSync: @unchecked Sendable {
             do {
                 try await env.engine.withNoteSlot { [env] in try await env.library.sendMetaNote(body, chatId: chatId) }
                 lock.withLock { lastSent = Date() }
-                if let key = MetaLog.Note(messageId: 0, date: Date(), op: body.op, ids: [], album: body.album).key {
-                    try env.store.clearMetaChange(itemIds: body.ids, key: key, value: body.op == .favorite || body.op == .albumAdd)
-                }
+                if let key = body.key { try env.store.clearMetaChange(itemIds: body.ids, key: key, value: body.op.value) }
             } catch {
                 AppLog.shared.warn("Favorites and albums note not sent, will try again: \(error.localizedDescription)")
                 failed = true
                 break
             }
         }
-        try? env.library.applyMetaNotes()
+        // Only the items just sent: the rest already follow their notes.
+        try? env.library.applyMetaNotes(only: Set(queued.keys))
         await removeFinishedNotes()
         if failed { lock.withLock { lastSent = Date() } }
         if failed || (try? env.store.queuedMetaChanges(chatId: chatId).isEmpty) == false { schedule() }
@@ -97,7 +96,9 @@ final class MetaSync: @unchecked Sendable {
             return true
         }) else { return }
         defer { lock.withLock { cleaning = false } }
-        let known = Set(((try? env.store.allItems()) ?? []).map(\.id))
+        // The whole index only when a note is old enough for its items to have been deleted for good.
+        let anyOld = notes.contains { Date().timeIntervalSince($0.date) > MetaLog.goneAfter }
+        let known = anyOld ? Set(((try? env.store.allItems()) ?? []).map(\.id)) : []
         let finished = MetaLog.notesToRemove(notes, known: known.isEmpty ? nil : known).map(\.messageId)
         for start in stride(from: 0, to: finished.count, by: CloudTrash.maxMessagesPerDelete) {
             let batch = Array(finished[start..<min(start + CloudTrash.maxMessagesPerDelete, finished.count)])
@@ -129,7 +130,12 @@ final class MetaSync: @unchecked Sendable {
         // Read the newest messages right before, so a change another device just sent is part of the state written.
         guard (try? await env.library.scan(full: false)) != nil, let notes = try? env.store.metaNotes(),
               let all = try? env.store.allItems(), !all.isEmpty else { return }
-        for body in MetaLog.compacted(notes, known: Set(all.map(\.id))) {
+        let fresh = MetaLog.compacted(notes, known: Set(all.map(\.id)))
+        // Only when it really shrinks the channel: a library with many albums can't get below the limit, and must not
+        // rewrite everything on every open. Nor after skipping a note this version can't read, whose effect it would
+        // overwrite.
+        guard fresh.count * 2 < notes.count, !env.library.skippedMetaNotes else { return }
+        for body in fresh {
             do {
                 try await env.engine.withNoteSlot { [env] in try await env.library.sendMetaNote(body, chatId: chatId) }
             } catch {

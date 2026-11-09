@@ -136,6 +136,9 @@ import LelvoCore
         #expect(queued[a.id]?[.favorite] == false)
         try store.clearMetaChange(itemIds: [a.id, b.id], key: .album("Goa Trip"), value: true)
         #expect(try store.queuedMetaChanges(chatId: 7)[b.id] == nil)
+        // Put back after a library switch, before the items are in the index again.
+        try store.queueMetaChanges(["later": [.album("Goa Trip"): true, .favorite: false]], chatId: 7)
+        #expect(try store.queuedMetaChanges(chatId: 7)["later"] == [.album("Goa Trip"): true, .favorite: false])
         // No library: this device only, nothing queued.
         try store.changeMeta(ids: [b.id], key: .favorite, value: true, chatId: nil)
         #expect(try store.item(id: b.id)?.favorite == true)

@@ -145,7 +145,7 @@ enum MacActions {
             try await GalleryActions.setFavorite(entries, favorite)
             toast.show(.success, favorite ? "Added to Favorites" : "Removed from Favorites")
         } catch {
-            toast.show(.failure, "Nothing was added", detail: error.localizedDescription)
+            toast.show(.failure, favorite ? "Couldn't add to Favorites" : "Couldn't remove from Favorites", detail: error.localizedDescription)
         }
     }
 

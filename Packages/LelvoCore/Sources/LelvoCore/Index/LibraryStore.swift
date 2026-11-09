@@ -575,6 +575,13 @@ public final class LibraryStore: @unchecked Sendable {
         return changed
     }
 
+    /// Puts waiting changes back after a library switch, before the items are back in the index: they're applied once a
+    /// scan brings the items, and sent like any other.
+    public func queueMetaChanges(_ changes: [String: [MetaLog.Key: Bool]], chatId: Int64) throws {
+        let rows = changes.flatMap { id, keys in keys.map { [id, $0.key.stored, String(chatId), $0.value ? "1" : "0"] } }
+        try writeAll("INSERT OR REPLACE INTO meta_outbox (item_id, key, chat_id, value) VALUES (?, ?, ?, ?);", rows: rows)
+    }
+
     /// Changes waiting to be sent to this library: item → key → value.
     public func queuedMetaChanges(chatId: Int64) throws -> [String: [MetaLog.Key: Bool]] {
         try withReadStatement("SELECT item_id, key, value FROM meta_outbox WHERE chat_id = ?;", bind: { bindText($0, 1, String(chatId)) }) { s in

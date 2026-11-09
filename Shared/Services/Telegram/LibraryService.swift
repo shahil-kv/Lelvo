@@ -428,6 +428,8 @@ final class LibraryService: @unchecked Sendable {
         thumbnails.record(thumbnailIds, chatId: chatId)
         // Before the scan position moves: a note that couldn't be downloaded is read again by the next scan.
         try await readNotes(foundNotes)
+        // A full scan sees every note again, so it decides afresh whether any can't be read.
+        if full { skippedMetaNotes = false }
         let newMetaIds = try await readMetaNotes(foundMetaNotes)
         if let fromSnapshot {
             // Newer messages read above win over the snapshot's copy of the same message.
@@ -586,6 +588,10 @@ final class LibraryService: @unchecked Sendable {
 
     /// Downloads favorites and albums notes this device hasn't read. A network failure throws; a damaged note or one
     /// from a newer version is skipped, which changes nothing.
+    /// Whether the last read skipped a favorites and albums note (damaged, or from a newer version). Compaction waits,
+    /// so it can't overwrite what such a note says.
+    private(set) var skippedMetaNotes = false
+
     /// Returns the items the new notes are about.
     @discardableResult
     private func readMetaNotes(_ found: [FoundNote]) async throws -> Set<String> {
@@ -594,6 +600,7 @@ final class LibraryService: @unchecked Sendable {
         for note in found where !known.contains(note.messageId) {
             guard isEncrypted == note.caption.hasPrefix(MetaLog.encryptedPrefix),
                   let caption = MetaLog.parseCaption(note.caption, captionKey: captionKey) else {
+                skippedMetaNotes = true
                 AppLog.shared.warn("Skipped a favorites and albums note that can't be read")
                 continue
             }
@@ -610,12 +617,14 @@ final class LibraryService: @unchecked Sendable {
             var data = try Data(contentsOf: path)
             if isEncrypted {
                 guard let master = keys?.master, let opened = try? FileCrypto.decrypt(data: data, masterKey: master) else {
-                    AppLog.shared.warn("Skipped a favorites and albums note that can't be opened")
+                    skippedMetaNotes = true
+                AppLog.shared.warn("Skipped a favorites and albums note that can't be opened")
                     continue
                 }
                 data = opened
             }
             guard let body = MetaLog.read(data, caption: caption) else {
+                skippedMetaNotes = true
                 AppLog.shared.warn("Skipped a favorites and albums note that doesn't check out")
                 continue
             }

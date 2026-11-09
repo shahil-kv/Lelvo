@@ -15,7 +15,8 @@ public enum MetaLog {
         case favorite = "fav", unfavorite = "unfav", albumAdd = "album-add", albumRemove = "album-remove"
 
         var isAlbum: Bool { self == .albumAdd || self == .albumRemove }
-        var value: Bool { self == .favorite || self == .albumAdd }
+        /// What the note sets its key to.
+        public var value: Bool { self == .favorite || self == .albumAdd }
     }
 
     /// What a note sets: the favorite, or membership of one album (by name, as Photos shows it).
@@ -51,7 +52,8 @@ public enum MetaLog {
             self.album = album
         }
 
-        var key: Key? {
+        /// What the note sets, nil when it's malformed.
+        public var key: Key? {
             if op.isAlbum {
                 guard let album, let name = MetaLog.albumName(album) else { return nil }
                 return .album(name)

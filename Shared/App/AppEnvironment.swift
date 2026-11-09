@@ -111,7 +111,10 @@ final class AppEnvironment: @unchecked Sendable {
         }
         lap("header read")
         try store.deleteAll()
-        if LibrarySnapshots.restoreChoices(chatId: chatId, store: store) { TrashSync.shared.schedule() }
+        if LibrarySnapshots.restoreChoices(chatId: chatId, store: store) {
+            TrashSync.shared.schedule()
+            MetaSync.shared.schedule()
+        }
         if let saved = LibrarySnapshots.load(chatId: chatId), !saved.isEmpty {
             try store.upsert(saved)
             lap("saved index restored (\(saved.count) items)")
@@ -218,18 +221,22 @@ enum LibrarySnapshots {
     private struct Choices: Codable {
         var offBackup: [String]
         var waiting: [String: [String]]
+        /// Favorites and albums not sent yet: item → key (`fav`, `a:` and a name) → value. Absent in older files.
+        var meta: [String: [String: Bool]]?
     }
 
     private static let choicesPrefix = "choices-"
     private static func choicesURL(_ chatId: Int64) -> URL { directory.appendingPathComponent("\(choicesPrefix)\(chatId).json") }
 
     static func saveChoices(chatId: Int64, store: LibraryStore) {
-        guard let offBackup = try? store.offBackupKeys(), let waiting = try? store.queuedTrashChanges(chatId: chatId) else { return }
-        guard !offBackup.isEmpty || !waiting.isEmpty else {
+        guard let offBackup = try? store.offBackupKeys(), let waiting = try? store.queuedTrashChanges(chatId: chatId),
+              let meta = try? store.queuedMetaChanges(chatId: chatId) else { return }
+        guard !offBackup.isEmpty || !waiting.isEmpty || !meta.isEmpty else {
             try? FileManager.default.removeItem(at: choicesURL(chatId))
             return
         }
-        let choices = Choices(offBackup: offBackup, waiting: Dictionary(uniqueKeysWithValues: waiting.map { ($0.key.rawValue, $0.value) }))
+        let choices = Choices(offBackup: offBackup, waiting: Dictionary(uniqueKeysWithValues: waiting.map { ($0.key.rawValue, $0.value) }),
+                              meta: meta.mapValues { keys in Dictionary(uniqueKeysWithValues: keys.map { ($0.key.stored, $0.value) }) })
         guard let data = try? JSONEncoder().encode(choices) else { return }
         try? data.write(to: choicesURL(chatId), options: .atomic)
     }
@@ -244,6 +251,10 @@ enum LibrarySnapshots {
             guard let op = TrashLog.Op(rawValue: op), !ids.isEmpty, (try? store.queueTrashChange(op, itemIds: ids, chatId: chatId)) != nil else { continue }
             waiting = true
         }
+        let meta = (choices.meta ?? [:]).mapValues { keys in
+            Dictionary(uniqueKeysWithValues: keys.compactMap { k, v in MetaLog.Key(stored: k).map { ($0, v) } })
+        }.filter { !$0.value.isEmpty }
+        if !meta.isEmpty, (try? store.queueMetaChanges(meta, chatId: chatId)) != nil { waiting = true }
         return waiting
     }
 

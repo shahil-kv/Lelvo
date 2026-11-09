@@ -47,7 +47,11 @@ struct LelvoApp: App {
                 guard model.onboardingComplete else { return }
                 env.td.start()
                 Task { await env.enforceCacheLimits() }
-                Task.detached(priority: .utility) { await TrashSync.shared.onOpen() }
+                Task.detached(priority: .utility) {
+                    await TrashSync.shared.onOpen()
+                    // Also when that stopped early (offline, a FLOOD_WAIT): changes waiting from last time still go.
+                    await MetaSync.shared.send()
+                }
                 env.search.indexInForeground()
                 Task.detached(priority: .utility) {
                     guard env.library.needsRepairScan, (try? await env.td.waitUntilReady(timeout: 30)) != nil else { return }

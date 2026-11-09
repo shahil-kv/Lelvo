@@ -262,7 +262,6 @@ struct AlbumsView: View {
         guard !loadingAlbums else { return }
         loadingAlbums = true
         defer { loadingAlbums = false }
-        let cloudNames = Set(model.entries.compactMap(\.item).flatMap { $0.albums ?? [] })
         let types = Self.smartAlbums
         let (albums, smart) = await Task.detached(priority: .userInitiated) { () -> ([(title: String, ids: Set<String>)], [(title: String, symbol: String, ids: Set<String>)]) in
             var byTitle: [String: Set<String>] = [:]
@@ -281,7 +280,6 @@ struct AlbumsView: View {
                     if !ids.isEmpty { smart.append((title, symbol, ids)) }
                 }
             }
-            for name in cloudNames where byTitle[name] == nil { byTitle[name] = [] }
             let albums = byTitle.map { (title: $0.key, ids: $0.value) }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             return (albums, smart)
         }.value
@@ -329,8 +327,10 @@ private struct AlbumGrid: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The album is removed from all your devices. The photos stay in your library and your Telegram library.")
+            Text("The album is removed from Photos on this iPhone and from Lelvo on your other devices. The photos stay in your library and your Telegram library.")
         }
+        // A list read again after a delete no longer has the album; one made again with that name must show.
+        .onChange(of: albums.map(\.id)) { _, _ in deleted.removeAll() }
         .alert("Couldn't delete the album", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -347,6 +347,9 @@ private struct AlbumGrid: View {
             deleted.insert("\(Self.userAlbumSymbol)|\(title)")
         } catch let error as NSError where error.domain == PHPhotosErrorDomain && error.code == PHPhotosError.userCancelled.rawValue {
             // Cancelled in iOS's own confirmation: nothing changed.
+        } catch PhotoLibraryError.albumNotDeletable {
+            Haptics.error()
+            failure = PhotoLibraryError.albumNotDeletable.localizedDescription
         } catch {
             Haptics.error()
             failure = "Photos didn't allow it. Check that Lelvo has full access to your photos, then try again."
