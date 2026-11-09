@@ -29,8 +29,9 @@ struct MacGalleryView: View {
     @State private var columns = 5
     @State private var viewerId: String?
     @State private var showInfo = false
-    @State private var confirmCloudDelete: [GalleryEntry] = []
-    @State private var confirmMacDelete: [GalleryEntry] = []
+    /// The items the Delete choice (Remove from This Mac or Delete Everywhere) is open for.
+    @State private var confirmDelete: [GalleryEntry] = []
+    @State private var addingToAlbum: [GalleryEntry] = []
     @State private var commandToken: UUID?
     @State private var scrollRequest: String?
     @State private var scrollToken = 0
@@ -115,28 +116,29 @@ struct MacGalleryView: View {
         }
         #endif
         .onDisappear { commandToken.map(navigation.commands.unsubscribe) }
-        .alert("Delete \(confirmCloudDelete.count) item\(confirmCloudDelete.count == 1 ? "" : "s") from your backup?",
-               isPresented: Binding(get: { !confirmCloudDelete.isEmpty }, set: { if !$0 { confirmCloudDelete = [] } })) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete from Backup", role: .destructive) {
-                let entries = confirmCloudDelete
-                Task { await MacActions.deleteFromCloud(entries, toast: toast); afterDelete(entries) }
+        .confirmationDialog("Delete \(confirmDelete.count.formatted()) item\(confirmDelete.count == 1 ? "" : "s")?",
+                            isPresented: Binding(get: { !confirmDelete.isEmpty }, set: { if !$0 { confirmDelete = [] } })) {
+            let entries = confirmDelete
+            let onMac = entries.filter { $0.asset != nil }
+            if !onMac.isEmpty {
+                Button("Remove \(onMac.count.formatted()) from This Mac", role: .destructive) {
+                    Task { await MacActions.deleteFromMac(onMac, toast: toast) }
+                }
             }
+            Button("Delete Everywhere", role: .destructive) {
+                Task { await MacActions.deleteEverywhere(entries, toast: toast); afterDelete(entries) }
+            }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("They move to Recently Deleted in Lelvo and are removed from your Telegram library after 30 days. Any still in Photos on this Mac stay there.")
+            let unsafe = EntryActions(entries: confirmDelete).unsafeOnMac
+            Text("Remove from This Mac keeps backed-up items in your Telegram library. Delete Everywhere also moves them to Recently Deleted in Lelvo, where they stay for 30 days."
+                 + (unsafe > 0 ? " \(unsafe.formatted()) of these aren't backed up yet and will be lost once Recently Deleted in Photos is emptied." : ""))
         }
-        .alert("Delete \(confirmMacDelete.count) item\(confirmMacDelete.count == 1 ? "" : "s") from this Mac?",
-               isPresented: Binding(get: { !confirmMacDelete.isEmpty }, set: { if !$0 { confirmMacDelete = [] } })) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete from Mac", role: .destructive) {
-                let entries = confirmMacDelete
-                Task { await MacActions.deleteFromMac(entries, toast: toast) }
+        .sheet(isPresented: Binding(get: { !addingToAlbum.isEmpty }, set: { if !$0 { addingToAlbum = [] } })) {
+            let entries = addingToAlbum
+            AddToAlbumView(count: entries.count) { id, title in
+                Task { await MacActions.addToAlbum(entries, albumId: id, title: title, toast: toast) }
             }
-        } message: {
-            let unsafe = EntryActions(entries: confirmMacDelete).unsafeOnMac
-            Text(unsafe > 0
-                 ? "\(unsafe) of these are NOT backed up yet and will be lost once Recently Deleted is emptied."
-                 : "They stay in your Telegram library and in Lelvo as cloud items.")
         }
     }
 
@@ -246,6 +248,7 @@ struct MacGalleryView: View {
             Button { endSelecting() } label: { Image(systemName: "xmark").frame(width: 22, height: 22) }
                 .buttonStyle(.borderless)
                 .help("Done (Esc)")
+                .accessibilityLabel("Done")
             Text(selection.isEmpty ? "Select items" : "\(selection.count.formatted()) selected")
                 .font(.callout.weight(.semibold).monospacedDigit())
                 .padding(.trailing, 6)
@@ -258,6 +261,8 @@ struct MacGalleryView: View {
                 .disabled(selection.isEmpty)
             barButton("Export", "square.and.arrow.down.on.square") { Task { await MacActions.export(selectedEntries, toast: toast) } }
                 .disabled(selection.isEmpty)
+            barButton("Add to Album", "rectangle.stack.badge.plus") { addingToAlbum = selectedEntries }
+                .disabled(selection.isEmpty)
             if !actions.downloadable.isEmpty {
                 barButton("Save to Photos", "photo.badge.plus") { Task { await MacActions.saveToPhotos(actions.downloadable, toast: toast) } }
             }
@@ -267,14 +272,8 @@ struct MacGalleryView: View {
                 }
                 .foregroundStyle(Color.accentColor)
             }
-            Menu {
-                deleteButtons(actions)
-            } label: {
-                Image(systemName: "trash")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(width: 28)
+            Button { confirmDelete = selectedEntries } label: { Image(systemName: "trash").frame(width: 22, height: 22) }
+            .buttonStyle(.borderless)
             .disabled(actions.inCloud.isEmpty && actions.onMac.isEmpty)
             .help("Delete")
             .accessibilityLabel("Delete")
@@ -295,10 +294,10 @@ struct MacGalleryView: View {
     }
 
     @ViewBuilder private func deleteButtons(_ actions: EntryActions) -> some View {
-        Button("Delete from Backup…", systemImage: "icloud.slash") { confirmCloudDelete = actions.inCloud }
-            .disabled(actions.inCloud.isEmpty)
-        Button("Delete from This Mac…", systemImage: "trash") { confirmMacDelete = actions.onMac }
-            .disabled(actions.onMac.isEmpty)
+        Button("Add to Album…", systemImage: "rectangle.stack.badge.plus") { addingToAlbum = actions.entries }
+        Divider()
+        Button("Delete…", systemImage: "trash") { confirmDelete = actions.entries }
+            .disabled(actions.inCloud.isEmpty && actions.onMac.isEmpty)
     }
 
     // MARK: - Toolbar
@@ -396,12 +395,10 @@ struct MacGalleryView: View {
             items.append(GridMenuItem(title: actions.notBackedUp.count == 1 ? "Back Up" : "Back Up \(actions.notBackedUp.count) Items",
                                       symbol: "icloud.and.arrow.up") { Task { await MacActions.backUp(actions.notBackedUp, toast: toast) } })
         }
+        items.append(GridMenuItem(title: "Add to Album…", symbol: "rectangle.stack.badge.plus") { addingToAlbum = group })
         items.append(.separator)
-        items.append(GridMenuItem(title: "Delete from Backup…", symbol: "icloud.slash", enabled: !actions.inCloud.isEmpty) {
-            confirmCloudDelete = actions.inCloud
-        })
-        items.append(GridMenuItem(title: "Delete from This Mac…", symbol: "trash", enabled: !actions.onMac.isEmpty) {
-            confirmMacDelete = actions.onMac
+        items.append(GridMenuItem(title: "Delete…", symbol: "trash", enabled: !actions.inCloud.isEmpty || !actions.onMac.isEmpty) {
+            confirmDelete = group
         })
         return items
     }
@@ -530,8 +527,8 @@ struct MacGalleryView: View {
             }
         case .escape: selecting ? endSelecting() : clearSelection()
         case .delete:
-            let cloud = EntryActions(entries: targets).inCloud
-            if !cloud.isEmpty { confirmCloudDelete = cloud }
+            let actions = EntryActions(entries: targets)
+            if !actions.inCloud.isEmpty || !actions.onMac.isEmpty { confirmDelete = targets }
         case .selectAll: selectAll()
         }
     }
