@@ -1,8 +1,8 @@
 import SwiftUI
 import LelvoCore
 
-/// Report a problem / Suggest a feature: what helps, then a choice between a Telegram message to the developer and a
-/// GitHub issue. Both open with the app version and device filled in; the user sends it themselves.
+/// Report a problem / Suggest a feature: what helps, then a choice between an email to the developer and a GitHub
+/// issue. Both open with the app version and device filled in; the user sends it themselves.
 struct FeedbackView: View {
     let kind: Feedback.Kind
 
@@ -10,9 +10,21 @@ struct FeedbackView: View {
         Feedback.Environment(app: Device.kind, version: Bundle.main.displayVersion, device: Device.model, os: Device.osVersion)
     }
 
-    private var telegramURL: URL? {
-        Feedback.telegramURL(username: AppLinks.developerTelegram,
-                             text: Feedback.draft(kind, appName: "Lelvo", developer: AppLinks.developerName, env: env))
+    private var mailURL: URL? {
+        Feedback.mailURL(to: AppLinks.developerEmail, subject: Feedback.subject(kind, appName: "Lelvo"),
+                         body: Feedback.draft(kind, appName: "Lelvo", developer: AppLinks.developerName, env: env))
+    }
+
+    private func email() {
+        guard let mailURL else { copyAddress(); return }
+        PlatformActions.open(mailURL) { opened in
+            if !opened { copyAddress(noMailApp: true) }
+        }
+    }
+
+    private func copyAddress(noMailApp: Bool = false) {
+        PlatformActions.copy(AppLinks.developerEmail)
+        ToastCenter.shared.show(.info, noMailApp ? "No mail app is set up. The address is copied." : "Address copied")
     }
 
     var body: some View {
@@ -42,16 +54,22 @@ struct FeedbackView: View {
             }
 
             Section {
-                if let telegramURL {
-                    Button { PlatformActions.open(telegramURL) } label: {
-                        Label("Message \(AppLinks.developerName) on Telegram", systemImage: "paperplane")
+                Button(action: email) {
+                    Label("Email \(AppLinks.developerName)", systemImage: "envelope")
+                }
+                Button { copyAddress() } label: {
+                    LabeledContent {
+                        Image(systemName: "doc.on.doc").foregroundStyle(.tint)
+                    } label: {
+                        Label(AppLinks.developerEmail, systemImage: "at").foregroundStyle(.primary)
                     }
                 }
+                .accessibilityLabel("Copy \(AppLinks.developerEmail)")
                 if let issue = Feedback.gitHubIssueURL(repository: AppLinks.repository, kind: kind, env: env) {
                     Link(destination: issue) { Label("Create an issue on GitHub", systemImage: "chevron.left.forwardslash.chevron.right") }
                 }
             } footer: {
-                Text("Telegram opens with a message ready for you to finish and send, with your app version and \(Device.name) model filled in. \(AppLinks.developerName) will see your Telegram name. GitHub issues are public and need a GitHub account.")
+                Text("Your mail app opens with a message ready for you to finish and send, with your app version and \(Device.name) model filled in. \(AppLinks.developerName) will see your email address. GitHub issues are public and need a GitHub account.")
             }
         }
         .formStyle(.grouped)

@@ -25,13 +25,20 @@ import LelvoCore
     }
 
     /// Newlines, ampersands and plus signs must survive, or the draft arrives cut short or with spaces turned into "+".
-    @Test func telegramLinkCarriesTheDraftUnchanged() throws {
+    @Test func mailLinkCarriesSubjectAndDraftUnchanged() throws {
         let text = "Line one & two\n\n1 + 1 = 2? #yes 📷"
-        let url = try #require(Feedback.telegramURL(username: "example_dev", text: text))
-        #expect(url.host == "t.me")
-        #expect(url.path == "/example_dev")
-        #expect(query(url)["text"] == text)
+        let subject = Feedback.subject(.bug, appName: "Lelvo")
+        let url = try #require(Feedback.mailURL(to: "dev@example.com", subject: subject, body: text))
+        #expect(url.scheme == "mailto")
+        let parts = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        #expect(parts.path == "dev@example.com")
+        #expect(query(url)["subject"] == "Lelvo: something isn't working")
+        #expect(query(url)["body"] == text)
         #expect(!url.absoluteString.contains("+"))
+    }
+
+    @Test func ideaSubjectSaysItIsAnIdea() {
+        #expect(Feedback.subject(.idea, appName: "Lelvo") == "Lelvo: an idea")
     }
 
     @Test func bugIssueOpensTheBugTemplateWithDetailsFilledIn() throws {

@@ -2,7 +2,7 @@
 
 Lelvo is a free, volunteer project, so the quickest answers are the ones already written down.
 
-**Contact:** [mshahilkv@gmail.com](mailto:mshahilkv@gmail.com), or Settings → Help → Report a problem in the app.
+**Contact:** [support@lelvo.app](mailto:support@lelvo.app), or Settings → Help → Report a problem in the app.
 
 1. **Read the [FAQ](docs/FAQ.md).** It answers most questions: sign-in, backups that stop, deleted or frozen Telegram
    accounts, encryption, storage, restoring and sideloading.

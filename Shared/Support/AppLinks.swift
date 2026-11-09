@@ -7,9 +7,9 @@ enum AppLinks {
     static let privacyPolicy = URL.literal("https://lelvo.app/privacy")
     static let license = URL.literal("https://www.gnu.org/licenses/gpl-3.0.html")
 
-    /// Who "Message the developer" in Report a problem and Suggest a feature reaches, on Telegram.
+    /// Who Report a problem and Suggest a feature write to, by email.
     static let developerName = "Shahil"
-    static let developerTelegram = "shahil9846"
+    static let developerEmail = "support@lelvo.app"
 }
 
 /// Third-party code shipped inside the app, with the license each one is under.

@@ -80,6 +80,15 @@ enum PlatformActions {
         #endif
     }
 
+    /// Opens `url` and reports whether something could open it (a mailto link with no mail app, for example).
+    @MainActor static func open(_ url: URL, completion: @escaping @MainActor (Bool) -> Void) {
+        #if os(macOS)
+        completion(NSWorkspace.shared.open(url))
+        #else
+        UIApplication.shared.open(url, options: [:]) { opened in Task { @MainActor in completion(opened) } }
+        #endif
+    }
+
     @MainActor static func copy(_ text: String) {
         #if os(macOS)
         NSPasteboard.general.clearContents()
@@ -171,18 +180,36 @@ extension NSImage {
 }
 #endif
 
-/// Feedback for taps and results. Macs have no haptic engine for this, so these do nothing there.
+/// Feedback for results, picks and arrivals (the `polishing-ui` skill's haptic map). Ordinary buttons get none, as in
+/// Apple's own apps. Macs have no haptic engine for this, so these do nothing there.
 enum Haptics {
     #if os(macOS)
     static func success() {}
     static func error() {}
-    static func tap() {}
     static func selection() {}
+    static func start() {}
+    static func press() {}
+    static func land() {}
     #else
-    static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-    static func error() { UINotificationFeedbackGenerator().notificationOccurred(.error) }
-    static func tap() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-    static func selection() { UISelectionFeedbackGenerator().selectionChanged() }
+    // One generator of each kind, prepared again after every use: a new generator per call is cold, so the feedback
+    // arrived a frame or two after the touch.
+    private static let notification = UINotificationFeedbackGenerator()
+    private static let selector = UISelectionFeedbackGenerator()
+    private static let light = UIImpactFeedbackGenerator(style: .light)
+    private static let medium = UIImpactFeedbackGenerator(style: .medium)
+
+    /// Something finished well: backup done, space freed, signed in.
+    static func success() { notification.notificationOccurred(.success); notification.prepare() }
+    /// Something failed or was refused.
+    static func error() { notification.notificationOccurred(.error); notification.prepare() }
+    /// A pick or a snap: selecting a photo or an option, a pinch locking into a column count.
+    static func selection() { selector.selectionChanged(); selector.prepare() }
+    /// A deliberate start, like starting a backup.
+    static func start() { medium.impactOccurred(); medium.prepare() }
+    /// A long press that opens a menu or starts a drag.
+    static func press() { medium.impactOccurred(intensity: 0.8); medium.prepare() }
+    /// A photo landing in the cloud. Callers throttle it.
+    static func land() { light.impactOccurred(intensity: 0.55); light.prepare() }
     #endif
 }
 
@@ -232,6 +259,15 @@ extension View {
     @ViewBuilder func platformGroupedForm() -> some View {
         #if os(macOS)
         formStyle(.grouped)
+        #else
+        self
+        #endif
+    }
+
+    /// A Mac sheet has no size of its own; on iPhone the sheet fills the screen.
+    @ViewBuilder func macSheetSize(width: CGFloat, height: CGFloat) -> some View {
+        #if os(macOS)
+        frame(minWidth: width, minHeight: height)
         #else
         self
         #endif

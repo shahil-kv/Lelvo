@@ -1,7 +1,7 @@
 import Foundation
 
 /// Links and message drafts behind Settings → Report a problem and Suggest a feature. The app never sends anything
-/// itself: it opens Telegram or GitHub with the text ready, and the user presses send.
+/// itself: it opens Mail or GitHub with the text ready, and the user presses send.
 public enum Feedback {
     public enum Kind: Sendable {
         case bug, idea
@@ -33,10 +33,15 @@ public enum Feedback {
         return body + "\n— \(appName) \(env.version), \(env.device), \(env.os)"
     }
 
-    /// A t.me link that opens a chat with `username` and puts `text` in the message box. Telegram doesn't decode "+"
-    /// as a space, so spaces are sent as %20.
-    public static func telegramURL(username: String, text: String) -> URL? {
-        URL(string: "https://t.me/\(username)?text=\(encode(text))")
+    /// The subject line of an email draft.
+    public static func subject(_ kind: Kind, appName: String) -> String {
+        kind == .bug ? "\(appName): something isn't working" : "\(appName): an idea"
+    }
+
+    /// A mailto link with the subject and body filled in. Mail apps don't decode "+" as a space, so spaces are sent
+    /// as %20, and "&" inside the text is encoded so it doesn't end the body early.
+    public static func mailURL(to address: String, subject: String, body: String) -> URL? {
+        URL(string: "mailto:\(address)?subject=\(encode(subject))&body=\(encode(body))")
     }
 
     /// The repository's issue form for `kind`, with the fields the form has filled in from `env`. GitHub fills a form
