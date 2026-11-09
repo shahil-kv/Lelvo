@@ -24,7 +24,7 @@ struct RecoveryKeyView: View {
                     .accessibilityLabel("Recovery key")
                     .accessibilityValue(key.text.replacingOccurrences(of: "-", with: " "))
                 Button {
-                    PlatformActions.copy(key.text)
+                    PlatformActions.copySecret(key.text)
                     copied = true
                     Haptics.success()
                 } label: {

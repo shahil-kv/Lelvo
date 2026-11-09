@@ -98,6 +98,22 @@ enum PlatformActions {
         #endif
     }
 
+    /// Copies a secret (the recovery key). On iOS it stays on this device, so Universal Clipboard doesn't hand it to the
+    /// user's other devices, and clears itself after two minutes. A Mac pasteboard can't expire, so it's marked
+    /// concealed, the nspasteboard.org convention clipboard managers follow to leave it out of their history.
+    @MainActor static func copySecret(_ text: String) {
+        #if os(macOS)
+        let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.declareTypes([.string, concealed], owner: nil)
+        NSPasteboard.general.setString(text, forType: .string)
+        NSPasteboard.general.setString("", forType: concealed)
+        #else
+        UIPasteboard.general.setItems([[UTType.plainText.identifier: text]],
+                                      options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+        #endif
+    }
+
     /// The system page where the user grants photo access.
     @MainActor static func openPhotoSettings() {
         #if os(macOS)
