@@ -15,11 +15,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "https://github.com/shahil-kv/Lelvo/blob/main/"
 
+# (source, path, search title, description). The search title is the <title>: 30-60 characters with what the page is
+# about, since the Markdown heading alone ("Changelog") is too short for search results.
 PAGES = [
-    ("PRIVACY.md", "privacy",
+    ("PRIVACY.md", "privacy", "Lelvo privacy policy: no servers, your photos stay yours",
      "Lelvo's privacy policy: Lelvo has no servers and never receives your data. Your photos go from your device to your own Telegram account."),
-    ("docs/CHANGELOG.md", "changelog", "What's new in each version of Lelvo for iPhone and Mac."),
-    ("docs/ABOUT.md", "about",
+    ("docs/CHANGELOG.md", "changelog", "Lelvo changelog: what's new for iPhone and Mac",
+     "What's new in each version of Lelvo for iPhone and Mac: new features and fixes in the free photo backup to your own Telegram."),
+    ("docs/ABOUT.md", "about", "About Lelvo, the free photo backup to your own Telegram",
      "Lelvo is a free, open source photo backup for iPhone and Mac, made by Shahil. Your originals go to a private channel in your own Telegram account."),
 ]
 
@@ -73,9 +76,9 @@ def convert(md: str, base: str) -> tuple[str, str]:
 
 def main() -> None:
     template = (ROOT / "Scripts" / "page.template.html").read_text()
-    for source, path, description in PAGES:
+    for source, path, search_title, description in PAGES:
         title, body = convert((ROOT / source).read_text(), str(Path(source).parent))
-        page = (template.replace("{{TITLE}}", html.escape(title)).replace("{{DESCRIPTION}}", html.escape(description))
+        page = (template.replace("{{SEARCH_TITLE}}", html.escape(search_title)).replace("{{TITLE}}", html.escape(title)).replace("{{DESCRIPTION}}", html.escape(description))
                 .replace("{{PATH}}", path).replace("{{SOURCE}}", source).replace("{{BODY}}", body))
         (ROOT / "website" / f"{path}.html").write_text(page)
         print(f"website/{path}.html updated from {source}")

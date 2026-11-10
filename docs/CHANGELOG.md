@@ -1,7 +1,7 @@
 # Changelog
 
-User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac versions `macos-v*`
-([RELEASING.md](RELEASING.md)).
+What's new in Lelvo for iPhone and Mac, newest first. Downloads for each version are on
+[GitHub Releases](https://github.com/shahil-kv/Lelvo/releases).
 
 ## Unreleased
 
