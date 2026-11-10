@@ -288,7 +288,8 @@ Yes, the Photos library on that Mac, into the same Telegram library as your iPho
 account. With automatic backup on, it checks every hour while Lelvo is open, even with its window closed.
 
 **"Apple could not verify Lelvo".**
-Until releases are notarized, right-click the app in Applications → **Open** → **Open**, once.
+Releases from 0.3.0 on are notarized and don't show this. For an older build or one made from source, open
+**System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to Lelvo, once.
 
 **Where does it keep its files?**
 `~/Library/Application Support/app.lelvo.mac` and `~/Library/Caches/app.lelvo.mac`.

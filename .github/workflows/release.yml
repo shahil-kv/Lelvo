@@ -24,6 +24,11 @@ on:
         description: "Version without suffix, e.g. 0.2.0"
         type: string
         required: true
+      testflight:
+        # Off by default: App Store Connect has its own version train, and an upload can't be taken back.
+        description: Also upload the iPhone build to TestFlight
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -89,7 +94,7 @@ jobs:
           (cd build && zip -qry Lelvo.ipa Payload)
           shasum -a 256 build/Lelvo.ipa | tee build/Lelvo.ipa.sha256
       - name: Upload to TestFlight
-        if: env.ASC_KEY_ID != '' && env.APPLE_TEAM_ID != ''
+        if: inputs.testflight && env.ASC_KEY_ID != '' && env.APPLE_TEAM_ID != ''
         run: |
           set -euo pipefail
           KEY="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
@@ -134,9 +139,16 @@ jobs:
     needs: plan
     if: inputs.app == 'macos' || inputs.app == 'both'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
-    timeout-minutes: 75
+    timeout-minutes: 120
     env:
       TAG: macos-v${{ needs.plan.outputs.version }}
+      # Developer ID certificate (base64 .p12) and the App Store Connect API key (docs/RELEASING.md → Mac signing).
+      # Without them the app ships ad-hoc signed and macOS asks users to allow it in Privacy & Security.
+      MAC_DEVID_P12: ${{ secrets.MAC_DEVID_P12 }}
+      MAC_DEVID_P12_PASSWORD: ${{ secrets.MAC_DEVID_P12_PASSWORD }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
     steps:
       - uses: actions/checkout@v7
       - name: Refuse an existing tag
@@ -155,6 +167,41 @@ jobs:
             MARKETING_VERSION="${{ inputs.version }}" CURRENT_PROJECT_VERSION="${{ needs.plan.outputs.build }}" \
             > build/mac.log 2>&1 || { grep -E "error:" build/mac.log | head -50; tail -60 build/mac.log; exit 1; }
           tail -1 build/mac.log
+      - name: Sign with Developer ID and notarize the app
+        if: env.MAC_DEVID_P12 != '' && env.ASC_KEY_ID != ''
+        run: |
+          set -euo pipefail
+          APP=build/DerivedData/Build/Products/Release/Lelvo.app
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          KC_PASS=$(uuidgen)
+          printf '%s' "$MAC_DEVID_P12" | base64 --decode > "$RUNNER_TEMP/devid.p12"
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 7200 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          security import "$RUNNER_TEMP/devid.p12" -k "$KC" -P "$MAC_DEVID_P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/devid.p12"
+          # Lets codesign use the key without the keychain prompt a CI runner can't answer.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" login.keychain
+          ID=$(security find-identity -v -p codesigning "$KC" | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')
+          [ -n "$ID" ] || { echo "::error::MAC_DEVID_P12 holds no Developer ID Application identity."; exit 1; }
+          # Inside out, without --deep: --deep would put the app's entitlements on the embedded frameworks too.
+          find "$APP/Contents/Frameworks" -maxdepth 1 \( -name '*.framework' -o -name '*.dylib' \) -print0 \
+            | xargs -0 -I{} codesign --force --options runtime --timestamp --sign "$ID" {}
+          codesign --force --options runtime --timestamp --entitlements macOS/LelvoMac.entitlements --sign "$ID" "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notarize.zip"
+          NOTARY=(--key "$RUNNER_TEMP/AuthKey.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID")
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" "${NOTARY[@]}" --wait --timeout 60m --output-format json \
+            | tee "$RUNNER_TEMP/notary.json"
+          if [ "$(plutil -extract status raw "$RUNNER_TEMP/notary.json")" != Accepted ]; then
+            xcrun notarytool log "$(plutil -extract id raw "$RUNNER_TEMP/notary.json")" "${NOTARY[@]}" || true
+            echo "::error::Apple did not accept the app for notarization (log above)."; exit 1
+          fi
+          xcrun stapler staple "$APP"
+          spctl -a -vv -t exec "$APP"
+          echo "MAC_SIGN_ID=$ID" >> "$GITHUB_ENV"
       - name: Package Lelvo-mac.zip
         run: |
           set -euo pipefail
@@ -171,6 +218,16 @@ jobs:
           ditto build/DerivedData/Build/Products/Release/Lelvo.app "$STAGE/Lelvo.app"
           ln -s /Applications "$STAGE/Applications"
           hdiutil create -volname Lelvo -srcfolder "$STAGE" -ov -format UDZO build/Lelvo.dmg
+          if [ -n "${MAC_SIGN_ID:-}" ]; then
+            # The disk image gets its own signature and ticket, so it opens offline without a Gatekeeper prompt.
+            codesign --timestamp --sign "$MAC_SIGN_ID" build/Lelvo.dmg
+            xcrun notarytool submit build/Lelvo.dmg --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$ASC_KEY_ID" \
+              --issuer "$ASC_ISSUER_ID" --wait --timeout 60m --output-format json | tee "$RUNNER_TEMP/notary-dmg.json"
+            [ "$(plutil -extract status raw "$RUNNER_TEMP/notary-dmg.json")" = Accepted ] \
+              || { echo "::error::Apple did not accept Lelvo.dmg for notarization."; exit 1; }
+            xcrun stapler staple build/Lelvo.dmg
+            spctl -a -vv -t open --context context:primary-signature build/Lelvo.dmg
+          fi
           shasum -a 256 build/Lelvo.dmg | tee build/Lelvo.dmg.sha256
       - name: Publish release
         env:
@@ -180,6 +237,16 @@ jobs:
           PRE=""; [ "${{ needs.plan.outputs.prerelease }}" = true ] && PRE="--prerelease"
           LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[].tagName | select(startswith("macos-v"))][0] // empty')
           START=""; [ -n "$LAST" ] && START="--notes-start-tag $LAST"
+          if [ -n "${MAC_SIGN_ID:-}" ]; then
+            OPEN="Signed and notarized by Apple, so it opens like any other app."
+          else
+            OPEN="This build isn't notarized: the first time, macOS blocks it. System Settings → Privacy & Security → Open Anyway."
+          fi
           gh release create "$TAG" build/Lelvo.dmg build/Lelvo.dmg.sha256 build/Lelvo-mac.zip build/Lelvo-mac.zip.sha256 \
             --target "$GITHUB_SHA" $PRE $START --title "Lelvo for Mac $VERSION" --generate-notes \
-            --notes "macOS 15 or later, Apple silicon and Intel. Open Lelvo.dmg and drag Lelvo to Applications (or unzip Lelvo-mac.zip). The first time, macOS blocks it because it isn't notarized yet: System Settings → Privacy & Security → Open Anyway. Build ${{ needs.plan.outputs.build }}."
+            --notes "macOS 15 or later, Apple silicon and Intel. Open Lelvo.dmg and drag Lelvo to Applications (or unzip Lelvo-mac.zip). $OPEN Build ${{ needs.plan.outputs.build }}."
+      - name: Remove signing keychain and key
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/devid.p12"

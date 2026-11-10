@@ -59,8 +59,9 @@ gh secret set TD_API_HASH --body "<hash>"
 
 ## TestFlight
 
-The iOS job also signs the build and uploads it to App Store Connect when these repository secrets exist (without
-them the step is skipped and only the unsigned build is published):
+With **Also upload the iPhone build to TestFlight** ticked on the Run workflow form, the iOS job also signs the build
+and uploads it to App Store Connect. It needs these repository secrets (without them the step is skipped and only the
+unsigned build is published):
 
 | Secret | Where it comes from |
 |---|---|
@@ -74,12 +75,25 @@ certificate and creates the provisioning profile itself. The app record must exi
 (APP_STORE_RELEASE.md, Phase 5). The build appears in TestFlight after Apple's processing, 10–30 minutes later.
 The workflow is written but untested until the Apple account exists; the first run may need a fix.
 
-## Later: signed builds
+## Mac signing and notarization
+
+The Mac job signs the app with the Developer ID certificate, has Apple notarize the app and the DMG, and staples the
+tickets, so both open without a Gatekeeper prompt. It uses the App Store Connect API key from the table above (the
+App Manager role covers notarization) and two more secrets:
+
+| Secret | Where it comes from |
+|---|---|
+| `MAC_DEVID_P12` | developer.apple.com → Certificates → **Developer ID Application**, exported from Keychain Access (My Certificates, with its private key) as a `.p12`: `base64 -i devid.p12 \| gh secret set MAC_DEVID_P12` |
+| `MAC_DEVID_P12_PASSWORD` | The password chosen when exporting the `.p12`: `gh secret set MAC_DEVID_P12_PASSWORD` |
+
+Without them the app ships ad-hoc signed and the release notes tell users to allow it in Privacy & Security. If
+Apple rejects a submission, the job prints the notary log and publishes nothing. The current certificate expires on 10 December
+2027; before then, make a new one, export a new `.p12` and replace both secrets. Apps signed earlier keep opening.
+
+## Later
 
 - **App Store (iOS):** follow [APP_STORE_RELEASE.md](APP_STORE_RELEASE.md); a TestFlight build is submitted for review
   from App Store Connect.
-- **Mac outside the App Store:** with a paid Apple Developer account, sign with a Developer ID certificate, notarize
-  with `xcrun notarytool submit --wait`, staple with `xcrun stapler staple`, and ship a DMG. Users then open the app
-  without the right-click step. A Homebrew cask can follow once releases are notarized.
+- **Homebrew cask:** possible now that releases are notarized.
 - **Mac App Store:** needs the App Sandbox (`com.apple.security.app-sandbox`) and a review of file locations in
   `AppPaths`; plan it as its own project.

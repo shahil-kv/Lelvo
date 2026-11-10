@@ -147,9 +147,10 @@ full reinstall, signing in brings the library back from Telegram.
 <details>
 <summary><b>Opening the Mac app the first time</b></summary>
 
-Until releases are notarized by Apple, macOS says it "can't check the app for malicious software" and won't open it.
-Click **Done**, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to
-Lelvo, then **Open**. You only do this once. (On macOS 15 and later, right-click → Open no longer skips this.)
+Releases from 0.3.0 on are signed and notarized by Apple, so Lelvo opens like any other app. Older builds, and
+builds you make from source, are not: macOS says it "can't check the app for malicious software". Click **Done**,
+then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to Lelvo, then
+**Open**. You only do this once.
 </details>
 
 ## First launch

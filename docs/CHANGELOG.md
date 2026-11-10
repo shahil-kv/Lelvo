@@ -5,6 +5,8 @@ User-facing changes for each release. iOS versions are tagged `ios-v*`, Mac vers
 
 ## Unreleased
 
+- **Mac:** the app is now signed and notarized by Apple, so it opens straight away. No more trip to Privacy &
+  Security on first launch.
 - **New look:** a new logo, a camel whose neck flows into a cloud, and a new violet across the app, the app icon
   (with dark and tinted versions on iPhone) and the website.
 - **Opening:** a cold launch zooms through the logo into your library in under a second. Coming back from another
