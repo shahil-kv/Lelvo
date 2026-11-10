@@ -489,6 +489,8 @@ final class ThumbnailView: NSView {
     private let ringLayer = CALayer()
     private let duration = NSTextField(labelWithString: "")
     private let live = NSImageView()
+    /// White heart in the bottom-left corner, as Photos marks favorites.
+    private let heart = NSImageView()
     private let badge = BadgeNSView()
     private let check = NSImageView()
 
@@ -529,9 +531,13 @@ final class ThumbnailView: NSView {
         live.contentTintColor = .white
         live.shadow = shadow
         live.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
+        heart.image = NSImage(systemSymbolName: "heart.fill", accessibilityDescription: "Favorite")
+        heart.contentTintColor = .white
+        heart.shadow = shadow
+        heart.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
         check.symbolConfiguration = .init(pointSize: 16, weight: .semibold)
         check.shadow = shadow
-        for v in [duration, live, badge, check] as [NSView] { addSubview(v) }
+        for v in [heart, duration, live, badge, check] as [NSView] { addSubview(v) }
         layer?.addSublayer(ringLayer)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -570,6 +576,7 @@ final class ThumbnailView: NSView {
             duration.isHidden = true
         }
         live.isHidden = !(entry.isLive && !entry.isVideo && side >= 56)
+        heart.isHidden = !entry.isFavorite || side < 44
         badge.configure(entry.badge, side: side)
         check.isHidden = !selecting || side < 44
         if selecting {
@@ -616,9 +623,12 @@ final class ThumbnailView: NSView {
         hoverLayer.frame = b
         ringLayer.frame = b
         CATransaction.commit()
+        heart.frame = CGRect(x: 5, y: b.height - 19, width: 15, height: 15)
+        // Duration and the Live mark sit after the heart when both show.
+        let x: CGFloat = heart.isHidden ? 5 : heart.frame.maxX + 4
         duration.sizeToFit()
-        duration.frame.origin = CGPoint(x: 5, y: b.height - duration.frame.height - 4)
-        live.frame = CGRect(x: 5, y: b.height - 19, width: 15, height: 15)
+        duration.frame.origin = CGPoint(x: x, y: b.height - duration.frame.height - 4)
+        live.frame = CGRect(x: x, y: b.height - 19, width: 15, height: 15)
         let s = badge.fittingSize
         let pad: CGFloat = b.width > 60 ? 4 : 2
         badge.frame = CGRect(x: b.width - s.width - pad, y: pad, width: s.width, height: s.height)

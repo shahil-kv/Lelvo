@@ -6,6 +6,10 @@ enum AppLinks {
     static let faq = URL.literal("https://github.com/shahil-kv/Lelvo/blob/main/docs/FAQ.md")
     static let privacyPolicy = URL.literal("https://lelvo.app/privacy")
     static let license = URL.literal("https://www.gnu.org/licenses/gpl-3.0.html")
+    /// The chat login codes arrive in: Telegram's official service account (blue tick), number 42777 for every user.
+    /// Hardcoded because sign-in happens before the app can ask Telegram anything. Tested on iPhone: opens the chat
+    /// itself; `tg://user?id=777000` only opened its profile and `tg://openmessage` only the chat list.
+    static let telegramCodeChat = URL.literal("tg://resolve?phone=42777")
 
     /// Who Report a problem and Suggest a feature write to, by email.
     static let developerName = "Shahil"
