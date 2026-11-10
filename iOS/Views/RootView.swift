@@ -12,16 +12,20 @@ struct RootView: View {
             if model.onboardingComplete {
                 TabView(selection: $model.selectedTab) {
                     GalleryView()
+                        .noBottomEdgeEffect()
                         .tabItem { Label("Photos", systemImage: "photo.on.rectangle") }
                         .tag(AppModel.Tab.gallery)
                     // Four tabs like Google Photos; Settings opens from the gear in Photos.
                     AlbumsView()
+                        .noBottomEdgeEffect()
                         .tabItem { Label("Collections", systemImage: "rectangle.stack") }
                         .tag(AppModel.Tab.collections)
                     SearchView()
+                        .noBottomEdgeEffect()
                         .tabItem { Label("Search", systemImage: "magnifyingglass") }
                         .tag(AppModel.Tab.search)
                     BackupDashboardView()
+                        .noBottomEdgeEffect()
                         .tabItem { Label("Backup", systemImage: "icloud.and.arrow.up") }
                         .tag(AppModel.Tab.backup)
                 }
@@ -43,6 +47,14 @@ struct RootView: View {
         // sleep stops background tasks (an iOS bug Apple has acknowledged), which paused long backups.
         .onChange(of: activity.isRunning, initial: true) { _, running in UIApplication.shared.isIdleTimerDisabled = running && keepAwake }
         .onChange(of: keepAwake) { _, on in UIApplication.shared.isIdleTimerDisabled = on && activity.isRunning }
+    }
+}
+
+private extension View {
+    /// Every tab ends like Photos: no edge effect behind the floating tab bar. On iOS 26 and later it darkens what is
+    /// there to a solid black strip (#100, #102); the glass bar keeps itself readable.
+    @ViewBuilder func noBottomEdgeEffect() -> some View {
+        if #available(iOS 26.0, *) { scrollEdgeEffectHidden(true, for: .bottom) } else { self }
     }
 }
 
