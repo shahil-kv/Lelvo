@@ -1,5 +1,6 @@
 package app.lelvo.android
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -31,6 +32,7 @@ import app.lelvo.android.debug.CoreCheckScreen
 import app.lelvo.android.library.ChooseLibraryScreen
 import app.lelvo.android.settings.SettingsInfo
 import app.lelvo.android.settings.SettingsScreen
+import app.lelvo.android.brand.LaunchHost
 import app.lelvo.android.shell.AppShell
 import app.lelvo.android.shell.MessageHost
 import app.lelvo.android.shell.Messages
@@ -75,12 +77,19 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The manifest's launch theme draws the launch screen; the app itself uses the plain one.
+        setTheme(R.style.Theme_Lelvo)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as LelvoApp
         if (BuildConfig.DEBUG) debugMessage(intent)
+        // Once per process, like iOS: a warm start or a rotation never plays it again.
+        val opening = savedInstanceState == null && !app.openingPlayed
+        app.openingPlayed = true
+        // The opening's first frame is drawn under the system splash, which then goes at once so nothing jumps.
+        if (opening && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) splashScreen.setOnExitAnimationListener { it.remove() }
         setContent {
-            LelvoTheme {
+            LelvoTheme { LaunchHost(play = opening) {
                 val step by app.telegram.auth.collectAsState()
                 val demo by app.demo.active.collectAsState()
                 val resetting by app.model.resetting.collectAsState()
@@ -96,7 +105,7 @@ class MainActivity : ComponentActivity() {
                         else -> SignInScreen(app.telegram, step, app.demo)
                     }
                 }
-            }
+            } }
         }
     }
 }

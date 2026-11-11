@@ -36,6 +36,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var scanner: LibraryScanner private set
     lateinit var coreCheck: CoreCheck private set
     lateinit var model: AppModel private set
+    /** The launch opening plays once per process (cold start only). */
+    var openingPlayed = false
 
     override fun onCreate() {
         super.onCreate()

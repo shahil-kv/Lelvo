@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from design/logo/mark.svg and design/tokens.json by Scripts/brand-assets.py. Don't edit by hand. -->
+<resources>
+    <color name="launch">#3A0CA8</color>
+</resources>

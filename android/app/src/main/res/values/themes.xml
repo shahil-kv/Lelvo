@@ -3,4 +3,10 @@
     <style name="Theme.Lelvo" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@android:color/white</item>
     </style>
+
+    <!-- What shows while the app starts: the white mark on Lelvo violet, as on iPhone. Android 10 and 11 draw it as the
+         window background; values-v31 hands it to the system splash screen. MainActivity switches to Theme.Lelvo. -->
+    <style name="Theme.Lelvo.Launch">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
 </resources>

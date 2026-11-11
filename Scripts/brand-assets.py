@@ -6,6 +6,7 @@
     macOS AppIcon (16 to 1024)                  macOS/Resources/Assets.xcassets/AppIcon.appiconset
     iOS launch screen                           LaunchMark.imageset and LaunchBackground.colorset
     website icons                               website/favicon.svg, apple-touch-icon.png, icon-192.png, icon-512.png
+    Android icon, launch screen, mark           android/app/src/main/res (ic_launcher*, splash_icon, launch_*), LelvoMark.kt
     logo kit to share (press, socials, store)   design/logo/lelvo-*.svg and .png
 
 Run from the repository root after changing the mark or the brand colours:  python3 Scripts/brand-assets.py
@@ -201,6 +202,98 @@ enum Brand {{
 '''
 
 
+ANDROID_RES = ROOT / "android/app/src/main/res"
+ANDROID_HEADER = "<!-- Generated from design/logo/mark.svg and design/tokens.json by Scripts/brand-assets.py. Don't edit by hand. -->"
+
+
+def vector(width_dp: float, height_dp: float, vw: float, vh: float, body: str, aapt: bool = False) -> str:
+    ns = ' xmlns:aapt="http://schemas.android.com/aapt"' if aapt else ""
+    return (f'<?xml version="1.0" encoding="utf-8"?>\n{ANDROID_HEADER}\n'
+            f'<vector xmlns:android="http://schemas.android.com/apk/res/android"{ns}\n'
+            f'    android:width="{width_dp:g}dp" android:height="{height_dp:g}dp"\n'
+            f'    android:viewportWidth="{vw:g}" android:viewportHeight="{vh:g}">\n{body}</vector>\n')
+
+
+def vector_mark(fill: str, width: float, cx: float, cy: float) -> str:
+    """The mark as a vector group, scaled to `width` and centred on (cx, cy) in viewport units."""
+    s = width / W
+    p = paths()
+    return (f'    <group android:translateX="{cx - width / 2:.3f}" android:translateY="{cy - H * s / 2:.3f}"'
+            f' android:scaleX="{s:.6f}" android:scaleY="{s:.6f}">\n'
+            f'        <path android:fillColor="{fill}" android:pathData="{p["camel"]}"/>\n'
+            f'        <path android:fillColor="{fill}" android:pathData="{p["cloud"]}"/>\n'
+            f'    </group>\n')
+
+
+def kotlin_file(brand: dict) -> str:
+    p = paths()
+    return f'''// Generated from design/logo/mark.svg and design/tokens.json by Scripts/brand-assets.py. Don't edit by hand.
+package app.lelvo.android.ui.theme
+
+/** The Lelvo mark: a camel whose neck flows into a cloud, in the units of its {W} × {H} drawing (iOS `LelvoMark`). */
+object LelvoMark {{
+    const val WIDTH = {W}f
+    const val HEIGHT = {H}f
+    const val ASPECT_RATIO = WIDTH / HEIGHT
+    /** The width of the mark on the launch screen, in dp: the same as the iPhone's. */
+    const val LAUNCH_WIDTH_DP = 124f
+    /** The thickest point of the camel's neck, as a fraction of the mark: zooming in on it covers the screen. */
+    const val ZOOM_ANCHOR_X = 0.343f
+    const val ZOOM_ANCHOR_Y = 0.286f
+
+    const val CAMEL = "{p["camel"]}"
+    const val CLOUD = "{p["cloud"]}"
+}}
+'''
+
+
+def android(brand: dict) -> None:
+    """Adaptive launcher icon (with a themed-icon layer), the launch screen pictures, and the mark for Kotlin."""
+    res = ANDROID_RES
+    (res / "drawable").mkdir(parents=True, exist_ok=True)
+    (res / "mipmap-anydpi-v26").mkdir(parents=True, exist_ok=True)
+    (res / "values").mkdir(parents=True, exist_ok=True)
+    # Adaptive icons draw on 108 dp and show the middle 72 dp. The mark takes the same share of the visible tile as on
+    # the iPhone icon (640 of 1024), a little below the middle like it.
+    visible, inset = 72, 18
+    width, cy = 640 / 1024 * visible, inset + 520 / 1024 * visible
+    (res / "drawable/ic_launcher_background.xml").write_text(vector(108, 108, 108, 108,
+        '    <path android:pathData="M0,0h108v108h-108z">\n'
+        '        <aapt:attr name="android:fillColor">\n'
+        f'            <gradient android:type="linear" android:startX="{inset}" android:startY="{inset + visible}"'
+        f' android:endX="{inset + visible}" android:endY="{inset}"\n'
+        f'                android:startColor="{brand["violet"]}" android:endColor="{brand["deep"]}"/>\n'
+        '        </aapt:attr>\n    </path>\n', aapt=True))
+    (res / "drawable/ic_launcher_foreground.xml").write_text(vector(108, 108, 108, 108, vector_mark("#FFFFFF", width, 54, cy)))
+    # Themed icons (Android 13+) tint this layer with the wallpaper's colours; only its shape counts.
+    (res / "drawable/ic_launcher_monochrome.xml").write_text(vector(108, 108, 108, 108, vector_mark("#FFFFFF", width, 54, cy)))
+    adaptive = (f'<?xml version="1.0" encoding="utf-8"?>\n{ANDROID_HEADER}\n'
+                '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+                '    <background android:drawable="@drawable/ic_launcher_background"/>\n'
+                '    <foreground android:drawable="@drawable/ic_launcher_foreground"/>\n'
+                '    <monochrome android:drawable="@drawable/ic_launcher_monochrome"/>\n'
+                '</adaptive-icon>\n')
+    for name in ("ic_launcher", "ic_launcher_round"):
+        (res / f"mipmap-anydpi-v26/{name}.xml").write_text(adaptive)
+    # Android 12+ splash icon: an icon without a background is drawn on a 288 dp square (192 dp visible circle).
+    # The mark keeps the iPhone's launch width, so the first frame of the opening lines up with it.
+    (res / "drawable/splash_icon.xml").write_text(vector(288, 288, 288, 288, vector_mark("#FFFFFF", 124, 144, 144)))
+    # Android 10 and 11 have no splash API: the window background shows the same picture.
+    (res / "drawable/launch_mark.xml").write_text(vector(124, round(124 * H / W, 2), W, H, vector_mark("#FFFFFF", W, W / 2, H / 2)))
+    (res / "drawable/launch_background.xml").write_text(
+        f'<?xml version="1.0" encoding="utf-8"?>\n{ANDROID_HEADER}\n'
+        '<layer-list xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <item android:drawable="@color/launch"/>\n'
+        f'    <item android:drawable="@drawable/launch_mark" android:gravity="center"'
+        f' android:width="124dp" android:height="{round(124 * H / W, 2)}dp"/>\n'
+        '</layer-list>\n')
+    (res / "values/brand.xml").write_text(
+        f'<?xml version="1.0" encoding="utf-8"?>\n{ANDROID_HEADER}\n<resources>\n'
+        f'    <color name="launch">{brand["launch"]}</color>\n</resources>\n')
+    kt = ROOT / "android/app/src/main/kotlin/app/lelvo/android/ui/theme/LelvoMark.kt"
+    kt.write_text(kotlin_file(brand))
+
+
 def colorset(hex_color: str) -> str:
     r, g, b = (int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5))
     c = f'"color-space" : "srgb", "components" : {{ "alpha" : "1.000", "blue" : "{b:.3f}", "green" : "{g:.3f}", "red" : "{r:.3f}" }}'
@@ -257,6 +350,7 @@ def main() -> int:
     render(favicon, web / "icon-192.png", 192)
     render(favicon, web / "icon-512.png", 512)
     logo_kit(brand)
+    android(brand)
     print("wrote", swift.relative_to(ROOT), "the icons and the logo kit")
     return 0
 

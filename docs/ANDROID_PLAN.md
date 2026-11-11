@@ -136,7 +136,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Preferences | `Shared/Services/Preferences.swift` | `Prefs`: same keys and defaults; iPhone-only keys left out with the reason; grid columns kept | ✅ |
 | Logs with redaction | `AppLog.swift`, `LelvoCore/Support/Redactor.swift` | `AppLog` and `Redactor` in `core/` (so `telegram/` logs through it too), with tests | ✅ |
 | Toasts | `Shared/Views/Toast.swift` | `Messages` + one snackbar host over every screen | ✅ |
-| Launch screen and brand mark | `Shared/Views/Brand/` | Splash screen API, vector mark | |
+| Launch screen and brand mark | `Shared/Views/Brand/` | Splash screen API, vector mark, iOS opening, adaptive icon | ✅ (tap to skip not proven) |
 | Review demo | `Shared/App/DemoMode.swift` | `DemoMode` | ✅ |
 
 ### Phase B. Onboarding and sign-in
@@ -373,9 +373,18 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   new library. Plus an adaptive launcher icon (white camel on the violet→deep gradient) with a monochrome layer for
   themed icons, written by `Scripts/brand-assets.py` from `design/logo/mark.svg`. Preview:
   https://claude.ai/artifact/BJFDxnYW2p3KoSQXeWuXte
-- **Next session (start here):** build A6 as approved above: (1) `brand-assets.py` writes the Android icon and
-  splash vectors, (2) themes for the splash (`values-v31`) and the Android 10–11 window background, (3) the exit
-  animation in `MainActivity`, (4) check on the emulator: cold start after force-stop, light and dark, Remove
-  animations on and off, tap to skip. Then Phase B (onboarding and sign-in). Commit each row on `android-plan` as it
-  lands (owner, 2026-11-11); don't push. Before each screen, look at Google Photos' version first.
+- 2026-11-11, A6 launch ✅: `brand-assets.py` now also writes the adaptive icon (with the themed-icon layer), the
+  Android 12+ splash icon (288 dp canvas, mark 124 dp: measured 326 px = 124 dp at 420 dpi, same as the overlay), the
+  Android 10–11 window background and `LelvoMark.kt`. `LaunchHost`/`LaunchOverlay` port the iOS opening; the system
+  splash is removed the moment the overlay's identical first frame is drawn. Found on the emulator and fixed: the app's
+  first frames stall (~700 ms, 36–41 skipped frames, debug build), so the zoom began half-way; the opening now holds
+  its first frame until three frames in a row arrive on time (max 1.5 s). An offscreen layer with a clear blend was
+  slow at ×64; it's now one even-odd path like iOS. Checked: cold start light and dark (breathe and zoom move every
+  frame), Remove animations (straight to Photos), warm start (system splash only, no opening), icon in the app drawer.
+  Not proven: tap to skip (adb can't time the tap). **To look at later:** ~700 ms of main-thread work on cold start
+  (LelvoApp services and the first grid); measure in a release build before Phase E is ticked.
+- **Next session (start here):** Phase A is done except the device run of sign-out (A7, waits for the owner). Start
+  Phase B: intro pages first (`Shared/Views/Onboarding/IntroView.swift`), then the code-sent card, the session-ended
+  screen, choose/unlock on the real account, new library, library ready, photo permission. Commit each row on
+  `android-plan` as it lands (owner, 2026-11-11); don't push. Before each screen, look at Google Photos' version first.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
