@@ -1,5 +1,7 @@
 # Every library here is on the approved list in docs/ANDROID_PLAN.md.
 [versions]
+annotation = "1.9.1"
+coroutines = "1.10.2"
 agp = "9.4.1"
 kotlin = "2.4.21"
 composeBom = "2026.09.00"
@@ -7,8 +9,13 @@ activityCompose = "1.12.4"
 coreKtx = "1.18.0"
 lifecycle = "2.10.0"
 junit = "5.13.4"
+serializationJson = "1.12.0"
+# JVM tests only: Argon2id for the header vectors. The app uses argon2kt.
+bouncycastle = "1.86"
 
 [libraries]
+androidx-annotation = { module = "androidx.annotation:annotation", version.ref = "annotation" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 androidx-lifecycle-runtime = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycle" }
@@ -17,6 +24,8 @@ compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 compose-material3 = { module = "androidx.compose.material3:material3" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serializationJson" }
+bouncycastle-provider = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-launcher = { module = "org.junit.platform:junit-platform-launcher" }

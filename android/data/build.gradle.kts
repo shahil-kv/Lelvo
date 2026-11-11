@@ -13,6 +13,5 @@ android {
 }
 
 dependencies {
-    implementation(project(":core"))
-    implementation(project(":telegram"))
+    api(project(":telegram"))
 }

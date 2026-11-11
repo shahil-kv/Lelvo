@@ -88,8 +88,8 @@ it: **iOS edge cases carried over**, **learned from other apps**, **known gaps**
   gives the very same bytes.
 
 ### Step 4. TDLib on Android
-- [ ] Build TDLib `18c8f7a0` for `arm64-v8a` and `x86_64`; `.so` files and `TdApi.java` in `:telegram`.
-- [ ] Build script checked in (`android/Scripts/build-tdlib.sh`); the binaries aren't committed.
+- [x] Build TDLib `18c8f7a0` for `arm64-v8a` and `x86_64`; `.so` files and `TdApi.java` in `:telegram`.
+- [x] Build script checked in (`android/Scripts/build-tdlib.sh`); the binaries aren't committed.
 - Done when: the app logs the TDLib version on the emulator and on a phone.
 
 ### Step 5. Sign in ← first thing you can try
@@ -168,4 +168,14 @@ it: **iOS edge cases carried over**, **learned from other apps**, **known gaps**
 
 - Step 1 done 2026-11-11: Gradle 9.8.2, AGP 9.4.1, Kotlin 2.4.21, Compose BOM 2026.09.00. Empty app runs on
   the Pixel 9 emulator (Android 16); `:core:test` reads the vectors in place.
+- Step 4 done 2026-11-11: TDLib built with NDK 27, 16 KB page aligned (checked `LOAD … 0x4000`), runs on the emulator.
+- Step 5 in progress: phone → code → password screens, TDLib session survives relaunch, Telegram errors show the iOS
+  wording. Not yet proven: a completed sign-in. Test-server numbers (`+99966 X YYYY`) reach the code step but
+  Telegram answers `PHONE_CODE_INVALID` to `XXXXX` and `XXXXXX` (tried DC 1–3, typed slowly). Next: sign in once
+  with a real spare account (`telegram.testDc=false`), or find the current test-code rule.
+  - iOS edge cases carried over: same auth steps and error sentences, code delivery and resend labels, codes of any
+    length, session ended elsewhere (`SessionWatch`, with its tests), wait for the old client to close, a key read
+    that fails is never treated as missing (iOS lost sessions that way), lost database key → fresh start, no message
+    database, country table and number lengths.
+  - Android additions: country from the SIM, SMS code autofill hint, pasted `+` numbers with unlisted codes.
 - Step 0 still open (owner): approved library issue, test Telegram account on the test servers.
