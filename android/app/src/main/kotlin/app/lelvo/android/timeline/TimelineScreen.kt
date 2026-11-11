@@ -234,6 +234,12 @@ private fun Grid(
     }
     val newest = sections.firstOrNull()?.items?.firstOrNull()?.id
     LaunchedEffect(newest) { if (pinnedTop) state.scrollToItem(0) }
+    // Where each section's header sits in the grid: a header, then its tiles.
+    val scrub = remember(sections, titles) {
+        var index = 0
+        sections.map { s -> ScrubSection(titles.title(s.title), index).also { index += 1 + s.items.size } }
+    }
+    Box(Modifier.fillMaxSize()) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         state = state,
@@ -254,6 +260,8 @@ private fun Grid(
                 Cell(entry, side, photos, onClick = { onOpen(entry) }, description = titles.describe(entry))
             }
         }
+    }
+    DateScrubber(state, scrub, Modifier.align(Alignment.TopEnd).padding(padding))
     }
 }
 
