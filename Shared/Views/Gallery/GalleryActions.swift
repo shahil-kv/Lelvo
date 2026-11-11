@@ -110,7 +110,7 @@ enum GalleryActions {
 
     /// Whether every entry is a favorite, on this device or in the Telegram library.
     static func allFavorite(_ entries: [GalleryEntry]) -> Bool {
-        !entries.isEmpty && entries.allSatisfy { $0.asset?.isFavorite ?? ($0.item?.favorite == true) }
+        !entries.isEmpty && entries.allSatisfy(\.isFavorite)
     }
 
     /// Removes the entries from this device and moves their backups to Recently Deleted (kept 30 days). The device

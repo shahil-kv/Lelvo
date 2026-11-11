@@ -5,6 +5,11 @@ What's new in Lelvo for iPhone and Mac, newest first. Downloads for each version
 
 ## Unreleased
 
+- **Signing in:** the code screen shows where your code went. When Telegram sends it to the Telegram app, a short
+  picture of the Telegram chat says so, and **Open** takes you straight to that chat. SMS codes say "Check your
+  messages". If nothing arrives, **Didn't get it?** asks Telegram to send it by SMS or call once its wait is over.
+- **Favorites:** a small heart marks favorite photos and videos in every grid, like Photos, on iPhone and Mac. It
+  follows hearts set in Lelvo and in Apple Photos.
 - **Mac:** the app is now signed and notarized by Apple, so it opens straight away. No more trip to Privacy &
   Security on first launch.
 - **New look:** a new logo, a camel whose neck flows into a cloud, and a new violet across the app, the app icon

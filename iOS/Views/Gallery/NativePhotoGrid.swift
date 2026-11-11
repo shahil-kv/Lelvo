@@ -624,11 +624,13 @@ extension Array {
 
 // MARK: - Cell
 
-/// Tile: thumbnail, video duration or Live mark, the small backup badge, and the selection circle / ring.
+/// Tile: thumbnail, favorite heart, video duration or Live mark, the small backup badge, and the selection circle / ring.
 final class PhotoCell: UICollectionViewCell {
     private let imageView = UIImageView()
     private let duration = UILabel()
     private let live = UIImageView(image: UIImage(systemName: "livephoto"))
+    /// White heart in the bottom-left corner, as Photos marks favorites.
+    private let heart = UIImageView(image: UIImage(systemName: "heart.fill"))
     private let badge = UIImageView()
     private let badgeBackground = UIView()
     private let check = UIImageView()
@@ -646,7 +648,7 @@ final class PhotoCell: UICollectionViewCell {
         imageView.clipsToBounds = true
         duration.font = .monospacedDigitSystemFont(ofSize: 11, weight: .bold)
         duration.textColor = .white
-        for v in [duration, live] as [UIView] {
+        for v in [duration, live, heart] as [UIView] {
             v.layer.shadowColor = UIColor.black.cgColor
             v.layer.shadowOpacity = 0.6
             v.layer.shadowRadius = 2
@@ -654,12 +656,14 @@ final class PhotoCell: UICollectionViewCell {
         }
         live.tintColor = .white
         live.preferredSymbolConfiguration = .init(pointSize: 11, weight: .semibold)
+        heart.tintColor = .white
+        heart.preferredSymbolConfiguration = .init(pointSize: 11, weight: .semibold)
         badgeBackground.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         check.preferredSymbolConfiguration = .init(pointSize: 20, weight: .regular)
         ring.layer.borderColor = UIColor.tintColor.cgColor
         ring.layer.borderWidth = 3
         ring.isUserInteractionEnabled = false
-        for v in [imageView, duration, live, badgeBackground, badge, ring, check] as [UIView] { contentView.addSubview(v) }
+        for v in [imageView, heart, duration, live, badgeBackground, badge, ring, check] as [UIView] { contentView.addSubview(v) }
         isAccessibilityElement = true
     }
 
@@ -711,6 +715,7 @@ final class PhotoCell: UICollectionViewCell {
             duration.isHidden = true
             live.isHidden = !entry.isLive || side < 40
         }
+        heart.isHidden = !entry.isFavorite || side < 40
 
         let size = min(10, max(7, side * 0.065))
         if badgeSymbol != entry.badge.symbol + "\(size)" {
@@ -745,10 +750,14 @@ final class PhotoCell: UICollectionViewCell {
         let b = contentView.bounds
         imageView.frame = b
         ring.frame = b
+        heart.sizeToFit()
+        heart.frame.origin = CGPoint(x: 4, y: b.height - heart.frame.height - 4)
+        // Duration and the Live mark sit after the heart when both show.
+        let x: CGFloat = heart.isHidden ? 4 : heart.frame.maxX + 4
         duration.sizeToFit()
-        duration.frame.origin = CGPoint(x: 4, y: b.height - duration.frame.height - 3)
+        duration.frame.origin = CGPoint(x: x, y: b.height - duration.frame.height - 3)
         live.sizeToFit()
-        live.frame.origin = CGPoint(x: 4, y: b.height - live.frame.height - 4)
+        live.frame.origin = CGPoint(x: x, y: b.height - live.frame.height - 4)
         let s = badge.image?.size ?? .zero
         let d = max(s.width, s.height) + 4
         let pad: CGFloat = b.width > 60 ? 4 : 2

@@ -14,6 +14,8 @@ struct GalleryEntry: Identifiable, Equatable, Hashable {
     var isLive: Bool { asset.map { $0.mediaSubtypes.contains(.photoLive) } ?? (item?.kind == .livePhoto) }
     var duration: Double? { asset?.duration ?? item?.duration }
     var isCloudOnly: Bool { asset == nil }
+    /// Photos decides for an item on this device; otherwise the Telegram library's favorite note.
+    var isFavorite: Bool { asset?.isFavorite ?? (item?.favorite == true) }
 
     var badge: BackupBadge {
         guard let item else { return .phoneOnly }
@@ -32,7 +34,7 @@ struct GalleryEntry: Identifiable, Equatable, Hashable {
 
     var accessibilityLabel: String {
         let kind = isVideo ? "Video" : (isLive ? "Live Photo" : "Photo")
-        return "\(kind), \(Format.date(date, style: .long, time: .short)), \(badge.label)"
+        return "\(kind)\(isFavorite ? ", Favorite" : ""), \(Format.date(date, style: .long, time: .short)), \(badge.label)"
     }
 
     static func == (a: GalleryEntry, b: GalleryEntry) -> Bool { a.id == b.id && a.item == b.item && a.asset == b.asset }

@@ -22,6 +22,10 @@ final class OnboardingModel: ObservableObject {
     @Published var codeInfo = ""
     /// Digits Telegram sent (5 or 6), or 0 when the code is a word or phrase.
     @Published var codeLength = 5
+    @Published var codeDelivery = TDService.CodeDelivery.other
+    @Published var codeResend: TDService.CodeResend?
+    /// When "Didn't get it?" becomes tappable, from Telegram's own timeout.
+    @Published var codeResendAt = Date()
     @Published var passwordHint = ""
     @Published var otherDeviceLink = ""
     @Published var channels: [LibraryService.ChannelChoice] = []
@@ -46,6 +50,21 @@ final class OnboardingModel: ObservableObject {
     /// Screenshot preview (`-replay N`): the real screens, but nothing is sent to Telegram and no library is created.
     /// 0 plays a new user; more plays a returning user whose library has that many items.
     var replayRestored: Int?
+    /// The code screen with sample data (`-replayStep code-telegram|code-sms`). Nothing reaches Telegram: Continue,
+    /// resend and Back stay on this screen.
+    var codePreview = false
+
+    func showSampleCode(sms: Bool) {
+        codePreview = true
+        phone = "+1 555 010 0199"
+        code = ""
+        codeLength = 5
+        codeDelivery = sms ? .sms : .telegram
+        codeInfo = sms ? "Enter the code sent by SMS to +1 555 010 0199." : ""
+        codeResend = .init(label: sms ? "Call me instead" : "Send by SMS instead", after: 30)
+        codeResendAt = Date().addingTimeInterval(30)
+        step = .code
+    }
     #endif
 
     init() {
@@ -58,6 +77,8 @@ final class OnboardingModel: ObservableObject {
             switch UserDefaults.standard.string(forKey: "replayStep") {
             case "library": step = .library
             case "photos": restoredItems = n; step = .photos
+            case "code-telegram": showSampleCode(sms: false)
+            case "code-sms": showSampleCode(sms: true)
             default: break
             }
         }
@@ -95,7 +116,10 @@ final class OnboardingModel: ObservableObject {
         case .needsCredentials: if step != .credentials { step = .credentials }
         case .starting, .loggingOut, .closed: break
         case .waitPhone: step = .phone
-        case .waitCode(let info, let length): codeInfo = info; codeLength = length; step = .code
+        case .waitCode(let info, let length, let delivery, let resend):
+            codeInfo = info; codeLength = length; codeDelivery = delivery; codeResend = resend
+            codeResendAt = Date().addingTimeInterval(TimeInterval(resend?.after ?? 0))
+            step = .code
         case .waitPassword(let hint): passwordHint = hint; step = .password
         case .waitOtherDevice(let link): otherDeviceLink = link; step = .otherDevice
         case .waitEmail: error = "Telegram asks for an email login on this account. Sign in once in the official Telegram app, then try again."
@@ -189,6 +213,8 @@ final class OnboardingModel: ObservableObject {
             demoSignIn = true
             error = nil
             codeLength = DemoMode.code.count
+            codeDelivery = .other
+            codeResend = nil
             codeInfo = "Demo account: enter the code from the App Review notes."
             step = .code
             return
@@ -203,6 +229,9 @@ final class OnboardingModel: ObservableObject {
     func back() {
         error = nil
         info = nil
+        #if DEBUG
+        if codePreview { return }
+        #endif
         switch step {
         case .credentials, .phone: step = .welcome
         case .code where demoSignIn:
@@ -232,7 +261,22 @@ final class OnboardingModel: ObservableObject {
             step = .photos
             return
         }
+        #if DEBUG
+        if codePreview {
+            self.code = ""
+            info = "Preview only. Nothing was sent to Telegram."
+            return
+        }
+        #endif
         run { try await self.env.td.submitCode(code) }
+    }
+    func resendCode() {
+        code = ""
+        #if DEBUG
+        // Plays what Telegram does: the Telegram code falls back to SMS, SMS falls back to a call.
+        if codePreview { showSampleCode(sms: true); return }
+        #endif
+        run { try await self.env.td.resendCode() }
     }
     func submitPassword() { run { try await self.env.td.submitPassword(self.password) } }
 
@@ -835,6 +879,10 @@ private struct OnboardingPage<Content: View>: View {
     @ObservedObject var m: OnboardingModel
     var showsInfo = true
     var button: PrimaryButton? = nil
+    /// Shown instead of the icon tile, for a step that needs a picture (the code screen's chat card).
+    var art: AnyView? = nil
+    /// Replaces `subtitle` when a few words need to stand out in white.
+    var richSubtitle: AttributedString? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -856,12 +904,16 @@ private struct OnboardingPage<Content: View>: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 12) {
-                        Image(systemName: icon).font(.system(size: 34, weight: .semibold)).foregroundStyle(.tint)
-                            .frame(width: 64, height: 64)
-                            .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .accessibilityHidden(true)
+                        if let art {
+                            art.padding(.bottom, 6)
+                        } else {
+                            Image(systemName: icon).font(.system(size: 34, weight: .semibold)).foregroundStyle(.tint)
+                                .frame(width: 64, height: 64)
+                                .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .accessibilityHidden(true)
+                        }
                         Text(title).font(.system(size: 32, weight: .bold)).fixedSize(horizontal: false, vertical: true)
-                        Text(subtitle).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        Text(richSubtitle ?? AttributedString(subtitle)).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     content
                     if let error = m.error { ErrorBanner(message: error) }
@@ -1073,16 +1125,52 @@ private struct CodeScreen: View {
     /// Digits Telegram sent; 0 when the code is a word or phrase (typed into a plain field instead of boxes).
     private var length: Int { m.codeLength }
 
+    @State private var telegramMissing = false
+
+    private var title: String {
+        switch m.codeDelivery {
+        case .telegram: "Check Telegram"
+        case .sms: "Check your messages"
+        case .other: "Enter the code"
+        }
+    }
+
+    private var subtitle: String { m.codeInfo.isEmpty ? "We sent a code to your Telegram app." : m.codeInfo }
+
+    /// The words people scan for (where to look) in white, the rest secondary.
+    private var richSubtitle: AttributedString? {
+        func bold(_ s: String) -> AttributedString { var a = AttributedString(s); a.foregroundColor = .white; return a }
+        switch m.codeDelivery {
+        case .telegram:
+            return AttributedString("It's in a chat from ") + bold("Telegram") + AttributedString(" in the Telegram app, ")
+                + bold("not in your SMS") + AttributedString(".")
+        case .sms:
+            #if os(iOS)
+            let tail = " Tap it above the keyboard to fill it in."
+            #else
+            let tail = ""
+            #endif
+            return AttributedString("We sent it by SMS to ") + bold(m.phone) + AttributedString("." + tail)
+        case .other: return nil
+        }
+    }
+
     var body: some View {
-        OnboardingPage(icon: "message.fill", title: "Enter the code",
-                       subtitle: m.codeInfo.isEmpty ? "We sent a code to your Telegram app." : m.codeInfo,
-                       m: m, button: .init(title: "Continue", enabled: length > 0 ? m.code.count >= length : !m.code.trimmingCharacters(in: .whitespaces).isEmpty) { m.submitCode() }) {
+        OnboardingPage(icon: "message.fill", title: title, subtitle: subtitle,
+                       m: m, button: .init(title: "Continue", enabled: length > 0 ? m.code.count >= length : !m.code.trimmingCharacters(in: .whitespaces).isEmpty) { m.submitCode() },
+                       art: m.codeDelivery == .other ? nil : AnyView(CodeSentCard(delivery: m.codeDelivery, open: m.codeDelivery == .telegram ? openTelegram : nil).id(m.codeDelivery)),
+                       richSubtitle: richSubtitle) {
             VStack(alignment: .leading, spacing: 18) {
                 if length > 0 { digitBoxes } else {
                     OnboardingField(placeholder: "Code", text: $m.code, autofocus: true) {
                         if !m.code.isEmpty { m.submitCode() }
                     }
                 }
+                if m.codeDelivery == .telegram && telegramMissing {
+                    Text("Telegram isn't on this \(Device.name). Open it on the phone or computer where you use it.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                if let resend = m.codeResend { resendButton(resend) }
                 Button {
                     m.back()
                 } label: {
@@ -1094,6 +1182,36 @@ private struct CodeScreen: View {
         .onAppear { focused = true }
         .onChange(of: m.error) { _, e in
             if e != nil { withAnimation(.default) { shake += 1 }; m.code = "" }
+        }
+    }
+
+    private func openTelegram() {
+        // A Telegram version that doesn't know this link still opens at its chat list. Nothing opens it: Telegram is
+        // on another device.
+        PlatformActions.open(AppLinks.telegramCodeChat) { opened in
+            if opened { return }
+            PlatformActions.open(URL.literal("tg://")) { telegramMissing = !$0 }
+        }
+    }
+
+    /// Greyed with a countdown until Telegram allows it, so a stuck person always sees a way forward.
+    private func resendButton(_ resend: TDService.CodeResend) -> some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let left = max(0, Int(m.codeResendAt.timeIntervalSince(context.date).rounded(.up)))
+            Button { m.resendCode() } label: {
+                HStack(spacing: 4) {
+                    Text("Didn't get it?").foregroundStyle(.secondary)
+                    Text(resend.label).foregroundStyle(left > 0 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.tint))
+                    if left > 0 {
+                        Text("\(left / 60):\(String(format: "%02d", left % 60))")
+                            .foregroundStyle(.tertiary)
+                            .contentTransition(.numericText(countsDown: true))
+                    }
+                }
+                .motion(Motion.tap, value: left)
+            }
+            .font(.subheadline.monospacedDigit())
+            .disabled(left > 0 || m.busy)
         }
     }
 

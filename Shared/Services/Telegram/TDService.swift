@@ -82,12 +82,21 @@ extension Swift.Error {
 final class TDService: @unchecked Sendable {
     static let shared = TDService()
 
+    /// Where the login code went, so the code screen can say where to look.
+    enum CodeDelivery: Equatable { case telegram, sms, other }
+
+    /// The other way Telegram offers to send the code, and how many seconds until it may be asked for.
+    struct CodeResend: Equatable {
+        let label: String
+        let after: Int
+    }
+
     enum AuthStep: Equatable {
         case needsCredentials
         case starting
         case waitPhone
         /// `length` is the number of digits Telegram sent, or 0 when the code is a word or phrase.
-        case waitCode(info: String, length: Int)
+        case waitCode(info: String, length: Int, delivery: CodeDelivery, resend: CodeResend?)
         case waitPassword(hint: String)
         case waitEmail
         case waitOtherDevice(link: String)
@@ -351,7 +360,8 @@ final class TDService: @unchecked Sendable {
             }
         case .authorizationStateWaitPhoneNumber: setAuth(.waitPhone)
         case .authorizationStateWaitCode(let s):
-            setAuth(.waitCode(info: Self.describe(s.codeInfo), length: Self.codeLength(s.codeInfo.type)))
+            setAuth(.waitCode(info: Self.describe(s.codeInfo), length: Self.codeLength(s.codeInfo.type),
+                              delivery: Self.delivery(s.codeInfo.type), resend: Self.resend(s.codeInfo)))
         case .authorizationStateWaitPassword(let s): setAuth(.waitPassword(hint: s.passwordHint))
         case .authorizationStateWaitEmailAddress, .authorizationStateWaitEmailCode: setAuth(.waitEmail)
         case .authorizationStateWaitOtherDeviceConfirmation(let s): setAuth(.waitOtherDevice(link: s.link))
@@ -404,6 +414,26 @@ final class TDService: @unchecked Sendable {
         }
     }
 
+    private static func delivery(_ type: AuthenticationCodeType) -> CodeDelivery {
+        switch type {
+        case .authenticationCodeTypeTelegramMessage: return .telegram
+        case .authenticationCodeTypeSms, .authenticationCodeTypeSmsWord, .authenticationCodeTypeSmsPhrase: return .sms
+        default: return .other
+        }
+    }
+
+    /// nil when Telegram has no other way to send the code (`nextType` is null), so the screen offers nothing.
+    private static func resend(_ info: AuthenticationCodeInfo) -> CodeResend? {
+        let label: String
+        switch info.nextType {
+        case .authenticationCodeTypeSms, .authenticationCodeTypeSmsWord, .authenticationCodeTypeSmsPhrase: label = "Send by SMS instead"
+        case .authenticationCodeTypeCall, .authenticationCodeTypeFlashCall, .authenticationCodeTypeMissedCall: label = "Call me instead"
+        case .authenticationCodeTypeTelegramMessage: label = "Send to Telegram again"
+        default: return nil
+        }
+        return CodeResend(label: label, after: max(0, info.timeout))
+    }
+
     /// Digits in the login code (Telegram sends 5 or 6, depending on the account and delivery), 0 for words and phrases.
     private static func codeLength(_ type: AuthenticationCodeType) -> Int {
         switch type {
@@ -426,6 +456,11 @@ final class TDService: @unchecked Sendable {
 
     func submitCode(_ code: String) async throws {
         do { _ = try await requireClient().checkAuthenticationCode(code: code) } catch { throw error.asTD }
+    }
+
+    /// Asks Telegram for the code the other way it offered; the new state arrives as a fresh `waitCode`.
+    func resendCode() async throws {
+        do { _ = try await requireClient().resendAuthenticationCode(reason: .resendCodeReasonUserRequest) } catch { throw error.asTD }
     }
 
     func submitPassword(_ password: String) async throws {
