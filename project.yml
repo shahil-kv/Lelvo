@@ -93,6 +93,14 @@ targets:
           - app.lelvo.ios.backup.continued
         UIFileSharingEnabled: false
         LSSupportsOpeningDocumentsInPlace: false
+    entitlements:
+      path: iOS/Lelvo.entitlements
+      properties:
+        # Lets iOS save a library's passphrase in the Passwords app and fill it in on a new device (served by
+        # website-worker.js). Not on the Mac yet: its release is signed without a provisioning profile, and this
+        # entitlement needs one (docs/RELEASING.md).
+        com.apple.developer.associated-domains:
+          - webcredentials:lelvo.app
 
   LelvoMac:
     type: application
