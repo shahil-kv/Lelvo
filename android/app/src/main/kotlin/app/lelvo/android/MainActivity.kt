@@ -51,7 +51,7 @@ import app.lelvo.android.timeline.TimelineScreen
 import app.lelvo.android.ui.theme.LelvoTheme
 import app.lelvo.android.viewer.ViewerScreen
 import app.lelvo.core.crypto.RecoveryKey
-import app.lelvo.core.index.LibraryItem
+import app.lelvo.core.index.GalleryEntry
 import app.lelvo.telegram.AuthStep
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -200,7 +200,7 @@ private fun LibraryPreview(app: LelvoApp, kind: String, onClose: () -> Unit) {
 /** The four tabs, with the viewer, Settings and the core check over them. */
 @Composable
 private fun Library(app: LelvoApp, real: Boolean = false) {
-    var open by remember { mutableStateOf<Pair<List<LibraryItem>, Int>?>(null) }
+    var open by remember { mutableStateOf<Pair<List<GalleryEntry>, Int>?>(null) }
     var settings by rememberSaveable { mutableStateOf(false) }
     var checking by rememberSaveable { mutableStateOf(false) }
     var libraries by rememberSaveable { mutableStateOf(false) }
@@ -208,7 +208,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
     Box(Modifier.fillMaxSize()) {
         AppShell(app.model.tab) { tab, modifier ->
             when (tab) {
-                Tab.Photos -> TimelineScreen(app.store, app.demo, app.prefs, onOpen = { list, index -> open = list to index }, onSettings = openSettings, modifier = modifier)
+                Tab.Photos -> TimelineScreen(app.store, app.photos, app.demo, app.prefs, onOpen = { list, index -> open = list to index }, onSettings = openSettings, modifier = modifier)
                 else -> TabPlaceholder(tab, app.demo, openSettings, modifier)
             }
         }

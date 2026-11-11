@@ -18,7 +18,7 @@ object Timeline {
         data object Unknown : Title
     }
 
-    data class Section(val key: String, val title: Title, val items: List<LibraryItem>)
+    data class Section<T>(val key: String, val title: Title, val items: List<T>)
 
     /**
      * Backed-up items only: hidden ones never show (they're in the backup and come back hidden), and trashed or
@@ -29,13 +29,20 @@ object Timeline {
         .sortedWith(compareBy<LibraryItem> { it.createdAt == null }.thenByDescending { it.createdAt ?: 0 }.thenBy { it.id })
 
     /** Splits sorted [items] into sections. Days are counted in [zone], the phone's time zone. */
-    fun group(items: List<LibraryItem>, grouping: Grouping, zone: ZoneId, today: LocalDate): List<Section> {
-        val sections = mutableListOf<Section>()
+    fun group(items: List<LibraryItem>, grouping: Grouping, zone: ZoneId, today: LocalDate): List<Section<LibraryItem>> =
+        group(items, { it.createdAt }, grouping, zone, today)
+
+    /** Timeline tiles (phone photos and cloud items) into sections. */
+    fun groupEntries(entries: List<GalleryEntry>, grouping: Grouping, zone: ZoneId, today: LocalDate): List<Section<GalleryEntry>> =
+        group(entries, { it.date }, grouping, zone, today)
+
+    fun <T> group(items: List<T>, dateOf: (T) -> Long?, grouping: Grouping, zone: ZoneId, today: LocalDate): List<Section<T>> {
+        val sections = mutableListOf<Section<T>>()
         var key: String? = null
         var title: Title = Title.Unknown
-        var bucket = mutableListOf<LibraryItem>()
+        var bucket = mutableListOf<T>()
         for (item in items) {
-            val date = item.createdAt?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() }
+            val date = dateOf(item)?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() }
             val k: String
             val t: Title
             when {
@@ -58,6 +65,13 @@ object Timeline {
             bucket += item
         }
         key?.let { if (bucket.isNotEmpty()) sections += Section(it, title, bucket) }
-        return sections
+        // Undated items can form several runs; section keys stay unique for the grid (iOS does the same).
+        val seen = HashSet<String>()
+        return sections.map { s ->
+            var k = s.key
+            var n = 1
+            while (!seen.add(k)) { n++; k = "${s.key}#$n" }
+            if (k == s.key) s else s.copy(key = k)
+        }
     }
 }

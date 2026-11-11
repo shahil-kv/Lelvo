@@ -1,5 +1,17 @@
 package app.lelvo.android.timeline
 
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.combine
+import app.lelvo.data.media.PhotoAccess
+import app.lelvo.core.index.GalleryFilter
+import app.lelvo.core.index.GalleryEntry
+import app.lelvo.core.index.Gallery
+import app.lelvo.android.media.PhoneThumbnail
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.material3.InputChip
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -88,7 +100,7 @@ private val zoomLevels = listOf(2 to Timeline.Grouping.Day, 3 to Timeline.Groupi
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TimelineScreen(
-    store: LibraryStore, demo: DemoMode, prefs: Prefs, onOpen: (List<LibraryItem>, Int) -> Unit, onSettings: () -> Unit,
+    store: LibraryStore, photos: PhotoAccess, demo: DemoMode, prefs: Prefs, onOpen: (List<GalleryEntry>, Int) -> Unit, onSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var level by rememberSaveable {
@@ -96,13 +108,18 @@ fun TimelineScreen(
     }
     val (columns, grouping) = zoomLevels[level]
     // Sorting and grouping run off the main thread; the grid only lays out the result.
-    val sections by produceState<List<Timeline.Section>?>(null, store, grouping) {
-        store.items()
-            .map { Timeline.group(Timeline.visible(it), grouping, ZoneId.systemDefault(), LocalDate.now()) }
+    val isDemo by demo.active.collectAsState()
+    var filter by rememberSaveable { mutableStateOf<GalleryFilter?>(null) }
+    var legend by remember { mutableStateOf(false) }
+    // Phone photos and cloud items in one timeline (iOS `GalleryModel.merge`); merging, filtering and grouping run off
+    // the main thread, and a change to either side redraws only what moved.
+    val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(null, store, grouping, filter, isDemo) {
+        val phone = if (isDemo) flowOf(emptyList()) else photos.changes().map { photos.assets() }
+        combine(store.items(), phone) { items, assets -> Gallery.merge(assets, items) }
+            .map { all -> Timeline.groupEntries(filter?.let { f -> all.filter(f::matches) } ?: all, grouping, ZoneId.systemDefault(), LocalDate.now()) }
             .flowOn(Dispatchers.Default)
             .collect { value = it }
     }
-    val isDemo by demo.active.collectAsState()
     val backup by demo.backup.collectAsState()
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
@@ -117,20 +134,37 @@ fun TimelineScreen(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             Column {
-                LelvoTopBar("Photos", demo, onSettings, scrollBehavior) {
-                    // Real backup is Phase I; until then only the demo simulates one.
-                    if (isDemo) {
-                        IconButton(onClick = { menu = true }) {
-                            Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options")
-                        }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Back up now") },
-                                enabled = backup?.running != true,
-                                onClick = { menu = false; scope.launch { demo.runBackup() } },
-                            )
-                        }
+                LelvoTopBar(filter?.title ?: "Photos", demo, onSettings, scrollBehavior) {
+                    IconButton(onClick = { menu = true }) {
+                        Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options")
                     }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        // Real backup is Phase I; until then only the demo simulates one.
+                        if (isDemo) DropdownMenuItem(
+                            text = { Text("Back up now") },
+                            enabled = backup?.running != true,
+                            onClick = { menu = false; scope.launch { demo.runBackup() } },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("All photos") },
+                            trailingIcon = { if (filter == null) Icon(painterResource(R.drawable.ic_check_circle), null) },
+                            onClick = { menu = false; filter = null },
+                        )
+                        for (f in GalleryFilter.entries) DropdownMenuItem(
+                            text = { Text(f.title) },
+                            trailingIcon = { if (filter == f) Icon(painterResource(R.drawable.ic_check_circle), null) },
+                            onClick = { menu = false; filter = f },
+                        )
+                        DropdownMenuItem(text = { Text("What the icons mean") }, onClick = { menu = false; legend = true })
+                    }
+                }
+                filter?.let { f ->
+                    // The filter in use, one tap to clear, like Google Photos' search chips.
+                    InputChip(
+                        selected = true, onClick = { filter = null }, label = { Text(f.title) },
+                        trailingIcon = { Icon(painterResource(R.drawable.ic_close), "Show all photos", Modifier.size(18.dp)) },
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
                 }
                 backup?.takeIf { it.running }?.let { BackupProgress(it) }
             }
@@ -139,20 +173,24 @@ fun TimelineScreen(
         val list = sections
         when {
             list == null -> Unit
-            list.isEmpty() -> EmptyState(Modifier.padding(padding))
+            list.isEmpty() -> if (filter != null) Text(
+                "Nothing here.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(padding).padding(32.dp),
+            ) else EmptyState(Modifier.padding(padding))
             else -> Grid(
-                list, columns, grouping, padding,
+                list, columns, grouping, padding, photos,
                 onZoom = { step ->
                     level = (level + step).coerceIn(0, zoomLevels.lastIndex)
                     prefs.gridColumns = zoomLevels[level].first
                 },
-                onOpen = { item ->
+                onOpen = { entry ->
                     val all = list.flatMap { it.items }
-                    onOpen(all, all.indexOf(item))
+                    onOpen(all, all.indexOf(entry))
                 },
             )
         }
     }
+    if (legend) BadgeLegend(onDismiss = { legend = false })
 }
 
 @Composable
@@ -181,9 +219,10 @@ private fun EmptyState(modifier: Modifier) {
 
 @Composable
 private fun Grid(
-    sections: List<Timeline.Section>, columns: Int, grouping: Timeline.Grouping, padding: PaddingValues,
-    onZoom: (Int) -> Unit, onOpen: (LibraryItem) -> Unit,
+    sections: List<Timeline.Section<GalleryEntry>>, columns: Int, grouping: Timeline.Grouping, padding: PaddingValues,
+    photos: PhotoAccess, onZoom: (Int) -> Unit, onOpen: (GalleryEntry) -> Unit,
 ) {
+    val side = LocalConfiguration.current.screenWidthDp.dp / columns
     val state = rememberLazyGridState()
     val titles = rememberTitles()
     // New items land above the newest section. A lazy grid keeps its place by key, so they would arrive off screen;
@@ -211,38 +250,39 @@ private fun Grid(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp).semantics { heading() },
                 )
             }
-            items(section.items, key = { it.id }, contentType = { "cell" }) { item ->
-                Cell(item, small = columns > 4, onClick = { onOpen(item) }, description = titles.describe(item))
+            items(section.items, key = { it.id }, contentType = { "cell" }) { entry ->
+                Cell(entry, side, photos, onClick = { onOpen(entry) }, description = titles.describe(entry))
             }
         }
     }
 }
 
+/**
+ * A tile as the iPhone draws it: the backup badge top right on a small dark circle, the heart bottom left, then the
+ * video length or the Live mark. On tiles under 40 dp only the badge stays.
+ */
 @Composable
-private fun Cell(item: LibraryItem, small: Boolean, onClick: () -> Unit, description: String) {
+private fun Cell(entry: GalleryEntry, side: Dp, photos: PhotoAccess, onClick: () -> Unit, description: String) {
     Box(
         Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainerHighest).clickable(onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = description },
     ) {
         AsyncImage(
-            model = DemoMode.assetUri(item) ?: CloudThumbnail(item),
+            model = entry.asset?.let { PhoneThumbnail(photos.uri(it)) } ?: entry.item?.let { DemoMode.assetUri(it) ?: CloudThumbnail(it) },
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        if (small) return@Box
-        if (item.kind == ItemKind.Video) {
-            Text(
-                formatDuration(item.duration),
-                color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
-            )
-        }
-        if (item.favorite) {
-            Icon(
-                painterResource(R.drawable.ic_favorite), contentDescription = null, tint = Color.White,
-                modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).size(14.dp),
-            )
+        BadgeMark(entry.badge, side, Modifier.align(Alignment.TopEnd).padding(if (side > 60.dp) 4.dp else 2.dp))
+        if (side < 40.dp) return@Box
+        Row(Modifier.align(Alignment.BottomStart).padding(start = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (entry.isFavorite) {
+                Icon(painterResource(R.drawable.ic_favorite), null, Modifier.size(14.dp), tint = Color.White)
+                Spacer(Modifier.width(4.dp))
+            }
+            if (entry.isVideo) Text(
+                formatDuration(entry.duration), color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+            ) else if (entry.isLive) Icon(painterResource(R.drawable.ic_motion_photos), null, Modifier.size(14.dp), tint = Color.White)
         }
     }
 }
@@ -288,10 +328,14 @@ private class Titles(locale: Locale) {
         Timeline.Title.Unknown -> "Unknown date"
     }
 
-    fun describe(item: LibraryItem): String {
-        val kind = if (item.kind == ItemKind.Video) "Video, ${formatDuration(item.duration)}" else "Photo"
-        val date = item.createdAt?.let { full.format(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault())) } ?: "Unknown date"
-        return listOfNotNull(kind, date, "Favorite".takeIf { item.favorite }).joinToString(", ")
+    fun describe(entry: GalleryEntry): String {
+        val kind = when {
+            entry.isVideo -> "Video, ${formatDuration(entry.duration)}"
+            entry.isLive -> "Live Photo"
+            else -> "Photo"
+        }
+        val date = entry.date?.let { full.format(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault())) } ?: "Unknown date"
+        return listOfNotNull(kind, "Favorite".takeIf { entry.isFavorite }, date, entry.badge.label).joinToString(", ")
     }
 }
 

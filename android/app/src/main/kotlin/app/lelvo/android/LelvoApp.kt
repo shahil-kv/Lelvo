@@ -120,6 +120,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
             add(app.lelvo.android.media.CloudImageFetcher.PhotoFactory(media))
             add(app.lelvo.android.media.CloudThumbnailKeyer())
             add(app.lelvo.android.media.CloudPhotoKeyer())
+            add(app.lelvo.android.media.PhoneThumbnailFetcher.Factory(this@LelvoApp))
+            add(app.lelvo.android.media.PhoneThumbnailKeyer())
         }.build()
 
     /** "First Last" of the signed-in account, as Settings shows it; empty when Telegram can't say. */

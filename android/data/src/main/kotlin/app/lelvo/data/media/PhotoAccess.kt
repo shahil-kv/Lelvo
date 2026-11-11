@@ -11,6 +11,12 @@ import android.os.StatFs
 import android.provider.MediaStore
 import android.util.Size
 import app.lelvo.core.index.AssetKey
+import app.lelvo.core.index.PhoneAsset
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.flow
 import app.lelvo.core.support.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -116,5 +122,65 @@ class PhotoAccess(context: Context) {
         out
     }
 
+    /**
+     * This phone's photos and videos for the timeline, newest first. The capture date when the file has one, else when
+     * it was added, so every photo has a place. Empty without access.
+     */
+    suspend fun assets(): List<PhoneAsset> = withContext(Dispatchers.IO) {
+        val status = status()
+        if (status != Status.Full && status != Status.Partial) return@withContext emptyList()
+        val out = ArrayList<PhoneAsset>()
+        val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val favorite = if (Build.VERSION.SDK_INT >= 30) MediaStore.MediaColumns.IS_FAVORITE else null
+        val columns = listOfNotNull(
+            MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.MEDIA_TYPE, MediaStore.MediaColumns.DATE_TAKEN,
+            MediaStore.MediaColumns.DATE_ADDED, MediaStore.MediaColumns.DURATION, MediaStore.MediaColumns.WIDTH,
+            MediaStore.MediaColumns.HEIGHT, MediaStore.MediaColumns.DISPLAY_NAME, favorite,
+        ).toTypedArray()
+        val where = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+        runCatching {
+            app.contentResolver.query(uri, columns, where, null, null)?.use { c ->
+                while (c.moveToNext()) {
+                    val video = c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                    val taken = if (c.isNull(2)) c.getLong(3) * 1000 else c.getLong(2)
+                    out += PhoneAsset(
+                        localId = c.getLong(0).toString(), takenAt = taken, isVideo = video,
+                        duration = if (video && !c.isNull(4)) c.getLong(4) / 1000.0 else null,
+                        width = c.getInt(5), height = c.getInt(6), filename = c.getString(7).orEmpty(),
+                        isFavorite = favorite != null && c.getInt(8) == 1,
+                    )
+                }
+            }
+        }.onFailure { AppLog.error("Photos: timeline listing failed: ${it::class.simpleName}") }
+        out.sortByDescending { it.takenAt ?: Long.MIN_VALUE }
+        out
+    }
+
+    /** The content Uri of a phone photo or video, for thumbnails, the viewer, sharing and deleting. */
+    fun uri(asset: PhoneAsset): android.net.Uri = ContentUris.withAppendedId(
+        if (asset.isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI, asset.localId.toLong(),
+    )
+
+    /** Emits once at start and again (at most every 1.5 s) when photos are added, removed or changed. */
+    fun changes(): Flow<Unit> = callbackFlow {
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { trySend(Unit) }
+        }
+        app.contentResolver.registerContentObserver(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), true, observer)
+        trySend(Unit)
+        awaitClose { app.contentResolver.unregisterContentObserver(observer) }
+    }.conflate().throttle(1_500)
+
     private companion object { const val ASKED = "asked" }
+}
+
+/** Like iOS's throttled timeline reload: the first change shows at once, later ones at most every [ms]. */
+private fun Flow<Unit>.throttle(ms: Long): Flow<Unit> = flow {
+    var last = 0L
+    collect {
+        val wait = last + ms - System.currentTimeMillis()
+        if (wait > 0) kotlinx.coroutines.delay(wait)
+        last = System.currentTimeMillis()
+        emit(Unit)
+    }
 }

@@ -1,5 +1,7 @@
 package app.lelvo.android.viewer
 
+import app.lelvo.android.media.PhoneThumbnail
+import app.lelvo.core.index.GalleryEntry
 import app.lelvo.core.support.AppLog
 import app.lelvo.data.Prefs
 import app.lelvo.core.video.VideoVersion
@@ -65,7 +67,7 @@ import java.time.format.DateTimeFormatter
 /** Full-screen viewer: swipe between items, tap to show or hide the bar. Zoom and the info sheet are Step 9. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ViewerScreen(items: List<LibraryItem>, start: Int, onClose: () -> Unit) {
+fun ViewerScreen(items: List<GalleryEntry>, start: Int, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     val pager = rememberPagerState(initialPage = start.coerceIn(0, (items.size - 1).coerceAtLeast(0))) { items.size }
     var chrome by rememberSaveable { mutableStateOf(true) }
@@ -77,27 +79,33 @@ fun ViewerScreen(items: List<LibraryItem>, start: Int, onClose: () -> Unit) {
     LaunchedEffect(pager.settledPage) {
         if (app.isMetered()) return@LaunchedEffect
         for (i in listOf(pager.settledPage + 1, pager.settledPage - 1)) {
-            val n = items.getOrNull(i) ?: continue
+            val e = items.getOrNull(i) ?: continue
+            // A photo on this phone opens from the phone; only cloud-only ones are fetched ahead.
+            val n = e.item?.takeIf { e.asset == null } ?: continue
             if (n.kind != ItemKind.Video && DemoMode.assetUri(n) == null) app.media.prefetch(n)
         }
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(pager, key = { items[it].id }, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
-            val item = items[page]
+            val entry = items[page]
             val toggle = Modifier.clickable(remember { MutableInteractionSource() }, indication = null) { chrome = !chrome }
-            if (item.kind == ItemKind.Video) {
+            val asset = entry.asset
+            val item = entry.item
+            when {
+                // On this phone: shown and played from the phone, whatever the backup holds.
+                asset != null -> PhonePage(app.photos.uri(asset), asset.isVideo, playing = pager.settledPage == page, toggle)
+                item == null -> Unit
                 // Only the page on screen plays; the neighbours show their first frame.
-                if (pager.settledPage == page) VideoPage(item) else Poster(item, toggle)
-            } else {
-                Poster(item, toggle)
+                item.kind == ItemKind.Video -> if (pager.settledPage == page) VideoPage(item) else Poster(item, toggle)
+                else -> Poster(item, toggle)
             }
         }
         if (chrome) {
-            val item = items.getOrNull(pager.currentPage)
+            val entry = items.getOrNull(pager.currentPage)
             TopAppBar(
                 title = {
                     Column {
-                        Text(item?.createdAt?.let { formatter.format(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault())) } ?: "Unknown date")
+                        Text(entry?.date?.let { formatter.format(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault())) } ?: "Unknown date")
                     }
                 },
                 navigationIcon = {
@@ -109,6 +117,27 @@ fun ViewerScreen(items: List<LibraryItem>, start: Int, onClose: () -> Unit) {
             )
         }
     }
+}
+
+/** A photo or video on this phone: Coil reads the photo, Media3 plays the video, both from MediaStore. */
+@Composable
+private fun PhonePage(uri: android.net.Uri, isVideo: Boolean, playing: Boolean, modifier: Modifier) {
+    if (!isVideo || !playing) {
+        AsyncImage(
+            model = if (isVideo) PhoneThumbnail(uri) else uri, contentDescription = if (isVideo) "Video" else "Photo",
+            contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().then(modifier),
+        )
+        return
+    }
+    val context = LocalContext.current
+    val player = remember(uri) {
+        ExoPlayer.Builder(context).build().apply { setMediaItem(MediaItem.fromUri(uri)); prepare(); playWhenReady = true }
+    }
+    DisposableEffect(player) { onDispose { player.release() } }
+    AndroidView(
+        factory = { PlayerView(it).apply { this.player = player; setShowNextButton(false); setShowPreviousButton(false) } },
+        modifier = Modifier.fillMaxSize(),
+    )
 }
 
 @Composable
