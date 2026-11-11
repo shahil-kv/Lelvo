@@ -37,6 +37,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var coreCheck: CoreCheck private set
     lateinit var model: AppModel private set
     lateinit var photos: app.lelvo.data.media.PhotoAccess private set
+    lateinit var linker: app.lelvo.data.media.PhotoLinker private set
     /** The launch opening plays once per process (cold start only). */
     var openingPlayed = false
 
@@ -76,10 +77,11 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         demo = DemoMode(this, store)
         prefs = Prefs(this)
         files = TdFiles(telegram)
-        scanner = LibraryScanner(files, library, store)
+        scanner = LibraryScanner(files, library, store, telegram).also { it.follow() }
         coreCheck = CoreCheck(files, library, scanner, store)
-        model = AppModel(this)
         photos = app.lelvo.data.media.PhotoAccess(this)
+        linker = app.lelvo.data.media.PhotoLinker(store, photos)
+        model = AppModel(this)
     }
 
     /**

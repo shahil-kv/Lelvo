@@ -10,6 +10,7 @@ import android.os.Environment
 import android.os.StatFs
 import android.provider.MediaStore
 import android.util.Size
+import app.lelvo.core.index.AssetKey
 import app.lelvo.core.support.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -83,6 +84,36 @@ class PhotoAccess(context: Context) {
             val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
             runCatching { app.contentResolver.loadThumbnail(uri, Size(size, size), null) }.getOrNull()
         }
+    }
+
+    /**
+     * Every photo and video this app can see, as linking needs them: MediaStore id (images and videos share one id
+     * space), file name, capture time and the size as shown (turned photos swap width and height, like Photos' size).
+     */
+    suspend fun assetKeys(): List<AssetKey> = withContext(Dispatchers.IO) {
+        val out = ArrayList<AssetKey>()
+        val orientation = if (Build.VERSION.SDK_INT >= 30) MediaStore.MediaColumns.ORIENTATION else null
+        for ((uri, turned) in listOf(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI to (orientation ?: MediaStore.Images.ImageColumns.ORIENTATION),
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI to orientation,
+        )) {
+            val columns = listOfNotNull(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.DATE_TAKEN,
+                MediaStore.MediaColumns.WIDTH, MediaStore.MediaColumns.HEIGHT, turned).toTypedArray()
+            runCatching {
+                app.contentResolver.query(uri, columns, null, null, null)?.use { c ->
+                    while (c.moveToNext()) {
+                        val w = c.getInt(3); val h = c.getInt(4)
+                        val sideways = turned != null && c.getInt(5).let { it == 90 || it == 270 }
+                        out += AssetKey(
+                            localId = c.getLong(0).toString(), filename = c.getString(1).orEmpty(),
+                            takenAt = if (c.isNull(2)) null else c.getLong(2),
+                            width = if (sideways) h else w, height = if (sideways) w else h,
+                        )
+                    }
+                }
+            }.onFailure { AppLog.error("Photos: listing failed: ${it::class.simpleName}") }
+        }
+        out
     }
 
     private companion object { const val ASKED = "asked" }

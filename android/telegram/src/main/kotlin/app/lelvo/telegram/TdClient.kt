@@ -163,6 +163,8 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
     }
 
     private fun handleAuth(state: TdApi.AuthorizationState, from: Client) {
+        // Every step, by name only (no number, code or hint): an unexplained sign-out on the emulator left no trace.
+        if (state !is TdApi.AuthorizationStateReady) AppLog.info("Telegram: ${state.javaClass.simpleName.removePrefix("AuthorizationState")}")
         when (state) {
             is TdApi.AuthorizationStateWaitTdlibParameters -> scope.launch { setParameters(from) }
             is TdApi.AuthorizationStateWaitPhoneNumber -> _auth.value = AuthStep.WaitPhone

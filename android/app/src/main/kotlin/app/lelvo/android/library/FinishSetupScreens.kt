@@ -132,6 +132,8 @@ fun PhotosStepScreen(setup: LibrarySetup, photos: PhotoAccess, onFinish: () -> U
     // Coming back from Settings with access changed.
     LifecycleResumeEffect(Unit) { status = photos.status(); onPauseOrDispose {} }
     val decided = status != PhotoAccess.Status.NotAsked
+    // Access just given: the restored items find their photos on this phone.
+    LaunchedEffect(status) { if (status == PhotoAccess.Status.Full || status == PhotoAccess.Status.Partial) setup.relink() }
     val found = setup.found
     OnboardingPage(
         icon = R.drawable.ic_photo_library, title = "Back up your photos",

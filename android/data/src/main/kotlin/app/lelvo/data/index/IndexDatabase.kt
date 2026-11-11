@@ -1,6 +1,8 @@
 package app.lelvo.data.index
 
 import android.content.Context
+import androidx.room.AutoMigration
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -46,6 +48,9 @@ interface ItemDao {
     @Query("SELECT * FROM items WHERE id = :id") suspend fun item(id: String): ItemRow?
     @Query("SELECT COUNT(*) FROM items WHERE status = 'backedUp'") suspend fun backedUpCount(): Int
     @Query("DELETE FROM items") suspend fun deleteAll()
+    @Query("SELECT * FROM items") suspend fun allNow(): List<ItemRow>
+    @Query("SELECT * FROM items WHERE id IN (:ids)") suspend fun items(ids: List<String>): List<ItemRow>
+    @Query("DELETE FROM items WHERE id = :id") suspend fun delete(id: String)
 
     /** One transaction, so the timeline never sees the index half replaced. */
     @Transaction suspend fun replaceAll(rows: List<ItemRow>) {
@@ -54,9 +59,56 @@ interface ItemDao {
     }
 }
 
-@Database(entities = [ItemRow::class], version = 1, exportSchema = true)
+/** A Recently Deleted note read from the channel (iOS `trash_notes`). `ids` is a JSON array. */
+@Entity(tableName = "trash_notes")
+data class TrashNoteRow(@PrimaryKey @ColumnInfo(name = "message_id") val messageId: Long, val date: Long, val op: String, val ids: String)
+
+/** A favorites and albums note read from the channel (iOS `meta_notes`). */
+@Entity(tableName = "meta_notes")
+data class MetaNoteRow(
+    @PrimaryKey @ColumnInfo(name = "message_id") val messageId: Long,
+    val date: Long,
+    val op: String,
+    val ids: String,
+    val album: String?,
+)
+
+/** Small values kept with the index, so they go when it does (iOS `meta`). */
+@Entity(tableName = "meta")
+data class MetaRow(@PrimaryKey val key: String, val value: String)
+
+/** Photos on this phone that must not be backed up again: deleted for good from the library (iOS `no_backup`). */
+@Entity(tableName = "no_backup")
+data class NoBackupRow(@PrimaryKey val key: String)
+
+@Dao
+interface NotesDao {
+    @Query("SELECT * FROM trash_notes ORDER BY message_id") suspend fun trashNotes(): List<TrashNoteRow>
+    @Upsert suspend fun addTrashNote(row: TrashNoteRow)
+    @Query("DELETE FROM trash_notes WHERE message_id IN (:ids)") suspend fun removeTrashNotes(ids: List<Long>)
+    @Query("SELECT * FROM meta_notes ORDER BY message_id") suspend fun metaNotes(): List<MetaNoteRow>
+    @Upsert suspend fun addMetaNote(row: MetaNoteRow)
+    @Query("DELETE FROM meta_notes WHERE message_id IN (:ids)") suspend fun removeMetaNotes(ids: List<Long>)
+    @Query("SELECT value FROM meta WHERE key = :key") suspend fun meta(key: String): String?
+    @Upsert suspend fun setMeta(row: MetaRow)
+    @Query("DELETE FROM meta WHERE key = :key") suspend fun removeMeta(key: String)
+    @Upsert suspend fun addNoBackup(rows: List<NoBackupRow>)
+    @Query("SELECT COUNT(*) FROM no_backup WHERE key = :key") suspend fun isNoBackup(key: String): Int
+    @Query("DELETE FROM trash_notes") suspend fun clearTrashNotes()
+    @Query("DELETE FROM meta_notes") suspend fun clearMetaNotes()
+    @Query("DELETE FROM meta") suspend fun clearMeta()
+    @Query("DELETE FROM no_backup") suspend fun clearNoBackup()
+}
+
+@Database(
+    entities = [ItemRow::class, TrashNoteRow::class, MetaNoteRow::class, MetaRow::class, NoBackupRow::class],
+    version = 2,
+    exportSchema = true,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
+)
 abstract class IndexDatabase : RoomDatabase() {
     abstract fun items(): ItemDao
+    abstract fun notes(): NotesDao
 
     companion object {
         fun open(context: Context): IndexDatabase =
