@@ -365,8 +365,17 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   and kept the index and keys). Known gaps: iOS keeps the Recently Deleted and favorites choices for that case
   (`LibrarySnapshots`); Android has none to keep until Phases C and L. Not yet run on a device: the emulator holds the
   owner's real session, so sign-out waits for a moment the owner chooses. Tabs and Back checked on the emulator.
-- **Next session (start here):** Phase A, launch screen with the brand mark (A6). Brand and motion: HTML preview and
-  plan first, owner approves, then code (memory rule). Android has no launcher icon yet either. Before each
-  screen, look at Google Photos' version first. Then Phase B.
-  Commit each row on `android-plan` as it lands (owner, 2026-11-11); don't push.
+- 2026-11-11, A6 preview approved (owner): **Option B, same as iPhone**: Android 12+ system splash with the white mark
+  (124 dp) on `brand.launch` `#3A0CA8`, then the iOS `LaunchOverlay` zoom in the splash exit hook (hold 160 ms,
+  breathe to 0.91 in 150 ms, zoom ×64 about `LelvoMark.zoomAnchor` in 420 ms with curve (0.6, 0, 0.84, 0.25), white
+  mark fades in 140 ms, curtain fades in 80 ms, Photos settles from 1.08 in 550 ms after 320 ms). Cold start only, a
+  tap skips (200 ms fade), Remove animations → short fade. Android 10–11: same picture as the window background, no
+  new library. Plus an adaptive launcher icon (white camel on the violet→deep gradient) with a monochrome layer for
+  themed icons, written by `Scripts/brand-assets.py` from `design/logo/mark.svg`. Preview:
+  https://claude.ai/artifact/BJFDxnYW2p3KoSQXeWuXte
+- **Next session (start here):** build A6 as approved above: (1) `brand-assets.py` writes the Android icon and
+  splash vectors, (2) themes for the splash (`values-v31`) and the Android 10–11 window background, (3) the exit
+  animation in `MainActivity`, (4) check on the emulator: cold start after force-stop, light and dark, Remove
+  animations on and off, tap to skip. Then Phase B (onboarding and sign-in). Commit each row on `android-plan` as it
+  lands (owner, 2026-11-11); don't push. Before each screen, look at Google Photos' version first.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
