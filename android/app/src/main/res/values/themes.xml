@@ -1,0 +1,4 @@
+<resources>
+    <!-- Compose draws everything; this only sets the window before the first frame. -->
+    <style name="Theme.Lelvo" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

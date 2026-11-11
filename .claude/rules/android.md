@@ -1,0 +1,52 @@
+---
+paths:
+  - "android/**"
+---
+
+# Android
+
+## Every feature: learn from what already works
+
+The iPhone app and popular open-source apps have already hit most edge cases. Start from their fixes, not from zero.
+
+1. **Before code: read the iOS version.** Find the Swift code for the feature (`Shared/`, `Packages/LelvoCore`,
+   `iOS/`), and its history: `git log --oneline -- <files>` and the pull requests behind fixes. Write down every edge
+   case, guard and past bug it handles (in the step's notes in `docs/ANDROID_PLAN.md`).
+2. **Before code: read one or two proven open-source apps** that do the same thing on Android (list below). Look for
+   the problems they solved: issues and commits named "fix", device quirks, OEM bugs, Android version checks.
+3. **Write the Android code** with those cases covered, in Android's own way.
+4. **After code: compare again.** Walk the iOS code and the Android code side by side: inputs, errors, retries,
+   cancellation, app killed mid-way, no network, low storage, permissions revoked, large files, empty states. List
+   what Android misses and either fix it or write it down as a known gap. Also note iOS bugs found on the way; tell the
+   owner rather than copying them.
+5. A step isn't done until its "Done when" proof ran on an emulator or phone.
+
+Licence: Lelvo is GPL-3.0 with a CLA. Read other projects to learn; write our own code. Copy code only from
+Apache-2.0, MIT or BSD sources, with the credit in `NOTICE.md`. Never paste from GPL/AGPL apps (Telegram, Immich, Ente,
+Fossify, Nextcloud) without the owner's yes.
+
+## Reference apps by feature
+
+| Feature | Look at |
+|---|---|
+| TDLib on Android, sign-in, files | `tdlib/td` `example/android` and `example/java`; Telegram X (`TGX-Android/Telegram-X`, uses TDLib) |
+| Streaming a Telegram file to a player | Telegram Android (`DrKLO/Telegram`, `FileStreamLoadOperation`), Telegram X |
+| Media3 player, custom `DataSource`, encrypted reads | `androidx/media` demos and issues |
+| Grid, viewer, zoom, MediaStore | Fossify Gallery, `saket/telephoto`, Aves (Flutter, but its Android plumbing is native) |
+| Backup, MediaStore changes, background work | Immich (`mobile/android`), Nextcloud Android auto upload, Ente Photos (`mobile`) |
+| Deleting with the system prompt | Fossify Gallery, Immich |
+| Argon2, AES-GCM, Keystore | `lambdapioneer/argon2kt`, Google Tink (for patterns), Ente's crypto docs |
+
+## Look and feel
+
+- Look like Android, not like the iPhone app: Material 3 components, top app bars, navigation bar, FAB where Google
+  Photos would put one, predictive back, edge-to-edge, dynamic colour with the Lelvo accent as the seed, dark and
+  light. No iOS-style chevrons, segmented pills or sheets that mimic UIKit.
+- Same features and the same words as the iPhone app (short sentences, no jargon, "your Telegram library").
+- Every screen works with TalkBack (content descriptions) and large font sizes.
+- Smooth first: stable keys in lazy lists, no work in composition, images sized to the cell, baseline profile before the beta.
+
+## Code
+
+- `core/` is pure Kotlin with no Android imports; its tests read `../docs/test-vectors/` in place.
+- New libraries only from the approved list in `docs/ANDROID_PLAN.md`.

@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.Lelvo" parent="android:Theme.Material.NoActionBar" />
+</resources>
