@@ -182,7 +182,7 @@ public struct LibraryHeader: Equatable, Sendable {
     public static func locking(_ keys: E2EKeys, passphrase: String, recoveryKey: RecoveryKey = .random(),
                                argon: Argon2id.Parameters = .standard) throws -> (LibraryHeader, RecoveryKey) {
         let salt = KeyDerivation.randomSalt()
-        let passphraseKey = SymmetricKey(data: try Argon2id.derive(passphrase: passphrase, salt: salt, parameters: argon))
+        let passphraseKey = SymmetricKey(data: try Argon2id.derive(passphrase: Passphrase.normalized(passphrase), salt: salt, parameters: argon))
         let header = LibraryHeader(argon: argon, salt: salt,
                                    lockedByPassphrase: try MasterKeyLock.seal(keys.master, with: passphraseKey, purpose: .passphrase),
                                    lockedByRecoveryKey: try MasterKeyLock.seal(keys.master, with: recoveryKey.lockKey, purpose: .recovery))
@@ -193,7 +193,7 @@ public struct LibraryHeader: Equatable, Sendable {
     public func changingPassphrase(_ keys: E2EKeys, to passphrase: String) throws -> LibraryHeader {
         guard version == 2, let argon, let lockedByRecoveryKey else { throw CryptoError.badFormat }
         let salt = KeyDerivation.randomSalt()
-        let passphraseKey = SymmetricKey(data: try Argon2id.derive(passphrase: passphrase, salt: salt, parameters: argon))
+        let passphraseKey = SymmetricKey(data: try Argon2id.derive(passphrase: Passphrase.normalized(passphrase), salt: salt, parameters: argon))
         return LibraryHeader(argon: argon, salt: salt,
                              lockedByPassphrase: try MasterKeyLock.seal(keys.master, with: passphraseKey, purpose: .passphrase),
                              lockedByRecoveryKey: lockedByRecoveryKey)
@@ -210,7 +210,15 @@ public struct LibraryHeader: Equatable, Sendable {
 
     /// The keys for this passphrase, or nil when it's wrong. Throws `derivationFailed` when the header asks for a cost
     /// beyond what Lelvo computes; the header still counts as encrypted, so nothing treats the channel as unencrypted.
+    /// Tries the passphrase exactly as typed (how every library before 2026-11 was set), then its normalized form.
     public func unlock(passphrase: String) throws -> E2EKeys? {
+        for candidate in Passphrase.candidates(passphrase) {
+            if let keys = try unlock(exactly: candidate) { return keys }
+        }
+        return nil
+    }
+
+    private func unlock(exactly passphrase: String) throws -> E2EKeys? {
         if version == 2 {
             guard let argon, let lockedByPassphrase else { return nil }
             guard argon.isWithinLimits else { throw CryptoError.derivationFailed }
@@ -252,6 +260,37 @@ enum MasterKeyLock {
         guard let box = try? AES.GCM.SealedBox(combined: sealed),
               let plain = try? AES.GCM.open(box, using: key, authenticating: aad(purpose)), plain.count == 32 else { return nil }
         return SymmetricKey(data: plain)
+    }
+}
+
+/// What a passphrase becomes before it locks a library. An iPhone's Smart Punctuation turns ' into ’ and -- into —
+/// in a visible text field (the passphrase field's "Show"), while a hidden field and a Mac keep what was typed. The
+/// same passphrase typed on two devices, or with Show on and off, then gave different keys and the library wouldn't
+/// open. Typographic quotes, dashes and ellipses go back to the keys that make them. Nothing else changes, so a
+/// passphrase without them is byte for byte what older versions of Lelvo use.
+public enum Passphrase {
+    public static func normalized(_ typed: String) -> String {
+        var out = ""
+        for c in typed {
+            switch c {
+            case "\u{2018}", "\u{2019}", "\u{201A}", "\u{201B}": out.append("'")
+            case "\u{201C}", "\u{201D}", "\u{201E}", "\u{201F}": out.append("\"")
+            case "\u{2014}": out += "--"
+            case "\u{2026}": out += "..."
+            case "\u{00A0}": out.append(" ")
+            default: out.append(c)
+            }
+        }
+        return out
+    }
+
+    /// What to try when unlocking: as typed first (how every library was locked before this), then normalized, then
+    /// without a stray space at either end (pasted from a note, or added by a keyboard).
+    public static func candidates(_ typed: String) -> [String] {
+        var out: [String] = []
+        for c in [typed, normalized(typed), normalized(typed).trimmingCharacters(in: .whitespacesAndNewlines)]
+        where !c.isEmpty && !out.contains(c) { out.append(c) }
+        return out
     }
 }
 
