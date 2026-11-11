@@ -135,7 +135,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | App shell: 4 tabs, Settings, navigation | `iOS/Views/RootView.swift`, `SettingsButton.swift` | Bottom navigation bar, gear on every tab, demo banner on every tab, Back returns to Photos | ✅ (Collections, Search, Backup are placeholders until G, H, I) |
 | Preferences | `Shared/Services/Preferences.swift` | `Prefs`: same keys and defaults; iPhone-only keys left out with the reason; grid columns kept | ✅ |
 | Logs with redaction | `AppLog.swift`, `LelvoCore/Support/Redactor.swift` | `AppLog` and `Redactor` in `core/` (so `telegram/` logs through it too), with tests | ✅ |
-| Toasts | `Shared/Views/Toast.swift` | Snackbar host in the shell | |
+| Toasts | `Shared/Views/Toast.swift` | `Messages` + one snackbar host over every screen | ✅ |
 | Launch screen and brand mark | `Shared/Views/Brand/` | Splash screen API, vector mark | |
 | Review demo | `Shared/App/DemoMode.swift` | `DemoMode` | ✅ |
 
@@ -349,7 +349,14 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   `no_backup/logs` (never in Android backup); debug builds echo to logcat (tag `Lelvo`), release builds don't, like
   iOS's Debug-only print. Exceptions log their kind and message, never a stack trace. Every `android.util.Log` call
   now goes through it. Share and clear come with Settings (Phase K).
-- **Next session (start here):** Phase A, next unticked row: snackbars (A5), then launch screen with the brand mark (A6),
+- 2026-11-11, A5 messages ✅: `Messages` is the iOS `ToastCenter` (progress with Stop, results 3.5 s, a late
+  progress update never brings a message back, Stop cancels the work) shown as a Material snackbar, the way Google
+  Photos does: no icons, an action button (Undo, View) where one helps, which keeps it up 6 s; results swipe away,
+  progress doesn't; TalkBack reads it (live region). One host sits over the tabs, the viewer, Settings and the core
+  check, lifted above the tab bar only while the tabs show. Debug-only hook to check it: `adb shell am start -f
+  0x20000000 -n app.lelvo.android/.MainActivity --es lelvo.message "Title" [--es lelvo.style progress] [--ez lelvo.undo
+  true]`. Checked on the emulator in light and dark: progress with Stop, Undo, Stop, swipe away.
+- **Next session (start here):** Phase A, next unticked row: launch screen with the brand mark (A6),
   then the services container (A7). Before each screen, look at Google Photos' version first. Then Phase B.
-  Nothing from this branch is committed yet (owner hasn't said); ask once at the start.
+  Commit each row on `android-plan` as it lands (owner, 2026-11-11); don't push.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.

@@ -30,8 +30,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.lelvo.android.R
 import app.lelvo.android.shell.LelvoTopBar
+import app.lelvo.android.shell.Messages
 import app.lelvo.core.index.ItemKind
 import app.lelvo.core.index.LibraryItem
 import app.lelvo.core.index.Timeline
@@ -105,13 +104,12 @@ fun TimelineScreen(
     val isDemo by demo.active.collectAsState()
     val backup by demo.backup.collectAsState()
     val scope = rememberCoroutineScope()
-    val snackbar = remember { SnackbarHostState() }
     var menu by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
 
     LaunchedEffect(backup?.running) {
         val b = backup ?: return@LaunchedEffect
-        if (!b.running) snackbar.showSnackbar(if (b.total == 0) "Everything is backed up" else "Backed up ${b.done} item${if (b.done == 1) "" else "s"}.")
+        if (!b.running) Messages.show(Messages.Style.Success, if (b.total == 0) "Everything is backed up" else "Backed up ${b.done} item${if (b.done == 1) "" else "s"}")
     }
 
     Scaffold(
@@ -136,7 +134,6 @@ fun TimelineScreen(
                 backup?.takeIf { it.running }?.let { BackupProgress(it) }
             }
         },
-        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         val list = sections
         when {
