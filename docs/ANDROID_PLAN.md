@@ -201,10 +201,10 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Albums from the phone and from your library | `AlbumsView.swift`, `AddToAlbumView.swift`, `MetaSync.swift` | MediaStore buckets + Lelvo albums | |
+| Albums from the phone and from your library | `AlbumsView.swift`, `AddToAlbumView.swift`, `MetaSync.swift` | MediaStore buckets + Lelvo albums | ✅ read: Lelvo albums, phone folders, See all |
 | Add to album, rename, delete album | `AddToAlbumView.swift`, `AlbumsView.swift` | Dialogs | |
-| Favorites, videos and other smart rows | `AlbumsView.swift` | Same rows | |
-| Recently Deleted (30 days, restore, delete now) | `RecentlyDeletedView.swift`, `TrashGrid.swift`, `TrashSync.swift` | Grid + actions | |
+| Favorites, videos and other smart rows | `AlbumsView.swift` | Same rows | ✅ Recent days, Favorites, media types |
+| Recently Deleted (30 days, restore, delete now) | `RecentlyDeletedView.swift`, `TrashGrid.swift`, `TrashSync.swift` | Grid + actions | ◐ grid with days left; Recover and Delete send notes (Phase L) |
 | Memories | `MemoriesView.swift`, `LelvoCore/Support/Memories.swift`, `MemoriesSettingsView.swift` | Cards, same rules | |
 | Map | `PhotoMapView.swift` | Needs a map library issue | |
 
@@ -573,6 +573,21 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
     it with a white line at the position; cloud videos read the fast version where there is one, through a
     decrypting `MediaDataSource` in 512 KB blocks. Real library: 8 of 8 frames in 0.5 s for a 31 s video. Gap: demo
     videos (packaged assets) show no strip.
+- 2026-11-11, Phase G ◐ (Collections, read side): the Collections tab like iOS `AlbumsView`, laid out the Google
+  Photos way: Recent days (last 10 days with photos, a row of covers), Albums two across (Favorites first, then
+  Lelvo's albums from the captions and albums notes, by name), "On this device" (MediaStore folders, Camera and
+  Screenshots first, then the newest; Google Photos' name for them), Media types (Videos, Live Photos, Only in the
+  cloud, Not backed up) and Recently Deleted with its count; See all for anything over four. A tap opens the photo grid
+  for it (the Photos grid with Back, over the tabs, Google Photos style). `GalleryFilter` is now a sealed class (album,
+  folder, fixed set of entries); `Collections.build` and `CloudTrash` in `core/` (8 tests). Recently Deleted shows the
+  days left on each tile, newest deletes first.
+  - Android differs from iOS on purpose: iPhone albums are Photos albums that Lelvo mirrors; Android has no shared
+    user albums, only folders, so Lelvo albums and phone folders are separate sections (as Google Photos does).
+  - Real library: Favorites 45, "shahil test" 7, WhatsApp 83, Recently Deleted 49 (same as the iPhone). Checked light
+    and dark. Bug found and fixed: the folder row opened scrolled sideways (a folder arrived ahead of the first one).
+  - Gaps: Recover / Delete in Recently Deleted and album edits write notes (Phase L, "Android test" only); Memories,
+    Map (needs a map library issue); Documents and Receipts (needs on-device text recognition, Phase H/M); empty
+    albums made on another device don't show until they hold a photo.
 - **Next session (start here):**
   1. **Real Android phone check** (the emulator can't prove these): 4K HEVC originals play smoothly or the menu says
      "This phone can't play it smoothly"; hardware decoder named in the log ("decodes with c2.qti/exynos/mtk…"), no

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -38,6 +39,10 @@ import app.lelvo.android.settings.LibrariesScreen
 import app.lelvo.android.settings.SettingsInfo
 import app.lelvo.android.settings.SettingsScreen
 import app.lelvo.android.brand.LaunchHost
+import app.lelvo.android.collections.AllCollectionsScreen
+import app.lelvo.android.collections.CollectionPage
+import app.lelvo.android.collections.CollectionsScreen
+import app.lelvo.android.collections.RecentlyDeletedScreen
 import app.lelvo.android.shell.AppShell
 import app.lelvo.android.shell.MessageHost
 import app.lelvo.android.shell.Messages
@@ -204,12 +209,35 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
     var settings by rememberSaveable { mutableStateOf(false) }
     var checking by rememberSaveable { mutableStateOf(false) }
     var libraries by rememberSaveable { mutableStateOf(false) }
+    // Pages opened from Collections, newest last; Back closes the top one.
+    var pages by remember { mutableStateOf(emptyList<CollectionPage>()) }
     val openSettings = { settings = true }
+    val openPage = { p: CollectionPage -> pages = pages + p }
+    val closePage = { pages = pages.dropLast(1) }
     Box(Modifier.fillMaxSize()) {
         AppShell(app.model.tab) { tab, modifier ->
             when (tab) {
                 Tab.Photos -> TimelineScreen(app.store, app.photos, app.demo, app.prefs, onOpen = { list, index -> open = list to index }, onSettings = openSettings, modifier = modifier)
+                Tab.Collections -> CollectionsScreen(app, onOpen = openPage, onSettings = openSettings, modifier = modifier)
                 else -> TabPlaceholder(tab, app.demo, openSettings, modifier)
+            }
+        }
+        pages.forEachIndexed { i, page ->
+            // Each page stays composed under the next, so Back returns to the same scroll position.
+            androidx.compose.runtime.key(i, page) {
+                Surface(Modifier.fillMaxSize()) {
+                    when (page) {
+                        is CollectionPage.Grid -> {
+                            androidx.activity.compose.BackHandler(enabled = i == pages.lastIndex, onBack = closePage)
+                            TimelineScreen(
+                                app.store, app.photos, app.demo, app.prefs, onOpen = { list, index -> open = list to index }, onSettings = openSettings,
+                                collection = page.filter, onBack = closePage,
+                            )
+                        }
+                        is CollectionPage.All -> AllCollectionsScreen(app, page, onOpen = openPage, onBack = closePage)
+                        CollectionPage.RecentlyDeleted -> RecentlyDeletedScreen(app, onBack = closePage)
+                    }
+                }
             }
         }
         open?.let { (list, index) -> ViewerScreen(list, index, onClose = { open = null }) }
@@ -230,7 +258,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
         if (checking) CoreCheckScreen(app.coreCheck, onClose = { checking = false })
         // One host over everything, so a message shows whichever screen is on top; above the tab bar or the viewer's
         // action row while they show.
-        val overTabs = open == null && !settings && !checking
+        val overTabs = open == null && !settings && !checking && pages.isEmpty()
         MessageHost(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (overTabs) NavigationBarHeight else if (open != null) 72.dp else 0.dp))
     }
 }

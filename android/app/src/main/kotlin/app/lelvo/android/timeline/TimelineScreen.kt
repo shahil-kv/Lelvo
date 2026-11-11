@@ -105,6 +105,9 @@ private val zoomLevels = listOf(2 to Timeline.Grouping.Day, 3 to Timeline.Groupi
 fun TimelineScreen(
     store: LibraryStore, photos: PhotoAccess, demo: DemoMode, prefs: Prefs, onOpen: (List<GalleryEntry>, Int) -> Unit, onSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    /** An album, folder, day or media type from Collections: the grid shows only it, with Back instead of the menu. */
+    collection: GalleryFilter? = null,
+    onBack: () -> Unit = {},
 ) {
     var level by rememberSaveable {
         mutableIntStateOf(zoomLevels.indexOfFirst { it.first == prefs.gridColumns }.takeIf { it >= 0 } ?: 1)
@@ -112,7 +115,7 @@ fun TimelineScreen(
     val (columns, grouping) = zoomLevels[level]
     // Sorting and grouping run off the main thread; the grid only lays out the result.
     val isDemo by demo.active.collectAsState()
-    var filter by rememberSaveable { mutableStateOf<GalleryFilter?>(null) }
+    var filter by rememberSaveable { mutableStateOf(collection) }
     var legend by remember { mutableStateOf(false) }
     var selection by remember { mutableStateOf(emptySet<String>()) }
     val selecting = selection.isNotEmpty()
@@ -120,8 +123,7 @@ fun TimelineScreen(
     // Phone photos and cloud items in one timeline (iOS `GalleryModel.merge`); merging, filtering and grouping run off
     // the main thread, and a change to either side redraws only what moved.
     val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(null, store, grouping, filter, isDemo) {
-        val phone = if (isDemo) flowOf(emptyList()) else photos.changes().map { photos.assets() }
-        combine(store.items(), phone) { items, assets -> Gallery.merge(assets, items) }
+        galleryEntries(store, photos, isDemo)
             .map { all -> Timeline.groupEntries(filter?.let { f -> all.filter(f::matches) } ?: all, grouping, ZoneId.systemDefault(), LocalDate.now()) }
             .flowOn(Dispatchers.Default)
             .collect { value = it }
@@ -144,6 +146,16 @@ fun TimelineScreen(
                 title = { Text("${selection.size} selected") },
                 actions = {
                     TextButton(onClick = { selection = sections.orEmpty().flatMap { s -> s.items.map { it.id } }.toSet() }) { Text("Select all") }
+                },
+            ) else if (collection != null) TopAppBar(
+                navigationIcon = { IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), "Back") } },
+                title = { Text(collection.title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                scrollBehavior = scrollBehavior,
+                actions = {
+                    IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options") }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("What the icons mean") }, onClick = { menu = false; legend = true })
+                    }
                 },
             ) else Column {
                 LelvoTopBar(filter?.title ?: "Photos", demo, onSettings, scrollBehavior) {
@@ -214,6 +226,15 @@ fun TimelineScreen(
         if (selection.any { it !in ids }) selection = selection.filterTo(HashSet()) { it in ids }
     }
     if (legend) BadgeLegend(onDismiss = { legend = false })
+}
+
+/**
+ * Phone photos and cloud items in one newest-first list, again whenever either side changes (iOS `GalleryModel`).
+ * The demo shows only its sample library.
+ */
+fun galleryEntries(store: LibraryStore, photos: PhotoAccess, isDemo: Boolean): kotlinx.coroutines.flow.Flow<List<GalleryEntry>> {
+    val phone = if (isDemo) flowOf(emptyList()) else photos.changes().map { photos.assets() }
+    return combine(store.items(), phone) { items, assets -> Gallery.merge(assets, items) }.flowOn(Dispatchers.Default)
 }
 
 @Composable

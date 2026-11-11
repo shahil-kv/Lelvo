@@ -15,6 +15,9 @@ data class PhoneAsset(
     val isFavorite: Boolean = false,
     val filename: String = "",
     val addedAt: Long? = null,
+    /** The folder it's in (MediaStore bucket: Camera, Screenshots, WhatsApp Images…), Android's own "albums". */
+    val bucketId: String? = null,
+    val bucketName: String? = null,
 )
 
 /** What a tile's small badge says about its backup (iOS `BackupBadge`, same meanings and words). */
@@ -53,9 +56,22 @@ data class GalleryEntry(val id: String, val date: Long?, val asset: PhoneAsset?,
         }
 }
 
-/** What a grid shows: everything, or one of the filters (iOS `GalleryFilter`). */
-enum class GalleryFilter(val title: String) {
-    Videos("Videos"), LivePhotos("Live Photos"), Favorites("Favorites"), CloudOnly("Only in the cloud"), NotBackedUp("Not backed up");
+/** What a grid shows: everything, or one of the filters (iOS `GalleryFilter`). Serializable so a screen keeps it. */
+sealed class GalleryFilter(val title: String) : java.io.Serializable {
+    data object Videos : GalleryFilter("Videos") { private fun readResolve(): Any = Videos }
+    data object LivePhotos : GalleryFilter("Live Photos") { private fun readResolve(): Any = LivePhotos }
+    data object Favorites : GalleryFilter("Favorites") { private fun readResolve(): Any = Favorites }
+    data object CloudOnly : GalleryFilter("Only in the cloud") { private fun readResolve(): Any = CloudOnly }
+    data object NotBackedUp : GalleryFilter("Not backed up") { private fun readResolve(): Any = NotBackedUp }
+
+    /** A Lelvo album: the name in the caption `a` and the albums notes, shared with every device. */
+    data class Album(val name: String) : GalleryFilter(name)
+
+    /** A folder on this phone (MediaStore bucket). */
+    data class Folder(val name: String, val bucketId: String) : GalleryFilter(name)
+
+    /** A fixed set of timeline entries by id: a day, a memory, search results. */
+    data class Matching(val name: String, val ids: Set<String>) : GalleryFilter(name)
 
     fun matches(e: GalleryEntry): Boolean = when (this) {
         Videos -> e.isVideo
@@ -63,6 +79,14 @@ enum class GalleryFilter(val title: String) {
         Favorites -> e.asset?.isFavorite == true || e.item?.favorite == true
         CloudOnly -> e.isCloudOnly
         NotBackedUp -> e.badge in setOf(BackupBadge.PhoneOnly, BackupBadge.Waiting, BackupBadge.Failed)
+        is Album -> e.item?.albums?.contains(name) == true
+        is Folder -> e.asset?.bucketId == bucketId
+        is Matching -> e.id in ids
+    }
+
+    companion object {
+        /** The Photos tab's menu. */
+        val entries: List<GalleryFilter> get() = listOf(Videos, LivePhotos, Favorites, CloudOnly, NotBackedUp)
     }
 }
 
