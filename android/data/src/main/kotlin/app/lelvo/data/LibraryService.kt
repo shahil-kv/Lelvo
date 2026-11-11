@@ -21,6 +21,9 @@ class LibraryException(message: String) : Exception(message) {
         val wrongPassphrase = LibraryException("That passphrase or recovery key doesn't open this library.")
         val newerVersion = LibraryException("This library was set up by a newer version of Lelvo. Update Lelvo to open it.")
         val damaged = LibraryException("This library's settings in Telegram can't be read. Open it in Lelvo on iPhone or Mac.")
+        val testOnly = LibraryException(
+            "This test version changes only the library named “Android test”. Your other libraries are read, never changed.",
+        )
         val notEncrypted = LibraryException(
             "This library isn't end-to-end encrypted. Lelvo for Android opens only encrypted libraries. Open it in Lelvo on iPhone or Mac.",
         )
@@ -31,7 +34,13 @@ class LibraryException(message: String) : Exception(message) {
  * The user's library channel: finding it, its header and its keys. The Android counterpart of the choosing and
  * unlocking half of iOS `LibraryService`.
  */
-class LibraryService(context: Context, private val td: TdClient, private val secrets: SecretStore) {
+class LibraryService(
+    context: Context,
+    private val td: TdClient,
+    private val secrets: SecretStore,
+    /** Until the cross-platform gate (Phase N) passes, writes go only to the "Android test" library (owner, 2026-11-11). */
+    private val guardWrites: Boolean = true,
+) {
     private val prefs = context.getSharedPreferences("library", Context.MODE_PRIVATE)
     @Volatile private var cachedKeys: E2EKeys? = null
 
@@ -109,10 +118,21 @@ class LibraryService(context: Context, private val td: TdClient, private val sec
         }
     }
 
+    /**
+     * Throws unless this build may write to [chatId]. Every write to a library channel (rename, backups, notes,
+     * deletes) asks first: Android must not change a real library before it's proven to write what the iPhone reads.
+     */
+    suspend fun requireWritable(chatId: Long) {
+        if (!guardWrites) return
+        val title = withContext(Dispatchers.IO) { runCatching { td.send(TdApi.GetChat(chatId)).title }.getOrNull() }
+        if (title?.trim() != TEST_LIBRARY) throw LibraryException.testOnly
+    }
+
     /** Renames the channel. Libraries are recognised by their header, never by name, so this is safe. */
     suspend fun rename(chatId: Long, title: String) = withContext(Dispatchers.IO) {
         val clean = title.trim()
         if (clean.isEmpty()) return@withContext
+        requireWritable(chatId)
         td.send(TdApi.SetChatTitle(chatId, clean.take(128)))
         AppLog.info("Renamed library channel")
     }
@@ -222,5 +242,6 @@ class LibraryService(context: Context, private val td: TdClient, private val sec
         const val KEYS_CHAT_ID = "keysChatId"
         const val MASTER_KEY = "e2e-master-key"
         const val SETUP_FINISHED = "setupFinished"
+        const val TEST_LIBRARY = "Android test"
     }
 }
