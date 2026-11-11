@@ -40,8 +40,12 @@ import app.lelvo.android.settings.SettingsInfo
 import app.lelvo.android.settings.SettingsScreen
 import app.lelvo.android.brand.LaunchHost
 import app.lelvo.android.collections.AllCollectionsScreen
+import app.lelvo.core.index.GalleryFilter
 import app.lelvo.android.collections.CollectionPage
 import app.lelvo.android.collections.CollectionsScreen
+import app.lelvo.android.collections.MemoriesScreen
+import app.lelvo.android.collections.MemoriesSettingsScreen
+import app.lelvo.android.collections.MemoryStoryScreen
 import app.lelvo.android.collections.RecentlyDeletedScreen
 import app.lelvo.android.shell.AppShell
 import app.lelvo.android.shell.MessageHost
@@ -236,6 +240,13 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                         }
                         is CollectionPage.All -> AllCollectionsScreen(app, page, onOpen = openPage, onBack = closePage)
                         CollectionPage.RecentlyDeleted -> RecentlyDeletedScreen(app, onBack = closePage)
+                        is CollectionPage.MemoryList -> MemoriesScreen(app, page, onOpen = openPage, onBack = closePage)
+                        CollectionPage.MemorySettings -> MemoriesSettingsScreen(app.prefs, onBack = closePage)
+                        is CollectionPage.Story -> MemoryStoryScreen(
+                            app, page,
+                            onShowAll = { pages = pages.dropLast(1) + CollectionPage.Grid(GalleryFilter.Matching(page.card.title, page.allIds)) },
+                            onClose = closePage,
+                        )
                     }
                 }
             }

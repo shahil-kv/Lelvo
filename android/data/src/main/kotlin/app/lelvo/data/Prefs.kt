@@ -72,6 +72,12 @@ class Prefs(context: Context) {
         get() = p.getInt("gridColumns", 3)
         set(v) = p.edit().putInt("gridColumns", v).apply()
 
+    /** The memory types turned on (iOS `MemoriesSettingsView`, same keys): all by default. */
+    val memoryKinds: Set<app.lelvo.core.memories.Memories.KindFilter>
+        get() = app.lelvo.core.memories.Memories.KindFilter.entries.filterTo(HashSet()) { p.getBoolean("memories.${it.key}", true) }
+
+    fun setMemoryKind(kind: app.lelvo.core.memories.Memories.KindFilter, on: Boolean) = p.edit().putBoolean("memories.${kind.key}", on).apply()
+
     /** Sign out: every setting back to its default, like a fresh install. */
     fun reset() = p.edit().clear().apply()
 

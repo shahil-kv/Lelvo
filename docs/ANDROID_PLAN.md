@@ -205,8 +205,8 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Add to album, rename, delete album | `AddToAlbumView.swift`, `AlbumsView.swift` | Dialogs | |
 | Favorites, videos and other smart rows | `AlbumsView.swift` | Same rows | ✅ Recent days, Favorites, media types |
 | Recently Deleted (30 days, restore, delete now) | `RecentlyDeletedView.swift`, `TrashGrid.swift`, `TrashSync.swift` | Grid + actions | ◐ grid with days left; Recover and Delete send notes (Phase L) |
-| Memories | `MemoriesView.swift`, `LelvoCore/Support/Memories.swift`, `MemoriesSettingsView.swift` | Cards, same rules | |
-| Map | `PhotoMapView.swift` | Needs a map library issue | |
+| Memories | `MemoriesView.swift`, `LelvoCore/Support/Memories.swift`, `MemoriesSettingsView.swift` | Cards, same rules | ◐ on this day, recent, trips, story player, settings; no themes or place names yet |
+| Map | `PhotoMapView.swift` | Needs a map library issue | blocked: needs a map library on the approved list |
 
 ### Phase H. Search tab
 
@@ -588,11 +588,25 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   - Gaps: Recover / Delete in Recently Deleted and album edits write notes (Phase L, "Android test" only); Memories,
     Map (needs a map library issue); Documents and Receipts (needs on-device text recognition, Phase H/M); empty
     albums made on another device don't show until they hold a photo.
+- 2026-11-11, Phase G Memories: `Memories` ported to `core/` with the iOS rules and numbers unchanged (bases, trips,
+  on this day, recent, themes, selection, `placeCell`) and every iOS test case ported (16), plus `MemoryCards` with
+  the iOS titles ("One Year Ago", "Trip to Goa", "Time in…", "Away, May 2024 – June 2024"). Collections shows a
+  Memories row first (tall covers, Google Photos style), See all lists them as large cards (long press: Show all
+  photos), and the gear opens Memories settings (same `memories.*` keys as iOS). The story player ports
+  `MemoryStoryView`: 4 s per photo with a slow zoom (none with Remove animations), cross-fade, next two loading
+  ahead, tap sides, hold to pause, swipe down to close, Show all, progress bars; a photo that won't load says so and
+  the story moves on. Real library: 4 memories (Recent Highlights, two trips, one long stay) in 0.03–0.05 s; turning
+  Trips off and on rebuilds them. Checked light and dark.
+  - Gaps: no place names (trips read "Trip in February 2025" until search reads places, Phase H); phone-only photos
+    have no location yet (MediaStore needs EXIF reads with `ACCESS_MEDIA_LOCATION`, Phase H); no themes or quality
+    scores (needs an on-device image labeller: not on the approved list), so the Themes switch is hidden; the iPhone
+    may make more or different memories for the same library because of those.
+  - Test file left on the emulator for Motion Photo checks: `Pictures/MotionTest/PXL_20261111_120000000.MP.jpg`.
 - **Next session (start here):**
-  1. **Real Android phone check** (the emulator can't prove these): 4K HEVC originals play smoothly or the menu says
-     "This phone can't play it smoothly"; hardware decoder named in the log ("decodes with c2.qti/exynos/mtk…"), no
-     dropped frames; HEIC photos turn sharp ("Photo timing: sharp after"); fast swipes between videos; Live Photos.
-     Ideally one recent phone and one older or low-end one. Install with `adb install -r` only, never clear data.
-  2. Phase G (Collections). Phase E and F Telegram-side actions wait for I (back up), G (albums) and L
-     (favorite and delete notes).
+  1. **Real Android phone check** (owner, later): everything listed in the Phase F notes, plus real Pixel and Samsung
+     Motion Photos (MOTION chip plays), and Collections on a phone with many folders.
+  2. Phase H (Search): `SearchService.swift`, `SearchMatcher.swift`, `SearchModel.swift`. It also brings place names
+     (geocoder cache), which Memories' trip titles use, and phone photo locations.
+  3. Phase G leftovers wait on other phases: Recently Deleted Recover/Delete and album add/rename/delete send notes
+     (Phase L, "Android test" only); Map needs a map library issue.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.

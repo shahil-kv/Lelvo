@@ -61,7 +61,11 @@ import app.lelvo.core.index.ItemStatus
 import app.lelvo.data.DemoMode
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
+import app.lelvo.core.memories.MemoryCard
 import kotlinx.coroutines.flow.flowOn
 import java.time.LocalDate
 import java.time.ZoneId
@@ -73,7 +77,14 @@ sealed interface CollectionPage {
     data class Grid(val filter: GalleryFilter) : CollectionPage
     data class All(val title: String, val rows: List<Collections.Row>, val list: Boolean = false) : CollectionPage
     data object RecentlyDeleted : CollectionPage
+    data class MemoryList(val cards: List<MemoryCard>, val byId: Map<String, GalleryEntry>) : CollectionPage
+    /** A memory playing: the photos it plays, and every photo of it for Show all. */
+    data class Story(val card: MemoryCard, val entries: List<GalleryEntry>, val allIds: Set<String>) : CollectionPage
+    data object MemorySettings : CollectionPage
 }
+
+/** Everything Collections shows, made together off the main thread. */
+private class CollectionsState(val content: Collections.Content, val memories: List<MemoryCard>, val byId: Map<String, GalleryEntry>)
 
 /** How many covers a section shows before "See all", like iOS. */
 private const val SHOWN = 4
@@ -87,10 +98,18 @@ private const val SHOWN = 4
 @Composable
 fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSettings: () -> Unit, modifier: Modifier = Modifier) {
     val isDemo by app.demo.active.collectAsState()
-    val content by produceState<Collections.Content?>(null, isDemo) {
+    val state by produceState<CollectionsState?>(null, isDemo) {
         val dayTitle = DateTimeFormatter.ofPattern("EEE, d MMM")
+        // Memories are made again when a memory type is turned on or off.
+        val memorySettings = app.prefs.changes().filter { it.startsWith("memories.") }.onStart { emit("") }
         galleryEntries(app.store, app.photos, isDemo)
-            .map { Collections.build(it, ZoneId.systemDefault(), LocalDate.now(), dayTitle::format) }
+            .combine(memorySettings) { entries, _ -> entries }
+            .map { entries ->
+                CollectionsState(
+                    Collections.build(entries, ZoneId.systemDefault(), LocalDate.now(), dayTitle::format),
+                    memoryCards(entries, app.prefs), entries.associateBy { it.id },
+                )
+            }
             .flowOn(Dispatchers.Default)
             .collect { value = it }
     }
@@ -102,8 +121,14 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
         modifier = modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = { LelvoTopBar("Collections", app.demo, onSettings, scroll) },
     ) { padding ->
-        val c = content ?: return@Scaffold
+        val st = state ?: return@Scaffold
+        val c = st.content
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = 24.dp + padding.calculateBottomPadding())) {
+            if (st.memories.isNotEmpty()) item("memories") {
+                Section("Memories", seeAll = { onOpen(CollectionPage.MemoryList(st.memories, st.byId)) }) {
+                    MemoriesRow(st.memories.take(SHOWN), st.byId, app, onOpen)
+                }
+            }
             if (c.days.isNotEmpty()) item("days") {
                 Section("Recent days", seeAll = if (c.days.size > SHOWN) ({ onOpen(CollectionPage.All("Recent days", c.days, list = true)) }) else null) {
                     CoverRow(c.days.take(SHOWN), app, onOpen)
