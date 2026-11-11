@@ -185,6 +185,12 @@ it: **iOS edge cases carried over**, **learned from other apps**, **known gaps**
   then the description, Newer/Damaged/Missing never "repaired", plain libraries refused, keys tied to their channel,
   recovery key tried before Argon2id, argon2kt off-heap), confirmed sends in `TdClient` (iOS `finishedSends`),
   choose and unlock screens. Creating a library on Android is Step 15.
-- **Next session:** finish Step 5 proof (one real sign-in, `telegram.testDc=false`), run Step 6 against the iPhone
-  test library, then Step 7 (port `LibraryIndexer` + Room). Start from `android/`, read only this section.
+- **Next session:** demo mode first, so the screens can be built without a Telegram account:
+  1. Step 7a: Room index (the `LibraryStore` tables the timeline needs), no channel scan yet.
+  2. Demo mode, ported from `Shared/App/DemoMode.swift`: the same reserved number and code (read them there, don't
+     copy them into docs), the same sample files (`iOS/DemoLibrary`, copied into the app's assets), nothing talks
+     to Telegram, backup is simulated, sign out leaves demo mode. Debug and release, like iOS (App Review needs it).
+  3. Then Steps 8, 9, the player part of 10, 15 and the backup screens against the demo library.
+  Parts that need a real account wait for one real sign-in (`telegram.testDc=false`): Step 6 run, Step 7b channel
+  scan, 10 streaming, 12, 16. Start from `android/`, read only this section.
 - Step 0 still open (owner): approved library issue, test Telegram account on the test servers.
