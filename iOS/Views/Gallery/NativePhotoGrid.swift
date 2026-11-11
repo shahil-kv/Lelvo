@@ -571,6 +571,27 @@ struct NativePhotoGrid: UIViewRepresentable {
 
         // MARK: Viewer
 
+        /// A swipe down that's let go leaves the viewer up: then its video plays on. The close starts right after UIKit
+        /// asks whether it may, and its transition coordinator then says for certain whether it went through. Guessing
+        /// from `isBeingDismissed` instead restarted the video just before a close finished on an iPhone (a burst of
+        /// sound). With no answer the video stays paused: a tap on play, never sound after a close.
+        private static func watchForCancelledSwipe(_ controller: UIViewController) {
+            Task { @MainActor [weak controller] in
+                for _ in 0..<20 {
+                    await Task.yield()
+                    guard let controller else { return }
+                    if let coordinator = controller.transitionCoordinator {
+                        coordinator.animate(alongsideTransition: nil) { context in
+                            if context.isCancelled { NotificationCenter.default.post(name: .viewerCloseCancelled, object: nil) }
+                        }
+                        return
+                    }
+                    try? await Task.sleep(nanoseconds: 15_000_000)
+                }
+                appLog("Viewer: no transition to follow after a swipe down; the video stays paused if the swipe is let go")
+            }
+        }
+
         /// Presents the viewer with the system zoom from the tile (and back into the tile of the item on screen).
         private func openViewer(_ entry: GalleryEntry, from cv: UICollectionView) {
             guard let presenter = cv.window?.rootViewController?.topmostPresented else { return }
@@ -582,7 +603,8 @@ struct NativePhotoGrid: UIViewRepresentable {
             }
             viewerCurrentId = entry.id
             parent.onViewerPage(entry.id)
-            var host: UIViewController?
+            // Weak: the viewer holds this closure, so a strong reference kept every closed viewer and its players alive.
+            weak var host: UIViewController?
             let viewer = ViewerView(entries: parent.entries, startId: entry.id, onPageChange: { [weak self] id in
                 guard let self else { return }
                 self.viewerCurrentId = id
@@ -599,7 +621,16 @@ struct NativePhotoGrid: UIViewRepresentable {
             controller.modalPresentationStyle = .fullScreen
             controller.view.backgroundColor = .black
             if #available(iOS 18.0, *) {
-                controller.preferredTransition = .zoom { [weak self] _ in
+                let options = UIViewController.Transition.ZoomOptions()
+                // The moment a swipe down starts, like Photos. UIKit tells the viewer it's going away only when the
+                // close animation ends, which left a second of sound on an iPhone.
+                options.interactiveDismissShouldBegin = { [weak controller] context in
+                    guard context.willBegin, let controller else { return context.willBegin }
+                    NotificationCenter.default.post(name: .viewerWillClose, object: "swipe down")
+                    Self.watchForCancelledSwipe(controller)
+                    return true
+                }
+                controller.preferredTransition = .zoom(options: options) { [weak self] _ in
                     guard let self, let cv = self.collectionView, let id = self.viewerCurrentId,
                           let ip = self.dataSource?.indexPath(for: id) else { return nil }
                     return cv.cellForItem(at: ip)

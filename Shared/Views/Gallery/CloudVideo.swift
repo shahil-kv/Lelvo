@@ -25,6 +25,8 @@ final class CloudVideoSession: ObservableObject {
     private var watchdog: Task<Void, Never>?
     private let opened = Date()
     private var playingLogged = false
+    /// The viewer is closing or closed: nothing here may start the player again (a quality switch, the early start).
+    private var held = false
 
     var hasCopy: Bool { item.hasStreamingCopy }
 
@@ -114,6 +116,7 @@ final class CloudVideoSession: ObservableObject {
         if let speed = StreamingThroughput.shared.bytesPerSecond, stream != nil {
             appLog("Video speed: Telegram delivered about \(Format.bytes(Int64(speed)))/s while \(item.filename) played")
         }
+        held = true
         stallTask?.cancel()
         startTask?.cancel()
         watchdog?.cancel()
@@ -122,6 +125,14 @@ final class CloudVideoSession: ObservableObject {
         player.replaceCurrentItem(with: nil)
         stream = nil
     }
+
+    /// The viewer started closing: stop now, and stay stopped unless the close is cancelled.
+    func hold() {
+        held = true
+        player.pause()
+    }
+
+    func release() { held = false }
 
     private func switchTo(_ q: VideoQuality) async {
         guard q != quality, !switching, q == .original || hasCopy else { return }
@@ -139,7 +150,7 @@ final class CloudVideoSession: ObservableObject {
         await Self.waitUntilLoaded(nextItem, timeout: 20)
         guard nextItem.status == .readyToPlay, player.currentItem === nextItem else { return }
         if time.isNumeric, time.seconds > 0 { await player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) }
-        if wasPlaying { player.play() }
+        if wasPlaying, !held { player.play() }
     }
 
     /// Waits until the item is ready or failed (or the timeout passes), checking a few times a second.
@@ -155,7 +166,7 @@ final class CloudVideoSession: ObservableObject {
     private func startSoon() {
         guard startTask == nil else { return }
         startTask = Task { [weak self] in
-            while let self, !Task.isCancelled, self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
+            while let self, !Task.isCancelled, !self.held, self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
                 let reason = self.player.reasonForWaitingToPlay
                 if reason == .toMinimizeStalls || reason == .evaluatingBufferingRate, let item = self.player.currentItem,
                    item.bufferedAhead >= 0.5 {
@@ -258,6 +269,48 @@ struct VideoQualityMenu: View {
 final class ViewerVideoSessions: ObservableObject {
     @Published private(set) var sessions: [String: CloudVideoSession] = [:]
     private var chosen: [String: VideoQuality] = [:]
+    /// Phone videos in this viewer (cloud ones are in `sessions`), so a close can stop every player it made.
+    private let localPlayers = NSHashTable<AVPlayer>.weakObjects()
+    /// The close went through. A video that finishes loading during the close animation must not start: it played on
+    /// with nothing on screen to stop it.
+    private(set) var closing = false
+
+    deinit { appLog("Viewer freed") }
+
+    /// A phone video's player. One that arrives while the viewer closes is stopped at once.
+    func register(_ player: AVPlayer) {
+        localPlayers.add(player)
+        if closing { player.pause() }
+    }
+
+    /// `how`: what started the close (✕, a swipe down, the screen going away), for the log.
+    func beginClose(_ how: String) {
+        guard !closing else { return }
+        closing = true
+        let players = sessions.values.map(\.player) + localPlayers.allObjects
+        appLog("Viewer closing (\(how)): pausing \(players.filter { $0.rate != 0 }.count) of \(players.count) video players")
+        sessions.values.forEach { $0.hold() }
+        localPlayers.allObjects.forEach { $0.pause() }
+        // Once the close animation is over nothing may still play. A warning here means a path was missed.
+        let watched = NSHashTable<AVPlayer>.weakObjects()
+        players.forEach(watched.add)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if let self, !self.closing { return }
+            let playing = watched.allObjects.filter { $0.rate != 0 }
+            playing.forEach { $0.pause() }
+            if playing.isEmpty { appLog("Viewer closed: \(players.count) video players stopped") }
+            else { AppLog.shared.warn("Viewer closed but \(playing.count) video players still played; stopped them") }
+        }
+    }
+
+    /// A swipe down that was let go: the viewer stays.
+    func cancelClose() {
+        guard closing else { return }
+        appLog("Viewer close cancelled")
+        closing = false
+        sessions.values.forEach { $0.release() }
+    }
 
     func open(_ entryId: String, item: MediaItem, reader: MediaReader) -> CloudVideoSession {
         if let existing = sessions[entryId], existing.item.id == item.id { return existing }
