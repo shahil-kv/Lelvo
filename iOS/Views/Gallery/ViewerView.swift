@@ -68,6 +68,10 @@ struct ViewerView: View {
             }
         }
         .environmentObject(videos)
+        .onReceive(NotificationCenter.default.publisher(for: .viewerWillClose)) { note in
+            videos.beginClose(note.object as? String ?? "close")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .viewerCloseCancelled)) { _ in videos.cancelClose() }
         .onDisappear { videos.closeAll() }
         .overlay(alignment: .top) { if !chromeHidden { topBar.transition(.opacity) } }
         .overlay(alignment: .bottom) { if !chromeHidden { bottomBar.transition(.opacity) } }
@@ -106,7 +110,7 @@ struct ViewerView: View {
             }
             HStack {
                 Button {
-                NotificationCenter.default.post(name: .viewerWillClose, object: nil)
+                NotificationCenter.default.post(name: .viewerWillClose, object: "close button")
                 close()
             } label: {
                     Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.white)
@@ -388,8 +392,8 @@ struct ViewerPage: View {
                             trace = VideoTrace(item: item, name: name, source: q == .original ? "cloud original" : "cloud fast version")
                         }
                     }
-                    .onAppear { if isCurrent { player.play() } }
-                    .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }
+                    .onAppear { if isCurrent, !videos.closing { player.play() } }
+                    .onChange(of: isCurrent) { _, now in if now, !videos.closing { player.play() } else { player.pause() } }
                     .onDisappear {
                         rememberPosition(player)
                         player.pause()
@@ -448,8 +452,12 @@ struct ViewerPage: View {
             content = .loading(preview)
             if asset.mediaType == .video {
                 if let item = await Self.playerItem(for: asset) {
+                    // Photos can take seconds to hand over an iCloud video. If the viewer closed or the page scrolled
+                    // away meanwhile, a player made now would play with nothing on screen.
+                    guard !Task.isCancelled, !videos.closing else { return }
                     trace = VideoTrace(item: item, name: entry.item?.filename ?? "local video", source: "iPhone")
                     let player = AVPlayer(playerItem: item)
+                    videos.register(player)
                     resume(player)
                     content = .video(player)
                 }
@@ -532,6 +540,7 @@ struct ViewerPage: View {
     /// Streams a cloud video from Telegram (no full download): the fast version when the connection can't carry the
     /// original (Settings → Video quality), and the edit rather than the original when it was edited in Photos.
     private func startCloudVideo(_ item: MediaItem) {
+        guard !videos.closing else { return }
         let s = videos.open(entry.id, item: item, reader: AppEnvironment.shared.reader)
         session = s
         if let playerItem = s.player.currentItem {
@@ -1164,7 +1173,7 @@ final class PlaybackState: ObservableObject {
 }
 
 extension Notification.Name {
-    /// The viewer started closing (swipe down or ✕): stop sound right away, not after the animation.
+    /// The viewer is closing (✕, or a swipe down that went through): stop sound right away, not after the animation.
     static let viewerWillClose = Notification.Name("ViewerWillClose")
     /// An interactive close was cancelled; the viewer stays.
     static let viewerCloseCancelled = Notification.Name("ViewerCloseCancelled")
@@ -1179,13 +1188,26 @@ private struct CloseObserver: UIViewControllerRepresentable {
         private var closing = false
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
-            closing = true
-            NotificationCenter.default.post(name: .viewerWillClose, object: nil)
+            // Sound stops the moment a close starts, swipe down included. Waiting for the swipe to go through left a
+            // second or two of sound on an iPhone; a swipe that's let go plays on (`viewDidAppear`).
+            willClose()
         }
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
             if closing { NotificationCenter.default.post(name: .viewerCloseCancelled, object: nil) }
             closing = false
+        }
+        override func viewDidDisappear(_ animated: Bool) {
+            super.viewDidDisappear(animated)
+            guard closing else { return }
+            // Hand the sound back to Music or a podcast that the video interrupted, as Photos does. Blocks briefly.
+            Task.detached(priority: .utility) {
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            }
+        }
+        private func willClose() {
+            closing = true
+            NotificationCenter.default.post(name: .viewerWillClose, object: "screen closing")
         }
     }
     func makeUIViewController(context: Context) -> Controller { Controller() }

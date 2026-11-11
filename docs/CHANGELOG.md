@@ -5,6 +5,8 @@ What's new in Lelvo for iPhone and Mac, newest first. Downloads for each version
 
 ## Unreleased
 
+- **Videos stop when you close them:** the sound stops the moment you tap ✕ or start a swipe down, like Photos. A
+  swipe you let go keeps playing, nothing plays after the viewer has closed, and music a video paused comes back.
 - **Signing in:** the code screen shows where your code went. When Telegram sends it to the Telegram app, a short
   picture of the Telegram chat says so, and **Open** takes you straight to that chat. SMS codes say "Check your
   messages". If nothing arrives, **Didn't get it?** asks Telegram to send it by SMS or call once its wait is over.

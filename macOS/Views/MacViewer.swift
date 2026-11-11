@@ -437,6 +437,8 @@ struct MacViewerPage: View {
             content = .loading(preview)
             if asset.mediaType == .video {
                 if let item = await Self.playerItem(for: asset) {
+                    // Closed or moved on while Photos fetched it: don't make a player nothing will stop.
+                    guard !Task.isCancelled else { return }
                     let player = AVPlayer(playerItem: item)
                     resume(player)
                     content = .video(player)
