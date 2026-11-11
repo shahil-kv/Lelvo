@@ -146,7 +146,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Intro pages | `Shared/Views/Onboarding/IntroView.swift` | Horizontal pager, same pages and words | ✅ (permission prompt still to run) |
 | Phone, code, two-step password, other device, no account | `OnboardingView.swift`, `TDService.swift` | `SignInScreen` | ◐ (needs one real sign-in) |
 | Where the code was sent | `CodeSentCard.swift` | Card on the code step | ✅ |
-| Session ended elsewhere | `LelvoCore/Support/SessionWatch.swift` | `SessionWatch` port | ✅ (logic), screen to do |
+| Session ended elsewhere | `LelvoCore/Support/SessionWatch.swift` | `SessionWatch` port | ✅ (no screen on iOS either: the reset shows the intro; device run waits with A7) |
 | Choose library, unlock, recovery key | `LibraryService.swift`, `EncryptionSettingsView.swift` | `LibraryScreens` | ◐ (needs real run) |
 | New library with recovery key shown and confirmed | `OnboardingView.swift` (`.recoveryKey`), `PassphraseBox.swift` | Header format 2 writer, key screens | |
 | Scanning and "library ready" | `LibraryReadyView.swift` | Progress screen, item count | |
@@ -402,7 +402,12 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   themes, like the chat it pictures. Debug hook: `--es lelvo.signin code-telegram|code-sms|password` shows that step
   without signing out (Back closes it). Checked light (Telegram) and dark (SMS).
 - **Next session (start here):** Phase A is done except the device run of sign-out (A7, waits for the owner). Phase B:
-  intro ✅, code-sent card ✅; next the session-ended
-  screen, choose/unlock on the real account, new library, library ready, photo permission. Commit each row on
+  intro ✅, code-sent card ✅, session ended ✅ (iOS has no
+  screen for it: `AppModel` resets with `keepingChoices` and onboarding starts at the intro, which Android already
+  does). Next: new library (header format 2 writer, recovery key shown and confirmed: `OnboardingView.swift`
+  `.recoveryKey`, `PassphraseBox.swift`), then library ready (`LibraryReadyView.swift`), then the photo permission
+  step after sign-in. Choose/unlock is ◐ until the owner runs it (the emulator's library is unlocked; forgetting it
+  would need the owner's passphrase). Creating a library writes to Telegram: only ever to "Android test", which the
+  owner hasn't made yet, so build and test new library with the demo or a dry run until then. Commit each row on
   `android-plan` as it lands (owner, 2026-11-11); don't push. Before each screen, look at Google Photos' version first.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
