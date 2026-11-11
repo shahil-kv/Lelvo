@@ -76,6 +76,34 @@ class LibraryService(context: Context, private val td: TdClient, private val sec
         out.sortedWith(compareBy({ if (it.isLibrary) 0 else 1 }, { it.title.lowercase() }))
     }
 
+    /**
+     * Creates a private channel with a format 2 header: the line in the description and the pinned message (iOS
+     * `createLibrary`). Always end-to-end encrypted. Returns the recovery key to show once; nothing stores it.
+     */
+    suspend fun createLibrary(title: String, passphrase: String): RecoveryKey {
+        // Argon2id takes seconds and 256 MiB: done before anything is written, so a failure leaves no empty channel.
+        val made = withContext(Dispatchers.Default) { LibraryHeader.newLibrary(passphrase, argon2) }
+        return withContext(Dispatchers.IO) {
+            val chat = td.send(TdApi.CreateNewSupergroupChat(title, false, true, "Lelvo Library · do not edit\n" + made.header.line, null, 0, false))
+            val message = td.sendText(chat.id, made.header.messageText)
+            // The description holds the header too, so a library whose pin failed still opens.
+            runCatching { td.send(TdApi.PinChatMessage(chat.id, message.id, true, false)) }
+                .onFailure { AppLog.warn("Pinning the library header failed") }
+            prefs.edit().putLong(CHAT_ID, chat.id).putString(HEADER, made.header.line).apply()
+            storeKeys(made.keys)
+            AppLog.info("Created library channel (E2E, header format ${made.header.version})")
+            made.recoveryKey
+        }
+    }
+
+    /** Renames the channel. Libraries are recognised by their header, never by name, so this is safe. */
+    suspend fun rename(chatId: Long, title: String) = withContext(Dispatchers.IO) {
+        val clean = title.trim()
+        if (clean.isEmpty()) return@withContext
+        td.send(TdApi.SetChatTitle(chatId, clean.take(128)))
+        AppLog.info("Renamed library channel")
+    }
+
     /** The pinned header message first, then the channel description (CLOUD_FORMAT.md §1). */
     suspend fun readHeader(chatId: Long): HeaderResult {
         runCatching { td.send(TdApi.OpenChat(chatId)) }

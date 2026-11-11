@@ -29,7 +29,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.lelvo.android.debug.CoreCheckScreen
-import app.lelvo.android.library.ChooseLibraryScreen
+import app.lelvo.android.library.LibraryScreen
+import app.lelvo.android.library.LibrarySetup
+import app.lelvo.android.library.RecoveryKeyScreen
 import app.lelvo.android.settings.SettingsInfo
 import app.lelvo.android.settings.SettingsScreen
 import app.lelvo.android.brand.LaunchHost
@@ -53,6 +55,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val introPreview = mutableStateOf<Int?>(null)
     private val signInPreview = mutableStateOf<AuthStep?>(null)
+    private val libraryPreview = mutableStateOf<String?>(null)
 
     private fun previewStep(name: String): AuthStep? = when (name) {
         "code-telegram" -> AuthStep.WaitCode("We've sent the code to the Telegram app on your other device.", 5, app.lelvo.telegram.CodeDelivery.Telegram, null)
@@ -75,6 +78,8 @@ class MainActivity : ComponentActivity() {
         if (intent.hasExtra("lelvo.intro")) { introPreview.value = intent.getIntExtra("lelvo.intro", 0); return }
         // `--es lelvo.signin code-telegram|code-sms|password` shows that sign-in step without signing out (nothing is sent).
         intent.getStringExtra("lelvo.signin")?.let { signInPreview.value = previewStep(it); return }
+        // `--es lelvo.library found|found2|none|error|searching|unlock|recovery` shows that library step with sample data.
+        intent.getStringExtra("lelvo.library")?.let { libraryPreview.value = it; return }
         val title = intent.getStringExtra("lelvo.message") ?: return
         val style = intent.getStringExtra("lelvo.style")
         if (style == "progress") {
@@ -124,6 +129,9 @@ class MainActivity : ComponentActivity() {
                     androidx.activity.compose.BackHandler { signInPreview.value = null }
                     SignInScreen(app.telegram, st, app.demo)
                 } }
+                if (BuildConfig.DEBUG) libraryPreview.value?.let { k -> key(k) {
+                    LibraryPreview(k) { libraryPreview.value = null }
+                } }
                 if (BuildConfig.DEBUG) introPreview.value?.let { p -> key(p) {
                     IntroScreen(app.photos, p, onPage = {}, onFinish = { introPreview.value = null })
                 } }
@@ -142,18 +150,39 @@ private fun SignedOut(app: LelvoApp, step: AuthStep) {
     else SignInScreen(app.telegram, step, app.demo, onIntro = { intro = true })
 }
 
-/** Signed in: choose the library, unlock it, then the app. */
+/** Signed in: choose or create the library, unlock it or save the new one's recovery key, then the app. */
 @Composable
 private fun LibraryFlow(app: LelvoApp) {
     var changes by remember { mutableIntStateOf(0) }
+    val setup = app.model.librarySetup
+    val recovery by app.model.pendingRecoveryKey
     val signOut: () -> Unit = { app.model.reset() }
     changes.let {
+        val key = recovery
         when {
-            !app.library.isConfigured -> ChooseLibraryScreen(app.library, onChosen = { changes++ }, onSignOut = signOut)
-            !app.library.isUnlocked -> UnlockScreen(app.library, onUnlocked = { changes++ }, onOtherLibrary = { app.library.forget(); changes++ })
+            key != null -> RecoveryKeyScreen(key) { app.model.pendingRecoveryKey.value = null; changes++ }
+            !app.library.isConfigured -> LibraryScreen(
+                setup, onChosen = { changes++ }, onSignOut = signOut,
+                onCreated = { app.model.pendingRecoveryKey.value = it; changes++ },
+            )
+            !app.library.isUnlocked -> UnlockScreen(setup, onUnlocked = { changes++ }, onBack = {
+                app.library.forget(); setup.passphrase = ""; setup.error = null; changes++
+            })
             else -> Library(app, real = true)
         }
     }
+}
+
+/** Debug preview of a library step with sample data: nothing is read from or written to Telegram. */
+@Composable
+private fun LibraryPreview(kind: String, onClose: () -> Unit) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val setup = remember { LibrarySetup.preview(kind, scope) }
+    var key by remember { mutableStateOf(if (kind == "recovery") app.lelvo.core.crypto.RecoveryKey.random() else null) }
+    androidx.activity.compose.BackHandler(onBack = onClose)
+    key?.let { RecoveryKeyScreen(it) { key = null; onClose() }; return }
+    if (kind == "unlock") UnlockScreen(setup, onUnlocked = onClose, onBack = onClose)
+    else LibraryScreen(setup, onChosen = onClose, onCreated = { key = it }, onSignOut = onClose)
 }
 
 /** The four tabs, with the viewer, Settings and the core check over them. */

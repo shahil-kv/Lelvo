@@ -412,12 +412,25 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   and hint, other device, no account (Get Telegram → Play Store), email. The demo code step is the "other" delivery
   like iOS. Intro uses the same button and Back. Fixed: the intro phone frame was squeezed; it now keeps the
   screenshot's shape and is cut off by the card. Checked light and dark (code Telegram, code SMS, password).
-- **Next session (start here):** Phase B, the rest, every screen copied from the iPhone's (read the Swift first,
-  owner 2026-11-11): rebuild `LibraryScreens.kt` on `OnboardingKit` from `OnboardingView.swift` `LibraryScreen`
-  (587–715), `LibraryCard` (716), `PassphraseSetup` (765) and `unlock` (511); then new library with the recovery key
-  shown and confirmed (`.recoveryKey`, `RecoveryKeyView`, `PassphraseBox.swift`, header format 2 writer in `core/`
-  with tests); then `scanning` (521) and `LibraryReadyView.swift`; then the photos step (534) and
-  `FirstBackupView` (IntroView.swift 837). Choose/unlock stays ◐ until the owner runs it; creating a library writes
-  to Telegram, so only to "Android test" once the owner makes it, until then test without writing. Use the debug
-  hooks (`--ei lelvo.intro N`, `--es lelvo.signin …`) and add one per new screen. Commit each on `android-plan`.
+- 2026-11-11, B4 library, unlock, new library, recovery key ◐: `LibraryScreens.kt` rebuilt on `OnboardingKit` from
+  iOS `LibraryScreen`, `LibraryCard`, `PassphraseSetup`, `unlock` and `RecoveryKeyView`. Searching ("Looking for your
+  library…", three tries two seconds apart like iOS, since the chat list is still syncing right after sign-in);
+  "Couldn't check your channels" with Try again; "Welcome back" with selectable cards, rename (pencil on the selected
+  card, Material dialog, `SetChatTitle`), "Start a new library instead" (its own page with Back, where iOS uses a
+  sheet), "Use a different Telegram account"; first time "Your library" with the suggested name ("Lelvo Library 2"
+  when taken, `LibraryNames` in `core/` with tests), passphrase twice (normalized like iOS, 10+ characters) and the
+  orange warning with the tick. No longer opens a single library on its own: iOS asks with "Restore". Unlock: one
+  field (Passphrase or recovery key, password autofill), orange error, Back forgets the choice. `createLibrary` in
+  `LibraryService`: Argon2id first so a failure leaves no empty channel, then the channel with the header line in the
+  description, the header message pinned (a failed pin is logged, the description still opens it), keys stored.
+  Recovery key shown once in 13 groups, Copy marks the clip sensitive (the system preview shows dots) and clears it
+  after two minutes if it's still the key, Back does nothing, "I've saved it" goes on. The setup state and the pending
+  key live in `AppModel` (memory only), so rotating neither loses the passphrase nor cancels a library half-made.
+  Debug hook: `--es lelvo.library found|found2|none|error|searching|unlock|recovery` (sample data, nothing reaches
+  Telegram). Checked light and dark; wrong passphrase, rename dialog, create → busy → key → Copied. Not run: a real
+  create, restore or rename on Telegram (needs the "Android test" library). "Standard" cards still show, and choosing
+  one gives the "open it on iPhone or Mac" error.
+- **Next session (start here):** Phase B, the rest: `scanning` (OnboardingView.swift 521, `RestoringMark`) and
+  `LibraryReadyView.swift` after unlock; then the photos step (534) and `FirstBackupView` (IntroView.swift 837) after
+  restore or the recovery key. Add a `lelvo.library` value per new screen. Then the owner runs B4 on "Android test".
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.

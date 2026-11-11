@@ -1,6 +1,9 @@
 package app.lelvo.android
 
+import androidx.compose.runtime.mutableStateOf
+import app.lelvo.android.library.LibrarySetup
 import app.lelvo.android.shell.Tab
+import app.lelvo.core.crypto.RecoveryKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +32,16 @@ class AppModel(private val app: LelvoApp) {
 
     private var resetJob: Job? = null
 
+    /**
+     * The library step's state. Kept here, not in a screen, so turning the phone neither loses the typed passphrase
+     * nor cancels a library half-way through being created. A reset starts it afresh.
+     */
+    var librarySetup = LibrarySetup(app.library, scope)
+        private set
+
+    /** A new library's recovery key until the user says it's saved. Memory only, never written anywhere. */
+    val pendingRecoveryKey = mutableStateOf<RecoveryKey?>(null)
+
     init {
         // Without a session nothing can reach the library, so this works like Sign out and reset. The channel and the
         // photos on this phone aren't touched; signing in again brings the library back.
@@ -45,6 +58,8 @@ class AppModel(private val app: LelvoApp) {
      */
     fun reset(keepingChoices: Boolean = false) {
         tab.value = Tab.Photos
+        librarySetup = LibrarySetup(app.library, scope)
+        pendingRecoveryKey.value = null
         _sessionId.value++
         _resetting.value = true
         val previous = resetJob
