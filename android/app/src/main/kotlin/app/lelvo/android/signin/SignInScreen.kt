@@ -24,6 +24,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ListItem
@@ -49,6 +51,8 @@ import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import app.lelvo.android.R
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -66,16 +70,24 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SignInScreen(td: TdClient, step: AuthStep, demo: DemoMode) {
+fun SignInScreen(td: TdClient, step: AuthStep, demo: DemoMode, onIntro: (() -> Unit)? = null) {
     // The review number was entered: the code step checks the demo code instead of Telegram's.
     var demoCode by rememberSaveable { mutableStateOf(false) }
-    BackHandler(enabled = demoCode) { demoCode = false }
-    Scaffold(topBar = { TopAppBar(title = { Text(if (demoCode) "Enter the code" else title(step)) }) }) { padding ->
+    val phone = step == AuthStep.WaitPhone || step == AuthStep.NeedsCredentials
+    // Back from the phone step returns to the intro, on the page the user left (iOS keeps `introPage` the same way).
+    val back: (() -> Unit)? = if (demoCode) ({ demoCode = false }) else if (phone) onIntro else null
+    BackHandler(enabled = back != null) { back?.invoke() }
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text(if (demoCode) "Enter the code" else title(step)) },
+            navigationIcon = { back?.let { IconButton(onClick = it) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") } } },
+        )
+    }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).imePadding()) {
             when {
                 demoCode -> DemoCodeStep(demo, onBack = { demoCode = false })
                 // The demo works in a build without Telegram app keys too.
-                step == AuthStep.WaitPhone || step == AuthStep.NeedsCredentials ->
+                phone ->
                     PhoneStep(td, demo, hasKeys = step == AuthStep.WaitPhone, onDemo = { demoCode = true })
                 else -> when (step) {
                 is AuthStep.WaitCode -> CodeStep(td, step)

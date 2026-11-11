@@ -36,6 +36,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var scanner: LibraryScanner private set
     lateinit var coreCheck: CoreCheck private set
     lateinit var model: AppModel private set
+    lateinit var photos: app.lelvo.data.media.PhotoAccess private set
     /** The launch opening plays once per process (cold start only). */
     var openingPlayed = false
 
@@ -78,6 +79,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         scanner = LibraryScanner(files, library, store)
         coreCheck = CoreCheck(files, library, scanner, store)
         model = AppModel(this)
+        photos = app.lelvo.data.media.PhotoAccess(this)
     }
 
     /**

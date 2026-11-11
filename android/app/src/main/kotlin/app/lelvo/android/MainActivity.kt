@@ -41,6 +41,7 @@ import app.lelvo.android.shell.Tab
 import app.lelvo.android.shell.TabPlaceholder
 import app.lelvo.android.library.UnlockScreen
 import app.lelvo.android.signin.SignInScreen
+import app.lelvo.android.onboarding.IntroScreen
 import app.lelvo.android.timeline.TimelineScreen
 import app.lelvo.android.ui.theme.LelvoTheme
 import app.lelvo.android.viewer.ViewerScreen
@@ -50,6 +51,8 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val introPreview = mutableStateOf<Int?>(null)
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         if (BuildConfig.DEBUG) debugMessage(intent)
@@ -60,6 +63,8 @@ class MainActivity : ComponentActivity() {
      * `adb shell am start -n app.lelvo.android/.MainActivity --es lelvo.message "Title" [--es lelvo.style progress|success|failure|info] [--ez lelvo.undo true]`
      */
     private fun debugMessage(intent: android.content.Intent) {
+        // `--ei lelvo.intro N` opens the intro on page N over a signed-in app, so it can be checked without signing out.
+        if (intent.hasExtra("lelvo.intro")) { introPreview.value = intent.getIntExtra("lelvo.intro", 0); return }
         val title = intent.getStringExtra("lelvo.message") ?: return
         val style = intent.getStringExtra("lelvo.style")
         if (style == "progress") {
@@ -102,12 +107,25 @@ class MainActivity : ComponentActivity() {
                         // In the demo nothing talks to Telegram, so its sign-in state doesn't matter.
                         demo -> Library(app)
                         step == AuthStep.Ready -> LibraryFlow(app)
-                        else -> SignInScreen(app.telegram, step, app.demo)
+                        else -> SignedOut(app, step)
                     }
                 }
+                if (BuildConfig.DEBUG) introPreview.value?.let { p -> key(p) {
+                    IntroScreen(app.photos, p, onPage = {}, onFinish = { introPreview.value = null })
+                } }
             } }
         }
     }
+}
+
+/** Not signed in: the intro first, then sign-in; Back from the phone step returns to the intro page left. */
+@Composable
+private fun SignedOut(app: LelvoApp, step: AuthStep) {
+    var page by rememberSaveable { mutableIntStateOf(0) }
+    var intro by rememberSaveable { mutableStateOf(true) }
+    val atPhone = step == AuthStep.WaitPhone || step == AuthStep.NeedsCredentials
+    if (intro && atPhone) IntroScreen(app.photos, page, onPage = { page = it }, onFinish = { intro = false })
+    else SignInScreen(app.telegram, step, app.demo, onIntro = { intro = true })
 }
 
 /** Signed in: choose the library, unlock it, then the app. */

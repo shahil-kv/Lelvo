@@ -1,5 +1,6 @@
 package app.lelvo.android.brand
 
+import app.lelvo.android.ui.theme.rememberReduceMotion
 import android.provider.Settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -147,12 +148,3 @@ private fun LaunchOverlay(
 }
 
 private fun markPath(): Path = PathParser().parsePathString(LelvoMark.CAMEL + " " + LelvoMark.CLOUD).toPath()
-
-/** Android's Remove animations (Settings → Accessibility), the counterpart of iOS Reduce Motion. */
-@Composable
-private fun rememberReduceMotion(): Boolean {
-    val context = LocalContext.current
-    return remember {
-        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
-    }
-}

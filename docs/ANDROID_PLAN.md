@@ -143,7 +143,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Intro pages | `Shared/Views/Onboarding/IntroView.swift` | Horizontal pager, same pages and words | |
+| Intro pages | `Shared/Views/Onboarding/IntroView.swift` | Horizontal pager, same pages and words | ✅ (feature screenshots and the permission prompt still to do) |
 | Phone, code, two-step password, other device, no account | `OnboardingView.swift`, `TDService.swift` | `SignInScreen` | ◐ (needs one real sign-in) |
 | Where the code was sent | `CodeSentCard.swift` | Card on the code step | |
 | Session ended elsewhere | `LelvoCore/Support/SessionWatch.swift` | `SessionWatch` port | ✅ (logic), screen to do |
@@ -383,8 +383,20 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   frame), Remove animations (straight to Photos), warm start (system splash only, no opening), icon in the app drawer.
   Not proven: tap to skip (adb can't time the tap). **To look at later:** ~700 ms of main-thread work on cold start
   (LelvoApp services and the first grid); measure in a release build before Phase E is ticked.
-- **Next session (start here):** Phase A is done except the device run of sign-out (A7, waits for the owner). Start
-  Phase B: intro pages first (`Shared/Views/Onboarding/IntroView.swift`), then the code-sent card, the session-ended
+- 2026-11-11, B1 intro ✅: `IntroScreen` ports the six iOS pages (hook with the drifting photo wall and pop-in
+  badges, storage full, features lit one by one, privacy flow and the `.cge` bubble, eight questions with four shown,
+  your numbers) as a swipeable pager with a filled button and page dots, like Google Photos' first run. Shows before
+  the phone step whenever signed out; Back from the phone step returns to the page left (iOS `introPage`). Android
+  words: "phone" for `Device.name`, "Cloud storage 15 of 15 GB" for iCloud's meter, the phone's trash for Recently
+  Deleted, "Allow all" for Full Access. `PhotoAccess` (data) gives full, partial (Android 14+), denied or not asked
+  (Android doesn't say "not asked", so a flag kept across sign-out records it), the counts and the newest thumbnails;
+  the manifest asks for `READ_MEDIA_*`, `READ_MEDIA_VISUAL_USER_SELECTED`, `ACCESS_MEDIA_LOCATION` (storage on 10–12).
+  Found and fixed: dark mode drew black text (root wasn't a Surface); the wall redrew every frame behind the other
+  pages and stalled their animations, so it pauses off page 1. Debug hook: `--ei lelvo.intro N`. Checked light and
+  dark on every page. Gaps: features show the symbol, not a screenshot, until Android screenshots exist; the
+  permission prompt, denied and partial states weren't run (the emulator already has access).
+- **Next session (start here):** Phase A is done except the device run of sign-out (A7, waits for the owner). Phase B:
+  intro ✅; next the code-sent card (`CodeSentCard.swift`), then the session-ended
   screen, choose/unlock on the real account, new library, library ready, photo permission. Commit each row on
   `android-plan` as it lands (owner, 2026-11-11); don't push. Before each screen, look at Google Photos' version first.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
