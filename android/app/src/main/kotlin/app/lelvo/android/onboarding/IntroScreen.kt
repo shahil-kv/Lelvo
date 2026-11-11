@@ -71,6 +71,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -385,15 +386,15 @@ private fun Meter(title: String, value: String, fill: Float, color: Color, below
 
 // 3. What you get
 
-private class Feature(val icon: Int, val title: String, val detail: String)
+private class Feature(val icon: Int, val title: String, val detail: String, val shot: Int)
 
 private val features = listOf(
-    Feature(R.drawable.ic_cloud_upload, "Every original, backed up", "Photos and videos at full quality"),
-    Feature(R.drawable.ic_storage, "Free up space", "Remove what's safely backed up"),
-    Feature(R.drawable.ic_play, "Videos play at once", "Streamed, no full download"),
-    Feature(R.drawable.ic_search, "Search your photos", "Places, dates, text and things"),
-    Feature(R.drawable.ic_auto_awesome, "Memories and collections", "Your best days, picked for you"),
-    Feature(R.drawable.ic_map, "Your photos on a map", "Every trip, every place"),
+    Feature(R.drawable.ic_cloud_upload, "Every original, backed up", "Photos and videos at full quality", R.drawable.feature_backup),
+    Feature(R.drawable.ic_storage, "Free up space", "Remove what's safely backed up", R.drawable.feature_freeup),
+    Feature(R.drawable.ic_play, "Videos play at once", "Streamed, no full download", R.drawable.feature_video),
+    Feature(R.drawable.ic_search, "Search your photos", "Places, dates, text and things", R.drawable.feature_search),
+    Feature(R.drawable.ic_auto_awesome, "Memories and collections", "Your best days, picked for you", R.drawable.feature_memories),
+    Feature(R.drawable.ic_map, "Your photos on a map", "Every trip, every place", R.drawable.feature_map),
 )
 
 /** Every feature in plain words, most loved first, lit up one at a time. Tapping one shows it straight away. */
@@ -410,14 +411,7 @@ private fun FeaturesPage(active: Boolean, reduce: Boolean) {
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Android screenshots come with the Photos and Search tabs; until then the feature's own symbol, large.
-        Box(Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(28.dp))
-            .background(Brush.linearGradient(listOf(Lelvo.colors.accentSoft, Lelvo.colors.accent.copy(alpha = 0.35f)))),
-            contentAlignment = Alignment.Center) {
-            Crossfade(lit, animationSpec = tween(450), label = "feature") { i ->
-                Icon(painterResource(features[i].icon), null, Modifier.size(84.dp), tint = Lelvo.colors.accent)
-            }
-        }
+        Screenshot(features[lit].shot)
         Title("Everything in one app")
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             features.forEachIndexed { i, f ->
@@ -434,6 +428,29 @@ private fun FeaturesPage(active: Boolean, reduce: Boolean) {
                         Text(f.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+            }
+        }
+    }
+}
+
+/** The real screen for the lit feature, in a phone rising from the bottom of the card, like App Store art (iOS). */
+@Composable
+private fun Screenshot(shot: Int) {
+    val accent = Lelvo.colors.accent
+    BoxWithConstraints(Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(24.dp))
+        .drawBehind { drawRect(Brush.radialGradient(listOf(accent.copy(alpha = 0.35f), accent.copy(alpha = 0.05f)), center = Offset(size.width / 2, 0f), radius = 320.dp.toPx())) }
+        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(24.dp)), contentAlignment = Alignment.TopCenter) {
+        val phone = min(maxWidth.value * 0.66f, 250f).dp
+        // The screenshots are iPhone 17 Pro screens (402 × 874 points), as on iOS.
+        val screen = phone - 12.dp
+        val tall = screen * 874f / 402f
+        Box(Modifier.padding(top = 22.dp).size(phone, tall + 12.dp)
+            .graphicsLayer { shadowElevation = 20.dp.toPx(); shape = RoundedCornerShape(phone * 0.16f); clip = true }
+            .background(Color(0xFF1A1A1A)).border(1.5.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(phone * 0.16f)),
+            contentAlignment = Alignment.Center) {
+            Crossfade(shot, animationSpec = tween(450), label = "shot") { s ->
+                Image(painterResource(s), null, contentScale = ContentScale.FillBounds,
+                    modifier = Modifier.size(screen, tall).clip(RoundedCornerShape(screen * 0.14f)))
             }
         }
     }

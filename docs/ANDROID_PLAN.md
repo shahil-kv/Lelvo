@@ -143,7 +143,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Intro pages | `Shared/Views/Onboarding/IntroView.swift` | Horizontal pager, same pages and words | ✅ (feature screenshots and the permission prompt still to do) |
+| Intro pages | `Shared/Views/Onboarding/IntroView.swift` | Horizontal pager, same pages and words | ✅ (permission prompt still to run) |
 | Phone, code, two-step password, other device, no account | `OnboardingView.swift`, `TDService.swift` | `SignInScreen` | ◐ (needs one real sign-in) |
 | Where the code was sent | `CodeSentCard.swift` | Card on the code step | |
 | Session ended elsewhere | `LelvoCore/Support/SessionWatch.swift` | `SessionWatch` port | ✅ (logic), screen to do |
@@ -393,7 +393,7 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   the manifest asks for `READ_MEDIA_*`, `READ_MEDIA_VISUAL_USER_SELECTED`, `ACCESS_MEDIA_LOCATION` (storage on 10–12).
   Found and fixed: dark mode drew black text (root wasn't a Surface); the wall redrew every frame behind the other
   pages and stalled their animations, so it pauses off page 1. Debug hook: `--ei lelvo.intro N`. Checked light and
-  dark on every page. Gaps: features show the symbol, not a screenshot, until Android screenshots exist; the
+  dark on every page. Page 3 shows the iPhone's own screenshots in the phone frame (owner: intro looks like iOS). Gap: the
   permission prompt, denied and partial states weren't run (the emulator already has access).
 - **Next session (start here):** Phase A is done except the device run of sign-out (A7, waits for the owner). Phase B:
   intro ✅; next the code-sent card (`CodeSentCard.swift`), then the session-ended
