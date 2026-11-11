@@ -2,6 +2,7 @@ package app.lelvo.telegram
 
 import android.util.Log
 import app.lelvo.core.session.SessionWatch
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -56,6 +57,9 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
     private val closedClients = HashSet<Client>()
     private val sessionWatch = SessionWatch()
     private var startingOver = false
+    private val sendWaiters = HashMap<Long, CompletableDeferred<TdApi.Message>>()
+    /** Send results that arrived before anyone awaited them (TDLib can confirm before `sendMessage` returns). */
+    private val finishedSends = HashMap<Long, Result<TdApi.Message>>()
 
     private val _auth = MutableStateFlow<AuthStep>(if (config == null) AuthStep.NeedsCredentials else AuthStep.Starting)
     val auth: StateFlow<AuthStep> = _auth
@@ -121,7 +125,34 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
 
     private fun isCurrent(c: Client) = synchronized(lock) { client === c }
 
+    /** Sends text and returns the message only once Telegram has stored it (not TDLib's local, pending copy). */
+    suspend fun sendText(chatId: Long, text: String): TdApi.Message {
+        val content = TdApi.InputMessageText(TdApi.FormattedText(text, emptyArray()), null, false)
+        val pending = send(TdApi.SendMessage(chatId, null, null, null, null, content))
+        return awaitSent(pending.id)
+    }
+
+    suspend fun awaitSent(pendingId: Long): TdApi.Message {
+        val waiter = synchronized(lock) {
+            finishedSends.remove(pendingId)?.let { return it.getOrThrow() }
+            CompletableDeferred<TdApi.Message>().also { sendWaiters[pendingId] = it }
+        }
+        return try { waiter.await() } finally { synchronized(lock) { sendWaiters.remove(pendingId) } }
+    }
+
+    private fun finishSend(oldId: Long, result: Result<TdApi.Message>) {
+        val waiter = synchronized(lock) {
+            sendWaiters.remove(oldId) ?: run { finishedSends[oldId] = result; null }
+        } ?: return
+        result.fold({ waiter.complete(it) }, { waiter.completeExceptionally(it) })
+    }
+
     private fun handle(obj: TdApi.Object, from: Client) {
+        when (obj) {
+            is TdApi.UpdateMessageSendSucceeded -> finishSend(obj.oldMessageId, Result.success(obj.message))
+            is TdApi.UpdateMessageSendFailed -> finishSend(obj.oldMessageId, Result.failure(TelegramException(obj.error.code, obj.error.message)))
+            else -> Unit
+        }
         if (obj is TdApi.UpdateAuthorizationState) {
             if (obj.authorizationState is TdApi.AuthorizationStateClosed) synchronized(lock) { closedClients.add(from) }
             // A client being replaced (sign out, other account) must not drive the sign-in screens or clear the new one.

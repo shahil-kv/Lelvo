@@ -14,4 +14,5 @@ android {
 
 dependencies {
     api(project(":telegram"))
+    implementation(libs.argon2kt)
 }

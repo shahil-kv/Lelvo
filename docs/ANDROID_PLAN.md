@@ -178,4 +178,13 @@ it: **iOS edge cases carried over**, **learned from other apps**, **known gaps**
     that fails is never treated as missing (iOS lost sessions that way), lost database key → fresh start, no message
     database, country table and number lengths.
   - Android additions: country from the SIM, SMS code autofill hint, pasted `+` numbers with unlisted codes.
+- Steps 2–3 done 2026-11-11 (Fable, stopped early to save usage, then checked on Opus): every key of all four
+  vector files is tested (54 tests). Not yet ported, needed later: LibraryIndexer (Step 7), RestorePlan (14),
+  VideoQuality and MovieLayout (10), ScreenCopy (9), ExtraMetadata, PhotosFavorite, LibraryNames.
+- Step 6 written 2026-11-11, not yet run end to end: `LibraryService` (find channels, header from the pinned message
+  then the description, Newer/Damaged/Missing never "repaired", plain libraries refused, keys tied to their channel,
+  recovery key tried before Argon2id, argon2kt off-heap), confirmed sends in `TdClient` (iOS `finishedSends`),
+  choose and unlock screens. Creating a library on Android is Step 15.
+- **Next session:** finish Step 5 proof (one real sign-in, `telegram.testDc=false`), run Step 6 against the iPhone
+  test library, then Step 7 (port `LibraryIndexer` + Room). Start from `android/`, read only this section.
 - Step 0 still open (owner): approved library issue, test Telegram account on the test servers.

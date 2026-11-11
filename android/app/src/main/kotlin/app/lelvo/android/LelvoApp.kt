@@ -2,6 +2,7 @@ package app.lelvo.android
 
 import android.app.Application
 import android.os.Build
+import app.lelvo.data.LibraryService
 import app.lelvo.data.SecretStore
 import app.lelvo.telegram.TdClient
 import app.lelvo.telegram.TelegramConfig
@@ -11,6 +12,7 @@ import java.util.Locale
 class LelvoApp : Application() {
     lateinit var secrets: SecretStore private set
     lateinit var telegram: TdClient private set
+    lateinit var library: LibraryService private set
 
     override fun onCreate() {
         super.onCreate()
@@ -30,5 +32,6 @@ class LelvoApp : Application() {
         }
         telegram = TdClient(config, secrets.telegramDatabaseKeys())
         telegram.start()
+        library = LibraryService(this, telegram, secrets)
     }
 }
