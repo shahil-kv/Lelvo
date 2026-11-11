@@ -177,13 +177,13 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Grid with day / month / year, pinch | `NativePhotoGrid.swift`, `GalleryModel.swift`, `GridSnapshot.swift` | `TimelineScreen` | ◐ |
-| Phone photos and cloud items in one timeline | `GalleryModel.merge`, `PhotoLibraryService.swift` | MediaStore scan + index | |
-| Status badges and "what the icons mean" | `NativePhotoGrid.swift`, `GalleryView.swift` | Cell badges, help sheet | |
-| Date scrubber | `NativePhotoGrid.swift`, `VideoNavigation.swift` | Fast-scroll thumb with date | |
-| Filters: videos, Live Photos, favorites, only in Telegram, not backed up | `GalleryModel.swift` (`Filter`) | Filter chips in the top bar menu | |
-| Select, swipe to select, select all | `SwipeSelection.swift`, `GalleryView.swift` | Long-press + drag selection | |
-| Actions: back up, share, favorite, add to album, delete (phone / Telegram / everywhere) | `GalleryActions.swift`, `GalleryView.swift` | Bottom action bar, dialogs, system delete prompt | |
+| Grid with day / month / year, pinch | `NativePhotoGrid.swift`, `GalleryModel.swift`, `GridSnapshot.swift` | `TimelineScreen` | ✅ real thumbnails, phone and cloud |
+| Phone photos and cloud items in one timeline | `GalleryModel.merge`, `PhotoLibraryService.swift` | MediaStore scan + index | ✅ `Gallery.merge` in `core/` (tested); MediaStore changes redraw at most every 1.5 s |
+| Status badges and "what the icons mean" | `NativePhotoGrid.swift`, `GalleryView.swift` | Cell badges, help sheet | ✅ the iPhone's badges, colours and words; heart, length, Live mark; legend sheet |
+| Date scrubber | `NativePhotoGrid.swift`, `VideoNavigation.swift` | Fast-scroll thumb with date | ✅ |
+| Filters: videos, Live Photos, favorites, only in Telegram, not backed up | `GalleryModel.swift` (`Filter`) | Filter chips in the top bar menu | ✅ menu + chip to clear |
+| Select, swipe to select, select all | `SwipeSelection.swift`, `GalleryView.swift` | Long-press + drag selection | ✅ with edge auto-scroll |
+| Actions: back up, share, favorite, add to album, delete (phone / Telegram / everywhere) | `GalleryActions.swift`, `GalleryView.swift` | Bottom action bar, dialogs, system delete prompt | ◐ share (cloud too), favorite and trash on the phone; back up (Phase I), albums (G), favorites and deletes in Telegram (L) |
 
 ### Phase F. Viewer
 
@@ -478,7 +478,13 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   scrolls, so the viewer closes and the grid moves by itself; Lelvo isn't doing it (no app code path, no adb input).
   Ask the owner before turning it off for testing. Also seen once: the grid moved after the first launch after an
   install; probably the same service.
-- **Next session (start here):** owner decides about the accessibility service; then Phase E (Photos tab) with the
-  real thumbnails, checking light and dark. Still to try on the iPhone with Android open: a favorite and a delete
-  following live; a second library for switch and new library; a video over 2 minutes to check resume.
+- 2026-11-11, Phase E ◐: one timeline of phone photos (MediaStore) and cloud items, merged like iOS; the iPhone's tile
+  overlays (badge top right on a dark circle, heart and length bottom left, nothing but the badge under 40 dp, the
+  upload badge turning); filters and "What the icons mean"; the date scrubber; long-press and drag selection with
+  Share (cloud photos downloaded and named like the original, through a share-only FileProvider), Favorite (the
+  system's favorite prompt) and Delete (named warning for photos not backed up, then the system's trash prompt).
+  Writes to a library now require it to be named "Android test" (`LibraryService.requireWritable`).
+- **Next session (start here):** owner decides about the screen-time accessibility service; then Phase F (viewer:
+  zoom, info, actions, iPhone-like player with quality switch and the HD badge). Phase E's Telegram-side actions wait
+  for I (back up), G (albums) and L (favorite and delete notes).
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
