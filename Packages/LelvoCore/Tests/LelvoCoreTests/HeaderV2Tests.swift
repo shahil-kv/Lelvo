@@ -151,3 +151,62 @@ import Testing
         #expect(header.unlock(recoveryKey: recovery).map(\.masterData) == bytes(v.masterHex))
     }
 }
+
+/// The same passphrase typed with an iPhone's Smart Punctuation, on a Mac, or with stray spaces opens the library.
+@Suite struct PassphraseNormalizationTests {
+    let cheap = Argon2id.Parameters(iterations: 1, memoryKiB: Argon2id.Parameters.minimumMemoryKiB)
+
+    @Test func smartPunctuationGoesBackToTheTypedKeys() {
+        #expect(Passphrase.normalized("don\u{2019}t \u{201C}panic\u{201D} \u{2014} ok\u{2026}") == "don't \"panic\" -- ok...")
+        // Spaces are kept: what older versions use, byte for byte.
+        #expect(Passphrase.normalized("  spaced out \n") == "  spaced out \n")
+        #expect(Passphrase.normalized("plain ascii-only") == "plain ascii-only")
+        #expect(Passphrase.candidates("plain") == ["plain"])
+        #expect(Passphrase.candidates(" x\u{2019}y") == [" x\u{2019}y", " x'y", "x'y"])
+    }
+
+    @Test func aLibraryMadeOnTheIPhoneOpensOnTheMac() throws {
+        // Set with Show on (Smart Punctuation), unlocked on a Mac with plain keys, and with Show off.
+        let (header, keys, _) = try LibraryHeader.newLibrary(passphrase: "my dog\u{2019}s name \u{2014} rex", argon: cheap)
+        #expect(try header.unlock(passphrase: "my dog's name -- rex")?.masterData == keys.masterData)
+        #expect(try header.unlock(passphrase: "my dog\u{2019}s name \u{2014} rex")?.masterData == keys.masterData)
+        #expect(try header.unlock(passphrase: "my dog's name -- rex ")?.masterData == keys.masterData)
+        #expect(try header.unlock(passphrase: "my dogs name rex") == nil)
+    }
+
+    @Test func aLibraryMadeOnTheMacOpensOnTheIPhone() throws {
+        let (header, keys, _) = try LibraryHeader.newLibrary(passphrase: "it's -- fine", argon: cheap)
+        #expect(try header.unlock(passphrase: "it\u{2019}s \u{2014} fine")?.masterData == keys.masterData)
+    }
+
+    @Test func aPassphraseWithoutSmartPunctuationIsUsedExactlyAsTyped() throws {
+        // Older versions of Lelvo derive from the typed text with no changes; a new library must open there too.
+        let typed = " spaces and plain 'quotes' "
+        let (header, keys, _) = try LibraryHeader.newLibrary(passphrase: typed, argon: cheap)
+        let key = SymmetricKey(data: try Argon2id.derive(passphrase: typed, salt: header.salt, parameters: cheap))
+        #expect(MasterKeyLock.open(try #require(header.lockedByPassphrase), with: key, purpose: .passphrase)
+            .map { E2EKeys(master: $0).masterData } == keys.masterData)
+    }
+
+    @Test func librariesLockedBeforeNormalizationStillOpen() throws {
+        // Before this, the passphrase was used exactly as typed, smart quotes and spaces included.
+        let keys = E2EKeys(master: SymmetricKey(size: .bits256))
+        let salt = Data(repeating: 7, count: 16)
+        let typed = " old\u{2019}one "
+        let lockKey = SymmetricKey(data: try Argon2id.derive(passphrase: typed, salt: salt, parameters: cheap))
+        let old = LibraryHeader(argon: cheap, salt: salt,
+                                lockedByPassphrase: try MasterKeyLock.seal(keys.master, with: lockKey, purpose: .passphrase),
+                                lockedByRecoveryKey: try MasterKeyLock.seal(keys.master, with: RecoveryKey.random().lockKey, purpose: .recovery))
+        #expect(try old.unlock(passphrase: typed)?.masterData == keys.masterData)
+        // A format 1 library, too.
+        let (v1, v1Keys) = try LibraryHeader.newEncrypted(passphrase: typed, iterations: 1_000)
+        #expect(try v1.unlock(passphrase: typed)?.masterData == v1Keys.masterData)
+    }
+
+    @Test func changingThePassphraseNormalizesTheNewOne() throws {
+        let (header, keys, recovery) = try LibraryHeader.newLibrary(passphrase: "first one", argon: cheap)
+        let changed = try header.changingPassphrase(keys, to: "second\u{2019}s")
+        #expect(try changed.unlock(passphrase: "second's")?.masterData == keys.masterData)
+        #expect(changed.unlock(recoveryKey: recovery)?.masterData == keys.masterData)
+    }
+}

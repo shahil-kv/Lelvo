@@ -12,7 +12,7 @@ can open them without Lelvo. If Lelvo stopped tomorrow, your photos would still 
 
 - **Original quality:** the same files you took, with their dates, places, albums, favourites and Live Photos.
 - **One timeline:** phone and cloud items together, on iPhone and Mac, with a grid and viewer like Photos.
-- **Optional end-to-end encryption:** Lelvo encrypts each file on your device, so Telegram holds files it can't open.
+- **End-to-end encryption, always:** Lelvo encrypts each file on your device, so Telegram holds files it can't open.
 - **Easy restore:** sign in on a new phone, pick your library, and everything is there.
 - **Free up space:** remove photos from your phone only when you choose, and only after Lelvo checks they're safely
   backed up.

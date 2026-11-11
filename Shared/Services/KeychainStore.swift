@@ -43,13 +43,30 @@ enum KeychainStore {
         return added == errSecSuccess
     }
 
-    static func data(for key: Key) -> Data? {
+    enum Read {
+        case found(Data)
+        case missing
+        /// The item may well exist; the Keychain didn't answer (locked data, a busy daemon). Never treat as missing.
+        case failed(OSStatus)
+    }
+
+    static func read(_ key: Key) -> Read {
         var q = query(key)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else { return nil }
-        return out as? Data
+        let status = SecItemCopyMatching(q as CFDictionary, &out)
+        switch status {
+        case errSecSuccess: return (out as? Data).map(Read.found) ?? .missing
+        case errSecItemNotFound: return .missing
+        // Not logged here: AppLog reads the Keychain for every line it writes, so a warning would come back to this.
+        default: return .failed(status)
+        }
+    }
+
+    static func data(for key: Key) -> Data? {
+        if case .found(let data) = read(key) { return data }
+        return nil
     }
 
     @discardableResult

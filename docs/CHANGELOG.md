@@ -5,6 +5,18 @@ What's new in Lelvo for iPhone and Mac, newest first. Downloads for each version
 
 ## Unreleased
 
+- **Always end-to-end encrypted:** every new library is locked on your device before upload, so Telegram stores only
+  files it can't open. There's no unencrypted choice any more. Libraries you already have keep working exactly as
+  before.
+- **Creating a library:** a short card says what matters before you start: your passphrase opens your library, a
+  recovery key comes next, and losing both means nobody can open your photos. The recovery key screen is calmer,
+  with the key in easy-to-copy groups. A second library gets its own name, like "Lelvo Library 2".
+- **Saved in Passwords (iPhone):** your iPhone offers to save a new library's passphrase in the Passwords app and
+  fills it in when you set up a new iPhone.
+- **Passphrases work everywhere:** one typed with curly quotes or dashes on iPhone now opens your library on a Mac
+  too, and the other way round.
+- **Fixed:** after reopening the app, Libraries could show nothing and signing in again could hang. Lelvo now asks
+  you to sign in again instead, and your library stays as it is.
 - **Videos stop when you close them:** the sound stops the moment you tap ✕ or start a swipe down, like Photos. A
   swipe you let go keeps playing, nothing plays after the viewer has closed, and music a video paused comes back.
 - **Signing in:** the code screen shows where your code went. When Telegram sends it to the Telegram app, a short

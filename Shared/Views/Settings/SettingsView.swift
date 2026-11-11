@@ -306,7 +306,6 @@ struct LibrarySettingsView: View {
     @State private var switchPassphrase = ""
     @State private var creating = false
     @State private var newName = ""
-    @State private var newEncrypted = false
     @State private var newPassphrase = ""
     @State private var newConfirm = ""
     @State private var newAcknowledged = false
@@ -355,7 +354,7 @@ struct LibrarySettingsView: View {
                     }
                 }
                 Button {
-                    newName = ""; newEncrypted = false; newPassphrase = ""; newConfirm = ""; newAcknowledged = false
+                    newName = LibraryNames.unused(LibraryService.titleDefault, taken: channels.map(\.title)); newPassphrase = ""; newConfirm = ""; newAcknowledged = false
                     creating = true
                 } label: {
                     Label("New library", systemImage: "plus").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 14)
@@ -412,14 +411,15 @@ struct LibrarySettingsView: View {
     }
 
     private var createSheet: some View {
-        let problem = EncryptionChoice.problem(encrypted: newEncrypted, passphrase: newPassphrase, confirm: newConfirm, acknowledged: newAcknowledged)
+        let problem = PassphraseSetup.problem(passphrase: newPassphrase, confirm: newConfirm, acknowledged: newAcknowledged)
         return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("A new, empty library in your Telegram. Your current library stays as it is.")
+                    Text("A new, empty, end-to-end encrypted library in your Telegram. Your current library stays as it is.")
                         .font(.subheadline).foregroundStyle(.secondary)
-                    OnboardingField(placeholder: "Library name", text: $newName, autofocus: true)
-                    EncryptionChoice(encrypted: $newEncrypted, passphrase: $newPassphrase, confirm: $newConfirm, acknowledged: $newAcknowledged)
+                    // No keyboard until a field is tapped: it would cover the warning about the passphrase before it's read.
+                    OnboardingField(placeholder: "Library name", text: $newName)
+                    PassphraseSetup(account: newName, passphrase: $newPassphrase, confirm: $newConfirm, acknowledged: $newAcknowledged)
                 }
                 .padding(20)
             }
@@ -485,7 +485,7 @@ struct LibrarySettingsView: View {
 
     private func create() {
         let title = String(newName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(128))
-        let passphrase = newEncrypted ? newPassphrase : nil
+        let passphrase = newPassphrase
         creating = false
         Task {
             busy = "Creating “\(title)”…"

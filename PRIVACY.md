@@ -34,7 +34,7 @@ applies to the Sheet. The apps never collect your email.
   account**, over Telegram's encrypted connection. Telegram's [privacy policy](https://telegram.org/privacy) applies
   to what is stored there.
 - **Your phone number, login code and two-step password** go only to Telegram, to sign you in.
-- **End-to-end encrypted libraries:** files and their details are encrypted on your device before upload. Your
+- **End-to-end encryption:** every new library is encrypted on your device before upload, files and their details. Your
   passphrase and the key derived from it never leave your device, and nobody, including us, can recover them.
 - **Links you open** from the app (this policy, the FAQ, GitHub) open in your browser, under that site's own policy.
 

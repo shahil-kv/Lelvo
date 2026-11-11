@@ -124,6 +124,11 @@ CG1:{"v":1,"id":"0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10","r":"o","k":"v","h":"9f86
   - `pk = Argon2id(password = NFC-UTF-8(passphrase), salt = s, t, m, p, tagLength = 32)` (RFC 9106, version 0x13).
     New libraries use `t = 3`, `m = 262144` (256 MiB), `p = 1` and a random 16-byte salt. Readers refuse `m < 19456`, and refuse to unlock with
     `m > 1048576` (1 GiB) or `t > 10`, which no Lelvo writes.
+    Input handling, not a change to the stored format: since November 2026 Lelvo sets a passphrase after turning
+    typographic quotes (U+2018–U+201F), the em dash (U+2014), the ellipsis (U+2026) and no-break spaces into the
+    ASCII characters typed to make them (`'`, `"`, `--`, `...`, space), because iOS Smart Punctuation changes them
+    in a visible field and a Mac doesn't. Any other passphrase is used exactly as typed. Readers try the passphrase
+    as typed, then in that form, then that form without spaces at either end.
   - `wk = nonce(12) ‖ AES-256-GCM(pk, nonce, master, aad = UTF-8("Memvo master key v2 passphrase")) ‖ tag(16)`.
   - Recovery key: 32 random bytes, shown to the user as RFC 4648 base32 without padding in 13 groups of 4 joined by
     `-` (52 characters). Readers accept any case, spaces or dashes, and read `0`, `1`, `8` as `O`, `I`, `B`.

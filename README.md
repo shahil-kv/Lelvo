@@ -72,20 +72,17 @@ account. There is no Lelvo server in between, no Lelvo account, and nothing for 
 
 ### But can Telegram see my photos?
 
-The honest answer: in a Standard library, yes, Telegram could. Cloud chats are encrypted on the way and on
-Telegram's servers, but they aren't end-to-end encrypted. The same is true of Google Photos, and of iCloud unless
-you turn on Advanced Data Protection.
-
-So Lelvo offers **End-to-end encrypted libraries**: every photo and its details are encrypted on your device
-before they leave it, with a key made from a passphrase only you know. Telegram then stores files it can't open,
-and so does nobody else, including us.
+No. Telegram cloud chats are encrypted on the way and on Telegram's servers, but they aren't end-to-end encrypted,
+the same as Google Photos, and iCloud unless you turn on Advanced Data Protection. So **every Lelvo library is end-to-end
+encrypted**: every photo and its details are encrypted on your device before they leave it, with a key made from a
+passphrase only you know. Telegram then stores files it can't open, and so does nobody else, including us.
 
 | | Lelvo | iCloud Photos | Google Photos |
 |---|---|---|---|
 | Free storage | Your Telegram account's cloud, no stated cap | 5 GB | 15 GB, shared with Gmail and Drive |
 | After that | Still free | Monthly plan | Monthly plan |
 | Originals kept bit for bit | Yes | Yes | Yes (Original quality uses your storage) |
-| End-to-end encryption | Optional, per library | Only with Advanced Data Protection | No |
+| End-to-end encryption | Always | Only with Advanced Data Protection | No |
 | Who runs the servers | Telegram, in your own account | Apple | Google |
 | Open source | Yes, every line | No | No |
 | Leave any time | Download everything, or open the channel in Telegram | Yes | Yes (Takeout) |
@@ -113,7 +110,7 @@ have, encryption you control, and code you can read.
   reinstalls and devices. A Duplicates screen cleans up what's already doubled.
 - **Nothing counts until it's verified.** An item is "backed up" only after Telegram confirms every part with the
   right size. Failures keep their reason and a Retry button.
-- **Optional end-to-end encryption**, chosen when you create a library: AES-256-GCM in 1 MiB chunks (still
+- **End-to-end encryption, always on**: AES-256-GCM in 1 MiB chunks (still
   streamable), captions encrypted too, key derived from your passphrase on your device.
 - **Free up space** safely: only items verified in Telegram and unchanged since their backup are offered.
 - **Download a copy** of the whole library to Files, an external drive or a Mac folder at any time. You're never
@@ -158,7 +155,7 @@ then open **System Settings → Privacy & Security**, scroll down and click **Op
 1. **Continue with Telegram** and enter the phone number of your Telegram account.
 2. Enter the login code Telegram sends to your other Telegram apps (or by SMS), and your two-step password if you
    use one.
-3. **Your library.** New here? Create one (Standard, or End-to-end encrypted). Coming back? Lelvo finds your
+3. **Your library.** New here? Create one and choose its passphrase. Coming back? Lelvo finds your
    existing library and restores it.
 4. Allow **Full Access** to Photos, then tap **Backup → Back up now**. For a big first backup, keep the app open on
    Wi-Fi and power. On iOS 26 and later it keeps going in the background with progress on the Lock Screen.
@@ -218,10 +215,9 @@ bigger files automatically.
 
 <details><summary><b>Can Telegram see my photos?</b></summary>
 
-In a **Standard** library, files are protected in transit and on Telegram's servers like any other cloud chat, but
-cloud chats are not end-to-end encrypted ([Telegram FAQ](https://telegram.org/faq#q-so-how-do-you-encrypt-data)).
-In an **End-to-end encrypted** library, files and captions are encrypted on your device before upload; Telegram only
-stores unreadable `.cge` files.
+No. Every library is end-to-end encrypted: files and captions are encrypted on your device before upload, and
+Telegram only stores unreadable `.cge` files. Telegram cloud chats on their own aren't end-to-end encrypted
+([Telegram FAQ](https://telegram.org/faq#q-so-how-do-you-encrypt-data)), which is why Lelvo locks every file first.
 </details>
 
 <details><summary><b>What if I delete the channel by mistake, or my account is deleted or frozen?</b></summary>

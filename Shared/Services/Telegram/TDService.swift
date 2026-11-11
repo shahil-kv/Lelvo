@@ -223,6 +223,8 @@ final class TDService: @unchecked Sendable {
     /// Serialises `start()`: launch, scene activation and background backups can call it at the same moment,
     /// and two clients on one database fail with "Can't lock file td.binlog … already in use".
     private let startLock = NSLock()
+    /// `startOverAfterLostDatabaseKey` is running (it runs once per failed client).
+    private var startingOver = false
 
     func start() {
         // The App Review demo works without Telegram.
@@ -343,19 +345,34 @@ final class TDService: @unchecked Sendable {
         switch state {
         case .authorizationStateWaitTdlibParameters:
             guard let creds = TDCredentials.load() else { setAuth(.needsCredentials); return }
-            Task {
+            Task { [weak self] in
+                guard let self else { return }
+                // A Keychain that doesn't answer usually does a moment later; until then, wait rather than guess.
+                var databaseKey = TDCredentials.databaseKey()
+                for _ in 0..<40 where databaseKey == nil {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    databaseKey = TDCredentials.databaseKey()
+                }
+                guard let databaseKey else {
+                    AppLog.shared.error("Couldn't read Telegram's database key from the Keychain; not starting Telegram")
+                    return
+                }
                 do {
                     _ = try await client.setTdlibParameters(
                         apiHash: creds.apiHash, apiId: creds.apiId,
                         applicationVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0",
-                        databaseDirectory: databaseDirectory.path, databaseEncryptionKey: TDCredentials.databaseKey(),
-                        deviceModel: Self.deviceModel, filesDirectory: filesDirectory.path,
+                        databaseDirectory: self.databaseDirectory.path, databaseEncryptionKey: databaseKey,
+                        deviceModel: Self.deviceModel, filesDirectory: self.filesDirectory.path,
                         systemLanguageCode: Locale.preferredLanguages.first ?? "en", systemVersion: "",
                         useChatInfoDatabase: true, useFileDatabase: true,
                         // No message database: interrupted sends are reconciled from history instead of auto-resent.
                         useMessageDatabase: false, useSecretChats: false, useTestDc: false)
                 } catch {
-                    AppLog.shared.error("setTdlibParameters failed: \(error.asTD.localizedDescription)")
+                    let error = error.asTD
+                    AppLog.shared.error("setTdlibParameters failed: \(error.localizedDescription)")
+                    if case TDServiceError.telegram(_, let message) = error, message.localizedCaseInsensitiveContains("database encryption key") {
+                        await self.startOverAfterLostDatabaseKey(client)
+                    }
                 }
             }
         case .authorizationStateWaitPhoneNumber: setAuth(.waitPhone)
@@ -1140,6 +1157,29 @@ final class TDService: @unchecked Sendable {
         return total
     }
 
+    /// TDLib's database doesn't open with the key in the Keychain (an older build replaced the key after a failed read).
+    /// The session in it can't be recovered, so start a new database and let the user sign in again, instead of
+    /// hanging. Only Telegram's session and cache are removed: the library, its keys, the index and the photos stay.
+    private func startOverAfterLostDatabaseKey(_ failed: TDLibClient) async {
+        let first: Bool = lock.withLock {
+            guard client === failed, !startingOver else { return false }
+            startingOver = true
+            sessionWatch.ownSignOut()
+            return true
+        }
+        guard first else { return }
+        AppLog.shared.warn("Telegram's data on this device doesn't open with its saved key; starting it again, sign-in needed")
+        _ = try? await failed.close()
+        await waitUntilClosed(failed)
+        lock.withLock { if client === failed { client = nil } }
+        try? FileManager.default.removeItem(at: databaseDirectory)
+        try? FileManager.default.removeItem(at: filesDirectory)
+        try? FileManager.default.createDirectory(at: databaseDirectory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: filesDirectory, withIntermediateDirectories: true)
+        lock.withLock { startingOver = false }
+        start()
+    }
+
     /// Wipes the TDLib session and files (used by "Sign out & reset").
     func destroyLocalData() async {
         lock.withLock { sessionWatch.ownSignOut() }
@@ -1186,11 +1226,21 @@ struct TDCredentials {
         KeychainStore.set(apiHash, for: .tdApiHash)
     }
 
-    static func databaseKey() -> Data {
-        if let key = KeychainStore.data(for: .tdDatabaseKey), key.count == 32 { return key }
-        let key = KeyDerivation.randomSalt(count: 32)
-        KeychainStore.set(key, for: .tdDatabaseKey)
-        return key
+    /// nil when the Keychain didn't answer. A new key is made only when there truly is none: replacing the key after a
+    /// failed read locked TDLib out of its own database ("Wrong database encryption key"), so Libraries came up empty
+    /// and sign-in hung until Sign out and reset.
+    static func databaseKey() -> Data? {
+        switch KeychainStore.read(.tdDatabaseKey) {
+        case .found(let key) where key.count == 32:
+            return key
+        case .failed(let status):
+            AppLog.shared.warn("Keychain: couldn't read the Telegram database key (status \(status)); trying again")
+            return nil
+        case .found, .missing:
+            let key = KeyDerivation.randomSalt(count: 32)
+            KeychainStore.set(key, for: .tdDatabaseKey)
+            return key
+        }
     }
 }
 
