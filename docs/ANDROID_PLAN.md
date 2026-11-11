@@ -115,7 +115,7 @@ builds have a **Core check** (timeline menu) that runs these against the open li
 | Thumbnails: 5 decrypted, hash equal to the caption, decodable | CGFE, the `t` role, downloads | — | ✅ |
 | Ranged read of a video, decrypted | `CgfeRandomReader`, split parts, `readFilePart` | The same bytes of the whole file | ✅ one-part video; a split video still to try |
 | Originals: 3 photos and 1 video downloaded whole, size and SHA-256 equal to the caption | Bit-for-bit originals, split parts | The caption `h` the iPhone wrote | ✅ |
-| Item count after notes (Recently Deleted, favorites, albums) | Notes applied | The iPhone's photo count | Phase C |
+| Item count after notes (Recently Deleted, favorites, albums) | Notes applied | The iPhone's photo count | ◐ Android: 1,075 shown, 49 in Recently Deleted, 49 favorites; the iPhone's numbers to compare |
 
 A failure here stops the work until it's fixed; nothing in A–N starts on a base that doesn't match.
 
@@ -157,11 +157,11 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
 | Room index | `LelvoCore/Index/LibraryStore.swift` | `items` table | ✅ (7a) |
-| Channel scan into the index, snapshots | `LibraryIndexer.swift`, `IndexSnapshot.swift`, `LibraryService.swift` | `core/` indexer, `data/` scanner | |
-| Follow new messages | `LibraryService.swift` (updates) | TDLib update flow | |
-| Favorites, albums, Recently Deleted notes | `MetaLog.swift`, `TrashLog.swift`, `CloudTrash.swift` | Apply notes in the index | |
-| Link cloud items to phone photos | `RestoreLinker.swift`, `Deduplicator.swift` | By SHA-256 and MediaStore id | |
-| Re-scan, rename, switch, new library | `LibraryService.swift`, `SettingsView.swift` | Settings rows | |
+| Channel scan into the index, snapshots | `LibraryIndexer.swift`, `IndexSnapshot.swift`, `LibraryService.swift` | `core/` indexer, `data/` scanner | ✅ full, recent and from the snapshot, real library (writing snapshots: Phase I) |
+| Follow new messages | `LibraryService.swift` (updates) | TDLib update flow | ◐ (built; needs a backup or delete on the iPhone while Android is open) |
+| Favorites, albums, Recently Deleted notes | `MetaLog.swift`, `TrashLog.swift`, `CloudTrash.swift` | Apply notes in the index | ✅ read and applied (sending them: Phase L) |
+| Link cloud items to phone photos | `RestoreLinker.swift`, `Deduplicator.swift` | MediaStore id from `l`, else name + second + size (as iOS; no hashing) | ◐ (built; the emulator has none of the owner's photos) |
+| Re-scan, rename, switch, new library | `LibraryService.swift`, `SettingsView.swift` | Settings rows | ◐ (re-scan run; switch needs a second library, new library writes) |
 
 ### Phase D. Reading media from Telegram
 
@@ -453,7 +453,23 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   `AppModel.forgetLibrary()` forgets the library on this phone; debug hook `--ez lelvo.forgetLibrary true` (works on
   a running app since `MainActivity` is `singleTop`; before, `am start` only brought the task forward). Real run so far: the
   library search found "Memvo Library" (end-to-end encrypted) on the real account; Restore opened the unlock step.
-- **Next session (start here):** owner signs in again on the emulator, then runs B4/B5 for real: restore and unlock
-  the real library (read only), the scan count against the iPhone's, and a create on "Android test" when it exists.
-  Then Phase C (`docs/ANDROID_PLAN.md` Phase C table), starting with the sign-out above.
+- 2026-11-11, Phase C ◐: the scanner now works like iOS `scanChannel`:
+  - full or recent scan (from the last message read), one at a time, a full one once a week or on first use;
+  - Recently Deleted and favorites and albums notes downloaded once, kept in the index (Room v2: `trash_notes`,
+    `meta_notes`, `meta`, `no_backup`, auto-migration from v1) and applied after each scan;
+  - a merge that keeps local state (phone link, Recently Deleted, an upload in progress), with favorites and albums
+    notes applied in the same write (iOS writes twice, so its grid can briefly show the captions' favorites);
+  - the index snapshot read on an empty index (1,124 items in 2 s on the real library), then a full scan behind it;
+  - live new messages and deletes from other devices, batched over a second (`afterDeleting`, as iOS);
+  - the index belongs to one library: a scan of another chat starts it from empty;
+  - catch-up when Telegram is ready (launch, sign-in), then relinking to phone photos (`RestoreLinker`, MediaStore id
+    from `l`, else name + capture second + shown size).
+  Settings → Library: the libraries, current first; switch (passphrase checked before anything changes, unlike the
+  old iOS order, which the iOS session has since fixed), rename, re-scan, new library. Telegram's sign-in states are
+  now logged by name. Real library: 2,918 messages, 1,124 items, 1 incomplete, 0 unreadable; 1,075 shown, 49 in
+  Recently Deleted, 49 favorites, notes 12 + 8, the same as Phase 0.
+- **Next session (start here):** owner unlocks on the emulator again (I forgot the library once more by mistake; it's
+  at "Welcome back"), then: compare 1,075 shown / 49 in Recently Deleted with the iPhone; favorite and delete one photo
+  on the iPhone with Android open and check both follow within seconds; a second library ("Android test") for switch
+  and new library. Then Phase D.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
