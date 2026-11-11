@@ -115,7 +115,7 @@ builds have a **Core check** (timeline menu) that runs these against the open li
 | Thumbnails: 5 decrypted, hash equal to the caption, decodable | CGFE, the `t` role, downloads | — | ✅ |
 | Ranged read of a video, decrypted | `CgfeRandomReader`, split parts, `readFilePart` | The same bytes of the whole file | ✅ one-part video; a split video still to try |
 | Originals: 3 photos and 1 video downloaded whole, size and SHA-256 equal to the caption | Bit-for-bit originals, split parts | The caption `h` the iPhone wrote | ✅ |
-| Item count after notes (Recently Deleted, favorites, albums) | Notes applied | The iPhone's photo count | ◐ Android: 1,075 shown, 49 in Recently Deleted, 49 favorites; the iPhone's numbers to compare |
+| Item count after notes (Recently Deleted, favorites, albums) | Notes applied | The iPhone's photo count | ✅ 2026-11-11: 1,075 shown, 49 in Recently Deleted, 49 favorites, the same as the iPhone (owner) |
 
 A failure here stops the work until it's fixed; nothing in A–N starts on a base that doesn't match.
 
@@ -167,11 +167,11 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Ranged, confirmed downloads | `MediaReader.swift`, `TDService.swift` | `TdClient` download + range reads | |
-| Thumbnail, screen copy, original | `CloudMediaService.swift`, `ScreenCopy.swift` | `data/` media service | |
-| Thumbnail cache | `ThumbnailPipeline.swift`, `LelvoCore/Cache/LRUDiskCache.swift` | Coil fetcher (TDLib → CGFE decrypt) + disk cache | |
-| Video streaming, quality, fast version | `StreamingAsset.swift`, `CloudVideo.swift`, `VideoQuality.swift`, `MovieLayout.swift` | Media3 `DataSource` over decrypted ranges | |
-| Resume where you left off | `Shared/Support/PlaybackPositions.swift` | Same rule, prefs | |
+| Ranged, confirmed downloads | `MediaReader.swift`, `TDService.swift` | `TdClient` download + range reads | ✅ `MediaReader`: parts, CGFE chunks, an expired file reference looked up again through its message |
+| Thumbnail, screen copy, original | `CloudMediaService.swift`, `ScreenCopy.swift` | `data/` media service | ✅ `CloudMedia`: thumbnail → screen copy → original (or edit) layered in the viewer, neighbours ahead on Wi-Fi |
+| Thumbnail cache | `ThumbnailPipeline.swift`, `LelvoCore/Cache/LRUDiskCache.swift` | Coil fetcher (TDLib → CGFE decrypt) + disk cache | ✅ 8 at a time, 300 MB thumbnails, 1 GB viewed originals (`DiskCache` in `core/`) |
+| Video streaming, quality, fast version | `StreamingAsset.swift`, `CloudVideo.swift`, `VideoQuality.swift`, `MovieLayout.swift` | Media3 `DataSource` over decrypted ranges | ◐ streams with one block read ahead, fast version by the setting; the in-viewer quality switch and the stall fallback come with Phase F |
+| Resume where you left off | `Shared/Support/PlaybackPositions.swift` | Same rule, prefs | ◐ built and unit-tested; no video over 2 minutes tried yet |
 
 ### Phase E. Photos tab
 
@@ -468,8 +468,17 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   old iOS order, which the iOS session has since fixed), rename, re-scan, new library. Telegram's sign-in states are
   now logged by name. Real library: 2,918 messages, 1,124 items, 1 incomplete, 0 unreadable; 1,075 shown, 49 in
   Recently Deleted, 49 favorites, notes 12 + 8, the same as Phase 0.
-- **Next session (start here):** owner unlocks on the emulator again (I forgot the library once more by mistake; it's
-  at "Welcome back"), then: compare 1,075 shown / 49 in Recently Deleted with the iPhone; favorite and delete one photo
-  on the iPhone with Android open and check both follow within seconds; a second library ("Android test") for switch
-  and new library. Then Phase D.
+- 2026-11-11, Phase D ◐: cloud media from Telegram on the real library. The grid shows decrypted thumbnails; the
+  viewer shows the thumbnail, then the screen copy of a big photo, then the photo; videos stream through a Media3
+  `DataSource` over decrypted ranges (first frame in 0.6–1.0 s for 15–31 s originals). Logs "Photo timing" and
+  "Video timing" lines like iOS. Gaps for Phase F: quality switch and stall fallback, Live Photo motion, zoom,
+  download progress; a continuous TDLib download window like iOS `streamRead` if high-bitrate originals stall.
+- **Found 2026-11-11:** the emulator has the owner's screen-time app's accessibility service on
+  (`com.unlink/com.shahil.screentime.UnlinkAccessibilityService`). About 7 s after a photo opens it sends Back and
+  scrolls, so the viewer closes and the grid moves by itself; Lelvo isn't doing it (no app code path, no adb input).
+  Ask the owner before turning it off for testing. Also seen once: the grid moved after the first launch after an
+  install; probably the same service.
+- **Next session (start here):** owner decides about the accessibility service; then Phase E (Photos tab) with the
+  real thumbnails, checking light and dark. Still to try on the iPhone with Android open: a favorite and a delete
+  following live; a second library for switch and new library; a video over 2 minutes to check resume.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
