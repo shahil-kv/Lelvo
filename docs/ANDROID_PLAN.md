@@ -435,8 +435,8 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   only); then "Back up your photos" with what the scan found, the three features before asking, Allow access (the
   same one system prompt as the intro), then Full / Limited / No access (Open Settings; re-read on return) and "Start
   using Lelvo". A new library skips the scan (it's empty). `LibraryService.setupFinished` marks the end, kept with the
-  library so choosing another goes through it again; installs already unlocked count as finished. Unlike iOS, a scan
-  error offers Try again (iOS stays on the error with no way on; tell the owner). Gaps: `FirstBackupView` and
+  library so choosing another goes through it again; installs already unlocked count as finished. A scan error offers
+  Try again (iOS now does too). Gaps: `FirstBackupView` and
   `LibraryReadyView` need the first upload (Phase I); relinking restored items to phone photos is Phase C. Debug hook
   values `scanning` and `photos`. Checked light and dark, Full and No access.
 - **Found 2026-11-11 (unexplained):** the emulator was signed out when checked at 17:56: TDLib starts at the phone
@@ -449,10 +449,9 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
 - 2026-11-11, fix: after that unexplained sign-out the owner signed in again and the app opened the old library
   without asking for it or its passphrase (its choice and key were still stored). Now Telegram asking for a phone
   number while a library is still set up is handled like a session ended elsewhere: the library, its key and the
-  index are removed from the phone, so signing in asks for both again. iOS keeps the library in this case (its
-  sign-in sheet over the app); tell the owner, since another account signing in would see the old index there.
-  `AppModel.forgetLibrary()` forgets the library on this phone; debug hook `--ez lelvo.forgetLibrary true` (cold
-  start: hooks sent to a running app through `onNewIntent` don't take effect, to look into). Real run so far: the
+  index are removed from the phone, so signing in asks for both again. iOS now does the same (`AppModel`'s auth observer resets, keeping choices, on a phone-number request).
+  `AppModel.forgetLibrary()` forgets the library on this phone; debug hook `--ez lelvo.forgetLibrary true` (works on
+  a running app since `MainActivity` is `singleTop`; before, `am start` only brought the task forward). Real run so far: the
   library search found "Memvo Library" (end-to-end encrypted) on the real account; Restore opened the unlock step.
 - **Next session (start here):** owner signs in again on the emulator, then runs B4/B5 for real: restore and unlock
   the real library (read only), the scan count against the iPhone's, and a create on "Android test" when it exists.

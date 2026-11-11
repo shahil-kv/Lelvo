@@ -30,6 +30,16 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 // Re-read the current state: the startup "no client yet" state must not flash sign-in.
                 let step = TDService.shared.auth
+                let model = AppModel.shared
+                // Telegram asked for a phone number while a library is still set up, without the "logging out" that
+                // marks a session ended elsewhere. Signing in over the app kept the old library and its index, which
+                // another account would then see. Handle it like a session ended elsewhere.
+                if case .waitPhone = step, model.onboardingComplete, !UITestSupport.isDemo, !DemoMode.isActive,
+                   AppEnvironment.shared.library.isConfigured {
+                    appLog("Telegram asked to sign in again with a library still set up; removing it from this \(Device.name)")
+                    model.reset(keepingChoices: true)
+                    return
+                }
                 // Every step of signing in counts, not only the phone number: after the number, Telegram waits for the
                 // code (and maybe the 2-step password), and treating that as signed in hid the sign-in screen.
                 let signedOut: Bool
@@ -38,7 +48,7 @@ final class AppModel: ObservableObject {
                 case .needsCredentials: signedOut = TDCredentials.load() == nil
                 case .starting, .ready, .loggingOut, .closed: signedOut = false
                 }
-                AppModel.shared.needsSignIn = signedOut && AppModel.shared.onboardingComplete && !UITestSupport.isDemo && !DemoMode.isActive
+                model.needsSignIn = signedOut && model.onboardingComplete && !UITestSupport.isDemo && !DemoMode.isActive
             }
         }
     }
