@@ -38,7 +38,7 @@ data class SettingsInfo(val account: String, val library: String, val version: S
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit, onCoreCheck: (() -> Unit)?) {
+fun SettingsScreen(info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit, onCoreCheck: (() -> Unit)?, onLibrary: (() -> Unit)? = null) {
     BackHandler(onBack = onClose)
     var confirmSignOut by remember { mutableStateOf(false) }
     Scaffold(
@@ -52,7 +52,7 @@ fun SettingsScreen(info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Uni
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
             Header("Account")
             Row("Signed in as", info.account)
-            Row("Library", info.library)
+            Row("Library", info.library, onClick = onLibrary)
             if (onCoreCheck != null) {
                 Divider()
                 Header("Developer")

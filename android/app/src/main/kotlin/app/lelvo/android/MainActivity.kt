@@ -34,6 +34,7 @@ import app.lelvo.android.library.PhotosStepScreen
 import app.lelvo.android.library.ScanningScreen
 import app.lelvo.android.library.LibrarySetup
 import app.lelvo.android.library.RecoveryKeyScreen
+import app.lelvo.android.settings.LibrariesScreen
 import app.lelvo.android.settings.SettingsInfo
 import app.lelvo.android.settings.SettingsScreen
 import app.lelvo.android.brand.LaunchHost
@@ -202,6 +203,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
     var open by remember { mutableStateOf<Pair<List<LibraryItem>, Int>?>(null) }
     var settings by rememberSaveable { mutableStateOf(false) }
     var checking by rememberSaveable { mutableStateOf(false) }
+    var libraries by rememberSaveable { mutableStateOf(false) }
     val openSettings = { settings = true }
     Box(Modifier.fillMaxSize()) {
         AppShell(app.model.tab) { tab, modifier ->
@@ -212,7 +214,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
         }
         open?.let { (list, index) -> ViewerScreen(list, index, onClose = { open = null }) }
         if (settings) {
-            val info by produceState(SettingsInfo("", "", BuildConfig.VERSION_NAME), real) {
+            val info by produceState(SettingsInfo("", "", BuildConfig.VERSION_NAME), real, libraries) {
                 value = if (!real) SettingsInfo("Demo account", "Demo library", BuildConfig.VERSION_NAME)
                 else SettingsInfo(app.accountName(), app.libraryTitle(), BuildConfig.VERSION_NAME)
             }
@@ -221,7 +223,9 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                 onSignOut = { settings = false; app.model.reset() },
                 // Debug builds only: proves the base against the real library before features are built on it.
                 onCoreCheck = if (BuildConfig.DEBUG && real) ({ checking = true }) else null,
+                onLibrary = if (real) ({ libraries = true }) else null,
             )
+            if (libraries) LibrariesScreen(app, onClose = { libraries = false })
         }
         if (checking) CoreCheckScreen(app.coreCheck, onClose = { checking = false })
         // One host over everything, so a message shows whichever screen is on top; above the tab bar while it shows.

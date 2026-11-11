@@ -155,14 +155,42 @@ class LibraryService(context: Context, private val td: TdClient, private val sec
      * Opens the library with its passphrase or recovery key. Something shaped like a recovery key is tried as one
      * first: that's instant, while Argon2id takes seconds and 256 MiB (iOS learned to order it this way).
      */
-    suspend fun unlock(secret: String) = withContext(Dispatchers.Default) {
+    suspend fun unlock(secret: String) {
         val header = header ?: throw LibraryException.notALibrary
-        val keys = when (header) {
+        storeKeys(keysFor(header, secret))
+    }
+
+    private suspend fun keysFor(header: LibraryHeader, secret: String): E2EKeys = withContext(Dispatchers.Default) {
+        when (header) {
             is LibraryHeader.V2 -> RecoveryKey.parse(secret)?.let { header.unlock(it) } ?: header.unlock(secret, argon2)
             is LibraryHeader.V1 -> header.unlock(secret)
             else -> throw LibraryException.notEncrypted
         } ?: throw LibraryException.wrongPassphrase
-        storeKeys(keys)
+    }
+
+    /** Another library, opened and checked but not yet in use: the current one stays as it is until [switchTo]. */
+    class Opened internal constructor(val chatId: Long, internal val header: LibraryHeader, internal val keys: E2EKeys)
+
+    /**
+     * Reads another library's header and checks [secret] against it, changing nothing here. iOS forgets the current
+     * library first, so a wrong passphrase left it on the old library without its key; this order can't.
+     */
+    suspend fun open(chatId: Long, secret: String): Opened {
+        val header = when (val r = readHeader(chatId)) {
+            is HeaderResult.Found -> r.header
+            is HeaderResult.Newer -> throw LibraryException.newerVersion
+            HeaderResult.Damaged -> throw LibraryException.damaged
+            HeaderResult.Missing -> throw LibraryException.notALibrary
+        }
+        if (!header.encrypted) throw LibraryException.notEncrypted
+        return Opened(chatId, header, keysFor(header, secret))
+    }
+
+    /** Uses an opened library from now on. Its index is rebuilt by the next scan (the scanner sees the new chat). */
+    fun switchTo(opened: Opened) {
+        prefs.edit().putLong(CHAT_ID, opened.chatId).putString(HEADER, opened.header.line).putBoolean(SETUP_FINISHED, true).apply()
+        storeKeys(opened.keys)
+        AppLog.info("Switched library")
     }
 
     fun forget() {

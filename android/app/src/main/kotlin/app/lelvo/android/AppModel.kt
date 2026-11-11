@@ -39,7 +39,7 @@ class AppModel(private val app: LelvoApp) {
      * The library step's state. Kept here, not in a screen, so turning the phone neither loses the typed passphrase
      * nor cancels a library half-way through being created. A reset starts it afresh.
      */
-    var librarySetup = LibrarySetup(app.library, scope, app.scanner)
+    var librarySetup = LibrarySetup(app.library, scope, app.scanner, relink = { app.linker.relink() })
         private set
 
     /** A new library's recovery key until the user says it's saved. Memory only, never written anywhere. */
@@ -53,6 +53,7 @@ class AppModel(private val app: LelvoApp) {
                 if (!app.demo.active.value) reset(keepingChoices = true)
             }
         }
+        catchUpWhenReady()
         // Telegram asks for a phone number while a library is still set up here: the session went without the reset
         // that signing out does, and without TDLib reporting it as ended (seen on the emulator, 2026-11-11). Wipe as
         // if it had ended elsewhere, so signing in asks for the library and its passphrase again and nothing of the
@@ -68,13 +69,48 @@ class AppModel(private val app: LelvoApp) {
     }
 
     /**
+     * Brings the index up to date each time Telegram is ready with a library open (launch, sign-in, a reconnect): what
+     * other devices backed up, deleted or favorited meanwhile. The first scan after choosing a library runs on its own
+     * screen instead.
+     */
+    private fun catchUpWhenReady() = scope.launch {
+        app.telegram.auth.collect { step ->
+            if (step != AuthStep.Ready || app.demo.active.value) return@collect
+            val library = app.library
+            if (!library.isConfigured || !library.isUnlocked || !library.setupFinished) return@collect
+            runCatching { app.scanner.catchUp(); app.linker.relink() }.onFailure { if (it !is kotlinx.coroutines.CancellationException) AppLog.warn("Library catch-up failed", it) }
+        }
+    }
+
+    /**
+     * Switches to another library (Settings → Library). The passphrase is checked before anything changes; then the
+     * index is rebuilt from the new library and linked to this phone's photos. Nothing is deleted from either library.
+     */
+    suspend fun switchLibrary(chatId: Long, secret: String) {
+        app.library.switchTo(app.library.open(chatId, secret))
+    }
+
+    /** Reads the whole library again (Settings → Library → Re-scan), then links what it found to this phone's photos. */
+    suspend fun rescan(): app.lelvo.data.LibraryScanner.Summary = app.scanner.fullScan().also { app.linker.relink() }
+
+    /**
+     * A library just created from Settings: it's in use and empty, so there's nothing to restore. The recovery key
+     * shows next, over the app.
+     */
+    fun createdLibrary(key: RecoveryKey) {
+        app.library.setupFinished = true
+        pendingRecoveryKey.value = key
+        scope.launch { runCatching { app.scanner.fullScan() } }
+    }
+
+    /**
      * Forgets the chosen library on this phone (its keys and the index too) and goes back to choosing one. The
      * channel isn't touched. Debug builds reach it with `--ez lelvo.forgetLibrary true`; Settings gets it in Phase C.
      */
     fun forgetLibrary() {
         scope.launch {
             withContext(Dispatchers.IO) { app.store.deleteAll(); app.library.forget() }
-            librarySetup = LibrarySetup(app.library, scope, app.scanner)
+            librarySetup = LibrarySetup(app.library, scope, app.scanner, relink = { app.linker.relink() })
             pendingRecoveryKey.value = null
             _sessionId.value++
         }
@@ -86,7 +122,7 @@ class AppModel(private val app: LelvoApp) {
      */
     fun reset(keepingChoices: Boolean = false) {
         tab.value = Tab.Photos
-        librarySetup = LibrarySetup(app.library, scope, app.scanner)
+        librarySetup = LibrarySetup(app.library, scope, app.scanner, relink = { app.linker.relink() })
         pendingRecoveryKey.value = null
         _sessionId.value++
         _resetting.value = true

@@ -87,6 +87,8 @@ class LibrarySetup(
     private val library: LibraryService?,
     private val scope: CoroutineScope,
     private val scanner: LibraryScanner? = null,
+    /** Links what the scan found to the photos on this phone (iOS `relinkRestoredItems` after the restore scan). */
+    val relink: suspend () -> Unit = {},
 ) {
     var channels by mutableStateOf<List<ChannelChoice>>(emptyList())
         private set
@@ -192,7 +194,7 @@ class LibrarySetup(
         scanJob = scope.launch {
             try {
                 val items = if (scanner != null) {
-                    scanner.fullScan { n -> scope.launch { scanned = n } }.items
+                    scanner.fullScan { n -> scope.launch { scanned = n } }.items.also { relink() }
                 } else {
                     for (i in 1..40) { delay(50); scanned = i * 31 }
                     1_240
@@ -292,7 +294,7 @@ fun LibraryScreen(setup: LibrarySetup, onChosen: () -> Unit, onCreated: (Recover
 
 /** iOS shows a sheet over "Welcome back"; here it's a page of its own, and Back closes it. */
 @Composable
-private fun NewLibraryPage(setup: LibrarySetup, onBack: () -> Unit, onCreated: (RecoveryKey) -> Unit) {
+internal fun NewLibraryPage(setup: LibrarySetup, onBack: () -> Unit, onCreated: (RecoveryKey) -> Unit) {
     BackHandler(enabled = !setup.busy, onBack = onBack)
     OnboardingPage(
         icon = R.drawable.ic_add_circle, title = "New library",
