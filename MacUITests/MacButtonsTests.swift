@@ -120,12 +120,9 @@ final class MacButtonsTests: XCTestCase {
         XCTAssertTrue(tiles.firstMatch.waitForExistence(timeout: 30))
         tiles.element(boundBy: 0).click()
         XCTAssertTrue(containing("1 selected").waitForExistence(timeout: 5), "One click selects, right after Select")
-        app.menuButtons["Delete"].firstMatch.click()
-        let item = app.menuItems["Delete from Backup…"].firstMatch
-        XCTAssertTrue(item.waitForExistence(timeout: 5), "The trash menu lists it")
-        shot("delete-menu")
-        item.click()
-        let confirm = app.buttons["Delete from Backup"].firstMatch
+        // One trash button, then a choice like Photos: remove from this Mac only, or delete everywhere.
+        app.buttons["Delete"].firstMatch.click()
+        let confirm = app.buttons["Delete Everywhere"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "It asks first")
         shot("delete-confirm")
         confirm.click()
@@ -140,7 +137,7 @@ final class MacButtonsTests: XCTestCase {
         open("Library")
         XCTAssertTrue(tiles.firstMatch.waitForExistence(timeout: 30))
         tiles.firstMatch.rightClick()
-        for title in ["Open", "Get Info", "Share…", "Export to Folder…", "Export Unmodified Original…", "Delete from Backup…", "Delete from This Mac…"] {
+        for title in ["Open", "Get Info", "Share…", "Export to Folder…", "Export Unmodified Original…", "Delete…"] {
             XCTAssertTrue(app.menuItems[title].firstMatch.waitForExistence(timeout: 5), "\(title) is in the menu")
         }
         shot("context-menu")
