@@ -3,7 +3,12 @@ package app.lelvo.core.format
 import app.lelvo.core.crypto.Bytes
 import app.lelvo.core.crypto.CaptionBox
 import app.lelvo.core.crypto.Hashing
+import app.lelvo.core.index.ItemStatus
+import app.lelvo.core.index.LibraryItem
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /** The caption of a note message (§7.2, §7.3): the number of ids, and SHA-256 (hex) of the document's plaintext. */
 data class NoteCaption(val n: Int, val h: String, val v: Int = 1) {
@@ -121,6 +126,52 @@ object TrashLog {
         return result
     }
 
+    sealed class Action {
+        object None : Action()
+        /** Into Recently Deleted from [atMs], the note's Telegram date. */
+        data class Trash(val atMs: Long) : Action()
+        object Recover : Action()
+        /** The messages are gone: forget the item. */
+        object Remove : Action()
+    }
+
+    /**
+     * What the newest note means for [item] (iOS `action(for:note:messagesSeen:)`). Items still being uploaded wait:
+     * the note is kept and applied once they're done. [messagesSeen]: a full scan just read this item's messages, so a
+     * `gone` note can't be true (yet) and the item is only treated as deleted; when in doubt, keep data.
+     */
+    fun action(item: LibraryItem, note: Note, messagesSeen: Boolean): Action = when (note.op) {
+        Op.DELETE -> trashAction(item, note)
+        Op.RECOVER -> if (item.status == ItemStatus.Trashed) Action.Recover else Action.None
+        Op.GONE -> when {
+            messagesSeen -> trashAction(item, note)
+            item.status == ItemStatus.BackedUp || item.status == ItemStatus.Trashed -> Action.Remove
+            else -> Action.None
+        }
+    }
+
+    private fun trashAction(item: LibraryItem, note: Note): Action {
+        val at = note.date * 1000
+        return when (item.status) {
+            ItemStatus.BackedUp -> Action.Trash(at)
+            ItemStatus.Trashed -> if (item.trashedAt == at) Action.None else Action.Trash(at)
+            else -> if (item.isStrandedInCloud) Action.Trash(at) else Action.None
+        }
+    }
+
+    /** [item] after an action other than [Action.Remove], or null when nothing changes. */
+    fun apply(action: Action, item: LibraryItem): LibraryItem? = when (action) {
+        // An item already in Recently Deleted takes the date all devices share.
+        is Action.Trash -> item.copy(status = ItemStatus.Trashed, trashedAt = action.atMs)
+        Action.Recover -> recover(item)
+        Action.None, Action.Remove -> null
+    }
+
+    /** Out of Recently Deleted: backed up again when complete in the channel, otherwise failed (iOS `CloudTrash.recover`). */
+    fun recover(item: LibraryItem): LibraryItem =
+        if (item.status != ItemStatus.Trashed) item
+        else item.copy(status = if (item.isCompleteInCloud) ItemStatus.BackedUp else ItemStatus.Failed, trashedAt = null)
+
     /**
      * Notes that have done their job, so nothing stays in the channel. A delete note is finished when each of its
      * items is deleted for good or has a newer note. A recover note is finished when no older delete note still lists
@@ -167,4 +218,12 @@ object TrashLog {
     const val FULL_SCAN_EVERY_MS = 7L * 24 * 3600 * 1000
 
     fun needsFullScan(lastFullScanMs: Long?, nowMs: Long): Boolean = lastFullScanMs == null || nowMs - lastFullScanMs > FULL_SCAN_EVERY_MS
+}
+
+/** A note's item ids as one JSON array, for the local index's note tables. Local cache only, not the format. */
+object NoteIds {
+    fun encode(ids: List<String>): String = JsonArray(ids.map { JsonPrimitive(it) }).toString()
+
+    fun decode(text: String): List<String> =
+        runCatching { (Json.parseToJsonElement(text) as JsonArray).map { (it as JsonPrimitive).content } }.getOrDefault(emptyList())
 }

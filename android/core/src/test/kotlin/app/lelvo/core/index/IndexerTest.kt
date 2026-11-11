@@ -123,4 +123,61 @@ class IndexerTest {
         assertEquals(listOf(other, id), r.items.map { it.id })
         assertNotEquals(r.items[0].createdAt, r.items[1].createdAt)
     }
+
+    // Recent scans and deletes from another device (mirrors the iOS IndexerTests of the same names).
+
+    @Test fun fastVersionScannedLaterKeepsTheOriginal() {
+        val item = LibraryIndexer.build(listOf(msg(10, kind = Kind.VIDEO, size = 1000))).items[0]
+        val fast = CaptionMeta(id = id, r = Role.of("sp")!!, k = Kind.VIDEO, h = "f".repeat(64), n = "IMG_1-fast.mp4", s = 100, wh = listOf(1920, 1080))
+        val new = CloudMessage(20, fast, "f20", "u20", 100)
+        val rebuilt = LibraryIndexer.build(LibraryIndexer.knownMessages(item, setOf(20L)) + new).items[0]
+        assertEquals(item.filename, rebuilt.filename)
+        assertEquals(item.fileSize, rebuilt.fileSize)
+        assertEquals(item.sha256, rebuilt.sha256)
+        assertEquals("f".repeat(64), rebuilt.roleHashes["sp"])
+        assertEquals(ItemStatus.BackedUp, rebuilt.status)
+    }
+
+    @Test fun deletingTheOnlyMessageOfAPhoneLinkedItemAsksForARetry() {
+        val item = LibraryIndexer.build(listOf(msg(10))).items[0].copy(localId = "asset-1")
+        val missing = (LibraryIndexer.afterDeleting(setOf(10L), item) as LibraryIndexer.DeleteOutcome.Update).item
+        assertEquals(ItemStatus.Failed, missing.status)
+        assertTrue(missing.parts.isEmpty())
+        assertEquals("asset-1", missing.localId)
+    }
+
+    @Test fun deletingACloudOnlyOrTrashedItemRemovesIt() {
+        val item = LibraryIndexer.build(listOf(msg(10))).items[0]
+        assertEquals(LibraryIndexer.DeleteOutcome.Remove, LibraryIndexer.afterDeleting(setOf(10L), item))
+        assertEquals(LibraryIndexer.DeleteOutcome.Remove, LibraryIndexer.afterDeleting(setOf(10L), item.copy(status = ItemStatus.Trashed)))
+    }
+
+    @Test fun deletingOnePartLeavesTheItemIncomplete() {
+        val item = LibraryIndexer.build(listOf(msg(10, part = listOf(0, 2, 100)), msg(11, part = listOf(1, 2, 100)))).items[0].copy(localId = "asset-1")
+        assertEquals(ItemStatus.BackedUp, item.status)
+        val rebuilt = (LibraryIndexer.afterDeleting(setOf(11L), item) as LibraryIndexer.DeleteOutcome.Update).item
+        assertEquals(ItemStatus.Failed, rebuilt.status)
+        assertEquals(listOf(10L), rebuilt.parts.getValue("o").map { it.messageId })
+        assertEquals("asset-1", rebuilt.localId)
+    }
+
+    @Test fun deletingAnOptionalRoleKeepsTheItemBackedUpAndInTheTrash() {
+        val item = LibraryIndexer.build(listOf(msg(10), msg(20, Role.of("t")!!))).items[0]
+            .copy(status = ItemStatus.Trashed, trashedAt = 1_800_000_000_000)
+        val rebuilt = (LibraryIndexer.afterDeleting(setOf(20L), item) as LibraryIndexer.DeleteOutcome.Update).item
+        assertTrue(rebuilt.parts["t"].isNullOrEmpty())
+        assertEquals(ItemStatus.Trashed, rebuilt.status)
+        assertEquals(item.trashedAt, rebuilt.trashedAt)
+    }
+
+    @Test fun otherMessagesAndItemsBeingUploadedAreLeftAlone() {
+        val item = LibraryIndexer.build(listOf(msg(10))).items[0]
+        assertEquals(LibraryIndexer.DeleteOutcome.Unchanged, LibraryIndexer.afterDeleting(setOf(99L), item))
+        assertEquals(LibraryIndexer.DeleteOutcome.Unchanged, LibraryIndexer.afterDeleting(setOf(10L), item.copy(status = ItemStatus.Uploading)))
+    }
+
+    @Test fun trashedAtSurvivesTheIndexRow() {
+        val item = LibraryIndexer.build(listOf(msg(10))).items[0].copy(status = ItemStatus.Trashed, trashedAt = 1_800_000_000_000)
+        assertEquals(item.trashedAt, ItemExtras.apply(item.copy(trashedAt = null), ItemExtras.decode(ItemExtras.encode(item))).trashedAt)
+    }
 }

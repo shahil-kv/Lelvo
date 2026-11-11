@@ -75,6 +75,8 @@ data class LibraryItem(
     val editedName: String? = null,
     val editedSize: Long? = null,
     val lastError: String? = null,
+    /** When it went into Recently Deleted (epoch ms): the note's Telegram date, the same on every device. */
+    val trashedAt: Long? = null,
 ) {
     /** Roles that must be in the cloud, as iOS `requiredCaptionRoles`: the thumbnail for encrypted items, the edit when declared. */
     val requiredRoles: List<String>
@@ -91,6 +93,23 @@ data class LibraryItem(
             val have = parts[role]?.size ?: 0
             have > 0 && have == (expectedParts[role] ?: 1)
         }
+
+    /** Some of its messages are in the channel. */
+    val hasCloudParts: Boolean get() = parts.values.any { it.isNotEmpty() }
+
+    /**
+     * Incomplete in the channel with no photo on this phone to upload from, so a retry here can't help (iOS
+     * `isStrandedInCloud`). Another device may still have the photo.
+     */
+    val isStrandedInCloud: Boolean
+        get() = localId == null && hasCloudParts && status != ItemStatus.BackedUp && status != ItemStatus.Trashed
+
+    /**
+     * Rebuilt from the channel, with what only this phone knows taken from [local]: which photo it is and when it was
+     * backed up and checked (iOS `keepingLocalState`).
+     */
+    fun keepingLocalState(local: LibraryItem): LibraryItem =
+        copy(localId = local.localId, verifiedAt = local.verifiedAt, uploadedAt = local.uploadedAt ?: uploadedAt)
 
     val allMessageIds: List<Long> get() = parts.values.flatten().map { it.messageId }.distinct().sorted()
 
@@ -118,6 +137,7 @@ object ItemExtras {
         val editedName: String? = null,
         val editedSize: Long? = null,
         val lastError: String? = null,
+        val trashedAt: Long? = null,
     )
 
     private fun strings(map: Map<String, String>): JsonElement? = map.takeIf { it.isNotEmpty() }?.let { m -> JsonObject(m.mapValues { JsonIO.str(it.value)!! }) }
@@ -143,6 +163,7 @@ object ItemExtras {
         "ps" to JsonIO.num(item.pairedVideoSize),
         "rh" to strings(item.roleHashes),
         "rn" to strings(item.roleNames),
+        "ta" to JsonIO.num(item.trashedAt),
         "tz" to JsonIO.num(item.tzOffsetMinutes),
     ).toString()
 
@@ -163,6 +184,7 @@ object ItemExtras {
             tzOffsetMinutes = f.intOrNull("tz"), sourceLocalId = f.stringOrNull("l"), hasEdit = f.intOrNull("ed") == 1,
             roleHashes = texts("rh"), roleNames = texts("rn"), pairedVideoName = f.stringOrNull("pn"), pairedVideoSize = f.longOrNull("ps"),
             editedName = f.stringOrNull("en"), editedSize = f.longOrNull("es"), lastError = f.stringOrNull("err"),
+            trashedAt = f.longOrNull("ta"),
         )
     } catch (_: FieldException) {
         Extras()
@@ -173,6 +195,6 @@ object ItemExtras {
         albums = e.albums, parts = e.parts, expectedParts = e.expectedParts, encrypted = e.encrypted, mimeType = e.mimeType,
         codec = e.codec, hdr = e.hdr, tzOffsetMinutes = e.tzOffsetMinutes, sourceLocalId = e.sourceLocalId, hasEdit = e.hasEdit,
         roleHashes = e.roleHashes, roleNames = e.roleNames, pairedVideoName = e.pairedVideoName, pairedVideoSize = e.pairedVideoSize,
-        editedName = e.editedName, editedSize = e.editedSize, lastError = e.lastError,
+        editedName = e.editedName, editedSize = e.editedSize, lastError = e.lastError, trashedAt = e.trashedAt,
     )
 }
