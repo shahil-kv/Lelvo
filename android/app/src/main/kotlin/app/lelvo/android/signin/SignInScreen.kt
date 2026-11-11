@@ -117,7 +117,7 @@ private fun StepColumn(content: @Composable () -> Unit) {
 private suspend fun attempt(setError: (String?) -> Unit, setBusy: (Boolean) -> Unit, block: suspend () -> Unit) {
     setBusy(true); setError(null)
     try { block() } catch (e: TelegramException) {
-        android.util.Log.w("Lelvo.SignIn", "Telegram refused: ${e.code} ${e.message}")
+        app.lelvo.core.support.AppLog.warn("Telegram refused: ${e.code} ${e.message}")
         setError(e.friendly)
     } finally { setBusy(false) }
 }

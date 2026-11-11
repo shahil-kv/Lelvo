@@ -1,6 +1,6 @@
 package app.lelvo.telegram
 
-import android.util.Log
+import app.lelvo.core.support.AppLog
 import app.lelvo.core.session.TelegramErrors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -36,7 +36,7 @@ class TdFiles(private val td: TdClient) {
             runCatching { td.send(TdApi.LoadChats(TdApi.ChatListMain(), 500)) }
             ok = runCatching { td.send(TdApi.GetChat(chatId)) }.isSuccess
         }
-        if (ok) loadedChats += chatId else Log.w(TAG, "Couldn't load the library channel")
+        if (ok) loadedChats += chatId else AppLog.warn("Couldn't load the library channel")
     }
 
     /** One page of document messages, newest first, from [fromMessageId] (0 = the newest). FLOOD_WAIT is waited out. */
@@ -117,11 +117,9 @@ class TdFiles(private val td: TdClient) {
             } catch (e: TelegramException) {
                 // Honour FLOOD_WAIT exactly (AGENTS.md rule 3).
                 val wait = TelegramErrors.floodWaitSeconds(e.message) ?: throw e
-                Log.w(TAG, "Telegram asked to wait $wait s")
+                AppLog.warn("Telegram asked to wait $wait s")
                 delay(wait * 1000L)
             }
         }
     }
-
-    private companion object { const val TAG = "Lelvo.TdFiles" }
 }

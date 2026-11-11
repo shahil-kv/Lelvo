@@ -1,7 +1,7 @@
 package app.lelvo.data
 
 import android.content.Context
-import android.util.Log
+import app.lelvo.core.support.AppLog
 import app.lelvo.core.demo.DemoLibrary
 import app.lelvo.core.index.LibraryItem
 import app.lelvo.data.index.LibraryStore
@@ -39,7 +39,7 @@ class DemoMode(context: Context, private val store: LibraryStore) {
         store.deleteAll()
         store.upsert(entries().filter { !it.pending }.map(::item))
         _active.value = true
-        Log.i(TAG, "Demo mode: sample library loaded")
+        AppLog.info("Demo mode: sample library loaded")
     }
 
     /** Items "on the phone" that the simulated backup uploads; empty once it has run. */
@@ -68,7 +68,7 @@ class DemoMode(context: Context, private val store: LibraryStore) {
                 _backup.value = _backup.value?.let { it.copy(done = it.done + pair.size) }
             }
             prefs.edit().putBoolean(PENDING, false).remove(UPLOADED).commit()
-            Log.i(TAG, "Demo backup finished: ${items.size} items")
+            AppLog.info("Demo backup finished: ${items.size} items")
         } finally {
             _backup.value = _backup.value?.copy(running = false, current = emptyList())
         }
@@ -101,7 +101,6 @@ class DemoMode(context: Context, private val store: LibraryStore) {
         private const val ACTIVE = "active"
         private const val PENDING = "pending"
         private const val UPLOADED = "uploaded"
-        private const val TAG = "Lelvo.Demo"
 
         /** Where Coil and the player read a demo item's file; null for every real item. */
         fun assetUri(item: LibraryItem): String? = DemoLibrary.assetName(item)?.let { "file:///android_asset/$it" }

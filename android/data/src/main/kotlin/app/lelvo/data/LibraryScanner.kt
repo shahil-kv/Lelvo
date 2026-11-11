@@ -1,6 +1,6 @@
 package app.lelvo.data
 
-import android.util.Log
+import app.lelvo.core.support.AppLog
 import app.lelvo.core.format.CaptionCodec
 import app.lelvo.core.format.CloudMessage
 import app.lelvo.core.format.IndexSnapshot
@@ -74,9 +74,7 @@ class LibraryScanner(private val files: TdFiles, private val library: LibrarySer
             items = result.items.size, incomplete = result.items.count { it.status != ItemStatus.BackedUp },
             orphans = result.orphanMessageIds.size,
         )
-        Log.i(TAG, "Library scan (full): ${s.messages} messages, ${s.items} items, ${s.incomplete} incomplete, ${s.orphans} duplicates, ${s.unreadable} unreadable")
+        AppLog.info("Library scan (full): ${s.messages} messages, ${s.items} items, ${s.incomplete} incomplete, ${s.orphans} duplicates, ${s.unreadable} unreadable")
         s
     }
-
-    private companion object { const val TAG = "Lelvo.Scan" }
 }

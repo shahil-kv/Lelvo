@@ -1,6 +1,6 @@
 package app.lelvo.telegram
 
-import android.util.Log
+import app.lelvo.core.support.AppLog
 import app.lelvo.core.session.SessionWatch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -83,7 +83,7 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
         synchronized(lock) {
             if (client != null) return
             lateinit var created: Client
-            created = Client.create({ obj -> handle(obj, created) }, { e -> Log.w(TAG, "update handler failed", e) }, null)
+            created = Client.create({ obj -> handle(obj, created) }, { e -> AppLog.warn("update handler failed", e) }, null)
             client = created
         }
     }
@@ -178,7 +178,7 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
             is TdApi.AuthorizationStateReady -> {
                 synchronized(lock) { sessionWatch.ready() }
                 _auth.value = AuthStep.Ready
-                Log.i(TAG, "Telegram session ready")
+                AppLog.info("Telegram session ready")
             }
             is TdApi.AuthorizationStateLoggingOut -> {
                 synchronized(lock) { sessionWatch.loggingOut() }
@@ -192,7 +192,7 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
                 }
                 _auth.value = AuthStep.Closed
                 if (endedElsewhere) {
-                    Log.i(TAG, "The Telegram session was ended outside this app")
+                    AppLog.info("The Telegram session was ended outside this app")
                     _sessionEndedElsewhere.tryEmit(Unit)
                 }
                 // TDLib can't sign in again on a closed instance; start a fresh one so the phone step shows.
@@ -215,7 +215,7 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
             }
         }
         if (key == null) {
-            Log.e(TAG, "Couldn't read Telegram's database key; not starting Telegram")
+            AppLog.error("Couldn't read Telegram's database key; not starting Telegram")
             return
         }
         val p = TdApi.SetTdlibParameters().apply {
@@ -238,7 +238,7 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
         try {
             send(p)
         } catch (e: TelegramException) {
-            Log.e(TAG, "setTdlibParameters failed: ${e.message}")
+            AppLog.error("setTdlibParameters failed: ${e.message}")
             if (e.message.contains("database encryption key", ignoreCase = true)) startOverAfterLostDatabaseKey(from)
             else if (app.lelvo.core.session.TelegramErrors.keysRejected(e.message)) _auth.value = AuthStep.NeedsCredentials
         }
@@ -256,7 +256,7 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
             startingOver = true
             sessionWatch.ownSignOut()
         }
-        Log.w(TAG, "Telegram's data on this device doesn't open with its saved key; starting it again, sign-in needed")
+        AppLog.warn("Telegram's data on this device doesn't open with its saved key; starting it again, sign-in needed")
         runCatching { send(TdApi.Close()) }
         waitUntilClosed(failed)
         databaseDir.deleteRecursively(); filesDir.deleteRecursively()
@@ -270,6 +270,4 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
         withTimeoutOrNull(timeoutMs) { while (synchronized(lock) { old !in closedClients }) delay(100) }
         synchronized(lock) { closedClients.remove(old) }
     }
-
-    private companion object { const val TAG = "Lelvo.TDLib" }
 }

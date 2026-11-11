@@ -1,7 +1,7 @@
 package app.lelvo.data
 
 import android.graphics.BitmapFactory
-import android.util.Log
+import app.lelvo.core.support.AppLog
 
 import app.lelvo.core.crypto.CgfeRandomReader
 import app.lelvo.core.crypto.FileCrypto
@@ -78,7 +78,7 @@ class CoreCheck(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "$name failed: ${e.javaClass.simpleName}")
+            AppLog.warn("$name failed: ${e.javaClass.simpleName}")
             replace(Result(name, false, e.message ?: e.javaClass.simpleName))
             null
         }
@@ -188,7 +188,6 @@ class CoreCheck(
     }
 
     private companion object {
-        const val TAG = "Lelvo.CoreCheck"
         const val THUMBNAILS = 5
         const val PHOTOS = 3
         const val RANGE = 256L * 1024

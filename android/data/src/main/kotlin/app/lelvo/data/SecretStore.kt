@@ -3,7 +3,7 @@ package app.lelvo.data
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import android.util.Log
+import app.lelvo.core.support.AppLog
 import app.lelvo.telegram.DatabaseKeyStore
 import app.lelvo.telegram.StoredKey
 import java.io.File
@@ -37,7 +37,7 @@ class SecretStore(context: Context) {
             Read.Found(cipher.doFinal(blob, IV, blob.size - IV))
         } catch (e: Exception) {
             // Never treat this as missing: making a new secret here would lose what the old one protected.
-            Log.w(TAG, "Couldn't read a secret (${e.javaClass.simpleName})")
+            AppLog.warn("Couldn't read a secret (${e.javaClass.simpleName})")
             Read.Failed
         }
     }
@@ -80,7 +80,6 @@ class SecretStore(context: Context) {
     }
 
     private companion object {
-        const val TAG = "Lelvo.Secrets"
         const val ALIAS = "lelvo.secrets.v1"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV = 12

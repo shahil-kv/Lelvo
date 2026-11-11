@@ -2,6 +2,8 @@ package app.lelvo.android
 
 import android.app.Application
 import android.os.Build
+import android.util.Log
+import app.lelvo.core.support.AppLog
 import app.lelvo.data.CoreCheck
 import app.lelvo.data.DemoMode
 import app.lelvo.data.LibraryScanner
@@ -33,6 +35,19 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        // Logs stay out of Android backup, like the secrets; only the user shares them (Settings → Logs).
+        AppLog.install(
+            dir = java.io.File(noBackupFilesDir, "logs"),
+            secrets = { listOf(BuildConfig.TELEGRAM_API_HASH).filter { it.isNotBlank() } },
+            // Debug builds echo to logcat, like iOS prints to the device console in Debug.
+            echo = if (BuildConfig.DEBUG) { level, line ->
+                when (level) {
+                    AppLog.Level.INFO -> Log.i("Lelvo", line)
+                    AppLog.Level.WARN -> Log.w("Lelvo", line)
+                    AppLog.Level.ERROR -> Log.e("Lelvo", line)
+                }
+            } else null,
+        )
         secrets = SecretStore(this)
         val config = BuildConfig.TELEGRAM_API_ID.takeIf { it != 0 && BuildConfig.TELEGRAM_API_HASH.isNotBlank() }?.let {
             TelegramConfig(

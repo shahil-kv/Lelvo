@@ -1,7 +1,7 @@
 package app.lelvo.data
 
 import android.content.Context
-import android.util.Log
+import app.lelvo.core.support.AppLog
 import app.lelvo.core.crypto.Argon2id
 import app.lelvo.core.crypto.E2EKeys
 import app.lelvo.core.crypto.RecoveryKey
@@ -139,7 +139,7 @@ class LibraryService(context: Context, private val td: TdClient, private val sec
         secrets.write(MASTER_KEY, keys.master)
         chatId?.let { prefs.edit().putLong(KEYS_CHAT_ID, it).apply() }
         cachedKeys = keys
-        Log.i(TAG, "Library unlocked")
+        AppLog.info("Library unlocked")
     }
 
     private val argon2 = Argon2id { password, salt, t, m, p, length ->
@@ -148,7 +148,6 @@ class LibraryService(context: Context, private val td: TdClient, private val sec
     }
 
     private companion object {
-        const val TAG = "Lelvo.Library"
         const val CHAT_ID = "chatId"
         const val HEADER = "header"
         const val KEYS_CHAT_ID = "keysChatId"

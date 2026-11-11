@@ -134,7 +134,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Theme and colours | `design/tokens.json`, `docs/DESIGN.md` | Lelvo colour scheme, no dynamic colour; tokens script writes `LelvoColors.kt` | ✅ |
 | App shell: 4 tabs, Settings, navigation | `iOS/Views/RootView.swift`, `SettingsButton.swift` | Bottom navigation bar, gear on every tab, demo banner on every tab, Back returns to Photos | ✅ (Collections, Search, Backup are placeholders until G, H, I) |
 | Preferences | `Shared/Services/Preferences.swift` | `Prefs`: same keys and defaults; iPhone-only keys left out with the reason; grid columns kept | ✅ |
-| Logs with redaction | `AppLog.swift`, `LelvoCore/Support/Redactor.swift` | `AppLog` in `data/`, `Redactor` port in `core/` with its tests | |
+| Logs with redaction | `AppLog.swift`, `LelvoCore/Support/Redactor.swift` | `AppLog` and `Redactor` in `core/` (so `telegram/` logs through it too), with tests | ✅ |
 | Toasts | `Shared/Views/Toast.swift` | Snackbar host in the shell | |
 | Launch screen and brand mark | `Shared/Views/Brand/` | Splash screen API, vector mark | |
 | Review demo | `Shared/App/DemoMode.swift` | `DemoMode` | ✅ |
@@ -343,8 +343,13 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   (bottom bar, gear on every tab, Settings as an Android list), A3 Prefs ✅. Owner: the Android app must **feel like
   Google Photos**, not the iPhone (rule and pattern table in `.claude/rules/android.md`), and every step is checked in
   light and dark. The emulator stays signed in to the owner's real account: never clear its data (memory note).
-- **Next session (start here):** Phase A, next unticked row: logs with redaction (`AppLog` + `Redactor` port with its
-  tests from `LelvoCore/Support/Redactor.swift`), then snackbars (A5), then launch screen with the brand mark (A6),
+- 2026-11-11, A4 logs ✅: `Redactor` (same five rules and order as iOS, 8 tests) and `AppLog` in `core/` rather than
+  `data/`, because `telegram/` can't depend on `data/`. Same file rules as iOS: one file, 1 MB then rotated to
+  `lelvo.old.log`, every line redacted on write and again on read, `api_hash` as a known secret. Logs live in
+  `no_backup/logs` (never in Android backup); debug builds echo to logcat (tag `Lelvo`), release builds don't, like
+  iOS's Debug-only print. Exceptions log their kind and message, never a stack trace. Every `android.util.Log` call
+  now goes through it. Share and clear come with Settings (Phase K).
+- **Next session (start here):** Phase A, next unticked row: snackbars (A5), then launch screen with the brand mark (A6),
   then the services container (A7). Before each screen, look at Google Photos' version first. Then Phase B.
   Nothing from this branch is committed yet (owner hasn't said); ask once at the start.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
