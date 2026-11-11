@@ -1,5 +1,8 @@
 package app.lelvo.android.timeline
 
+import app.lelvo.android.ui.theme.Lelvo
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.draw.clip
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.combine
 import app.lelvo.data.media.PhotoAccess
@@ -111,6 +114,9 @@ fun TimelineScreen(
     val isDemo by demo.active.collectAsState()
     var filter by rememberSaveable { mutableStateOf<GalleryFilter?>(null) }
     var legend by remember { mutableStateOf(false) }
+    var selection by remember { mutableStateOf(emptySet<String>()) }
+    val selecting = selection.isNotEmpty()
+    androidx.activity.compose.BackHandler(enabled = selecting) { selection = emptySet() }
     // Phone photos and cloud items in one timeline (iOS `GalleryModel.merge`); merging, filtering and grouping run off
     // the main thread, and a change to either side redraws only what moved.
     val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(null, store, grouping, filter, isDemo) {
@@ -133,7 +139,13 @@ fun TimelineScreen(
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            Column {
+            if (selecting) TopAppBar(
+                navigationIcon = { IconButton(onClick = { selection = emptySet() }) { Icon(painterResource(R.drawable.ic_close), "Clear selection") } },
+                title = { Text("${selection.size} selected") },
+                actions = {
+                    TextButton(onClick = { selection = sections.orEmpty().flatMap { s -> s.items.map { it.id } }.toSet() }) { Text("Select all") }
+                },
+            ) else Column {
                 LelvoTopBar(filter?.title ?: "Photos", demo, onSettings, scrollBehavior) {
                     IconButton(onClick = { menu = true }) {
                         Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options")
@@ -178,7 +190,7 @@ fun TimelineScreen(
                 modifier = Modifier.padding(padding).padding(32.dp),
             ) else EmptyState(Modifier.padding(padding))
             else -> Grid(
-                list, columns, grouping, padding, photos,
+                list, columns, grouping, padding, photos, selection, onSelection = { selection = it },
                 onZoom = { step ->
                     level = (level + step).coerceIn(0, zoomLevels.lastIndex)
                     prefs.gridColumns = zoomLevels[level].first
@@ -189,6 +201,17 @@ fun TimelineScreen(
                 },
             )
         }
+        if (selecting) {
+            val byId = remember(list) { list.orEmpty().flatMap { it.items }.associateBy { it.id } }
+            Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding()), contentAlignment = Alignment.BottomCenter) {
+                SelectionActions(selection.mapNotNull(byId::get), onDone = { selection = emptySet() })
+            }
+        }
+    }
+    // Photos that went (deleted, filtered out) leave the selection.
+    LaunchedEffect(sections) {
+        val ids = sections?.flatMap { s -> s.items.map { it.id } }?.toHashSet() ?: return@LaunchedEffect
+        if (selection.any { it !in ids }) selection = selection.filterTo(HashSet()) { it in ids }
     }
     if (legend) BadgeLegend(onDismiss = { legend = false })
 }
@@ -220,8 +243,13 @@ private fun EmptyState(modifier: Modifier) {
 @Composable
 private fun Grid(
     sections: List<Timeline.Section<GalleryEntry>>, columns: Int, grouping: Timeline.Grouping, padding: PaddingValues,
-    photos: PhotoAccess, onZoom: (Int) -> Unit, onOpen: (GalleryEntry) -> Unit,
+    photos: PhotoAccess, selection: Set<String>, onSelection: (Set<String>) -> Unit, onZoom: (Int) -> Unit, onOpen: (GalleryEntry) -> Unit,
 ) {
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val order = remember(sections) { sections.flatMap { s -> s.items.map { it.id } } }
+    val currentSelection by androidx.compose.runtime.rememberUpdatedState(selection)
+    var edgeSpeed by remember { mutableStateOf(0f) }
+    val edge = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
     val side = LocalConfiguration.current.screenWidthDp.dp / columns
     val state = rememberLazyGridState()
     val titles = rememberTitles()
@@ -246,7 +274,11 @@ private fun Grid(
         contentPadding = padding,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
-        modifier = Modifier.fillMaxSize().pinchToZoom(onZoom),
+        modifier = Modifier.fillMaxSize().pinchToZoom(onZoom).dragToSelect(
+            state, order = { order }, selection = { currentSelection }, onChange = onSelection,
+            onStart = { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) },
+            edge = edge, onEdge = { edgeSpeed = it },
+        ),
     ) {
         for (section in sections) {
             item(key = "h:${grouping.name}:${section.key}", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
@@ -257,11 +289,17 @@ private fun Grid(
                 )
             }
             items(section.items, key = { it.id }, contentType = { "cell" }) { entry ->
-                Cell(entry, side, photos, onClick = { onOpen(entry) }, description = titles.describe(entry))
+                val selected = entry.id in selection
+                Cell(
+                    entry, side, photos, selecting = selection.isNotEmpty(), selected = selected,
+                    onClick = { if (selection.isNotEmpty()) onSelection(if (selected) selection - entry.id else selection + entry.id) else onOpen(entry) },
+                    description = titles.describe(entry),
+                )
             }
         }
     }
     DateScrubber(state, scrub, Modifier.align(Alignment.TopEnd).padding(padding))
+    EdgeScroll(state, edgeSpeed)
     }
 }
 
@@ -270,16 +308,30 @@ private fun Grid(
  * video length or the Live mark. On tiles under 40 dp only the badge stays.
  */
 @Composable
-private fun Cell(entry: GalleryEntry, side: Dp, photos: PhotoAccess, onClick: () -> Unit, description: String) {
+private fun Cell(
+    entry: GalleryEntry, side: Dp, photos: PhotoAccess, selecting: Boolean, selected: Boolean, onClick: () -> Unit, description: String,
+) {
+    // A selected tile shrinks inside its square, like Google Photos.
+    val inset by androidx.compose.animation.core.animateDpAsState(if (selected) side * 0.08f else 0.dp, label = "inset")
     Box(
-        Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainerHighest).clickable(onClick = onClick)
-            .semantics(mergeDescendants = true) { contentDescription = description },
+        Modifier.aspectRatio(1f).clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = description
+                if (selecting) this.selected = selected
+            },
     ) {
         AsyncImage(
             model = entry.asset?.let { PhoneThumbnail(photos.uri(it)) } ?: entry.item?.let { DemoMode.assetUri(it) ?: CloudThumbnail(it) },
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(inset).clip(androidx.compose.foundation.shape.RoundedCornerShape(if (selected) 10.dp else 0.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        )
+        if (selecting) Icon(
+            painterResource(if (selected) R.drawable.ic_check_circle else R.drawable.ic_circle_outline), null,
+            Modifier.align(Alignment.TopStart).padding(6.dp).size(22.dp)
+                .background(if (selected) Color.White else Color.Black.copy(alpha = 0.2f), androidx.compose.foundation.shape.CircleShape),
+            tint = if (selected) Lelvo.colors.accent else Color.White,
         )
         BadgeMark(entry.badge, side, Modifier.align(Alignment.TopEnd).padding(if (side > 60.dp) 4.dp else 2.dp))
         if (side < 40.dp) return@Box
