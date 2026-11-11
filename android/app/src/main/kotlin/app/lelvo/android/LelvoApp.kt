@@ -38,6 +38,9 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var model: AppModel private set
     lateinit var photos: app.lelvo.data.media.PhotoAccess private set
     lateinit var linker: app.lelvo.data.media.PhotoLinker private set
+    lateinit var reader: app.lelvo.data.media.MediaReader private set
+    lateinit var media: app.lelvo.data.media.CloudMedia private set
+    lateinit var positions: app.lelvo.data.media.PlaybackPositions private set
     /** The launch opening plays once per process (cold start only). */
     var openingPlayed = false
 
@@ -81,6 +84,9 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         coreCheck = CoreCheck(files, library, scanner, store)
         photos = app.lelvo.data.media.PhotoAccess(this)
         linker = app.lelvo.data.media.PhotoLinker(store, photos)
+        reader = app.lelvo.data.media.MediaReader(files, library, telegram)
+        media = app.lelvo.data.media.CloudMedia(this, reader, prefs)
+        positions = app.lelvo.data.media.PlaybackPositions(this)
         model = AppModel(this)
     }
 
@@ -100,19 +106,31 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
             library.forget()
             prefs.reset()
             SingletonImageLoader.get(this@LelvoApp).let { it.memoryCache?.clear(); it.diskCache?.clear() }
+            media.clear()
+            positions.clear()
         }
         AppLog.info("Reset finished")
     }
 
     // Video cells show their first frame.
     override fun newImageLoader(context: PlatformContext): ImageLoader =
-        ImageLoader.Builder(context).components { add(VideoFrameDecoder.Factory()) }.build()
+        ImageLoader.Builder(context).components {
+            add(VideoFrameDecoder.Factory())
+            add(app.lelvo.android.media.CloudImageFetcher.ThumbnailFactory(media))
+            add(app.lelvo.android.media.CloudImageFetcher.PhotoFactory(media))
+            add(app.lelvo.android.media.CloudThumbnailKeyer())
+            add(app.lelvo.android.media.CloudPhotoKeyer())
+        }.build()
 
     /** "First Last" of the signed-in account, as Settings shows it; empty when Telegram can't say. */
     suspend fun accountName(): String = runCatching {
         val me = telegram.send(org.drinkless.tdlib.TdApi.GetMe())
         listOf(me.firstName, me.lastName).filter { it.isNotBlank() }.joinToString(" ")
     }.getOrDefault("")
+
+    /** On a metered network (mobile data): nothing is fetched ahead, like iOS on an expensive network. */
+    fun isMetered(): Boolean =
+        runCatching { getSystemService(android.net.ConnectivityManager::class.java).isActiveNetworkMetered }.getOrDefault(true)
 
     /** The library channel's name. */
     suspend fun libraryTitle(): String = runCatching {

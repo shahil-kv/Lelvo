@@ -70,6 +70,7 @@ import app.lelvo.core.index.Timeline
 import app.lelvo.data.DemoMode
 import app.lelvo.data.Prefs
 import app.lelvo.data.index.LibraryStore
+import app.lelvo.android.media.CloudThumbnail
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
@@ -224,7 +225,7 @@ private fun Cell(item: LibraryItem, small: Boolean, onClick: () -> Unit, descrip
             .semantics(mergeDescendants = true) { contentDescription = description },
     ) {
         AsyncImage(
-            model = DemoMode.assetUri(item),
+            model = DemoMode.assetUri(item) ?: CloudThumbnail(item),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
