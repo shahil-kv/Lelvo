@@ -4,6 +4,7 @@
     app.colors  → iOS/ and macOS/Resources/Assets.xcassets/<Name>.colorset (light and dark)
     web         → the :root block at the top of website/styles.css
     web-dark    → the :root[data-theme="dark"] block after it (the site's theme toggle)
+    android     → android/…/ui/theme/LelvoColors.kt, with app.colors and the brand launch colour
 
 Run from the repository root after editing the tokens:  python3 Scripts/design-tokens.py
 With --check it changes nothing and exits 1 if a generated file is out of date.
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TOKENS = ROOT / "design/tokens.json"
 CATALOGS = [ROOT / "iOS/Resources/Assets.xcassets", ROOT / "macOS/Resources/Assets.xcassets"]
 STYLES = ROOT / "website/styles.css"
+ANDROID = ROOT / "android/app/src/main/kotlin/app/lelvo/android/ui/theme/LelvoColors.kt"
 ROOT_BLOCK = re.compile(r'\A:root \{\n.*?\n\}\n(?::root\[data-theme="dark"\] \{\n.*?\n\}\n)?', re.S)
 
 
@@ -45,6 +47,27 @@ def root_block(web: dict, dark: dict) -> str:
             f':root[data-theme="dark"] {{\n{lines(dark)}\n  color-scheme: dark;\n}}\n')
 
 
+def kotlin_colors(tokens: dict) -> str:
+    def name(token: str) -> str:
+        head, *rest = token.replace("Color", "").split("-")
+        return head[0].lower() + head[1:] + "".join(w.title() for w in rest)
+
+    def argb(hex_color: str) -> str:
+        return f"Color(0xFF{hex_color[1:].upper()})"
+
+    colors = {name(k): v for k, v in tokens["app"]["colors"].items()}
+    colors.update({name(k): v for k, v in tokens["android"].items() if not k.startswith("$")})
+    lines = ["package app.lelvo.android.ui.theme", "", "import androidx.compose.ui.graphics.Color", "",
+             "// Generated from design/tokens.json by Scripts/design-tokens.py. Edit the tokens, not this file.", "",
+             "/** One palette per appearance: the iPhone's system colours and the Lelvo accent. */",
+             "class LelvoPalette(", *[f"    val {k}: Color," for k in colors], ")", "",
+             "val LightPalette = LelvoPalette(", *[f"    {k} = {argb(v['light'])}," for k, v in colors.items()], ")", "",
+             "val DarkPalette = LelvoPalette(", *[f"    {k} = {argb(v['dark'])}," for k, v in colors.items()], ")", "",
+             "/** The solid launch screen behind the white mark. */",
+             f"val LaunchColor = {argb(tokens['brand']['launch'])}", ""]
+    return "\n".join(lines)
+
+
 def main() -> int:
     check = "--check" in sys.argv[1:]
     tokens = json.loads(TOKENS.read_text())
@@ -53,6 +76,8 @@ def main() -> int:
     for name, color in tokens["app"]["colors"].items():
         for catalog in CATALOGS:
             outputs[catalog / f"{name}.colorset/Contents.json"] = colorset(color)
+
+    outputs[ANDROID] = kotlin_colors(tokens)
 
     css = STYLES.read_text()
     if not ROOT_BLOCK.search(css):

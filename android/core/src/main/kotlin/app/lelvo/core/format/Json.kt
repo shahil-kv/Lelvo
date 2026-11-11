@@ -62,6 +62,8 @@ internal class JsonFields(private val obj: JsonObject) {
     fun intOrNull(key: String): Int? = element(key)?.let { int(it, key) }
     fun int(key: String): Int = intOrNull(key) ?: throw FieldException(key)
     fun doubleOrNull(key: String): Double? = element(key)?.let { double(it, key) }
+    fun boolOrNull(key: String): Boolean? =
+        element(key)?.let { (it as? JsonPrimitive)?.takeIf { p -> !p.isString }?.content?.toBooleanStrictOrNull() ?: throw FieldException(key) }
     fun stringsOrNull(key: String): List<String>? = arrayOrNull(key)?.map { string(it, key) }
     fun strings(key: String): List<String> = stringsOrNull(key) ?: throw FieldException(key)
     fun longsOrNull(key: String): List<Long>? = arrayOrNull(key)?.map { long(it, key) }
@@ -70,6 +72,7 @@ internal class JsonFields(private val obj: JsonObject) {
     fun objects(key: String): List<JsonObject> =
         (arrayOrNull(key) ?: throw FieldException(key)).map { it as? JsonObject ?: throw FieldException(key) }
     fun obj(key: String): JsonObject = element(key) as? JsonObject ?: throw FieldException(key)
+    fun objOrNull(key: String): JsonObject? = element(key)?.let { it as? JsonObject ?: throw FieldException(key) }
 
     private fun arrayOrNull(key: String): JsonArray? = element(key)?.let { it as? JsonArray ?: throw FieldException(key) }
 

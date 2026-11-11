@@ -55,6 +55,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.BackHandler
+import app.lelvo.data.DemoMode
 import app.lelvo.telegram.AuthStep
 import app.lelvo.telegram.CodeDelivery
 import app.lelvo.telegram.TdClient
@@ -64,11 +66,18 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SignInScreen(td: TdClient, step: AuthStep) {
-    Scaffold(topBar = { TopAppBar(title = { Text(title(step)) }) }) { padding ->
+fun SignInScreen(td: TdClient, step: AuthStep, demo: DemoMode) {
+    // The review number was entered: the code step checks the demo code instead of Telegram's.
+    var demoCode by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = demoCode) { demoCode = false }
+    Scaffold(topBar = { TopAppBar(title = { Text(if (demoCode) "Enter the code" else title(step)) }) }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).imePadding()) {
-            when (step) {
-                AuthStep.WaitPhone -> PhoneStep(td)
+            when {
+                demoCode -> DemoCodeStep(demo, onBack = { demoCode = false })
+                // The demo works in a build without Telegram app keys too.
+                step == AuthStep.WaitPhone || step == AuthStep.NeedsCredentials ->
+                    PhoneStep(td, demo, hasKeys = step == AuthStep.WaitPhone, onDemo = { demoCode = true })
+                else -> when (step) {
                 is AuthStep.WaitCode -> CodeStep(td, step)
                 is AuthStep.WaitPassword -> PasswordStep(td, step.hint)
                 AuthStep.WaitEmail -> Message(
@@ -81,10 +90,8 @@ fun SignInScreen(td: TdClient, step: AuthStep) {
                 is AuthStep.WaitOtherDevice -> Message(
                     "Open Telegram on a device where you're signed in and approve this login.",
                 )
-                AuthStep.NeedsCredentials -> Message(
-                    "This build has no Telegram app keys. Add telegram.apiId and telegram.apiHash to android/local.properties and build again.",
-                )
                 else -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                }
             }
         }
     }
@@ -117,7 +124,7 @@ private suspend fun attempt(setError: (String?) -> Unit, setBusy: (Boolean) -> U
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PhoneStep(td: TdClient) {
+private fun PhoneStep(td: TdClient, demo: DemoMode, hasKeys: Boolean, onDemo: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var dial by rememberSaveable { mutableStateOf(Countries.defaultDialCode(simRegion(context))) }
@@ -134,7 +141,12 @@ private fun PhoneStep(td: TdClient) {
     val valid = if (international) digits.length in 8..15 else digits.length in Countries.lengths(dial)
     val phone = if (international) "+$digits" else "+$dial$digits"
     val submit = {
-        if (valid && !busy) scope.launch { attempt({ error = it }, { busy = it }) { td.submitPhone(phone) } }
+        when {
+            !valid || busy -> Unit
+            demo.matches(phone) -> { error = null; onDemo() }
+            !hasKeys -> error = "This build has no Telegram app keys. Add telegram.apiId and telegram.apiHash to android/local.properties and build again."
+            else -> scope.launch { attempt({ error = it }, { busy = it }) { td.submitPhone(phone) } }
+        }
     }
 
     StepColumn {
@@ -251,6 +263,35 @@ private fun CodeStep(td: TdClient, step: AuthStep.WaitCode) {
             ) { Text(if (resendIn > 0) "${r.label} in ${resendIn / 60}:${"%02d".format(resendIn % 60)}" else r.label) }
         }
         TextButton(onClick = { scope.launch { td.switchAccount() } }) { Text("Use a different number") }
+    }
+}
+
+@Composable
+private fun DemoCodeStep(demo: DemoMode, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var code by rememberSaveable { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    val submit = { c: String ->
+        if (c == DemoMode.CODE) scope.launch { demo.enter() }
+        else { error = "That code isn't right. Check the code in the review notes."; code = "" }
+    }
+    StepColumn {
+        Text("Demo account: enter the code from the review notes.", style = MaterialTheme.typography.bodyLarge)
+        OutlinedTextField(
+            value = code,
+            onValueChange = { new ->
+                code = new.filter { it.isDigit() }.take(DemoMode.CODE.length)
+                if (code.length == DemoMode.CODE.length) submit(code)
+            },
+            label = { Text("Login code") }, singleLine = true, isError = error != null,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { submit(code) }),
+            modifier = Modifier.fillMaxWidth().focusRequester(focus),
+        )
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        TextButton(onClick = onBack) { Text("Use a different number") }
     }
 }
 

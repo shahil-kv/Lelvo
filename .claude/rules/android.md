@@ -37,12 +37,26 @@ Fossify, Nextcloud) without the owner's yes.
 | Deleting with the system prompt | Fossify Gallery, Immich |
 | Argon2, AES-GCM, Keystore | `lambdapioneer/argon2kt`, Google Tink (for patterns), Ente's crypto docs |
 
-## Look and feel
+## Look and feel: like Google Photos
 
-- Look like Android, not like the iPhone app: Material 3 components, top app bars, navigation bar, FAB where Google
-  Photos would put one, predictive back, edge-to-edge, dynamic colour with the Lelvo accent as the seed, dark and
-  light. No iOS-style chevrons, segmented pills or sheets that mimic UIKit.
-- Same features and the same words as the iPhone app (short sentences, no jargon, "your Telegram library").
+Android users know Google Photos best, so Lelvo for Android should feel like it, not like the iPhone app
+(owner, 2026-11-11). Same features and words as iOS; Google Photos' way of showing them.
+
+- **Before each screen, look at how Google Photos does it** (and Files by Google, Gmail, Android Settings for
+  non-photo screens), write it under the step's notes, then build it that way. Where the iOS screen uses an iOS-only
+  pattern, use Google Photos' one instead:
+  | iOS pattern | Android (Google Photos) way |
+  |---|---|
+  | Grouped rounded settings cards | Plain Material list with section headers, dividers between sections |
+  | Toasts | Snackbars, with Undo where an action can be undone |
+  | Sheets with Done / Cancel buttons | Bottom sheets and full-screen dialogs, back to close |
+  | Segmented pills, chevrons | Filter chips, tabs, plain list rows |
+  | Viewer toolbar | Bottom action row (Share, Favorite, Delete…), info by swiping up |
+  | Selection with Select button | Long-press to start, drag to select more, count in the top bar |
+  | Swipe-back edge gesture | System back and predictive back |
+- Material 3 components only: top app bars, navigation bar, FAB where Google Photos would put one, edge-to-edge.
+- Lelvo's own colours (`design/tokens.json`, dynamic colour off), not the wallpaper's.
+- **Light and dark both**: every step is checked in both on the emulator before it's ticked.
 - Every screen works with TalkBack (content descriptions) and large font sizes.
 - Smooth first: stable keys in lazy lists, no work in composition, images sized to the cell, baseline profile before the beta.
 

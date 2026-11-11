@@ -21,4 +21,6 @@ tasks.test {
     useJUnitPlatform()
     // The test vectors are the cross-platform contract; read them in place, never copy them.
     systemProperty("lelvo.vectors", rootProject.file("../docs/test-vectors").absolutePath)
+    // The demo library is shared with the iPhone app (App Review needs the same one).
+    systemProperty("lelvo.demo", rootProject.file("../iOS/DemoLibrary").absolutePath)
 }

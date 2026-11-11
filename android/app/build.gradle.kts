@@ -43,6 +43,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    // The review demo's sample files, shared with the iPhone app: one copy in the repository.
+    sourceSets.getByName("main").assets.directories.add("../../iOS/DemoLibrary")
     buildFeatures {
         compose = true
         buildConfig = true
@@ -61,5 +63,9 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
     implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.video)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
     debugImplementation(libs.compose.ui.tooling)
 }
