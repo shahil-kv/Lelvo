@@ -5,39 +5,71 @@ import LelvoCore
 struct RecoveryKeyView: View {
     let key: RecoveryKey
     let onDone: () -> Void
-    @State private var saved = false
     @State private var copied = false
+
+    /// Groups of four, in rows of four: easy to copy onto paper without losing your place.
+    private var groups: [String] { key.text.split(separator: "-").map(String.init) }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Label("Save your recovery key", systemImage: "key.horizontal.fill").font(.title2.weight(.bold))
-                Text("If you forget your passphrase, this key opens your library. Keep it somewhere safe, like a password manager or on paper. Anyone who has it and your Telegram account can open your photos.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                Text(key.text)
-                    .font(.system(.title3, design: .monospaced).weight(.semibold))
+            VStack(spacing: 20) {
+                VStack(spacing: 10) {
+                    Image(systemName: "key.horizontal.fill")
+                        .font(.system(size: 28, weight: .semibold)).foregroundStyle(.white)
+                        .frame(width: 64, height: 64)
+                        .background(LinearGradient(colors: [Color(red: 0.43, green: 0.29, blue: 1), Color(red: 0.72, green: 0.61, blue: 1)],
+                                                   startPoint: .topLeading, endPoint: .bottomTrailing),
+                                    in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .accessibilityHidden(true)
+                    Text("Your recovery key").font(.title2.weight(.bold))
+                    Text("The only way back into your photos if you forget your passphrase. Keep it in a password manager or on paper.")
+                        .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 8)
+                VStack(spacing: 12) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                            Text(group)
+                                .font(.system(.callout, design: .monospaced).weight(.semibold))
+                                .frame(maxWidth: .infinity).padding(.vertical, 9)
+                                .background(Color.secondary.opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                    }
                     .textSelection(.enabled)
-                    .multilineTextAlignment(.leading)
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Recovery key")
                     .accessibilityValue(key.text.replacingOccurrences(of: "-", with: " "))
-                Button {
-                    PlatformActions.copySecret(key.text)
-                    copied = true
-                    Haptics.success()
-                } label: {
-                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    Button {
+                        PlatformActions.copySecret(key.text)
+                        copied = true
+                        Haptics.success()
+                    } label: {
+                        Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(copied ? Color.green : Color.primary)
+                            .frame(maxWidth: .infinity).padding(.vertical, 11)
+                            .background(Color.secondary.opacity(0.18), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
                 }
-                Toggle("I've saved my recovery key", isOn: $saved)
-                Text("Lelvo won't show this key again. You can make a new one in Settings with your passphrase.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                .padding(14)
+                .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    (Text("Lose both and your photos are gone. ").foregroundStyle(.orange).fontWeight(.semibold)
+                     + Text("Nobody can recover them. Not Lelvo, not Telegram."))
+                        .font(.subheadline).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
             }
             .padding(20)
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
         }
         .safeAreaInset(edge: .bottom) {
-            PrimaryCapsuleButton(title: "Done", enabled: saved) { onDone() }.padding(20)
+            PrimaryCapsuleButton(title: "I've saved it") { onDone() }.padding(20)
         }
     }
 }
@@ -106,11 +138,11 @@ struct EncryptionSettingsView: View {
                 try await library.newRecoveryKey(passphrase: current)
             }
         case .changePassphrase:
-            let problem = EncryptionChoice.problem(encrypted: true, passphrase: new, confirm: confirm, acknowledged: true)
+            let problem = PassphraseSetup.problem(passphrase: new, confirm: confirm, acknowledged: true)
             form(title: "Change Passphrase",
                  note: needsUpgrade ? "Your library also gets a recovery key." : "Your recovery key keeps working.",
                  ready: !current.isEmpty && problem == nil) {
-                OnboardingField(placeholder: "Current passphrase", text: $current, secure: true, content: .password, autofocus: true)
+                OnboardingField(placeholder: "Current passphrase or recovery key", text: $current, secure: true, content: .password, autofocus: true)
                 OnboardingField(placeholder: "New passphrase (10+ characters)", text: $new, secure: true, content: .newPassword)
                 OnboardingField(placeholder: "Repeat new passphrase", text: $confirm, secure: true, content: .newPassword)
                 if let problem, !new.isEmpty { Text(problem).font(.footnote).foregroundStyle(.secondary) }

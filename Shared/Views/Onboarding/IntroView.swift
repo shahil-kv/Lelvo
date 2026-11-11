@@ -9,7 +9,6 @@ struct IntroView: View {
     enum Page: Int, CaseIterable { case hook, pain, features, privacy, questions, numbers }
 
     @Binding var page: Int
-    @Binding var encrypted: Bool
     @Binding var photoStatus: PHAuthorizationStatus
     let finish: () -> Void
 
@@ -142,13 +141,13 @@ struct IntroView: View {
             HookPage()
         case .pain:
             IntroPage(title: "Storage full again? Keep every photo without a monthly bill.",
-                      subtitle: "Your library lives in the Telegram account you already have.") {
+                      subtitle: "Your library uses an account you already have, so there's no storage plan to buy.") {
                 PainArt()
             }
         case .features:
             FeaturesPage()
         case .privacy:
-            PrivacyPage(encrypted: $encrypted)
+            PrivacyPage()
         case .questions:
             QuestionsPage()
         case .numbers:
@@ -194,13 +193,13 @@ private struct HookPage: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .overlay(Capsule().stroke(Color.white.opacity(0.15)))
             (Text("Your photos.\n")
-             + Text("Your Telegram.").foregroundStyle(LinearGradient(colors: [Color.accentColor, Color(red: 0.83, green: 0.66, blue: 1)],
+             + Text("Only yours.").foregroundStyle(LinearGradient(colors: [Color.accentColor, Color(red: 0.83, green: 0.66, blue: 1)],
                                                                     startPoint: .leading, endPoint: .trailing)))
                 .font(.system(size: 46, weight: .bold))
                 .tracking(-0.8)
                 .lineSpacing(-4)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Every original, backed up to a private channel in your own Telegram account. No one else's servers.")
+            Text("Every original, locked on your \(Device.name) and kept in your own Telegram account. No servers of ours.")
                 .font(.title3).foregroundStyle(.white.opacity(0.75))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -312,7 +311,7 @@ private struct PainArt: View {
                 }
                 .opacity(full ? 1 : 0)
             }
-            meter(title: "Your Telegram library", value: "No storage plan", fill: mine ? 0.18 : 0, color: .accentColor) {
+            meter(title: "Your Lelvo library", value: "Unlimited storage", fill: mine ? 0.18 : 0, color: .accentColor) {
                 Text("Every original, full quality, nothing compressed.").font(.footnote).foregroundStyle(.secondary)
             }
             .opacity(mine ? 1 : 0)
@@ -359,7 +358,7 @@ private struct FeaturesPage: View {
 
     private static let features: [(icon: String, title: String, detail: String, shot: String)] = [
         ("icloud.and.arrow.up", "Every original, backed up", "Photos and videos at full quality", "feature-backup"),
-        ("internaldrive", "Free up space", "Remove what's safely in Telegram", "feature-freeup"),
+        ("internaldrive", "Free up space", "Remove what's safely backed up", "feature-freeup"),
         ("play.fill", "Videos play at once", "Streamed, no full download", "feature-video"),
         ("magnifyingglass", "Search your photos", "Places, dates, text and things", "feature-search"),
         ("sparkles.rectangle.stack", "Memories and collections", "Your best days, picked for you", "feature-memories"),
@@ -447,34 +446,25 @@ private struct FeaturesPage: View {
 // MARK: - 4. Privacy
 
 private struct PrivacyPage: View {
-    @Binding var encrypted: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 flow
-                Text("Choose who can see your photos").font(.system(size: 30, weight: .bold))
+                Text("Only you can open them").font(.system(size: 30, weight: .bold))
                     .fixedSize(horizontal: false, vertical: true)
-                VStack(spacing: 10) {
-                    choice(title: "Standard", icon: "photo", selected: !encrypted,
-                           detail: "Fastest, and photos also open in the Telegram app. Telegram could see them, like any cloud chat.") { encrypted = false }
-                    choice(title: "End-to-end encrypted", icon: "lock.fill", selected: encrypted,
-                           detail: "Locked on your \(Device.name) before upload. Only you can open them, with your passphrase.") { encrypted = true }
-                }
-                if encrypted {
-                    Label("If you lose your passphrase and your recovery key, nobody can help you get your photos back. Not us, not Telegram.",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote.weight(.medium)).foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .transition(.opacity)
-                }
-                Text("You'll see exactly what Telegram stores when you create your library, and you can change your mind there.")
-                    .font(.footnote).foregroundStyle(.white.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
+                Text("Every photo is locked on your \(Device.name) before it leaves. You open your library with your passphrase.")
+                    .font(.body).foregroundStyle(.white.opacity(0.75)).fixedSize(horizontal: false, vertical: true)
+                // Showing exactly what Telegram stores says more than any sentence about it.
+                TelegramPreview()
+                Label("If you lose your passphrase and your recovery key, nobody can get your photos back. Not us, not Telegram.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote.weight(.medium)).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 8)
-            .animation(.spring(duration: 0.35), value: encrypted)
         }
         .scrollBounceBehavior(.basedOnSize)
     }
@@ -520,85 +510,26 @@ private struct PrivacyPage: View {
         }
         .frame(width: 92)
     }
-
-    private func choice(title: String, icon: String, selected: Bool, detail: String, action: @escaping () -> Void) -> some View {
-        Button {
-            Haptics.selection()
-            action()
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: icon).font(.system(size: 14, weight: .bold)).foregroundStyle(selected ? .white : .secondary)
-                    .frame(width: 30, height: 30)
-                    .background(selected ? Color.accentColor : Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.headline).foregroundStyle(.white)
-                    Text(detail).font(.footnote).foregroundStyle(.white.opacity(0.7)).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.title3)
-                    .foregroundStyle(selected ? Color.accentColor : .secondary)
-            }
-            .padding(14)
-            .background(selected ? Color.accentColor.opacity(0.16) : Color.white.opacity(0.06),
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(selected ? Color.accentColor : Color.white.opacity(0.12), lineWidth: 1.5))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
-    }
 }
 
-/// What the library channel in Telegram shows for one photo: the photo itself (Standard) or an unreadable `.cge`
-/// file (encrypted), like the real channel. Shared with the Create Library step.
+/// What the library channel in Telegram holds for one photo: an unreadable `.cge` file, like the real channel.
 struct TelegramPreview: View {
-    let encrypted: Bool
-    @StateObject private var photos = IntroPhotos()
-
     // Real-looking CGFE caption text, as the channel shows it. Not a real key or file.
     private static let cipher = "CG1E:mvOrfa5vpbolKpiUJQy4f5UvnWUk7KLmQnt2Fdpe+zHb5H4B85PgZEbUzr/wkrJHgjrFrltUd62No9R4NfniT+4ZXYwhHBSsg+oLXC+n57UghHwPElFF3hO1hWhmFehMrWh8oqE1oGRP"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("In your Telegram, it looks like this").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
-            ZStack(alignment: .topLeading) {
-                if encrypted {
-                    fileBubble.transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.95, anchor: .topLeading)),
-                                                      removal: .opacity))
-                } else {
-                    photoBubble.transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.95, anchor: .topLeading)),
-                                                       removal: .opacity))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.spring(duration: 0.4), value: encrypted)
+            Text("What your Telegram stores for one photo").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
+            fileBubble.frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(red: 0.06, green: 0.09, blue: 0.13), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .task { photos.load() }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(encrypted ? "In Telegram, an encrypted photo is an unreadable file." : "In Telegram, a Standard photo shows as the photo.")
+        .accessibilityLabel("In your Telegram, each photo is an unreadable file that only you can open.")
     }
 
     private static let bubble = Color(red: 0.16, green: 0.21, blue: 0.27)
-
-    private var photoBubble: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            IntroTile(image: photos.images.first, index: 0)
-                .frame(width: 200, height: 128).clipped()
-            HStack {
-                Text("IMG_4019.HEIC").font(.caption.weight(.semibold))
-                Spacer()
-                Text("2.8 MB").font(.caption).foregroundStyle(.white.opacity(0.6))
-            }
-            .padding(.horizontal, 10).padding(.vertical, 7)
-        }
-        .frame(width: 200)
-        .background(Self.bubble)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
 
     private var fileBubble: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -632,7 +563,7 @@ private struct QuestionsPage: View {
         ("eye", "Can Lelvo see my photos?",
          "**No. Lelvo has no servers.** The app talks only to Telegram, as you, like the official Telegram apps. **We have no way to see your library or your account.**"),
         ("paperplane", "Can Telegram see my photos?",
-         "In a Standard library, **Telegram could see them**: files are stored like any Telegram cloud chat, which isn't end-to-end encrypted. In an encrypted library, **Lelvo locks every file on your device first**, so Telegram stores only unreadable files."),
+         "**No. Lelvo locks every file on your \(Device.name) before upload**, so Telegram stores only files it can't open."),
         ("trash", "Will Lelvo delete photos from my \(Device.name)?",
          "**Only when you choose Free Up Space**, and only items Lelvo has just checked are complete in Telegram. **You confirm every deletion**, and they stay in Recently Deleted for 30 days."),
         ("exclamationmark.triangle", "What if I lose my Telegram account?",
@@ -780,7 +711,7 @@ private struct NumbersPage: View {
                 .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .padding(.top, 30)
             Text("See your library in numbers").font(.system(size: 30, weight: .bold)).fixedSize(horizontal: false, vertical: true)
-            Text("Lelvo needs access to Photos to back them up. Your photos go only to your own Telegram, and they're counted here on this \(Device.name).")
+            Text("Lelvo needs access to Photos to back them up. They're counted here on this \(Device.name), and go only to your own library.")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Label("Choose Full Access so every photo is backed up. You can change it in Settings at any time.", systemImage: "info.circle")
                 .font(.footnote).foregroundStyle(.secondary)
@@ -809,7 +740,7 @@ private struct NumbersPage: View {
                      tint: (stats.free ?? .max) < 10_000_000_000 ? .red : .primary)
             }
 
-            Text(stats.bytes.map { "Keep all \(Self.size($0)) safe in your Telegram." } ?? "Measuring your library…")
+            Text(stats.bytes.map { "Keep all \(Self.size($0)) safe." } ?? "Measuring your library…")
                 .font(.system(size: 26, weight: .bold)).fixedSize(horizontal: false, vertical: true)
                 .contentTransition(.opacity)
             Text("Counted on this \(Device.name). Nothing has been uploaded yet.")
@@ -991,7 +922,7 @@ struct FirstBackupView: View {
     private var chooser: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Choose your first photo").font(.system(size: 32, weight: .bold))
-            Text("Pick one that matters to you. You'll watch it arrive in your Telegram library.")
+            Text("Pick one that matters to you. You'll watch it arrive in your library.")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             photoGrid(selectable: true).padding(.top, 4)
         }
@@ -1095,9 +1026,9 @@ struct FirstBackupView: View {
 
     private var detail: String {
         switch phase {
-        case .choosing, .uploading: return "Uploading the original to your Telegram library."
-        case .safe: return "Telegram confirmed it, at full quality. Back up now sends the rest."
-        case .alreadySafe: return "It's in your Telegram library. Back up now sends the rest."
+        case .choosing, .uploading: return "Uploading the original to your library."
+        case .safe: return "Backed up and checked, at full quality. Back up now sends the rest."
+        case .alreadySafe: return "It's in your library. Back up now sends the rest."
         case .nothing: return "There are no photos on this \(Device.name) yet. New ones can be backed up any time."
         case .stuck(let reason): return "\(reason) It carries on by itself once that's sorted."
         }

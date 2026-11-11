@@ -202,23 +202,27 @@ Backups wait and continue later; nothing is lost. Items already on your phone st
 ## Privacy and encryption
 
 **Can Telegram see my photos?**
-In a **Standard** library, files are encrypted in transit and stored on Telegram's servers like any other cloud
-chat, but cloud chats are not end-to-end encrypted ([Telegram FAQ](https://telegram.org/faq#q-so-how-do-you-encrypt-data)).
-In an **End-to-end encrypted** library, Lelvo encrypts every file and caption on your device before upload
+No. Every new library is end-to-end encrypted: Lelvo encrypts every file and caption on your device before upload
 (AES-256-GCM, with a random library key locked by your passphrase through Argon2id). Telegram then stores only
 unreadable `.cge` files. Details: [CLOUD_FORMAT.md](CLOUD_FORMAT.md#6-end-to-end-encryption).
 
+Libraries created as **Standard** in earlier versions still open and back up as before. Their files are stored like
+any Telegram cloud chat, which isn't end-to-end encrypted ([Telegram FAQ](https://telegram.org/faq#q-so-how-do-you-encrypt-data)).
+To move to encryption, create a new library (Settings → Library → New library) and back up into it.
+
 **Can I open my photos in the Telegram app?**
-Standard libraries: yes, they're normal files. Encrypted libraries: no, only Lelvo with your passphrase can.
+No. Telegram holds only encrypted files, so only Lelvo with your passphrase can open them. You can download every
+original at any time with **Download a copy of your library**.
 
 **I forgot my passphrase.**
 Unlock with the recovery key you saved when you created the library, then set a new passphrase (Settings → Library → Passphrase and recovery key).
 If you lose both, nobody can open the encrypted files, including the people who make Lelvo. That's what end-to-end
 means. Keep both in a password manager.
 
-**Can I switch a library between Standard and Encrypted?**
-No, it's chosen when the library is created. You can create a second library of the other kind (Settings → Library →
-New library) and back up into that one.
+**Can I turn encryption off?**
+No. Every new library is end-to-end encrypted, so there's nothing to choose and nothing to get wrong. An older
+Standard library can't be converted in place; create a new library (Settings → Library → New library) and back up
+into that one.
 
 **What does Lelvo store on my device?**
 Your Telegram session (encrypted), app keys and encryption key in the Keychain, a local index of your library, and

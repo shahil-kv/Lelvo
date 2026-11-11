@@ -265,11 +265,13 @@ final class LibraryService: @unchecked Sendable {
     }
 
     /// A new passphrase. A format 1 library is upgraded on the way and gets a recovery key, which is returned to show.
+    /// `current` can also be the recovery key: someone who forgot the passphrase sets a new one with it.
     func changePassphrase(current: String, to new: String) async throws -> RecoveryKey? {
         let header = try await refreshHeader()
         guard header.encrypted else { throw LibraryError.notALibrary }
         let (changed, recovery) = try await Task.detached(priority: .userInitiated) { () throws -> (LibraryHeader, RecoveryKey?) in
-            guard let keys = try header.unlock(passphrase: current) else { throw LibraryError.wrongPassphrase }
+            let byRecoveryKey = RecoveryKey(text: current).flatMap { header.unlock(recoveryKey: $0) }
+            guard let keys = try byRecoveryKey ?? header.unlock(passphrase: current) else { throw LibraryError.wrongPassphrase }
             if header.version == 1 {
                 let (upgraded, recovery) = try LibraryHeader.locking(keys, passphrase: new)
                 return (upgraded, recovery)
