@@ -145,7 +145,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 |---|---|---|---|
 | Intro pages | `Shared/Views/Onboarding/IntroView.swift` | Horizontal pager, same pages and words | ✅ (permission prompt still to run) |
 | Phone, code, two-step password, other device, no account | `OnboardingView.swift`, `TDService.swift` | `SignInScreen` | ◐ (needs one real sign-in) |
-| Where the code was sent | `CodeSentCard.swift` | Card on the code step | |
+| Where the code was sent | `CodeSentCard.swift` | Card on the code step | ✅ |
 | Session ended elsewhere | `LelvoCore/Support/SessionWatch.swift` | `SessionWatch` port | ✅ (logic), screen to do |
 | Choose library, unlock, recovery key | `LibraryService.swift`, `EncryptionSettingsView.swift` | `LibraryScreens` | ◐ (needs real run) |
 | New library with recovery key shown and confirmed | `OnboardingView.swift` (`.recoveryKey`), `PassphraseBox.swift` | Header format 2 writer, key screens | |
@@ -395,8 +395,14 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   pages and stalled their animations, so it pauses off page 1. Debug hook: `--ei lelvo.intro N`. Checked light and
   dark on every page. Page 3 shows the iPhone's own screenshots in the phone frame (owner: intro looks like iOS). Gap: the
   permission prompt, denied and partial states weren't run (the emulator already has access).
+- 2026-11-11, B3 code-sent card ✅: `CodeSentCard` ports the iOS card (typing dots, the message lands, a light runs
+  across five grey blocks, never digits; tap replays; Remove animations shows it at rest). Telegram: the service chat
+  with an Open button in the card header (replaces the plain "Open Telegram" button); SMS: "Messages" in Google
+  Messages' blue rather than iOS green. Not shown for other deliveries (call, flash call), like iOS. Dark in both
+  themes, like the chat it pictures. Debug hook: `--es lelvo.signin code-telegram|code-sms|password` shows that step
+  without signing out (Back closes it). Checked light (Telegram) and dark (SMS).
 - **Next session (start here):** Phase A is done except the device run of sign-out (A7, waits for the owner). Phase B:
-  intro ✅; next the code-sent card (`CodeSentCard.swift`), then the session-ended
+  intro ✅, code-sent card ✅; next the session-ended
   screen, choose/unlock on the real account, new library, library ready, photo permission. Commit each row on
   `android-plan` as it lands (owner, 2026-11-11); don't push. Before each screen, look at Google Photos' version first.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.

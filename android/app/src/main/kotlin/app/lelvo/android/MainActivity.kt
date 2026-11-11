@@ -52,6 +52,14 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val introPreview = mutableStateOf<Int?>(null)
+    private val signInPreview = mutableStateOf<AuthStep?>(null)
+
+    private fun previewStep(name: String): AuthStep? = when (name) {
+        "code-telegram" -> AuthStep.WaitCode("We've sent the code to the Telegram app on your other device.", 5, app.lelvo.telegram.CodeDelivery.Telegram, null)
+        "code-sms" -> AuthStep.WaitCode("We've sent an SMS with the code to your phone.", 5, app.lelvo.telegram.CodeDelivery.Sms, null)
+        "password" -> AuthStep.WaitPassword("hint")
+        else -> null
+    }
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
@@ -65,6 +73,8 @@ class MainActivity : ComponentActivity() {
     private fun debugMessage(intent: android.content.Intent) {
         // `--ei lelvo.intro N` opens the intro on page N over a signed-in app, so it can be checked without signing out.
         if (intent.hasExtra("lelvo.intro")) { introPreview.value = intent.getIntExtra("lelvo.intro", 0); return }
+        // `--es lelvo.signin code-telegram|code-sms|password` shows that sign-in step without signing out (nothing is sent).
+        intent.getStringExtra("lelvo.signin")?.let { signInPreview.value = previewStep(it); return }
         val title = intent.getStringExtra("lelvo.message") ?: return
         val style = intent.getStringExtra("lelvo.style")
         if (style == "progress") {
@@ -110,6 +120,10 @@ class MainActivity : ComponentActivity() {
                         else -> SignedOut(app, step)
                     }
                 }
+                if (BuildConfig.DEBUG) signInPreview.value?.let { st -> key(st) {
+                    androidx.activity.compose.BackHandler { signInPreview.value = null }
+                    SignInScreen(app.telegram, st, app.demo)
+                } }
                 if (BuildConfig.DEBUG) introPreview.value?.let { p -> key(p) {
                     IntroScreen(app.photos, p, onPage = {}, onFinish = { introPreview.value = null })
                 } }

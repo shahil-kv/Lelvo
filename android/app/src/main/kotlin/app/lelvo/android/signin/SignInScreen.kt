@@ -39,6 +39,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -239,7 +240,14 @@ private fun CodeStep(td: TdClient, step: AuthStep.WaitCode) {
         if (c.isNotBlank() && !busy) scope.launch { attempt({ error = it; code = "" }, { busy = it }) { td.submitCode(c.trim()) } }
     }
 
+    var notInstalled by remember { mutableStateOf(false) }
     StepColumn {
+        // Shows where to look; "other" deliveries (a call, a flash call) have nothing to picture, like iOS.
+        if (step.delivery != CodeDelivery.Other) {
+            key(step.delivery) {
+                CodeSentCard(step.delivery, open = if (step.delivery == CodeDelivery.Telegram) ({ notInstalled = !openTelegram(context) }) else null)
+            }
+        }
         Text(step.info, style = MaterialTheme.typography.bodyLarge)
         OutlinedTextField(
             value = code,
@@ -263,11 +271,7 @@ private fun CodeStep(td: TdClient, step: AuthStep.WaitCode) {
             "Do not give this code to anyone, even if they say they are from Telegram.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (step.delivery == CodeDelivery.Telegram) {
-            var notInstalled by remember { mutableStateOf(false) }
-            TextButton(onClick = { notInstalled = !openTelegram(context) }) { Text("Open Telegram") }
-            if (notInstalled) Text("Telegram isn't on this phone. Open it on the phone or computer where you use it.")
-        }
+        if (notInstalled) Text("Telegram isn't on this phone. Open it on the phone or computer where you use it.")
         step.resend?.let { r ->
             TextButton(
                 onClick = { scope.launch { attempt({ error = it }, { busy = it }) { td.resendCode() } } },
