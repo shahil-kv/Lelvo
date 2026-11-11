@@ -39,6 +39,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -444,13 +446,14 @@ private fun Screenshot(shot: Int) {
         // The screenshots are iPhone 17 Pro screens (402 × 874 points), as on iOS.
         val screen = phone - 12.dp
         val tall = screen * 874f / 402f
-        Box(Modifier.padding(top = 22.dp).size(phone, tall + 12.dp)
+        // Full height, overflowing the card's bottom edge and cut off there; never squeezed to fit.
+        Box(Modifier.padding(top = 22.dp).wrapContentHeight(Alignment.Top, unbounded = true).requiredSize(phone, tall + 12.dp)
             .graphicsLayer { shadowElevation = 20.dp.toPx(); shape = RoundedCornerShape(phone * 0.16f); clip = true }
             .background(Color(0xFF1A1A1A)).border(1.5.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(phone * 0.16f)),
             contentAlignment = Alignment.Center) {
             Crossfade(shot, animationSpec = tween(450), label = "shot") { s ->
                 Image(painterResource(s), null, contentScale = ContentScale.FillBounds,
-                    modifier = Modifier.size(screen, tall).clip(RoundedCornerShape(screen * 0.14f)))
+                    modifier = Modifier.requiredSize(screen, tall).clip(RoundedCornerShape(screen * 0.14f)))
             }
         }
     }
