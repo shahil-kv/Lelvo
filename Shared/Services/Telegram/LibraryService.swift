@@ -223,6 +223,10 @@ final class LibraryService: @unchecked Sendable {
     /// Argon2id takes a large amount of memory and up to a second, so this always runs off the main thread.
     func unlock(secret: String) async throws {
         guard let header, header.encrypted else { return }
+        storeKeys(try await Self.keys(for: header, secret: secret))
+    }
+
+    private static func keys(for header: LibraryHeader, secret: String) async throws -> E2EKeys {
         let keys = try await Task.detached(priority: .userInitiated) { () throws -> E2EKeys? in
             // Something shaped like a recovery key is tried as one first: that's instant, while trying it as a
             // passphrase first meant a full Argon2id run (seconds) before the recovery key was even tried.
@@ -230,7 +234,28 @@ final class LibraryService: @unchecked Sendable {
             return try header.unlock(passphrase: secret)
         }.value
         guard let keys else { throw LibraryError.wrongPassphrase }
-        storeKeys(keys)
+        return keys
+    }
+
+    /// Another library, checked without touching the current one: its header, and its keys when it's encrypted.
+    /// nil for a channel without a header (`useExisting` turns it into a library).
+    struct VerifiedLibrary { let chatId: Int64; let header: LibraryHeader; let keys: E2EKeys? }
+
+    /// Switching checks the other library first, so a wrong passphrase or an unreadable header leaves the open library
+    /// and its key as they were (forgetting first left it locked).
+    func verify(chatId: Int64, secret: String?) async throws -> VerifiedLibrary? {
+        guard let header = await readHeader(chatId: chatId) else { return nil }
+        if header.isNewerVersion { throw LibraryError.newerVersion }
+        guard header.encrypted else { return VerifiedLibrary(chatId: chatId, header: header, keys: nil) }
+        guard let secret, !secret.isEmpty else { throw LibraryError.locked }
+        return VerifiedLibrary(chatId: chatId, header: header, keys: try await Self.keys(for: header, secret: secret))
+    }
+
+    /// Makes a verified library the current one, with its key.
+    func use(_ verified: VerifiedLibrary) {
+        forget()
+        save(chatId: verified.chatId, header: verified.header)
+        if let keys = verified.keys { storeKeys(keys) }
     }
 
     // MARK: - Passphrase and recovery key (header format 2, docs/CLOUD_FORMAT.md §6.1)

@@ -87,6 +87,9 @@ final class AppEnvironment: @unchecked Sendable {
     func switchLibrary(to chatId: Int64, passphrase: String?) async throws {
         let t0 = Date()
         func lap(_ step: String) { appLog(String(format: "Switch timing: %@ at %.2f s", step, Date().timeIntervalSince(t0))) }
+        // Before anything is paused or forgotten: a wrong passphrase must leave the open library unlocked.
+        let verified = try await library.verify(chatId: chatId, secret: passphrase)
+        lap("header read")
         engine.pause()
         for _ in 0..<40 where engine.isRunning { try? await Task.sleep(nanoseconds: 250_000_000) }
         if let current = library.chatId { LibrarySnapshots.save(chatId: current, items: (try? store.allItems()) ?? []) }
@@ -96,20 +99,19 @@ final class AppEnvironment: @unchecked Sendable {
         let previousChat = library.chatId
         if let previousChat { LibrarySnapshots.saveChoices(chatId: previousChat, store: store) }
         reader.forgetCaches()
-        library.forget()
-        let header: LibraryHeader
-        do {
-            header = try await library.useExisting(chatId: chatId)
-            if header.encrypted {
-                guard let passphrase, !passphrase.isEmpty else { throw LibraryError.locked }
-                try await library.unlock(secret: passphrase)
+        if let verified {
+            library.use(verified)
+        } else {
+            // A channel without a header; nothing to unlock. On failure the previous library is chosen again
+            // (re-reading its header clears its key, so this path stays for headerless channels only).
+            library.forget()
+            do {
+                _ = try await library.useExisting(chatId: chatId)
+            } catch {
+                if let previousChat { _ = try? await library.useExisting(chatId: previousChat) }
+                throw error
             }
-        } catch {
-            // Wrong passphrase or unreachable: stay on the library we were on.
-            if let previousChat { _ = try? await library.useExisting(chatId: previousChat) }
-            throw error
         }
-        lap("header read")
         try store.deleteAll()
         if LibrarySnapshots.restoreChoices(chatId: chatId, store: store) {
             TrashSync.shared.schedule()
