@@ -56,34 +56,64 @@ import app.lelvo.core.support.AppLog
  * long press plays it once with sound, over the photo (iOS `LivePhotoView`: touch and hold, or the LIVE button).
  * Nothing plays on its own, so swiping through Live Photos never downloads their videos.
  */
+@OptIn(UnstableApi::class)
 @Composable
 internal fun LivePhotoPage(item: LibraryItem, current: Boolean, chrome: Boolean, onTap: () -> Unit, onZoomed: (Boolean) -> Unit, onReady: () -> Unit) {
-    var playing by remember(item.id) { mutableStateOf(false) }
-    var moving by remember(item.id) { mutableStateOf(false) }
+    val context = LocalContext.current
+    val app = context.applicationContext as LelvoApp
+    WithMotion(
+        key = item.id, label = "LIVE", name = "Live Photo", current = current, chrome = chrome,
+        source = {
+            // The edited Live Photo's motion goes with the edited still the viewer shows.
+            val role = if (app.media.displayedRole(item) == "e" && !item.parts["epv"].isNullOrEmpty()) "epv" else "pv"
+            ProgressiveMediaSource.Factory(CloudDataSource.Factory(app.reader, item, role))
+                .createMediaSource(MediaItem.fromUri("lelvo://item/${item.id}/$role"))
+        },
+    ) { onLongPress ->
+        CloudPhotoPage(item, current, onTap, onZoomed, onLongPress = onLongPress, onReady = { if (current) onReady() })
+    }
+}
+
+/**
+ * A photo with motion to play over it: a cloud Live Photo, or an Android Motion Photo (the video is inside the
+ * file). [source] builds the player's input; [photo] draws the still and hands its long press on. Plays once with
+ * sound on the chip or a long press, never on its own. A null [source] (not known yet, or none) shows the photo alone,
+ * in the same place in the layout, so the photo isn't loaded again when the motion turns up.
+ */
+@OptIn(UnstableApi::class)
+@Composable
+internal fun WithMotion(
+    key: String, label: String, name: String, current: Boolean, chrome: Boolean,
+    failHint: String = "Check your connection and try again.",
+    source: (() -> androidx.media3.exoplayer.source.MediaSource)?,
+    photo: @Composable (onLongPress: (() -> Unit)?) -> Unit,
+) {
+    var playing by remember(key) { mutableStateOf(false) }
+    var moving by remember(key) { mutableStateOf(false) }
     LaunchedEffect(current) { if (!current) playing = false }
     LaunchedEffect(playing) { if (!playing) moving = false }
     Box(Modifier.fillMaxSize()) {
         // The motion sits behind the photo; the photo steps aside once the motion has a picture.
-        if (playing) LiveMotion(item, onShown = { moving = true }, onDone = { playing = false })
+        if (playing && source != null) LiveMotion(key, name, failHint, source, onShown = { moving = true }, onDone = { playing = false })
         // Solid black, not just the photo: around a photo the page is see-through, and the motion's first frames
         // showed there before the photo stepped aside.
         Box(Modifier.fillMaxSize().alpha(if (moving) 0f else 1f).background(Color.Black)) {
-            CloudPhotoPage(item, current, onTap, onZoomed, onLongPress = { playing = true }, onReady = { if (current) onReady() })
+            photo(if (source != null) ({ playing = true }) else null)
         }
-        if (chrome && current) {
+        if (chrome && current && source != null) {
             Row(
                 Modifier.statusBarsPadding().padding(start = 16.dp, top = 76.dp)
                     .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
                     .clickable(onClick = { playing = !playing })
                     .semantics {
                         role = Role.Button
-                        contentDescription = if (playing) "Stop Live Photo" else "Play Live Photo"
+                        contentDescription = if (playing) "Stop $name" else "Play $name"
                     }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(painterResource(R.drawable.ic_motion_photos), null, tint = Color.White, modifier = Modifier.size(16.dp))
-                Text("LIVE", color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 4.dp))
+                Text(label, color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 4.dp))
             }
         }
     }
@@ -92,33 +122,27 @@ internal fun LivePhotoPage(item: LibraryItem, current: Boolean, chrome: Boolean,
 /** The paired video, played once. [onShown] comes with its first frame, so nothing flashes black. */
 @OptIn(UnstableApi::class)
 @Composable
-private fun LiveMotion(item: LibraryItem, onShown: () -> Unit, onDone: () -> Unit) {
+private fun LiveMotion(key: String, name: String, failHint: String, source: () -> androidx.media3.exoplayer.source.MediaSource, onShown: () -> Unit, onDone: () -> Unit) {
     val context = LocalContext.current
-    val app = context.applicationContext as LelvoApp
     val done by rememberUpdatedState(onDone)
     val firstFrame by rememberUpdatedState(onShown)
-    val player = remember(item.id) {
-        // The edited Live Photo's motion goes with the edited still the viewer shows.
-        val role = if (app.media.displayedRole(item) == "e" && !item.parts["epv"].isNullOrEmpty()) "epv" else "pv"
+    val player = remember(key) {
         val opened = System.currentTimeMillis()
         ExoPlayer.Builder(context, VideoDecoders.renderers(context))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             .build().apply {
-                setMediaSource(
-                    ProgressiveMediaSource.Factory(CloudDataSource.Factory(app.reader, item, role))
-                        .createMediaSource(MediaItem.fromUri("lelvo://item/${item.id}/$role")),
-                )
+                setMediaSource(source())
                 addListener(object : Player.Listener {
                     override fun onRenderedFirstFrame() {
-                        AppLog.info("Live Photo timing: motion after ${System.currentTimeMillis() - opened} ms")
+                        AppLog.info("$name timing: motion after ${System.currentTimeMillis() - opened} ms")
                         firstFrame()
                     }
 
                     override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_ENDED) done() }
 
                     override fun onPlayerError(e: PlaybackException) {
-                        AppLog.warn("Live Photo: motion didn't play: ${e.errorCodeName}")
-                        Messages.show(Messages.Style.Failure, "Couldn't play the Live Photo", "Check your connection and try again.")
+                        AppLog.warn("$name: motion didn't play: ${e.errorCodeName}")
+                        Messages.show(Messages.Style.Failure, "Couldn't play the $name", failHint)
                         done()
                     }
                 })

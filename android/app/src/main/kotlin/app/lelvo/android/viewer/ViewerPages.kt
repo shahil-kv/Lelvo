@@ -62,7 +62,7 @@ internal fun ViewerPage(
             val uri = app.photos.uri(asset)
             if (current) VideoPage(entry.id, uri, null, PhoneThumbnail(uri), chrome, onTap, onVideo) else Still(PhoneThumbnail(uri), "Video", onTap)
         }
-        asset != null -> ZoomablePhoto(app.photos.uri(asset), current, onTap, onZoomed)
+        asset != null -> PhonePhotoPage(asset.localId, app.photos.uri(asset), current, chrome, onTap, onZoomed)
         item == null -> Unit
         item.kind == ItemKind.Video -> {
             val poster = DemoMode.assetUri(item) ?: CloudThumbnail(item)
@@ -71,8 +71,56 @@ internal fun ViewerPage(
         item.kind == ItemKind.LivePhoto && DemoMode.assetUri(item) == null && !item.parts["pv"].isNullOrEmpty() ->
             LivePhotoPage(item, current, chrome, onTap, onZoomed, onReady)
         else -> DemoMode.assetUri(item)?.let { ZoomablePhoto(it, current, onTap, onZoomed) }
-            ?: CloudPhotoPage(item, current, onTap, onZoomed, onReady = { if (current) onReady() })
+            ?: CloudMotionPhotoPage(item, current, chrome, onTap, onZoomed, onReady = { if (current) onReady() })
     }
+}
+
+/**
+ * A photo on this phone. An Android Motion Photo (the video is inside the file) gets the MOTION chip and plays on a
+ * long press, like a Live Photo. Only the page on screen is checked: it reads the file's first 256 KB.
+ */
+@Composable
+private fun PhonePhotoPage(localId: String, uri: Uri, current: Boolean, chrome: Boolean, onTap: () -> Unit, onZoomed: (Boolean) -> Unit) {
+    val app = LocalContext.current.applicationContext as LelvoApp
+    var motion by remember(localId) { mutableStateOf<java.io.File?>(null) }
+    LaunchedEffect(localId, current) { if (current && motion == null) motion = app.motion.video(uri, "p_$localId") }
+    MotionPhotoPage("p_$localId", motion, current, chrome, failHint = "Try again.") { onLongPress ->
+        ZoomablePhoto(uri, current, onTap, onZoomed, onLongPress = onLongPress)
+    }
+}
+
+/** A backed-up photo: an Android Motion Photo is uploaded as one file (kind `p`), so its motion is found in the original. */
+@Composable
+private fun CloudMotionPhotoPage(item: LibraryItem, current: Boolean, chrome: Boolean, onTap: () -> Unit, onZoomed: (Boolean) -> Unit, onReady: () -> Unit) {
+    val app = LocalContext.current.applicationContext as LelvoApp
+    var original by remember(item.id) { mutableStateOf<java.io.File?>(null) }
+    var motion by remember(item.id) { mutableStateOf<java.io.File?>(null) }
+    LaunchedEffect(original, current) {
+        val f = original ?: return@LaunchedEffect
+        if (current && motion == null) motion = app.motion.video(Uri.fromFile(f), "c_${item.id}_${app.media.displayedRole(item)}")
+    }
+    MotionPhotoPage("c_${item.id}", motion, current, chrome) { onLongPress ->
+        CloudPhotoPage(item, current, onTap, onZoomed, onLongPress = onLongPress, onReady = onReady, onFile = { original = it })
+    }
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun MotionPhotoPage(
+    key: String, motion: java.io.File?, current: Boolean, chrome: Boolean, failHint: String = "Check your connection and try again.",
+    photo: @Composable (onLongPress: (() -> Unit)?) -> Unit,
+) {
+    val context = LocalContext.current
+    WithMotion(
+        key = key, label = "MOTION", name = "Motion Photo", current = current, chrome = chrome, failHint = failHint,
+        source = motion?.let { f ->
+            {
+                androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(androidx.media3.datasource.DefaultDataSource.Factory(context))
+                    .createMediaSource(androidx.media3.common.MediaItem.fromUri(Uri.fromFile(f)))
+            }
+        },
+        photo = photo,
+    )
 }
 
 @Composable
@@ -111,6 +159,7 @@ private fun ZoomablePhoto(
 @Composable
 internal fun CloudPhotoPage(
     item: LibraryItem, current: Boolean, onTap: () -> Unit, onZoomed: (Boolean) -> Unit, onLongPress: (() -> Unit)? = null, onReady: () -> Unit = {},
+    onFile: (java.io.File) -> Unit = {},
 ) {
     val media = (LocalContext.current.applicationContext as LelvoApp).media
     var file by remember(item.id) { mutableStateOf(media.cachedDisplayed(item)) }
@@ -135,6 +184,8 @@ internal fun CloudPhotoPage(
             error = (e as? MediaException)?.message ?: "Couldn't load this photo. Check your connection and try again."
         }
     }
+    val gotFile by rememberUpdatedState(onFile)
+    LaunchedEffect(file) { file?.let(gotFile) }
     val ready by rememberUpdatedState(onReady)
     LaunchedEffect(sharp, error) { if (sharp || error != null) ready() }
     // How long the photo on screen took to turn sharp, and a warning if a downloaded one doesn't: HEIC photos once

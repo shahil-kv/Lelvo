@@ -20,6 +20,13 @@ object VideoNavigation {
         return position >= 10 && position < duration - maxOf(10.0, duration * 0.05)
     }
 
+    /** [count] times spread evenly along the video, each in the middle of its slice, for the frame strip. */
+    fun stripTimes(duration: Double, count: Int): List<Double> {
+        if (!duration.isFinite() || duration <= 0 || count <= 0) return emptyList()
+        val slice = duration / count
+        return (0 until count).map { (it + 0.5) * slice }
+    }
+
     /** Where to start a video last left at [saved]; null starts from the beginning. */
     fun resumePosition(saved: Double?, duration: Double): Double? = saved?.takeIf { shouldRemember(it, duration) }
 }

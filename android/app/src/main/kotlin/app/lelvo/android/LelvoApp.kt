@@ -44,6 +44,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var positions: app.lelvo.data.media.PlaybackPositions private set
     lateinit var saver: app.lelvo.data.media.PhoneSaver private set
     lateinit var details: app.lelvo.data.media.MediaDetailsReader private set
+    lateinit var motion: app.lelvo.data.media.MotionVideos private set
     /** The launch opening plays once per process (cold start only). */
     var openingPlayed = false
 
@@ -92,6 +93,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         positions = app.lelvo.data.media.PlaybackPositions(this)
         saver = app.lelvo.data.media.PhoneSaver(this, reader, store)
         details = app.lelvo.data.media.MediaDetailsReader(this)
+        motion = app.lelvo.data.media.MotionVideos(this)
         model = AppModel(this)
     }
 
@@ -112,6 +114,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
             prefs.reset()
             SingletonImageLoader.get(this@LelvoApp).let { it.memoryCache?.clear(); it.diskCache?.clear() }
             media.clear()
+            motion.clear()
             positions.clear()
         }
         AppLog.info("Reset finished")

@@ -8,6 +8,12 @@ import kotlin.test.assertTrue
 
 // Mirrors VideoNavigationTests and VideoQualityTests in Packages/LelvoCore/Tests.
 class VideoTest {
+    @Test fun stripTimesSitInTheMiddleOfEachSlice() {
+        assertEquals(listOf(1.0, 3.0, 5.0, 7.0), VideoNavigation.stripTimes(8.0, 4))
+        assertEquals(emptyList(), VideoNavigation.stripTimes(0.0, 8))
+        assertEquals(emptyList(), VideoNavigation.stripTimes(Double.NaN, 8))
+    }
+
     @Test fun skipStaysInsideTheVideo() {
         assertEquals(0.0, VideoNavigation.skipTarget(5.0, 100.0, -10.0))
         assertEquals(100.0, VideoNavigation.skipTarget(95.0, 100.0, 10.0))

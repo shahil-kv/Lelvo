@@ -194,8 +194,8 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Screen copy first, then original | `CloudMediaService.swift` | Two-step load | ✅ |
 | Info: date, place, camera, size, where it is | `ViewerView.swift` (Info), `ExtraMetadata.swift` | Bottom sheet | ✅ camera and place from EXIF; place opens the maps app |
 | Share original, save to phone, favorite, delete | `ViewerView.swift`, `GalleryActions.swift` | Top bar and bottom bar | ◐ share (and original), save, favorite and delete on the phone; Telegram-side favorite and delete wait for L, back up for I |
-| Live Photos (press to play), Motion Photos | `ViewerView.swift` | Media3 with the paired video | ◐ cloud Live Photos (LIVE chip or long press); the phone's own Motion Photos not yet |
-| Video player: speed, quality, sound off on close | `CloudVideo.swift` | Own controls over Media3 | ✅ play, scrubber, times, mute, speed, double tap ±10 s, quality pill, stall fallback |
+| Live Photos (press to play), Motion Photos | `ViewerView.swift` | Media3 with the paired video | ✅ cloud Live Photos (LIVE chip or long press); the phone's own Motion Photos (MOTION chip) |
+| Video player: speed, quality, sound off on close | `CloudVideo.swift` | Own controls over Media3 | ✅ play, scrubber with frame strip, times, mute, speed, double tap ±10 s, quality pill, stall fallback |
 
 ### Phase G. Collections tab
 
@@ -559,12 +559,25 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
     backup before any frame (cloud videos), stays hidden behind the poster until its first frame has its real shape,
     and a quality switch keeps the last frame instead of going back to the poster. Checked frame by frame in a new
     recording of six fast swipes: no stretched frames.
+- 2026-11-11, Phase F gaps closed:
+  - **Motion Photos** (Android only; iOS has none): `MotionPhoto` in `core/` finds the MP4 inside a JPEG or HEIC by
+    Camera XMP v1 (`MotionPhoto` item length), the older `MicroVideoOffset`, or Samsung's `SEFT` trailer
+    (`MotionPhoto_Data`); every answer must start with an MP4 `ftyp` box, so a wrong offset never plays (6 tests).
+    `MotionVideos` (data) copies the video to a small cache (newest 30) for Media3. The viewer checks only the page on
+    screen (first 256 KB); a Motion Photo gets the MOTION chip and plays once on the chip or a long press, like Live
+    Photos (`WithMotion` now serves both). Backed-up Motion Photos (kind `p`) are checked in the downloaded original.
+    Proven on the emulator with a made-up Camera XMP v1 file: first frame in 156–237 ms, frames advance, released at
+    the end. Not proven: real Pixel/Samsung files (real phone test), a backed-up one (needs Phase I), the grid has no
+    motion mark (MediaStore doesn't say; reading every file's XMP for the grid would be too slow).
+  - **Frame strip** (iOS `FrameStrip`): 8 keyframes, 160 px, made the first time the scrubber is dragged, shown above
+    it with a white line at the position; cloud videos read the fast version where there is one, through a
+    decrypting `MediaDataSource` in 512 KB blocks. Real library: 8 of 8 frames in 0.5 s for a 31 s video. Gap: demo
+    videos (packaged assets) show no strip.
 - **Next session (start here):**
   1. **Real Android phone check** (the emulator can't prove these): 4K HEVC originals play smoothly or the menu says
      "This phone can't play it smoothly"; hardware decoder named in the log ("decodes with c2.qti/exynos/mtk…"), no
      dropped frames; HEIC photos turn sharp ("Photo timing: sharp after"); fast swipes between videos; Live Photos.
      Ideally one recent phone and one older or low-end one. Install with `adb install -r` only, never clear data.
-  2. Phase F gaps that don't wait on other phases: the phone's own Motion Photos, the frame strip above the scrubber.
-  3. Then Phase G (Collections). Phase E and F Telegram-side actions wait for I (back up), G (albums) and L
+  2. Phase G (Collections). Phase E and F Telegram-side actions wait for I (back up), G (albums) and L
      (favorite and delete notes).
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.

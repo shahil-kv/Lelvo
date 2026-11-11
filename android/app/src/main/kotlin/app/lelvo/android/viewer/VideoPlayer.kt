@@ -147,8 +147,21 @@ internal class VideoSession(
         return mine.takeIf { it != other }
     }
 
+    /** Frames for the scrubber, made the first time it's dragged. */
+    val strip = FrameStrip(scope)
+    private var localUri: Uri? = null
+
+    /** Loads the strip, from the fast version where there is one: smaller, so its keyframes cost less to reach. */
+    fun loadStrip() {
+        val source = localUri?.let { FrameStrip.Source.Local(it) }
+            ?: item?.let { FrameStrip.Source.Cloud(app.reader, it, if (hasFast) "sp" else app.media.displayedRole(it)) }
+            ?: return
+        strip.load(app, source, duration.toDouble())
+    }
+
     fun start(phone: Uri?) {
         val demo = item?.let(DemoMode::assetUri)
+        localUri = phone ?: demo?.let(Uri::parse)
         when {
             phone != null -> player.setMediaItem(MediaItem.fromUri(phone))
             demo != null -> player.setMediaItem(MediaItem.fromUri(demo))
@@ -293,6 +306,7 @@ internal class VideoSession(
 
     fun release() {
         stall?.cancel()
+        strip.cancel()
         val item = item
         if (item != null && DemoMode.assetUri(item) == null) {
             val d = if (player.duration > 0) player.duration / 1000.0 else item.duration ?: 0.0
@@ -443,9 +457,16 @@ internal fun VideoControls(session: VideoSession, modifier: Modifier = Modifier)
     val shown = scrubbing ?: session.position
     val total = maxOf(session.duration, 0.1f)
     Column(modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        androidx.compose.animation.AnimatedVisibility(
+            visible = scrubbing != null && session.strip.frames.isNotEmpty(),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(150)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)),
+        ) {
+            FrameStripView(session.strip.frames, shown / total, Modifier.padding(horizontal = 16.dp).padding(bottom = 6.dp))
+        }
         Slider(
             value = shown.coerceIn(0f, total), valueRange = 0f..total,
-            onValueChange = { scrubbing = it; session.scrub(it) },
+            onValueChange = { if (scrubbing == null) session.loadStrip(); scrubbing = it; session.scrub(it) },
             onValueChangeFinished = { scrubbing?.let(session::seekEnded); scrubbing = null },
             thumb = { Box(Modifier.size(if (scrubbing != null) 18.dp else 14.dp).background(Color.White, CircleShape)) },
             track = { state ->
