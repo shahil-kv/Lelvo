@@ -27,9 +27,6 @@ import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -38,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import app.lelvo.android.R
 import app.lelvo.android.ui.theme.Lelvo
 import app.lelvo.data.DemoMode
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** The four tabs, as on iPhone (iOS `RootView`): Settings opens from the gear on every tab. */
 enum class Tab(val title: String, val icon: Int) {
@@ -49,12 +47,13 @@ enum class Tab(val title: String, val icon: Int) {
 
 /**
  * The app after sign-in: a bottom navigation bar and one screen per tab. [content] draws the selected tab; it gets a
- * modifier that keeps it above the bar. Back on another tab returns to Photos, as Android apps with tabs do.
+ * modifier that keeps it above the bar. Back on another tab returns to Photos, as Android apps with tabs do. The
+ * selected tab lives in `AppModel`, so shortcuts can open one.
  */
 @Composable
-fun AppShell(content: @Composable (tab: Tab, modifier: Modifier) -> Unit) {
-    var tab by rememberSaveable { mutableStateOf(Tab.Photos) }
-    BackHandler(enabled = tab != Tab.Photos) { tab = Tab.Photos }
+fun AppShell(selected: MutableStateFlow<Tab>, content: @Composable (tab: Tab, modifier: Modifier) -> Unit) {
+    val tab by selected.collectAsState()
+    BackHandler(enabled = tab != Tab.Photos) { selected.value = Tab.Photos }
     Scaffold(
         // Each tab's own top bar pads for the status bar; the shell owns only the bottom.
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -63,7 +62,7 @@ fun AppShell(content: @Composable (tab: Tab, modifier: Modifier) -> Unit) {
                 for (t in Tab.entries) {
                     NavigationBarItem(
                         selected = t == tab,
-                        onClick = { tab = t },
+                        onClick = { selected.value = t },
                         icon = { Icon(painterResource(t.icon), contentDescription = null) },
                         label = { Text(t.title) },
                         colors = NavigationBarItemDefaults.colors(

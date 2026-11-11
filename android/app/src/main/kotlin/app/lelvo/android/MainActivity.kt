@@ -17,10 +17,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -83,11 +83,18 @@ class MainActivity : ComponentActivity() {
             LelvoTheme {
                 val step by app.telegram.auth.collectAsState()
                 val demo by app.demo.active.collectAsState()
-                when {
-                    // In the demo nothing talks to Telegram, so its sign-in state doesn't matter.
-                    demo -> Library(app, onSignOut = { app.demo.exit(); app.prefs.reset() })
-                    step == AuthStep.Ready -> LibraryFlow(app)
-                    else -> SignInScreen(app.telegram, step, app.demo)
+                val resetting by app.model.resetting.collectAsState()
+                val session by app.model.sessionId.collectAsState()
+                // A new session id rebuilds everything below, so nothing of the old account stays in memory.
+                key(session) {
+                    when {
+                        // Sign-in shows at once while the wipe finishes; it waits there until Telegram is ready again.
+                        resetting -> SignInScreen(app.telegram, AuthStep.LoggingOut, app.demo)
+                        // In the demo nothing talks to Telegram, so its sign-in state doesn't matter.
+                        demo -> Library(app)
+                        step == AuthStep.Ready -> LibraryFlow(app)
+                        else -> SignInScreen(app.telegram, step, app.demo)
+                    }
                 }
             }
         }
@@ -97,28 +104,26 @@ class MainActivity : ComponentActivity() {
 /** Signed in: choose the library, unlock it, then the app. */
 @Composable
 private fun LibraryFlow(app: LelvoApp) {
-    val scope = rememberCoroutineScope()
     var changes by remember { mutableIntStateOf(0) }
-    val signOut: () -> Unit = { scope.launch { app.library.forget(); app.store.deleteAll(); app.prefs.reset(); app.telegram.logOut() } }
+    val signOut: () -> Unit = { app.model.reset() }
     changes.let {
         when {
             !app.library.isConfigured -> ChooseLibraryScreen(app.library, onChosen = { changes++ }, onSignOut = signOut)
             !app.library.isUnlocked -> UnlockScreen(app.library, onUnlocked = { changes++ }, onOtherLibrary = { app.library.forget(); changes++ })
-            else -> Library(app, onSignOut = { signOut() }, real = true)
+            else -> Library(app, real = true)
         }
     }
 }
 
 /** The four tabs, with the viewer, Settings and the core check over them. */
 @Composable
-private fun Library(app: LelvoApp, onSignOut: suspend () -> Unit, real: Boolean = false) {
-    val scope = rememberCoroutineScope()
+private fun Library(app: LelvoApp, real: Boolean = false) {
     var open by remember { mutableStateOf<Pair<List<LibraryItem>, Int>?>(null) }
     var settings by rememberSaveable { mutableStateOf(false) }
     var checking by rememberSaveable { mutableStateOf(false) }
     val openSettings = { settings = true }
     Box(Modifier.fillMaxSize()) {
-        AppShell { tab, modifier ->
+        AppShell(app.model.tab) { tab, modifier ->
             when (tab) {
                 Tab.Photos -> TimelineScreen(app.store, app.demo, app.prefs, onOpen = { list, index -> open = list to index }, onSettings = openSettings, modifier = modifier)
                 else -> TabPlaceholder(tab, app.demo, openSettings, modifier)
@@ -132,7 +137,7 @@ private fun Library(app: LelvoApp, onSignOut: suspend () -> Unit, real: Boolean 
             }
             SettingsScreen(
                 info, onClose = { settings = false },
-                onSignOut = { settings = false; scope.launch { onSignOut() } },
+                onSignOut = { settings = false; app.model.reset() },
                 // Debug builds only: proves the base against the real library before features are built on it.
                 onCoreCheck = if (BuildConfig.DEBUG && real) ({ checking = true }) else null,
             )

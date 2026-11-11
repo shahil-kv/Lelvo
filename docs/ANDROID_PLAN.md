@@ -130,7 +130,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Modules: core / telegram / data / app | `Packages/LelvoCore`, `Shared/Services` | Gradle modules | ✅ |
 | Format and crypto (captions, header, CGFE, keys) | `LelvoCore/Format`, `Crypto` | `core/`, 66 tests on the shared vectors | ✅ |
 | TDLib built for Android | `TDLibKit` in `project.yml` | `android/Scripts/build-tdlib.sh` | ✅ |
-| Services container | `Shared/App/AppEnvironment.swift`, `AppModel.swift` | `LelvoApp` holds services; an `AppModel` state holder for the shell | ◐ |
+| Services container | `Shared/App/AppEnvironment.swift`, `AppModel.swift` | `LelvoApp` holds services and `resetEverything`; `AppModel` holds the tab, the session id and reset | ◐ (reset not yet run on a device) |
 | Theme and colours | `design/tokens.json`, `docs/DESIGN.md` | Lelvo colour scheme, no dynamic colour; tokens script writes `LelvoColors.kt` | ✅ |
 | App shell: 4 tabs, Settings, navigation | `iOS/Views/RootView.swift`, `SettingsButton.swift` | Bottom navigation bar, gear on every tab, demo banner on every tab, Back returns to Photos | ✅ (Collections, Search, Backup are placeholders until G, H, I) |
 | Preferences | `Shared/Services/Preferences.swift` | `Prefs`: same keys and defaults; iPhone-only keys left out with the reason; grid columns kept | ✅ |
@@ -356,7 +356,17 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   check, lifted above the tab bar only while the tabs show. Debug-only hook to check it: `adb shell am start -f
   0x20000000 -n app.lelvo.android/.MainActivity --es lelvo.message "Title" [--es lelvo.style progress] [--ez lelvo.undo
   true]`. Checked on the emulator in light and dark: progress with Stop, Undo, Stop, swipe away.
-- **Next session (start here):** Phase A, next unticked row: launch screen with the brand mark (A6),
-  then the services container (A7). Before each screen, look at Google Photos' version first. Then Phase B.
+- 2026-11-11, A7 services ◐: `AppModel` (iOS `AppModel`) holds the selected tab (so shortcuts can open one later),
+  a session id that rebuilds every signed-in screen after a reset, and `reset()`: sign-in shows at once and the wipe
+  runs behind it (iOS #70), resets run one after another, and only the last one clears the flag. `resetEverything`
+  (iOS `AppEnvironment`) leaves the demo, signs Telegram out only when a session or sign-in is under way, then clears
+  the index, the library's keys, the cached images and every setting. Sign out in Settings and in the demo both use
+  it. **New on Android:** a session ended in Telegram → Devices now resets like iOS (before, Android only logged it
+  and kept the index and keys). Known gaps: iOS keeps the Recently Deleted and favorites choices for that case
+  (`LibrarySnapshots`); Android has none to keep until Phases C and L. Not yet run on a device: the emulator holds the
+  owner's real session, so sign-out waits for a moment the owner chooses. Tabs and Back checked on the emulator.
+- **Next session (start here):** Phase A, launch screen with the brand mark (A6). Brand and motion: HTML preview and
+  plan first, owner approves, then code (memory rule). Android has no launcher icon yet either. Before each
+  screen, look at Google Photos' version first. Then Phase B.
   Commit each row on `android-plan` as it lands (owner, 2026-11-11); don't push.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.

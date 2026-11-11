@@ -16,10 +16,13 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.video.VideoFrameDecoder
 import app.lelvo.data.SecretStore
+import app.lelvo.telegram.AuthStep
 import app.lelvo.telegram.TdClient
 import app.lelvo.telegram.TdFiles
 import app.lelvo.telegram.TelegramConfig
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Creates the services once per process; screens and background work share them (like iOS AppEnvironment). */
 class LelvoApp : Application(), SingletonImageLoader.Factory {
@@ -32,6 +35,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var files: TdFiles private set
     lateinit var scanner: LibraryScanner private set
     lateinit var coreCheck: CoreCheck private set
+    lateinit var model: AppModel private set
 
     override fun onCreate() {
         super.onCreate()
@@ -71,6 +75,27 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         files = TdFiles(telegram)
         scanner = LibraryScanner(files, library, store)
         coreCheck = CoreCheck(files, library, scanner, store)
+        model = AppModel(this)
+    }
+
+    /**
+     * Sign out and reset, like iOS `AppEnvironment.resetEverything`: Telegram signs out (TDLib removes its own data),
+     * then the index, the library's keys, the cached images and every setting go. The channel isn't touched.
+     * [keepingChoices]: the user didn't ask (the session ended elsewhere). Nothing on Android needs keeping yet; the
+     * Recently Deleted and favorites choices come with their notes (Phases C and L).
+     */
+    suspend fun resetEverything(keepingChoices: Boolean) {
+        AppLog.info("Reset this phone: signing out and removing Lelvo's local data${if (keepingChoices) " (session ended elsewhere)" else ""}")
+        demo.exit()
+        // Telegram is asked only when a session or a sign-in is under way; in the demo it usually isn't.
+        if (telegram.auth.value !in listOf(AuthStep.WaitPhone, AuthStep.NeedsCredentials, AuthStep.Closed)) telegram.logOut()
+        withContext(Dispatchers.IO) {
+            store.deleteAll()
+            library.forget()
+            prefs.reset()
+            SingletonImageLoader.get(this@LelvoApp).let { it.memoryCache?.clear(); it.diskCache?.clear() }
+        }
+        AppLog.info("Reset finished")
     }
 
     // Video cells show their first frame.
