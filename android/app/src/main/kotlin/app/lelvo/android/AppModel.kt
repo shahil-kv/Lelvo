@@ -12,6 +12,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import app.lelvo.core.support.AppLog
+import app.lelvo.telegram.AuthStep
 
 /**
  * UI-wide state, like iOS `AppModel`: the selected tab (so shortcuts can open one later) and signing out. One per
@@ -49,6 +52,31 @@ class AppModel(private val app: LelvoApp) {
             app.telegram.sessionEndedElsewhere.collect {
                 if (!app.demo.active.value) reset(keepingChoices = true)
             }
+        }
+        // Telegram asks for a phone number while a library is still set up here: the session went without the reset
+        // that signing out does, and without TDLib reporting it as ended (seen on the emulator, 2026-11-11). Wipe as
+        // if it had ended elsewhere, so signing in asks for the library and its passphrase again and nothing of the
+        // old account stays for the next one. The channel isn't touched; the passphrase brings the library back.
+        scope.launch {
+            app.telegram.auth.collect { step ->
+                if (step == AuthStep.WaitPhone && app.library.chatId != null && !_resetting.value && !app.demo.active.value) {
+                    AppLog.warn("Signed out of Telegram but a library was still set up; removing it from this phone")
+                    reset(keepingChoices = true)
+                }
+            }
+        }
+    }
+
+    /**
+     * Forgets the chosen library on this phone (its keys and the index too) and goes back to choosing one. The
+     * channel isn't touched. Debug builds reach it with `--ez lelvo.forgetLibrary true`; Settings gets it in Phase C.
+     */
+    fun forgetLibrary() {
+        scope.launch {
+            withContext(Dispatchers.IO) { app.store.deleteAll(); app.library.forget() }
+            librarySetup = LibrarySetup(app.library, scope, app.scanner)
+            pendingRecoveryKey.value = null
+            _sessionId.value++
         }
     }
 

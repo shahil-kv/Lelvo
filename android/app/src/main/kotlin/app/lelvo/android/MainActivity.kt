@@ -83,6 +83,8 @@ class MainActivity : ComponentActivity() {
         intent.getStringExtra("lelvo.signin")?.let { signInPreview.value = previewStep(it); return }
         // `--es lelvo.library found|found2|none|error|searching|unlock|recovery|scanning|photos` shows that library step with sample data.
         intent.getStringExtra("lelvo.library")?.let { libraryPreview.value = it; return }
+        // `--ez lelvo.forgetLibrary true` forgets the library on this phone, to run choosing and unlocking for real.
+        if (intent.getBooleanExtra("lelvo.forgetLibrary", false)) { (application as LelvoApp).model.forgetLibrary(); return }
         val title = intent.getStringExtra("lelvo.message") ?: return
         val style = intent.getStringExtra("lelvo.style")
         if (style == "progress") {

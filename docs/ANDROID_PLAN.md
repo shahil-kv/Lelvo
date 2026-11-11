@@ -446,6 +446,14 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   `TdClient`, `SecretStore` or the key. Find out before Phase C: TDLib's own log (verbosity 2) on the next start, and
   whether a revoked session can reach the phone step without "logging out". If it can, the old library and index
   would stay for the next account.
+- 2026-11-11, fix: after that unexplained sign-out the owner signed in again and the app opened the old library
+  without asking for it or its passphrase (its choice and key were still stored). Now Telegram asking for a phone
+  number while a library is still set up is handled like a session ended elsewhere: the library, its key and the
+  index are removed from the phone, so signing in asks for both again. iOS keeps the library in this case (its
+  sign-in sheet over the app); tell the owner, since another account signing in would see the old index there.
+  `AppModel.forgetLibrary()` forgets the library on this phone; debug hook `--ez lelvo.forgetLibrary true` (cold
+  start: hooks sent to a running app through `onNewIntent` don't take effect, to look into). Real run so far: the
+  library search found "Memvo Library" (end-to-end encrypted) on the real account; Restore opened the unlock step.
 - **Next session (start here):** owner signs in again on the emulator, then runs B4/B5 for real: restore and unlock
   the real library (read only), the scan count against the iPhone's, and a create on "Android test" when it exists.
   Then Phase C (`docs/ANDROID_PLAN.md` Phase C table), starting with the sign-out above.
