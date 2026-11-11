@@ -30,6 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.lelvo.android.debug.CoreCheckScreen
 import app.lelvo.android.library.LibraryScreen
+import app.lelvo.android.library.PhotosStepScreen
+import app.lelvo.android.library.ScanningScreen
 import app.lelvo.android.library.LibrarySetup
 import app.lelvo.android.library.RecoveryKeyScreen
 import app.lelvo.android.settings.SettingsInfo
@@ -47,6 +49,7 @@ import app.lelvo.android.onboarding.IntroScreen
 import app.lelvo.android.timeline.TimelineScreen
 import app.lelvo.android.ui.theme.LelvoTheme
 import app.lelvo.android.viewer.ViewerScreen
+import app.lelvo.core.crypto.RecoveryKey
 import app.lelvo.core.index.LibraryItem
 import app.lelvo.telegram.AuthStep
 import androidx.lifecycle.lifecycleScope
@@ -78,7 +81,7 @@ class MainActivity : ComponentActivity() {
         if (intent.hasExtra("lelvo.intro")) { introPreview.value = intent.getIntExtra("lelvo.intro", 0); return }
         // `--es lelvo.signin code-telegram|code-sms|password` shows that sign-in step without signing out (nothing is sent).
         intent.getStringExtra("lelvo.signin")?.let { signInPreview.value = previewStep(it); return }
-        // `--es lelvo.library found|found2|none|error|searching|unlock|recovery` shows that library step with sample data.
+        // `--es lelvo.library found|found2|none|error|searching|unlock|recovery|scanning|photos` shows that library step with sample data.
         intent.getStringExtra("lelvo.library")?.let { libraryPreview.value = it; return }
         val title = intent.getStringExtra("lelvo.message") ?: return
         val style = intent.getStringExtra("lelvo.style")
@@ -130,7 +133,7 @@ class MainActivity : ComponentActivity() {
                     SignInScreen(app.telegram, st, app.demo)
                 } }
                 if (BuildConfig.DEBUG) libraryPreview.value?.let { k -> key(k) {
-                    LibraryPreview(k) { libraryPreview.value = null }
+                    LibraryPreview(app, k) { libraryPreview.value = null }
                 } }
                 if (BuildConfig.DEBUG) introPreview.value?.let { p -> key(p) {
                     IntroScreen(app.photos, p, onPage = {}, onFinish = { introPreview.value = null })
@@ -168,6 +171,8 @@ private fun LibraryFlow(app: LelvoApp) {
             !app.library.isUnlocked -> UnlockScreen(setup, onUnlocked = { changes++ }, onBack = {
                 app.library.forget(); setup.passphrase = ""; setup.error = null; changes++
             })
+            !app.library.setupFinished && !setup.scanDone -> ScanningScreen(setup)
+            !app.library.setupFinished -> PhotosStepScreen(setup, app.photos, onFinish = { app.library.setupFinished = true; changes++ })
             else -> Library(app, real = true)
         }
     }
@@ -175,14 +180,18 @@ private fun LibraryFlow(app: LelvoApp) {
 
 /** Debug preview of a library step with sample data: nothing is read from or written to Telegram. */
 @Composable
-private fun LibraryPreview(kind: String, onClose: () -> Unit) {
+private fun LibraryPreview(app: LelvoApp, kind: String, onClose: () -> Unit) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val setup = remember { LibrarySetup.preview(kind, scope) }
-    var key by remember { mutableStateOf(if (kind == "recovery") app.lelvo.core.crypto.RecoveryKey.random() else null) }
+    var key by remember { mutableStateOf<RecoveryKey?>(if (kind == "recovery") RecoveryKey.random() else null) }
     androidx.activity.compose.BackHandler(onBack = onClose)
     key?.let { RecoveryKeyScreen(it) { key = null; onClose() }; return }
-    if (kind == "unlock") UnlockScreen(setup, onUnlocked = onClose, onBack = onClose)
-    else LibraryScreen(setup, onChosen = onClose, onCreated = { key = it }, onSignOut = onClose)
+    when (kind) {
+        "unlock" -> UnlockScreen(setup, onUnlocked = onClose, onBack = onClose)
+        "scanning" -> if (setup.scanDone) PhotosStepScreen(setup, app.photos, onFinish = onClose) else ScanningScreen(setup)
+        "photos" -> PhotosStepScreen(setup, app.photos, onFinish = onClose)
+        else -> LibraryScreen(setup, onChosen = onClose, onCreated = { key = it }, onSignOut = onClose)
+    }
 }
 
 /** The four tabs, with the viewer, Settings and the core check over them. */

@@ -675,7 +675,7 @@ private fun NumbersPage(photos: PhotoAccess, status: PhotoAccess.Status) {
     }
 }
 
-private fun appSettings(pkg: String) =
+internal fun appSettings(pkg: String) =
     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", pkg, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
 @Composable

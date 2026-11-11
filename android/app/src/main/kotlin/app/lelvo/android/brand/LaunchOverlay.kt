@@ -147,4 +147,4 @@ private fun LaunchOverlay(
     }
 }
 
-private fun markPath(): Path = PathParser().parsePathString(LelvoMark.CAMEL + " " + LelvoMark.CLOUD).toPath()
+internal fun markPath(): Path = PathParser().parsePathString(LelvoMark.CAMEL + " " + LelvoMark.CLOUD).toPath()

@@ -57,6 +57,19 @@ class LibraryService(context: Context, private val td: TdClient, private val sec
 
     val isUnlocked: Boolean get() = keys != null
 
+    /**
+     * Set once the scan and the photos step after choosing or creating this library are done (iOS
+     * `onboardingComplete`). Kept with the library, so choosing another one goes through them again.
+     */
+    var setupFinished: Boolean
+        get() = prefs.getBoolean(SETUP_FINISHED, false)
+        set(v) { prefs.edit().putBoolean(SETUP_FINISHED, v).apply() }
+
+    init {
+        // Installs that opened their library before this step existed are set up already.
+        if (!prefs.contains(SETUP_FINISHED) && isConfigured && isUnlocked) setupFinished = true
+    }
+
     /** Channels this account owns or administers, libraries first (iOS `candidateChannels`). */
     suspend fun candidateChannels(): List<ChannelChoice> = withContext(Dispatchers.IO) {
         runCatching { td.send(TdApi.LoadChats(TdApi.ChatListMain(), 500)) }
@@ -89,7 +102,7 @@ class LibraryService(context: Context, private val td: TdClient, private val sec
             // The description holds the header too, so a library whose pin failed still opens.
             runCatching { td.send(TdApi.PinChatMessage(chat.id, message.id, true, false)) }
                 .onFailure { AppLog.warn("Pinning the library header failed") }
-            prefs.edit().putLong(CHAT_ID, chat.id).putString(HEADER, made.header.line).apply()
+            prefs.edit().putLong(CHAT_ID, chat.id).putString(HEADER, made.header.line).putBoolean(SETUP_FINISHED, false).apply()
             storeKeys(made.keys)
             AppLog.info("Created library channel (E2E, header format ${made.header.version})")
             made.recoveryKey
@@ -133,7 +146,7 @@ class LibraryService(context: Context, private val td: TdClient, private val sec
         }
         if (!header.encrypted) throw LibraryException.notEncrypted
         val switched = this.chatId != chatId
-        prefs.edit().putLong(CHAT_ID, chatId).putString(HEADER, header.line).apply()
+        prefs.edit().putLong(CHAT_ID, chatId).putString(HEADER, header.line).putBoolean(SETUP_FINISHED, false).apply()
         if (switched) forgetKeys()
         return header
     }
@@ -180,5 +193,6 @@ class LibraryService(context: Context, private val td: TdClient, private val sec
         const val HEADER = "header"
         const val KEYS_CHAT_ID = "keysChatId"
         const val MASTER_KEY = "e2e-master-key"
+        const val SETUP_FINISHED = "setupFinished"
     }
 }

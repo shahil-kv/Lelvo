@@ -36,7 +36,7 @@ class AppModel(private val app: LelvoApp) {
      * The library step's state. Kept here, not in a screen, so turning the phone neither loses the typed passphrase
      * nor cancels a library half-way through being created. A reset starts it afresh.
      */
-    var librarySetup = LibrarySetup(app.library, scope)
+    var librarySetup = LibrarySetup(app.library, scope, app.scanner)
         private set
 
     /** A new library's recovery key until the user says it's saved. Memory only, never written anywhere. */
@@ -58,7 +58,7 @@ class AppModel(private val app: LelvoApp) {
      */
     fun reset(keepingChoices: Boolean = false) {
         tab.value = Tab.Photos
-        librarySetup = LibrarySetup(app.library, scope)
+        librarySetup = LibrarySetup(app.library, scope, app.scanner)
         pendingRecoveryKey.value = null
         _sessionId.value++
         _resetting.value = true

@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -60,10 +61,14 @@ import app.lelvo.core.crypto.Passphrase
 import app.lelvo.core.crypto.RecoveryKey
 import app.lelvo.core.format.LibraryNames
 import app.lelvo.data.LibraryException
+import app.lelvo.data.LibraryScanner
 import app.lelvo.data.LibraryService
 import app.lelvo.data.LibraryService.ChannelChoice
 import app.lelvo.telegram.TelegramException
+import java.text.NumberFormat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -78,7 +83,11 @@ private fun Throwable.sentence(): String = when (this) {
  * [library] it's the debug preview: sample libraries, and nothing reaches Telegram.
  */
 @Stable
-class LibrarySetup(private val library: LibraryService?, private val scope: CoroutineScope) {
+class LibrarySetup(
+    private val library: LibraryService?,
+    private val scope: CoroutineScope,
+    private val scanner: LibraryScanner? = null,
+) {
     var channels by mutableStateOf<List<ChannelChoice>>(emptyList())
         private set
     var loading by mutableStateOf(false)
@@ -91,6 +100,17 @@ class LibrarySetup(private val library: LibraryService?, private val scope: Coro
     var passphrase by mutableStateOf("")
     var confirm by mutableStateOf("")
     var acknowledged by mutableStateOf(false)
+
+    /** Files found so far by the scan after unlocking. */
+    var scanned by mutableIntStateOf(0)
+        private set
+    /** The scan is done (or wasn't needed, for a new library): the photos step is next. */
+    var scanDone by mutableStateOf(false)
+        private set
+    /** What the scan found, at the start of the photos step's line (iOS `info`). */
+    var found by mutableStateOf<String?>(null)
+        private set
+    private var scanJob: Job? = null
 
     val libraries: List<ChannelChoice> get() = channels.filter { it.isLibrary }
 
@@ -151,6 +171,9 @@ class LibrarySetup(private val library: LibraryService?, private val scope: Coro
         val name = newName.trim().take(128).ifEmpty { LibraryNames.DEFAULT }
         val key = library?.createLibrary(name, passphrase) ?: RecoveryKey.random().also { delay(1_500) }
         passphrase = ""; confirm = ""; acknowledged = false
+        // A new library is empty: nothing to scan.
+        scanDone = true
+        found = null
         then(key)
     }
 
@@ -159,6 +182,29 @@ class LibrarySetup(private val library: LibraryService?, private val scope: Coro
         library.unlock(passphrase)
         passphrase = ""
         then()
+    }
+
+    /** Reads the whole channel into the index (iOS `scan(full:)`). Read-only on Telegram. */
+    fun scan() {
+        if (scanDone || scanJob?.isActive == true) return
+        error = null
+        scanned = 0
+        scanJob = scope.launch {
+            try {
+                val items = if (scanner != null) {
+                    scanner.fullScan { n -> scope.launch { scanned = n } }.items
+                } else {
+                    for (i in 1..40) { delay(50); scanned = i * 31 }
+                    1_240
+                }
+                found = if (items == 0) "Your library is empty: a fresh start." else "Found ${NumberFormat.getIntegerInstance().format(items)} items in your library."
+                scanDone = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = e.sentence()
+            }
+        }
     }
 
     companion object {
@@ -171,13 +217,14 @@ class LibrarySetup(private val library: LibraryService?, private val scope: Coro
             return null
         }
 
-        /** Debug preview: `found`, `found2`, `none`, `error` or `searching`. */
+        /** Debug preview: `found`, `found2`, `none`, `error`, `searching`, `scanning` or `photos`. */
         fun preview(kind: String, scope: CoroutineScope) = LibrarySetup(null, scope).apply {
             when (kind) {
                 "found" -> found(listOf(ChannelChoice(1, "Lelvo Library", true, true)))
                 "found2" -> found(listOf(ChannelChoice(1, "Lelvo Library", true, true), ChannelChoice(2, "Family photos", true, false)))
                 "error" -> error = "Couldn't reach Telegram. Check your connection and try again."
                 "searching" -> loading = true
+                "photos" -> { found = "Found 1,240 items in your library."; scanDone = true }
             }
         }
     }

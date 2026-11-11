@@ -147,10 +147,10 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Phone, code, two-step password, other device, no account | `OnboardingView.swift`, `TDService.swift` | `SignInScreen` | ◐ (needs one real sign-in) |
 | Where the code was sent | `CodeSentCard.swift` | Card on the code step | ✅ |
 | Session ended elsewhere | `LelvoCore/Support/SessionWatch.swift` | `SessionWatch` port | ✅ (no screen on iOS either: the reset shows the intro; device run waits with A7) |
-| Choose library, unlock, recovery key | `LibraryService.swift`, `EncryptionSettingsView.swift` | `LibraryScreens` | ◐ (needs real run) |
-| New library with recovery key shown and confirmed | `OnboardingView.swift` (`.recoveryKey`), `PassphraseBox.swift` | Header format 2 writer, key screens | |
-| Scanning and "library ready" | `LibraryReadyView.swift` | Progress screen, item count | |
-| Photo permission (full, partial, location) | `OnboardingView.swift` (`.photos`), `PhotoLibraryService.swift` | `READ_MEDIA_*`, partial access (Android 14), `ACCESS_MEDIA_LOCATION` | |
+| Choose library, unlock, recovery key | `LibraryService.swift`, `EncryptionSettingsView.swift` | `LibraryScreens`, `RecoveryKeyScreen` | ◐ (needs real run) |
+| New library with recovery key shown and confirmed | `OnboardingView.swift` (`.recoveryKey`), `PassphraseBox.swift` | Header format 2 writer, key screens | ◐ (needs a real create on "Android test") |
+| Scanning and "library ready" | `LibraryReadyView.swift` | Progress screen, item count | ◐ (scan screen done; "library ready" waits for the first upload, Phase I) |
+| Photo permission (full, partial, location) | `OnboardingView.swift` (`.photos`), `PhotoLibraryService.swift` | `READ_MEDIA_*`, partial access (Android 14), `ACCESS_MEDIA_LOCATION` | ◐ (photos step done; prompt and partial not run) |
 
 ### Phase C. Library and index
 
@@ -430,7 +430,23 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   Telegram). Checked light and dark; wrong passphrase, rename dialog, create → busy → key → Copied. Not run: a real
   create, restore or rename on Telegram (needs the "Android test" library). "Standard" cards still show, and choosing
   one gives the "open it on iPhone or Mac" error.
-- **Next session (start here):** Phase B, the rest: `scanning` (OnboardingView.swift 521, `RestoringMark`) and
-  `LibraryReadyView.swift` after unlock; then the photos step (534) and `FirstBackupView` (IntroView.swift 837) after
-  restore or the recovery key. Add a `lelvo.library` value per new screen. Then the owner runs B4 on "Android test".
+- 2026-11-11, B5 scanning and photos step ◐: after unlock, "Restoring your library" with the mark breathing in a
+  violet glow (still with Remove animations) and "N files found" rolling up, running `LibraryScanner.fullScan` (read
+  only); then "Back up your photos" with what the scan found, the three features before asking, Allow access (the
+  same one system prompt as the intro), then Full / Limited / No access (Open Settings; re-read on return) and "Start
+  using Lelvo". A new library skips the scan (it's empty). `LibraryService.setupFinished` marks the end, kept with the
+  library so choosing another goes through it again; installs already unlocked count as finished. Unlike iOS, a scan
+  error offers Try again (iOS stays on the error with no way on; tell the owner). Gaps: `FirstBackupView` and
+  `LibraryReadyView` need the first upload (Phase I); relinking restored items to phone photos is Phase C. Debug hook
+  values `scanning` and `photos`. Checked light and dark, Full and No access.
+- **Found 2026-11-11 (unexplained):** the emulator was signed out when checked at 17:56: TDLib starts at the phone
+  step with a new, near-empty database, while the library choice, its keys and the database key file (16:35) are
+  intact. No reset ran and `SessionWatch` saw no "logging out" (the log has nothing after 17:40's "session ready").
+  The last launch before this session's first install (17:47) was signed in. Nothing in this session's diff touches
+  `TdClient`, `SecretStore` or the key. Find out before Phase C: TDLib's own log (verbosity 2) on the next start, and
+  whether a revoked session can reach the phone step without "logging out". If it can, the old library and index
+  would stay for the next account.
+- **Next session (start here):** owner signs in again on the emulator, then runs B4/B5 for real: restore and unlock
+  the real library (read only), the scan count against the iPhone's, and a create on "Android test" when it exists.
+  Then Phase C (`docs/ANDROID_PLAN.md` Phase C table), starting with the sign-out above.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
