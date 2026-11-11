@@ -2,7 +2,8 @@ package app.lelvo.core.index
 
 /**
  * A photo or video on this phone, as the timeline needs it (iOS uses `PHAsset`). [localId] is the MediaStore id;
- * [takenAt] is in epoch ms.
+ * [takenAt] is the capture date and [addedAt] when it came to the phone, both in epoch ms. Files without a capture
+ * date (no EXIF date, and Android doesn't let an app set one) have only [addedAt].
  */
 data class PhoneAsset(
     val localId: String,
@@ -13,6 +14,7 @@ data class PhoneAsset(
     val height: Int = 0,
     val isFavorite: Boolean = false,
     val filename: String = "",
+    val addedAt: Long? = null,
 )
 
 /** What a tile's small badge says about its backup (iOS `BackupBadge`, same meanings and words). */
@@ -68,7 +70,7 @@ object Gallery {
     /**
      * Phone photos and cloud items in one newest-first list (iOS `GalleryModel.merge`). Every phone photo is a tile,
      * with its backup item when linked. A cloud item is a tile of its own only when it's backed up, not hidden, and
-     * its photo isn't on this phone. [assets] must be newest first.
+     * its photo isn't on this phone. [assets] must be newest first by capture date, else date added.
      */
     fun merge(assets: List<PhoneAsset>, items: List<LibraryItem>): List<GalleryEntry> {
         val byLocal = HashMap<String, LibraryItem>()
@@ -81,12 +83,18 @@ object Gallery {
         val present = HashSet<String>(assets.size * 2)
         val onPhone = HashSet<String>()
         val local = ArrayList<GalleryEntry>(assets.size)
+        var reorder = false
         for (a in assets) {
             present += a.localId
             val item = byLocal[a.localId]
             if (item != null) onPhone += item.id
-            local += GalleryEntry(a.localId, a.takenAt, a, item)
+            // No capture date on the phone: the backup's, when it's the same photo (saved back from the cloud), else
+            // the day it was added, so it still has a place.
+            val date = a.takenAt ?: item?.createdAt ?: a.addedAt
+            if (date != a.takenAt) reorder = true
+            local += GalleryEntry(a.localId, date, a, item)
         }
+        if (reorder) local.sortByDescending { it.date ?: Long.MIN_VALUE }
         val cloud = items
             .filter { it.status == ItemStatus.BackedUp && !it.hidden && it.id !in onPhone && (it.localId == null || it.localId !in present) }
             .sortedWith(compareBy<LibraryItem> { it.createdAt == null }.thenByDescending { it.createdAt ?: 0 }.thenBy { it.id })

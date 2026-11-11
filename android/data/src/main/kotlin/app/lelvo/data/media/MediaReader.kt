@@ -67,19 +67,25 @@ class MediaReader(private val files: TdFiles, private val library: LibraryServic
         return id
     }
 
-    /** Raw stored bytes for [range], across split parts. */
-    suspend fun readStream(item: LibraryItem, role: String, range: ByteRange): ByteArray {
+    /**
+     * Raw stored bytes for [range], across split parts. [streaming] reads through the continuous download the video
+     * player keeps running ahead (iOS `streamRead`); a fast version (`sp`) has its index first, so it never needs
+     * small reads elsewhere in the file.
+     */
+    suspend fun readStream(item: LibraryItem, role: String, range: ByteRange, streaming: Boolean = false): ByteArray {
         val ps = parts(item, role)
         if (ps.isEmpty()) throw MediaException.missing
         val partSize = if (ps.size > 1) ps[0].size else maxOf(ps[0].size, 1)
         val layout = PartLayout(partSize, ps.sumOf { it.size })
+        suspend fun get(id: String, offset: Long, length: Long) =
+            if (streaming) files.streamRead(id, offset, length, smallReads = role != "sp") else files.read(id, offset, length)
         val segments = layout.segments(range)
         if (segments.size == 1) {
             val s = segments[0]
-            return files.read(remoteId(ps[s.part]), s.offset, s.length)
+            return get(remoteId(ps[s.part]), s.offset, s.length)
         }
         val out = java.io.ByteArrayOutputStream(range.length.toInt())
-        for (s in segments) out.write(files.read(remoteId(ps[s.part]), s.offset, s.length))
+        for (s in segments) out.write(get(remoteId(ps[s.part]), s.offset, s.length))
         return out.toByteArray()
     }
 
@@ -94,16 +100,20 @@ class MediaReader(private val files: TdFiles, private val library: LibraryServic
     suspend fun plaintextSize(item: LibraryItem, role: String): Long =
         if (item.encrypted) reader(item, role).layout.plaintextSize else streamSize(item, role)
 
-    /** Plaintext bytes for [range], decrypting only the chunks needed. */
-    suspend fun read(item: LibraryItem, role: String, range: ByteRange): ByteArray {
-        if (!item.encrypted) return readStream(item, role, range)
+    /** Plaintext bytes for [range], decrypting only the chunks needed. [streaming]: for the video player. */
+    suspend fun read(item: LibraryItem, role: String, range: ByteRange, streaming: Boolean = false): ByteArray {
+        if (!item.encrypted) return readStream(item, role, range, streaming)
         val r = reader(item, role)
-        return r.read(range, chunks, "${item.id}/$role") { cipher -> readStream(item, role, cipher) }
+        return r.read(range, chunks, "${item.id}/$role") { cipher -> readStream(item, role, cipher, streaming) }
     }
 
     /** Writes the whole plaintext resource to [destination] in 8 MiB steps (photos, sharing, saving). */
     suspend fun download(item: LibraryItem, role: String, destination: File, progress: (Float) -> Unit = {}) = withContext(Dispatchers.IO) {
         destination.parentFile?.mkdirs()
+        // A file stored in one message (every photo, most short videos) comes down in one TDLib download, which
+        // fetches its pieces in parallel; the reads below then come from the phone. Ranged reads cost a round trip
+        // each, and the header one more (iOS reads ranges here; this is faster).
+        parts(item, role).singleOrNull()?.takeIf { it.size <= WHOLE_LIMIT }?.let { files.download(remoteId(it), priority = 32) }
         val total = plaintextSize(item, role)
         FileOutputStream(destination).use { out ->
             var offset = 0L
@@ -139,5 +149,8 @@ class MediaReader(private val files: TdFiles, private val library: LibraryServic
         chunks.removeAll()
     }
 
-    private companion object { const val STEP = 8L shl 20 }
+    private companion object {
+        const val STEP = 8L shl 20
+        const val WHOLE_LIMIT = 64L shl 20
+    }
 }

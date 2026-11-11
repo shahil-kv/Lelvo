@@ -22,7 +22,8 @@ import java.io.IOException
 /**
  * Plays a cloud video straight from Telegram (iOS `StreamingAsset`): the player asks for byte ranges of the
  * plaintext, and [MediaReader] fetches and decrypts only the CGFE chunks they fall in. Reads go a block at a time
- * and the reader keeps the last few decrypted chunks, so the player's many small reads cost one download each.
+ * through one continuous Telegram download that runs ahead of the playhead (`TdFiles.streamRead`), and the reader
+ * keeps the last few decrypted chunks, so the player's many small reads cost one download each.
  */
 @UnstableApi
 class CloudDataSource(private val reader: MediaReader, private val item: LibraryItem, private val role: String) : BaseDataSource(true) {
@@ -73,7 +74,7 @@ class CloudDataSource(private val reader: MediaReader, private val item: Library
         return n
     }
 
-    private suspend fun readBlock(start: Long) = reader.read(item, role, ByteRange(start, minOf(total, start + BLOCK)))
+    private suspend fun readBlock(start: Long) = reader.read(item, role, ByteRange(start, minOf(total, start + BLOCK)), streaming = true)
 
     override fun getUri(): Uri? = uri
 

@@ -189,13 +189,13 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Swipe between items | `ViewerView.swift` | Pager | ◐ |
-| Zoom, double tap | `ViewerView.swift` | Telephoto | |
-| Screen copy first, then original | `CloudMediaService.swift` | Two-step load | |
-| Info: date, place, camera, size, where it is | `ViewerView.swift` (Info), `ExtraMetadata.swift` | Bottom sheet | |
-| Share original, save to phone, favorite, delete | `ViewerView.swift`, `GalleryActions.swift` | Top bar and bottom bar | |
-| Live Photos (press to play), Motion Photos | `ViewerView.swift` | Media3 with the paired video | |
-| Video player: speed, quality, sound off on close | `CloudVideo.swift` | Media3 player UI | ◐ (demo clips) |
+| Swipe between items | `ViewerView.swift` | Pager | ✅ swipe down closes, swipe up opens details (Google Photos) |
+| Zoom, double tap | `ViewerView.swift` | Telephoto | ✅ tiles from the file once zoomed, so big photos stay sharp |
+| Screen copy first, then original | `CloudMediaService.swift` | Two-step load | ✅ |
+| Info: date, place, camera, size, where it is | `ViewerView.swift` (Info), `ExtraMetadata.swift` | Bottom sheet | ✅ camera and place from EXIF; place opens the maps app |
+| Share original, save to phone, favorite, delete | `ViewerView.swift`, `GalleryActions.swift` | Top bar and bottom bar | ◐ share (and original), save, favorite and delete on the phone; Telegram-side favorite and delete wait for L, back up for I |
+| Live Photos (press to play), Motion Photos | `ViewerView.swift` | Media3 with the paired video | ◐ cloud Live Photos (LIVE chip or long press); the phone's own Motion Photos not yet |
+| Video player: speed, quality, sound off on close | `CloudVideo.swift` | Own controls over Media3 | ✅ play, scrubber, times, mute, speed, double tap ±10 s, quality pill, stall fallback |
 
 ### Phase G. Collections tab
 
@@ -473,7 +473,7 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   `DataSource` over decrypted ranges (first frame in 0.6–1.0 s for 15–31 s originals). Logs "Photo timing" and
   "Video timing" lines like iOS. Gaps for Phase F: quality switch and stall fallback, Live Photo motion, zoom,
   download progress; a continuous TDLib download window like iOS `streamRead` if high-bitrate originals stall.
-- **Found 2026-11-11:** the emulator has the owner's screen-time app's accessibility service on
+- **Found 2026-11-11 (now off):** the emulator had the owner's screen-time app's accessibility service on
   (`com.unlink/com.shahil.screentime.UnlinkAccessibilityService`). About 7 s after a photo opens it sends Back and
   scrolls, so the viewer closes and the grid moves by itself; Lelvo isn't doing it (no app code path, no adb input).
   Ask the owner before turning it off for testing. Also seen once: the grid moved after the first launch after an
@@ -484,7 +484,87 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   Share (cloud photos downloaded and named like the original, through a share-only FileProvider), Favorite (the
   system's favorite prompt) and Delete (named warning for photos not backed up, then the system's trash prompt).
   Writes to a library now require it to be named "Android test" (`LibraryService.requireWritable`).
-- **Next session (start here):** owner decides about the screen-time accessibility service; then Phase F (viewer:
-  zoom, info, actions, iPhone-like player with quality switch and the HD badge). Phase E's Telegram-side actions wait
-  for I (back up), G (albums) and L (favorite and delete notes).
+- 2026-11-11, Phase F ◐ (viewer): the iPhone's viewer the Google Photos way. Black in both themes; tap shows or hides
+  the bars; top bar with date, time and the backup badge, the heart and ⋮ (Details, Share original for edited cloud
+  photos); bottom row Share, Save (cloud only), Details, Delete. Swipe up for details, down to close, never while
+  zoomed. Telephoto zoom (Apache-2.0, on the approved list) reads big photos in tiles from the file once zoomed in.
+  Details sheet: date with its time zone, file (MP, size, length), codec and HDR, camera and exposure, place (opens
+  the maps app: nothing is sent to a map service by Lelvo), folder on the phone, then Backup (badge with its meaning,
+  uploaded, end-to-end encrypted, verified, last error). Save to phone (`PhoneSaver`): the original, decrypted whole,
+  into `Pictures/Lelvo` or `Movies/Lelvo` hidden until written, removed if anything fails, space checked first, then
+  linked to the item so the timeline shows one green tile. Share, favorite and delete now share code with the grid's
+  selection (`actions/ItemActions.kt`). Video: own controls over Media3 (play, scrubber with keyframe seeks, times,
+  mute, speed 0.5–2×, double tap on a side skips 10 s), a poster until the first frame, the quality pill ("1080p" /
+  "4K") with switching at the same moment, the 3 s stall fallback on Automatic, audio focus and headphones, pause when
+  the app leaves the screen. Live Photos: LIVE chip or long press plays the motion once with sound, behind the photo
+  until its first frame (a SurfaceView ignores alpha), never on its own, so swiping doesn't download videos.
+  - Proven on the emulator (real library): zoom and pan, details light and dark, save (86 KB and 3 MB originals),
+    delete through the system prompt, the 4K video switched from 1080p to 4K at 16.3 s, first frames 0.2–1.5 s,
+    Live Photo motion in about 0.2 s, Home pauses, swipe down closes.
+  - Bugs found and fixed: a file saved without an EXIF date showed under Today (Android sets `datetaken` from the
+    file when it's published and ignores an app's value), so the timeline now uses the backup's date for a linked
+    photo with no capture date (`Gallery.merge`, tested); Save stayed after saving (would make a second copy); a
+    paused video was black after returning to the app; a fast version counted as playable with some parts missing
+    (now all of `sp`, like iOS `hasStreamingCopy`, tested).
+  - Gaps: the phone's own Motion Photos; the frame strip above the scrubber (iOS `FrameStrip`); "Make fast version"
+    needs uploads (I); saving keeps the original only (Android has no edit stack or Live Photos, so no edit or
+    paired video); the stall fallback isn't proven on a slow network; pinch on a device.
+  - **iOS and Mac bug found (told the owner, not copied):** the details sheet and the viewer's date use the phone's
+    current time zone (`Format.date` in `Shared/Views/Components.swift`) and ignore the item's `tz`, so a photo taken
+    abroad shows the wrong clock time. Android shows the time where it was taken, like Google Photos and Apple Photos.
+- 2026-11-11, Phase F polish (owner: player like Google Photos, more room at the top, faster streaming, Live Photo
+  glitch, green video):
+  - Streaming: `TdFiles.streamRead` ports iOS `streamRead`: one continuous TDLib download runs ahead of the playhead
+    (reads within 2 MB wait for it, small reads elsewhere fetch just their range, except for fast versions), waits on
+    `updateFile`, gives up after 30 s; playback starts at 0.5 s buffered (iOS `startSoon`). Same 4K video: fast
+    version's first frame 1.5 → 0.8 s, switch to 4K 4.0 → 3.1 s, no waits in 20 s of 4K; an unopened 4K video:
+    1.2 s and 4.6 s (an 18 MB, 6 s original needs ~3 MB/s, more than Telegram sent here). Gap: TDLib keeps the
+    streamed files in its cache; a size limit comes with Settings → storage (K).
+  - Player: controls moved into the bottom panel, above the actions, on one fade: thin scrubber with the loaded part
+    lighter, then play or pause, "0:15 / 0:28", speed and sound; a large play button in the middle only while paused.
+    Top bar has room under the status bar and a longer fade.
+  - Live Photo: the motion's first frames showed around the photo (the page is see-through there); the photo layer is
+    now solid black until the motion has a picture.
+  - Green and purple 4K original on the emulator: the emulator's own HEVC decoder (`c2.goldfish.hevc`), and only
+    sometimes (the same video played right on the next try). Phones use their hardware decoder; check on a real
+    Android phone before calling it fixed.
+- 2026-11-11, video and photo speed (owner: 4K plays in slow motion, then green after a replay; photos slow to
+  sharpen):
+  - Green and purple blocks and slow motion were the emulator's pass-through decoders (`c2.goldfish.*`), which
+    break 4K HEVC after a seek or replay. On the emulator the players now use Android's software decoders
+    (`VideoDecoders`); phones keep their hardware ones. Same video: 0 frames dropped, replay in the right colours.
+    The data was never wrong (CGFE is authenticated: a changed byte fails decryption). The log now names the decoder
+    and counts dropped frames per video.
+  - Play at the end paused instead of starting again; fixed.
+  - Photos: opening one downloaded six files at once (its screen copy and original, and both neighbours' pages,
+    which the pager builds ahead). Now only the page on screen downloads, the screen copy first, then the original,
+    and neighbours load once it's sharp (iOS `NeighbourPrefetcher`). A file in one message downloads whole in one
+    TDLib request (parallel pieces) and is decrypted from the phone, where iOS and Android read 8 MB ranges plus a
+    header trip. Measured: screen copy 1.27 → 0.68 s, a 4.8 MB original 2.9 s (Telegram sent about 1.7 MB/s).
+  - Not proven: 4K originals on a real Android phone (hardware decoder speed differs per phone). If a phone's
+    decoder can't keep up, Automatic should stay on the fast version: check `MediaCodecInfo` performance points then.
+- 2026-11-11, never-sharp photos and video swipes (owner):
+  - **iPhone HEIC photos never turned sharp:** Coil decodes with Android's `ImageDecoder`, which refuses many of them
+    ("getPixels failed with error invalid input"); `BitmapFactory` and the zoom's tiling read the same files. Coil now
+    uses `BitmapFactory` (`imageDecoderEnabled(false)`). Logged now: "Photo timing: sharp after N ms", and a warning
+    when the photo on screen isn't sharp 5 s after downloading.
+  - **Video while swiping:** Media3's default SurfaceView sits outside the Compose layout, so during a swipe the video
+    drew over the next page and lagged the finger. Players now use a TextureView (`res/layout/video_surface.xml`).
+  - **Every phone:** hardware decoders first, with Media3's decoder fallback on; `VideoDecoders.canPlay` asks this
+    phone whether it has a decoder for the original's format and size and, where it publishes speeds, one fast enough.
+    If not, the fast version plays even with the Original setting (`VideoQualityPolicy.initial`, tested) and the menu
+    shows "This phone can't play it smoothly". Still to prove on a real low-end phone.
+  - **Flash when swiping fast between videos:** a screen recording showed the new video's first frame stretched across
+    the whole screen for one frame, before the view knew the video's shape. The view now takes the shape from the
+    backup before any frame (cloud videos), stays hidden behind the poster until its first frame has its real shape,
+    and a quality switch keeps the last frame instead of going back to the poster. Checked frame by frame in a new
+    recording of six fast swipes: no stretched frames.
+- **Next session (start here):**
+  1. **Real Android phone check** (the emulator can't prove these): 4K HEVC originals play smoothly or the menu says
+     "This phone can't play it smoothly"; hardware decoder named in the log ("decodes with c2.qti/exynos/mtk…"), no
+     dropped frames; HEIC photos turn sharp ("Photo timing: sharp after"); fast swipes between videos; Live Photos.
+     Ideally one recent phone and one older or low-end one. Install with `adb install -r` only, never clear data.
+  2. Phase F gaps that don't wait on other phases: the phone's own Motion Photos, the frame strip above the scrubber.
+  3. Then Phase G (Collections). Phase E and F Telegram-side actions wait for I (back up), G (albums) and L
+     (favorite and delete notes).
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.

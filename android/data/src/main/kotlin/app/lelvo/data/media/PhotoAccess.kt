@@ -123,8 +123,8 @@ class PhotoAccess(context: Context) {
     }
 
     /**
-     * This phone's photos and videos for the timeline, newest first. The capture date when the file has one, else when
-     * it was added, so every photo has a place. Empty without access.
+     * This phone's photos and videos for the timeline, newest first: by the capture date when the file has one, else
+     * when it was added (`Gallery.merge` may use the backup's date for those). Empty without access.
      */
     suspend fun assets(): List<PhoneAsset> = withContext(Dispatchers.IO) {
         val status = status()
@@ -142,17 +142,17 @@ class PhotoAccess(context: Context) {
             app.contentResolver.query(uri, columns, where, null, null)?.use { c ->
                 while (c.moveToNext()) {
                     val video = c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
-                    val taken = if (c.isNull(2)) c.getLong(3) * 1000 else c.getLong(2)
+                    val taken = if (c.isNull(2)) null else c.getLong(2)
                     out += PhoneAsset(
                         localId = c.getLong(0).toString(), takenAt = taken, isVideo = video,
                         duration = if (video && !c.isNull(4)) c.getLong(4) / 1000.0 else null,
                         width = c.getInt(5), height = c.getInt(6), filename = c.getString(7).orEmpty(),
-                        isFavorite = favorite != null && c.getInt(8) == 1,
+                        isFavorite = favorite != null && c.getInt(8) == 1, addedAt = c.getLong(3) * 1000,
                     )
                 }
             }
         }.onFailure { AppLog.error("Photos: timeline listing failed: ${it::class.simpleName}") }
-        out.sortByDescending { it.takenAt ?: Long.MIN_VALUE }
+        out.sortByDescending { it.takenAt ?: it.addedAt ?: Long.MIN_VALUE }
         out
     }
 

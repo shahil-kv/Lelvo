@@ -1,253 +1,320 @@
 package app.lelvo.android.viewer
 
-import app.lelvo.android.media.PhoneThumbnail
-import app.lelvo.core.index.GalleryEntry
-import app.lelvo.core.support.AppLog
-import app.lelvo.data.Prefs
-import app.lelvo.core.video.VideoVersion
-import app.lelvo.core.video.VideoQualityPolicy
-import app.lelvo.core.video.VideoPreference
-import app.lelvo.core.video.VideoNavigation
-import app.lelvo.android.media.CloudDataSource
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.common.Player
-import androidx.media3.common.PlaybackException
-import androidx.compose.ui.unit.dp
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.LaunchedEffect
-import app.lelvo.data.media.MediaException
-import app.lelvo.android.media.CloudThumbnail
-import app.lelvo.android.media.CloudPhoto
-import app.lelvo.android.LelvoApp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.text.format.DateFormat
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
+import androidx.compose.ui.unit.dp
+import app.lelvo.android.LelvoApp
 import app.lelvo.android.R
+import app.lelvo.android.actions.DeleteDialog
+import app.lelvo.android.actions.rememberPhoneActions
+import app.lelvo.android.actions.shareEntries
+import app.lelvo.android.shell.Messages
+import app.lelvo.android.timeline.icon
+import app.lelvo.android.timeline.tint
+import app.lelvo.core.index.GalleryEntry
 import app.lelvo.core.index.ItemKind
-import app.lelvo.core.index.LibraryItem
+import app.lelvo.core.index.ItemStatus
+import app.lelvo.core.index.PhoneAsset
+import app.lelvo.core.support.AppLog
 import app.lelvo.data.DemoMode
-import coil3.compose.AsyncImage
+import app.lelvo.data.media.MediaException
+import app.lelvo.data.media.SaveException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/** Full-screen viewer: swipe between items, tap to show or hide the bar. Zoom and the info sheet are Step 9. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Full-screen viewer, the way Google Photos shows one: black in both themes, tap to show or hide the bars, swipe
+ * sideways between items, pinch or double tap to zoom, swipe up for details and down to close. The actions are the
+ * iPhone's (iOS `ViewerView`): share, save to phone, favorite, details, delete.
+ */
 @Composable
 fun ViewerScreen(items: List<GalleryEntry>, start: Int, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
-    val pager = rememberPagerState(initialPage = start.coerceIn(0, (items.size - 1).coerceAtLeast(0))) { items.size }
+    val context = LocalContext.current
+    val app = context.applicationContext as LelvoApp
+    // Items removed here (moved to the phone's trash) leave at once; the grid catches up from MediaStore.
+    val entries = remember { mutableStateListOf<GalleryEntry>().apply { addAll(items) } }
+    val pager = rememberPagerState(initialPage = start.coerceIn(0, (items.size - 1).coerceAtLeast(0))) { entries.size }
     var chrome by rememberSaveable { mutableStateOf(true) }
-    val locale = LocalContext.current.resources.configuration.locales[0]
-    val formatter = remember(locale) { DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "EEEdMMMyyyyjmm"), locale) }
+    var zoomed by remember { mutableStateOf(false) }
+    var info by rememberSaveable { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    // Favorites changed here show at once: the phone reports the change a moment later (iOS `favoriteOverrides`).
+    val favorites = remember { mutableStateMapOf<String, Boolean>() }
+    // The video on screen, for the quality pill in the top bar.
+    var video by remember { mutableStateOf<Pair<String, VideoSession>?>(null) }
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val current = entries.getOrNull(pager.currentPage)
 
-    val app = LocalContext.current.applicationContext as LelvoApp
-    // The photos either side load ahead on Wi-Fi, so a swipe shows them sharp (iOS `prefetchPhoto`).
-    LaunchedEffect(pager.settledPage) {
+    LaunchedEffect(entries.size) { if (entries.isEmpty()) onClose() }
+    LaunchedEffect(pager.settledPage) { zoomed = false }
+
+    val actions = rememberPhoneActions(
+        onFavorited = { value -> current?.let { favorites[it.id] = value }; haptics.performHapticFeedback(HapticFeedbackType.Confirm) },
+        onTrashed = { current?.let { entries.remove(it) } },
+    )
+
+    // The page on screen says when it's sharp; only then do the neighbours load.
+    var readyId by remember { mutableStateOf<String?>(null) }
+    // The photos either side load ahead on Wi-Fi once this one is sharp, so a swipe shows them sharp without slowing
+    // the photo being looked at (iOS `prefetchPhoto` and `NeighbourPrefetcher`).
+    LaunchedEffect(pager.settledPage, readyId) {
+        if (readyId == null || readyId != entries.getOrNull(pager.settledPage)?.id) return@LaunchedEffect
         if (app.isMetered()) return@LaunchedEffect
         for (i in listOf(pager.settledPage + 1, pager.settledPage - 1)) {
-            val e = items.getOrNull(i) ?: continue
+            val e = entries.getOrNull(i) ?: continue
             // A photo on this phone opens from the phone; only cloud-only ones are fetched ahead.
             val n = e.item?.takeIf { e.asset == null } ?: continue
             if (n.kind != ItemKind.Video && DemoMode.assetUri(n) == null) app.media.prefetch(n)
         }
     }
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        HorizontalPager(pager, key = { items[it].id }, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
-            val entry = items[page]
-            val toggle = Modifier.clickable(remember { MutableInteractionSource() }, indication = null) { chrome = !chrome }
-            val asset = entry.asset
-            val item = entry.item
-            when {
-                // On this phone: shown and played from the phone, whatever the backup holds.
-                asset != null -> PhonePage(app.photos.uri(asset), asset.isVideo, playing = pager.settledPage == page, toggle)
-                item == null -> Unit
-                // Only the page on screen plays; the neighbours show their first frame.
-                item.kind == ItemKind.Video -> if (pager.settledPage == page) VideoPage(item) else Poster(item, toggle)
-                else -> Poster(item, toggle)
+
+    fun runTransfer(label: String, work: suspend () -> Unit) {
+        if (busy) return
+        busy = true
+        scope.launch {
+            try {
+                Messages.runStoppable(work)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.warn("Viewer: $label failed", e)
+                val text = (e as? MediaException)?.message ?: (e as? SaveException)?.message ?: "Check your connection and try again."
+                Messages.show(Messages.Style.Failure, if (label == "save") "Couldn't save" else "Couldn't share", text, seconds = 5.0)
+            } finally {
+                busy = false
             }
         }
-        if (chrome) {
-            val entry = items.getOrNull(pager.currentPage)
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(entry?.date?.let { formatter.format(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault())) } ?: "Unknown date")
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onClose) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black.copy(alpha = 0.4f), titleContentColor = Color.White, navigationIconContentColor = Color.White,
-                ),
+    }
+
+    fun share(entry: GalleryEntry, original: Boolean = false) = runTransfer("share") { shareEntries(context, listOf(entry), original) }
+
+    fun save(entry: GalleryEntry) {
+        val item = entry.item ?: return
+        runTransfer("save") {
+            Messages.progress("Saving original…", fraction = 0f)
+            val id = app.saver.save(item) { Messages.update(it) }
+            // The page is the phone's copy now: backed up, no second Save, and favorite and delete work on it.
+            val i = entries.indexOfFirst { it.id == entry.id }
+            if (i >= 0) entries[i] = entry.copy(
+                asset = PhoneAsset(id, item.createdAt, isVideo = item.kind == ItemKind.Video, item.duration, item.width, item.height, filename = item.filename),
+                item = item.copy(localId = id),
+            )
+            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            Messages.show(Messages.Style.Success, "Saved to this phone", "It's in Pictures › Lelvo.")
+        }
+    }
+
+    Box(
+        Modifier.fillMaxSize().background(Color.Black).verticalSwipes(
+            enabled = { !zoomed },
+            onUp = { info = true },
+            onDown = onClose,
+        ),
+    ) {
+        HorizontalPager(pager, key = { entries[it].id }, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
+            val entry = entries[page]
+            ViewerPage(
+                entry, current = pager.settledPage == page, chrome = chrome, onTap = { chrome = !chrome },
+                onZoomed = { if (pager.settledPage == page) zoomed = it },
+                onVideo = { session -> video = session?.let { entry.id to it } ?: video?.takeIf { it.first != entry.id } },
+                onReady = { readyId = entry.id },
+            )
+        }
+        AnimatedVisibility(chrome && current != null, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
+            val entry = current ?: return@AnimatedVisibility
+            TopBar(
+                entry, favorite = favorites[entry.id] ?: entry.isFavorite, onClose = onClose,
+                onFavorite = { actions.favorite(listOf(entry), !(favorites[entry.id] ?: entry.isFavorite)) },
+                onInfo = { info = true },
+                onShareOriginal = if (canShareOriginal(entry)) ({ share(entry, original = true) }) else null,
+                quality = video?.takeIf { it.first == entry.id && it.second.hasFast }?.second,
+            )
+        }
+        AnimatedVisibility(chrome && current != null, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
+            val entry = current ?: return@AnimatedVisibility
+            BottomBar(
+                video = video?.takeIf { it.first == entry.id }?.second,
+                canSave = canSave(entry), busy = busy,
+                onShare = { share(entry) }, onSave = { save(entry) }, onInfo = { info = true }, onDelete = { confirmDelete = true },
             )
         }
     }
+    if (info) current?.let { InfoSheet(it) { info = false } }
+    if (confirmDelete) current?.let { entry ->
+        DeleteDialog(listOf(entry), onDismiss = { confirmDelete = false }, onRemove = { confirmDelete = false; actions.trash(listOf(entry)) })
+    }
 }
 
-/** A photo or video on this phone: Coil reads the photo, Media3 plays the video, both from MediaStore. */
-@Composable
-private fun PhonePage(uri: android.net.Uri, isVideo: Boolean, playing: Boolean, modifier: Modifier) {
-    if (!isVideo || !playing) {
-        AsyncImage(
-            model = if (isVideo) PhoneThumbnail(uri) else uri, contentDescription = if (isVideo) "Video" else "Photo",
-            contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().then(modifier),
-        )
-        return
+/** Only in the cloud and readable from there: it can come back to this phone (iOS shows Save to Photos then). */
+private fun canSave(entry: GalleryEntry): Boolean {
+    val item = entry.item ?: return false
+    return entry.asset == null && item.status == ItemStatus.BackedUp && DemoMode.assetUri(item) == null && !item.parts["o"].isNullOrEmpty()
+}
+
+/** An edited cloud photo can also go out as the untouched original (iOS "Share Original"). */
+private fun canShareOriginal(entry: GalleryEntry): Boolean {
+    val item = entry.item ?: return false
+    return entry.asset == null && item.hasEdit && !item.parts["e"].isNullOrEmpty() && DemoMode.assetUri(item) == null
+}
+
+/** A tap that shows or hides the bars, without a ripple over the photo. */
+internal fun Modifier.tapToToggle(onTap: () -> Unit): Modifier = clickable(interactionSource = null, indication = null, onClick = onTap)
+
+/**
+ * Google Photos' vertical swipes: up opens the details, down closes the viewer. Only once the finger has clearly moved
+ * up or down, so sideways swipes still reach the pager, and never while a photo is zoomed in (then the swipe pans it).
+ */
+private fun Modifier.verticalSwipes(enabled: () -> Boolean, onUp: () -> Unit, onDown: () -> Unit): Modifier = pointerInput(Unit) {
+    val threshold = 72.dp.toPx()
+    var total = 0f
+    var active = false
+    detectVerticalDragGestures(
+        onDragStart = { total = 0f; active = enabled() },
+        onDragEnd = {
+            if (active) when {
+                total < -threshold -> onUp()
+                total > threshold -> onDown()
+            }
+        },
+        onDragCancel = { total = 0f },
+    ) { change, dy ->
+        if (!active) return@detectVerticalDragGestures
+        change.consume()
+        total += dy
     }
-    val context = LocalContext.current
-    val player = remember(uri) {
-        ExoPlayer.Builder(context).build().apply { setMediaItem(MediaItem.fromUri(uri)); prepare(); playWhenReady = true }
-    }
-    DisposableEffect(player) { onDispose { player.release() } }
-    AndroidView(
-        factory = { PlayerView(it).apply { this.player = player; setShowNextButton(false); setShowPreviousButton(false) } },
-        modifier = Modifier.fillMaxSize(),
-    )
 }
 
 @Composable
-private fun Poster(item: LibraryItem, modifier: Modifier) {
-    val demo = DemoMode.assetUri(item)
-    val description = if (item.kind == ItemKind.Video) "Video" else "Photo"
-    if (demo != null || item.kind == ItemKind.Video) {
-        AsyncImage(
-            model = demo ?: CloudThumbnail(item), contentDescription = description, contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize().then(modifier),
-        )
-        return
+private fun TopBar(
+    entry: GalleryEntry, favorite: Boolean, onClose: () -> Unit, onFavorite: () -> Unit, onInfo: () -> Unit, onShareOriginal: (() -> Unit)?,
+    quality: VideoSession?,
+) {
+    val locale = LocalContext.current.resources.configuration.locales[0]
+    val day = remember(locale) { DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "dMMMyyyy"), locale) }
+    val time = remember(locale) { DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "jmm"), locale) }
+    var menu by remember { mutableStateOf(false) }
+    // Room under the status bar and a long, soft fade, like Google Photos: the bar never sits on the picture's edge.
+    Row(
+        Modifier.fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.25f), Color.Transparent)))
+            .statusBarsPadding().padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 40.dp)
+            .heightIn(min = 56.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onClose) { Icon(painterResource(R.drawable.ic_arrow_back), "Back", tint = Color.White) }
+        Column(Modifier.weight(1f).padding(start = 4.dp)) {
+            // In the time zone it was taken in, when the backup knows it, like the details and Google Photos.
+            val zone = entry.item?.tzOffsetMinutes?.let { java.time.ZoneOffset.ofTotalSeconds(it * 60) } ?: ZoneId.systemDefault()
+            val at = entry.date?.let { Instant.ofEpochMilli(it).atZone(zone) }
+            Text(at?.let(day::format) ?: "Unknown date", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                at?.let { Text(time.format(it), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall) }
+                Spacer(Modifier.width(6.dp))
+                // Where it is, in the iPhone's words: on the phone and in the cloud, only on this phone, and so on.
+                Icon(painterResource(entry.badge.icon), entry.badge.label, Modifier.size(14.dp), tint = entry.badge.tint())
+            }
+        }
+        quality?.let { QualityPill(it) }
+        IconButton(onClick = onFavorite) {
+            Icon(
+                painterResource(if (favorite) R.drawable.ic_favorite else R.drawable.ic_favorite_border),
+                if (favorite) "Remove from favorites" else "Add to favorites", tint = Color.White,
+            )
+        }
+        Box {
+            IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.ic_more_vert), "More options", tint = Color.White) }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(text = { Text("Details") }, onClick = { menu = false; onInfo() })
+                onShareOriginal?.let { DropdownMenuItem(text = { Text("Share original") }, onClick = { menu = false; it() }) }
+            }
+        }
     }
-    CloudPhotoPage(item, description, modifier)
 }
 
 /**
- * A cloud photo the way iOS shows one: the thumbnail at once, the screen copy of a big photo next (a few hundred KB),
- * then the photo itself on top. Each layer stays until the one above has drawn, so nothing flashes.
+ * The bottom panel: a video's controls (when one plays) above the actions, on one fade, so both stay readable over a
+ * bright picture.
  */
 @Composable
-private fun CloudPhotoPage(item: LibraryItem, description: String, modifier: Modifier) {
-    val media = (LocalContext.current.applicationContext as LelvoApp).media
-    var sharp by remember(item.id) { mutableStateOf(false) }
-    var error by remember(item.id) { mutableStateOf<String?>(null) }
-    val useCopy = remember(item.id) { media.hasScreenCopy(item) && media.cachedDisplayed(item) == null }
-    Box(Modifier.fillMaxSize().then(modifier)) {
-        if (!sharp) {
-            AsyncImage(CloudThumbnail(item), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-            if (useCopy) AsyncImage(CloudPhoto(item, screenCopy = true), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-        }
-        AsyncImage(
-            CloudPhoto(item), description, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(),
-            onSuccess = { sharp = true },
-            onError = { error = (it.result.throwable as? MediaException)?.message ?: "Couldn't load this photo. Check your connection and try again." },
-        )
-        error?.let {
-            Text(
-                it, color = Color.White, style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(12.dp)).padding(12.dp),
-            )
+private fun BottomBar(
+    video: VideoSession?, canSave: Boolean, busy: Boolean, onShare: () -> Unit, onSave: () -> Unit, onInfo: () -> Unit, onDelete: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f), Color.Black.copy(alpha = 0.7f))))
+            .navigationBarsPadding().padding(top = if (video != null) 48.dp else 40.dp, bottom = 8.dp),
+    ) {
+        video?.let { VideoControls(it, Modifier.padding(bottom = 4.dp)) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            BarAction(R.drawable.ic_send, "Share", enabled = !busy, onShare)
+            if (canSave) BarAction(R.drawable.ic_download, "Save", enabled = !busy, onSave)
+            BarAction(R.drawable.ic_info_outline, "Details", enabled = true, onInfo)
+            BarAction(R.drawable.ic_delete, "Delete", enabled = true, onDelete)
         }
     }
 }
 
-/**
- * A video plays straight from Telegram: the fast version when the setting allows and there is one, else the original
- * (or its edit). Long videos start where they were left.
- */
-@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-private fun VideoPage(item: LibraryItem) {
-    val context = LocalContext.current
-    val app = context.applicationContext as LelvoApp
-    val demo = DemoMode.assetUri(item)
-    var error by remember(item.id) { mutableStateOf<String?>(null) }
-    val player = remember(item.id) {
-        val opened = System.currentTimeMillis()
-        var playing = "demo"
-        ExoPlayer.Builder(context).build().apply {
-            if (demo != null) {
-                setMediaItem(MediaItem.fromUri(demo))
-            } else {
-                val preference = when (app.prefs.videoQuality) {
-                    Prefs.VideoQuality.Original -> VideoPreference.Original
-                    Prefs.VideoQuality.Fast -> VideoPreference.Fast
-                    Prefs.VideoQuality.Automatic -> VideoPreference.Automatic
-                }
-                val role = when (VideoQualityPolicy.initial(preference, hasFast = !item.parts["sp"].isNullOrEmpty())) {
-                    VideoVersion.Fast -> "sp"
-                    VideoVersion.Original -> app.media.displayedRole(item)
-                }
-                playing = if (role == "sp") "fast version" else "original"
-                val source = ProgressiveMediaSource.Factory(CloudDataSource.Factory(app.reader, item, role))
-                    .createMediaSource(MediaItem.fromUri("lelvo://item/${item.id}/$role"))
-                setMediaSource(source)
-                VideoNavigation.resumePosition(app.positions.position(item.id), item.duration ?: 0.0)?.let { seekTo((it * 1000).toLong()) }
-            }
-            addListener(object : Player.Listener {
-                override fun onRenderedFirstFrame() {
-                    AppLog.info("Video timing: $playing, first frame after ${System.currentTimeMillis() - opened} ms")
-                }
-
-                override fun onPlayerError(e: PlaybackException) {
-                    error = (generateSequence<Throwable>(e) { it.cause }.firstOrNull { it is MediaException } as? MediaException)?.message
-                        ?: "This video can't play right now. Check your connection and try again."
-                }
-            })
-            prepare()
-            playWhenReady = true
-        }
-    }
-    // The sound stops when the page or the viewer goes away (iOS #115), and a long video remembers where it was left.
-    DisposableEffect(player) {
-        onDispose {
-            val duration = if (player.duration > 0) player.duration / 1000.0 else item.duration ?: 0.0
-            if (demo == null) app.positions.record(item.id, player.currentPosition / 1000.0, duration)
-            player.release()
-        }
-    }
-    Box(Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { PlayerView(it).apply { this.player = player; setShowNextButton(false); setShowPreviousButton(false) } },
-            modifier = Modifier.fillMaxSize(),
-        )
-        error?.let {
-            Text(
-                it, color = Color.White, style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.align(Alignment.Center).padding(24.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(12.dp)).padding(12.dp),
-            )
+private fun BarAction(icon: Int, label: String, enabled: Boolean, onClick: () -> Unit) {
+    TextButton(onClick = onClick, enabled = enabled, modifier = Modifier.widthIn(min = 72.dp)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val color = if (enabled) Color.White else Color.White.copy(alpha = 0.4f)
+            Icon(painterResource(icon), null, tint = color)
+            Text(label, style = MaterialTheme.typography.labelMedium, color = color)
         }
     }
 }

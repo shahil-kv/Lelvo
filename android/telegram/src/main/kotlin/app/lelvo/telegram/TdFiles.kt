@@ -3,8 +3,10 @@ package app.lelvo.telegram
 import app.lelvo.core.support.AppLog
 import app.lelvo.core.session.TelegramErrors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.TdApi
 import java.io.File
 import java.io.RandomAccessFile
@@ -85,6 +87,88 @@ class TdFiles(private val td: TdClient) {
         }
     }
 
+    /** Where the continuous streaming download of each file last started, and when (TDLib keeps one per file). */
+    private val windows = ConcurrentHashMap<Int, Long>()
+    private val windowMoved = ConcurrentHashMap<Int, Long>()
+
+    /**
+     * A streaming read for the video player (iOS `streamRead`): one continuous TDLib download runs ahead of the
+     * playhead, like Telegram's own players, instead of one request per slice, which can't keep up with 4K. Reads
+     * up to [ahead] past the running download wait for it rather than restarting it (a restart costs ~0.4 s to the
+     * first bytes, and after a seek the player asks for several nearby ranges at once).
+     *
+     * [smallReads]: a small read outside the download (an original's index at the end of the file) fetches just its
+     * range. Off for fast versions, whose index comes first: there, separate small downloads kept cancelling the main
+     * one (TDLib runs one download per file), as Unigram's TDLib player found.
+     *
+     * Gives up after 30 s without the data, so playback reports an error instead of hanging.
+     */
+    suspend fun streamRead(remoteId: String, offset: Long, count: Long, ahead: Long = 2L shl 20, smallReads: Boolean = true): ByteArray {
+        val f = file(remoteId)
+        val wanted = minOf(count, maxOf(0, f.size - offset))
+        if (wanted <= 0) return ByteArray(0)
+        val id = f.id
+        val started = System.currentTimeMillis()
+        val done = withTimeoutOrNull(30_000) {
+            var mine = false
+            var lastIssue = 0L
+            var moves = 0
+            var small = false
+            while (true) {
+                val have = runCatching { td.send(TdApi.GetFileDownloadedPrefixSize(id, offset)).size }.getOrDefault(0L)
+                if (have >= wanted) break
+                val now = td.send(TdApi.GetFile(id))
+                if (now.local.isDownloadingCompleted) break
+                // Where TDLib is really downloading, not where we last asked: anything else that downloads this file
+                // moves it, and a stale note left reads waiting for data that never came.
+                val begin = now.local.downloadOffset
+                val end = begin + now.local.downloadedPrefixSize
+                val covered = now.local.isDownloadingActive && begin <= offset && offset <= end + ahead
+                if (!covered && smallReads && wanted <= SMALL_READ) {
+                    gate(id).withLock {
+                        windows.remove(id)
+                        retryingFloodWait { td.send(TdApi.DownloadFile(id, 32, offset, wanted, true)) }
+                    }
+                    small = true
+                    break
+                }
+                val t = System.currentTimeMillis()
+                // Another read just moved the download: give it a moment rather than moving it straight back.
+                val movedRecently = windowMoved[id]?.let { t - it < 1_000 } == true
+                if (!covered && !smallReads && movedRecently && !mine && t - started < 1_500) {
+                    awaitFileUpdate(id)
+                    continue
+                }
+                val movedByOthers = mine && windows[id] == null
+                if (!covered && (lastIssue == 0L || movedByOthers || t - lastIssue > 2_000)) {
+                    gate(id).withLock { retryingFloodWait { td.send(TdApi.DownloadFile(id, 32, offset, 0, false)) } }
+                    windows[id] = offset
+                    windowMoved[id] = t
+                    mine = true
+                    lastIssue = t
+                    moves++
+                }
+                // TDLib reports each downloaded piece with updateFile; the timeout keeps the steps above running.
+                awaitFileUpdate(id)
+            }
+            val waited = System.currentTimeMillis() - started
+            if (waited > 1_000) {
+                val how = if (small) ", fetched on its own" else if (moves > 0) ", download restarted ${moves}×" else ""
+                AppLog.warn("Playback waited ${"%.1f".format(waited / 1000.0)} s for $wanted bytes at $offset$how")
+            }
+            true
+        }
+        if (done == null) {
+            AppLog.warn("Stream gave up after 30 s: $wanted bytes at $offset")
+            throw TelegramException(0, "Telegram didn't deliver this video's data for 30 s")
+        }
+        return readPart(id, offset, wanted)
+    }
+
+    private suspend fun awaitFileUpdate(id: Int) {
+        withTimeoutOrNull(250) { td.updates.first { it is TdApi.UpdateFile && it.file.id == id } }
+    }
+
     /** Removes TDLib's downloaded copy (the file stays in Telegram). */
     suspend fun deleteLocalCopy(remoteId: String) {
         runCatching { td.send(TdApi.DeleteFile(file(remoteId).id)) }
@@ -109,6 +193,8 @@ class TdFiles(private val td: TdClient) {
     }
 
     private fun gate(fileId: Int) = gates.getOrPut(fileId) { Mutex() }
+
+    private companion object { const val SMALL_READ = 512L shl 10 }
 
     private suspend fun <T> retryingFloodWait(block: suspend () -> T): T {
         while (true) {

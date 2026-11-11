@@ -54,6 +54,23 @@ class GalleryTest {
         assertNull(entries.last().date)
     }
 
+    @Test fun aPhoneFileWithoutACaptureDateTakesTheBackupsDate() {
+        // Saved back from the cloud with no EXIF date: Android records none, so it would sit under the day it was added.
+        val saved = PhoneAsset("p2", null, false, addedAt = 900)
+        val entries = Gallery.merge(
+            assets = listOf(saved, asset("p1", 300)),
+            items = listOf(item("c", 100, localId = "p2")),
+        )
+        assertEquals(listOf("p1", "p2"), entries.map { it.id })
+        assertEquals(100L, entries[1].date)
+    }
+
+    @Test fun anUnlinkedPhoneFileWithoutACaptureDateUsesWhenItWasAdded() {
+        val entries = Gallery.merge(listOf(PhoneAsset("p", null, false, addedAt = 500), asset("q", 400)), emptyList())
+        assertEquals(listOf("p", "q"), entries.map { it.id })
+        assertEquals(500L, entries[0].date)
+    }
+
     @Test fun notBackedUpFilter() {
         assertTrue(GalleryFilter.NotBackedUp.matches(GalleryEntry("p", 1, asset("p", 1), null)))
         assertTrue(!GalleryFilter.NotBackedUp.matches(GalleryEntry("cloud-c", 1, null, item("c", 1))))

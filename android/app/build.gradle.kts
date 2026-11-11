@@ -67,5 +67,6 @@ dependencies {
     implementation(libs.coil.video)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
+    implementation(libs.telephoto.coil3)
     debugImplementation(libs.compose.ui.tooling)
 }

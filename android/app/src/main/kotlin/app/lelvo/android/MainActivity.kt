@@ -228,8 +228,9 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
             if (libraries) LibrariesScreen(app, onClose = { libraries = false })
         }
         if (checking) CoreCheckScreen(app.coreCheck, onClose = { checking = false })
-        // One host over everything, so a message shows whichever screen is on top; above the tab bar while it shows.
+        // One host over everything, so a message shows whichever screen is on top; above the tab bar or the viewer's
+        // action row while they show.
         val overTabs = open == null && !settings && !checking
-        MessageHost(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (overTabs) NavigationBarHeight else 0.dp))
+        MessageHost(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (overTabs) NavigationBarHeight else if (open != null) 72.dp else 0.dp))
     }
 }

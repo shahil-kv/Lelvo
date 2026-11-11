@@ -37,12 +37,58 @@ object VideoQualityPolicy {
 
     /**
      * Automatic always starts on the fast version when there is one: it plays at once on any connection (Telegram
-     * sends about 1 MB/s; phone videos need 2–8), and the viewer can switch to the original.
+     * sends about 1 MB/s; phone videos need 2–8), and the viewer can switch to the original. An original this phone
+     * can't decode smoothly ([originalPlayable] false: a 4K HEVC video on an older phone) never plays first, whatever
+     * the setting, when there's a fast version to play instead.
      */
-    fun initial(preference: VideoPreference, hasFast: Boolean): VideoVersion =
-        if (hasFast && preference != VideoPreference.Original) VideoVersion.Fast else VideoVersion.Original
+    fun initial(preference: VideoPreference, hasFast: Boolean, originalPlayable: Boolean = true): VideoVersion =
+        if (hasFast && (preference != VideoPreference.Original || !originalPlayable)) VideoVersion.Fast else VideoVersion.Original
 
     /** A stall while playing the original switches to the fast version, never against the user's own choice. */
     fun fallsBackOnStall(playing: VideoVersion, preference: VideoPreference, hasFast: Boolean, userChose: Boolean): Boolean =
         playing == VideoVersion.Original && preference == VideoPreference.Automatic && hasFast && !userChose
+}
+
+/** A fast version is stored with all of its parts (iOS `hasStreamingCopy`); one still uploading can't play. */
+val app.lelvo.core.index.LibraryItem.hasFastVersion: Boolean
+    get() {
+        val have = parts["sp"]?.size ?: 0
+        return have > 0 && have == (expectedParts["sp"] ?: 1)
+    }
+
+/** Words and numbers the player shows, the same as the iPhone's. */
+object VideoLabels {
+    /**
+     * "4K", "1080p", "720p"… of a version, from the original's pixel size; the fast version is at most 1920 pixels on
+     * its long side (iOS `resolutionLabel`). Null without a size.
+     */
+    fun resolution(width: Int, height: Int, version: VideoVersion): String? {
+        val long = maxOf(width, height)
+        val short = minOf(width, height)
+        if (long <= 0 || short <= 0) return null
+        val shown = if (version == VideoVersion.Original) short else Math.round(short * minOf(1.0, 1920.0 / long)).toInt()
+        return when {
+            shown >= 2160 -> "4K"
+            shown >= 1440 -> "1440p"
+            shown >= 1080 -> "1080p"
+            shown >= 720 -> "720p"
+            else -> "${shown}p"
+        }
+    }
+
+    /** "0:05", "12:34", "1:02:03". */
+    fun time(seconds: Double): String {
+        if (!seconds.isFinite() || seconds < 0) return "0:00"
+        val s = seconds.toLong()
+        return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
+    }
+
+    val speeds = listOf(0.5f, 1f, 1.25f, 1.5f, 2f)
+
+    /** "Normal", "2×", "1.25×". */
+    fun speed(s: Float): String = when {
+        s == 1f -> "Normal"
+        s % 1f == 0f -> "${s.toInt()}×"
+        else -> "${s.toString().trimEnd('0')}×"
+    }
 }

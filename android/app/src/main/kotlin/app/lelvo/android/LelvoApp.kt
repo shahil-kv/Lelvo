@@ -14,6 +14,7 @@ import app.lelvo.data.index.LibraryStore
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import coil3.imageDecoderEnabled
 import coil3.video.VideoFrameDecoder
 import app.lelvo.data.SecretStore
 import app.lelvo.telegram.AuthStep
@@ -41,6 +42,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var reader: app.lelvo.data.media.MediaReader private set
     lateinit var media: app.lelvo.data.media.CloudMedia private set
     lateinit var positions: app.lelvo.data.media.PlaybackPositions private set
+    lateinit var saver: app.lelvo.data.media.PhoneSaver private set
+    lateinit var details: app.lelvo.data.media.MediaDetailsReader private set
     /** The launch opening plays once per process (cold start only). */
     var openingPlayed = false
 
@@ -87,6 +90,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         reader = app.lelvo.data.media.MediaReader(files, library, telegram)
         media = app.lelvo.data.media.CloudMedia(this, reader, prefs)
         positions = app.lelvo.data.media.PlaybackPositions(this)
+        saver = app.lelvo.data.media.PhoneSaver(this, reader, store)
+        details = app.lelvo.data.media.MediaDetailsReader(this)
         model = AppModel(this)
     }
 
@@ -122,7 +127,11 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
             add(app.lelvo.android.media.CloudPhotoKeyer())
             add(app.lelvo.android.media.PhoneThumbnailFetcher.Factory(this@LelvoApp))
             add(app.lelvo.android.media.PhoneThumbnailKeyer())
-        }.build()
+        }
+            // Android's ImageDecoder refuses many iPhone HEIC photos ("getPixels failed with error invalid input"), so
+            // those never turned sharp in the viewer. BitmapFactory decodes the same files, as does the zoom's tiling.
+            .imageDecoderEnabled(false)
+            .build()
 
     /** "First Last" of the signed-in account, as Settings shows it; empty when Telegram can't say. */
     suspend fun accountName(): String = runCatching {
