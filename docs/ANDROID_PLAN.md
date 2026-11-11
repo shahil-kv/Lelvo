@@ -412,13 +412,12 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   and hint, other device, no account (Get Telegram → Play Store), email. The demo code step is the "other" delivery
   like iOS. Intro uses the same button and Back. Fixed: the intro phone frame was squeezed; it now keeps the
   screenshot's shape and is cut off by the card. Checked light and dark (code Telegram, code SMS, password).
-- **Next session (start here):** Phase A is done except the device run of sign-out (A7, waits for the owner). Phase B:
-  intro ✅, code-sent card ✅, session ended ✅ (iOS has no
-  screen for it: `AppModel` resets with `keepingChoices` and onboarding starts at the intro, which Android already
-  does). Next: new library (header format 2 writer, recovery key shown and confirmed: `OnboardingView.swift`
-  `.recoveryKey`, `PassphraseBox.swift`), then library ready (`LibraryReadyView.swift`), then the photo permission
-  step after sign-in. Choose/unlock is ◐ until the owner runs it (the emulator's library is unlocked; forgetting it
-  would need the owner's passphrase). Creating a library writes to Telegram: only ever to "Android test", which the
-  owner hasn't made yet, so build and test new library with the demo or a dry run until then. Commit each row on
-  `android-plan` as it lands (owner, 2026-11-11); don't push. Before each screen, look at Google Photos' version first.
+- **Next session (start here):** Phase B, the rest, every screen copied from the iPhone's (read the Swift first,
+  owner 2026-11-11): rebuild `LibraryScreens.kt` on `OnboardingKit` from `OnboardingView.swift` `LibraryScreen`
+  (587–715), `LibraryCard` (716), `PassphraseSetup` (765) and `unlock` (511); then new library with the recovery key
+  shown and confirmed (`.recoveryKey`, `RecoveryKeyView`, `PassphraseBox.swift`, header format 2 writer in `core/`
+  with tests); then `scanning` (521) and `LibraryReadyView.swift`; then the photos step (534) and
+  `FirstBackupView` (IntroView.swift 837). Choose/unlock stays ◐ until the owner runs it; creating a library writes
+  to Telegram, so only to "Android test" once the owner makes it, until then test without writing. Use the debug
+  hooks (`--ei lelvo.intro N`, `--es lelvo.signin …`) and add one per new screen. Commit each on `android-plan`.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
