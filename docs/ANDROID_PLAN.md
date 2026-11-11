@@ -401,6 +401,17 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   Messages' blue rather than iOS green. Not shown for other deliveries (call, flash call), like iOS. Dark in both
   themes, like the chat it pictures. Debug hook: `--es lelvo.signin code-telegram|code-sms|password` shows that step
   without signing out (Back closes it). Checked light (Telegram) and dark (SMS).
+- 2026-11-11, onboarding looks like iOS (owner): the intro and every sign-in step copy the iPhone's layout, not a
+  Material reinterpretation. `OnboardingKit` ports `OnboardingPage` (round Back, art or icon tile, 32 sp title, line,
+  content, orange `ErrorBanner`, info, capsule button pinned on a solid strip), `PrimaryCapsuleButton` (strongest
+  colour on the page: white on black in dark, black on white in light; solid when disabled; press shrink) and
+  `OnboardingField`. Sign-in rewritten on it: phone (country row + dial code + number in one box, country search),
+  code (title by delivery "Check Telegram"/"Check your messages"/"Enter the code", the key words highlighted, the
+  card, digit boxes over a hidden autofill field, shake on a wrong code, "Didn't get it?" countdown, "Wrong number?
+  +…"; Open goes to Telegram's code chat `tg://resolve?phone=42777`, then `tg://`), two-step password with show/hide
+  and hint, other device, no account (Get Telegram → Play Store), email. The demo code step is the "other" delivery
+  like iOS. Intro uses the same button and Back. Fixed: the intro phone frame was squeezed; it now keeps the
+  screenshot's shape and is cut off by the card. Checked light and dark (code Telegram, code SMS, password).
 - **Next session (start here):** Phase A is done except the device run of sign-out (A7, waits for the owner). Phase B:
   intro ✅, code-sent card ✅, session ended ✅ (iOS has no
   screen for it: `AppModel` resets with `keepingChoices` and onboarding starts at the intro, which Android already

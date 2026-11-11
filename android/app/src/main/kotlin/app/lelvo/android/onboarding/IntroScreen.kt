@@ -50,7 +50,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -158,9 +157,7 @@ fun IntroScreen(photos: PhotoAccess, start: Int, onPage: (Int) -> Unit, onFinish
             Brush.radialGradient(listOf(Lelvo.colors.accent.copy(alpha = 0.18f), Color.Transparent), center = Offset(540f, 0f), radius = 1300f)))
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             Box(Modifier.height(56.dp).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
-                if (page > 0) IconButton(onClick = { go(page - 1) }) {
-                    Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
-                }
+                if (page > 0) BackCircle { go(page - 1) }
             }
             HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth(), beyondViewportPageCount = 1) { p ->
                 Box(Modifier.fillMaxSize().widthIn(max = 560.dp), contentAlignment = Alignment.TopCenter) {
@@ -177,16 +174,13 @@ fun IntroScreen(photos: PhotoAccess, start: Int, onPage: (Int) -> Unit, onFinish
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Dots(page)
-                Button(
-                    onClick = {
-                        when {
-                            page < PAGES - 1 -> go(page + 1)
-                            status == PhotoAccess.Status.NotAsked -> ask.launch(photos.permissions)
-                            else -> onFinish()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                ) { Text(title, style = MaterialTheme.typography.titleMedium) }
+                PrimaryCapsuleButton(title) {
+                    when {
+                        page < PAGES - 1 -> go(page + 1)
+                        status == PhotoAccess.Status.NotAsked -> ask.launch(photos.permissions)
+                        else -> onFinish()
+                    }
+                }
                 // Photos access can wait: sign-in and the cloud library work without it.
                 if (page == PAGES - 1 && status == PhotoAccess.Status.NotAsked) TextButton(onClick = onFinish) { Text("Not now") }
                 if (page == 0) {
