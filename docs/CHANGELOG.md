@@ -35,8 +35,11 @@ What's new in Lelvo for iPhone and Mac, newest first. Downloads for each version
 - **Free up space:** after you confirm, the photos fly into the cloud and the space freed counts up on the page,
   instead of an alert. Cancelling iOS's prompt no longer shows an error.
 - **End of setup:** once your first photo is safe, a short animation pulls your recent photos into the logo.
-- **Report a problem** and **Suggest a feature** now open an email to the developer instead of Telegram, with the
-  address to copy if no mail app is set up.
+- **Talk to us:** Report a problem and Suggest a feature offer two ways: **Post in the Lelvo group** copies a
+  ready-to-fill report (app version and phone model, nothing personal) and opens the right topic in the Lelvo group on
+  Telegram, or **Email**. Settings → Help has the Lelvo group too, and a short note after your photos first appear
+  explains why we ask: Lelvo collects nothing, so we can't see when something goes wrong.
+- **Privacy policy:** now says plainly what place names and maps ask Apple, and covers Android.
 - **Smoother and calmer:** haptics arrive with the touch and only for results and picks, messages at the bottom
   never block the buttons under them, a library that takes a moment to load shows its grid instead of a spinner, and
   decorative motion rests in Low Power Mode and with Reduce Motion.
