@@ -41,6 +41,8 @@ class Prefs(context: Context) {
     var streamingCopies by flag("streamingCopies", true)
     var keepAwakeDuringBackup by flag("keepAwakeDuringBackup", true)
     var backupPaused by flag("backupPaused", false)
+    /** Android 13+: the notification permission was asked for once (the first Back up now). */
+    var askedNotifications by flag("askedNotifications", false)
 
     var albumMode: AlbumMode
         get() = AlbumMode.of(p.getString("albumMode", null))

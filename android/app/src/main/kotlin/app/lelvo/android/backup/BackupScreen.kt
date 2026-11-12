@@ -84,6 +84,17 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
     val isDemo by app.demo.active.collectAsState()
     val scope = rememberCoroutineScope()
     var page by rememberSaveable { mutableStateOf(Page.Main) }
+    // The Free up space shortcut opens that page.
+    LaunchedEffect(Unit) { app.model.openFreeUpSpace.collect { if (it) { page = Page.FreeUp; app.model.openFreeUpSpace.value = false } } }
+    // Android 13+: asked once, the first time a backup is started, so its progress can show while Lelvo is closed.
+    val notificationAsk = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+    val askNotifications = {
+        if (android.os.Build.VERSION.SDK_INT >= 33 && !app.prefs.askedNotifications) {
+            app.prefs.askedNotifications = true
+            notificationAsk.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     val demoRun by app.demo.backup.collectAsState()
     val stats by produceState(Stats(), isDemo) {
         // Recounted when the index or the phone's photos change, and when a run moves on.
@@ -123,7 +134,7 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
     val back = { page = Page.Main }
     when (page) {
         Page.Failed -> return FailedScreen(app, stats.failedItems, onBack = back, onRetry = {
-            scope.launch { if (engine.retryFailed() > 0) engine.start(includeNew = false) }
+            scope.launch { if (engine.retryFailed() > 0) app.startBackup(includeNew = false) }
         }, modifier = modifier)
         Page.FreeUp -> return FreeUpSpaceScreen(app, back, modifier)
         Page.SaveAll -> return SaveAllScreen(app, back, modifier)
@@ -156,12 +167,12 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = Lelvo.colors.orange, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                     }
                     if (activity.isRunning) {
-                        OutlinedButton(onClick = { Messages.show(Messages.Style.Info, "Pausing the backup"); engine.pause() }, modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(onClick = { Messages.show(Messages.Style.Info, "Pausing the backup"); app.pauseBackup() }, modifier = Modifier.fillMaxWidth()) {
                             Icon(painterResource(R.drawable.ic_pause), contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp)); Text("Pause backup")
                         }
                     } else {
-                        Button(onClick = { if (isDemo) scope.launch { app.demo.runBackup() } else engine.start(includeNew = true) },
+                        Button(onClick = { if (isDemo) scope.launch { app.demo.runBackup() } else { askNotifications(); app.startBackup(includeNew = true) } },
                             enabled = isDemo || writeBlock == null, modifier = Modifier.fillMaxWidth()) {
                             Icon(painterResource(R.drawable.ic_cloud_upload), contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp)); Text(if (app.prefs.backupPaused) "Resume backup" else "Back up now")
@@ -173,7 +184,7 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                         if (stats.counts.retryable > 0) {
                             OutlinedButton(onClick = {
                                 Messages.show(Messages.Style.Info, "Retrying ${stats.counts.retryable} failed")
-                                scope.launch { engine.retryFailed(); engine.start(includeNew = false) }
+                                scope.launch { engine.retryFailed(); app.startBackup(includeNew = false) }
                             }, enabled = writeBlock == null, modifier = Modifier.fillMaxWidth()) {
                                 Icon(painterResource(R.drawable.ic_sync), contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp)); Text("Retry ${stats.counts.retryable} failed")

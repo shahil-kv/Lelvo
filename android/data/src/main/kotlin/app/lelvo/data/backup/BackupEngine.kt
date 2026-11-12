@@ -155,9 +155,6 @@ class BackupEngine(
 
     val isRunning: Boolean get() = synchronized(gate) { running }
 
-    /** Starts a run in the background (Back up now, Retry, Back up on chosen photos). */
-    fun start(includeNew: Boolean, userStarted: Boolean = true): Job = scope.launch { run(userStarted = userStarted, includeNew = includeNew) }
-
     /**
      * Stops the running backup at once (uploads in flight go back to the queue; their half-sent message is deleted) and
      * keeps it paused for automatic runs until the user taps Back up now.
@@ -295,13 +292,13 @@ class BackupEngine(
         else if (prefs.backupPaused) return@withContext Summary(error = "Backup is paused. Open Lelvo and tap Back up now to resume.")
         blocker()?.let { reason ->
             // A tap must say why nothing happens, or the button looks broken.
-            return@withContext finish(Summary(error = reason.text), started = false)
+            return@withContext finish(Summary(error = reason.text), started = false, announce = userStarted)
         }
-        val chatId = library.chatId ?: return@withContext finish(Summary(error = StopReason.NotConfigured.text), started = false)
+        val chatId = library.chatId ?: return@withContext finish(Summary(error = StopReason.NotConfigured.text), started = false, announce = userStarted)
         try {
             library.requireWritable(chatId)
         } catch (e: LibraryException) {
-            return@withContext finish(Summary(error = e.message), started = false)
+            return@withContext finish(Summary(error = e.message), started = false, announce = userStarted)
         }
         synchronized(gate) {
             if (running) return@withContext Summary(error = StopReason.AlreadyRunning.text)
@@ -375,21 +372,22 @@ class BackupEngine(
             val summary = Summary(uploaded = snap.first, alreadyBackedUp = snap.second, failed = snap.third, remaining = left)
             if (summary.uploaded > 0) prefs.lastBackupAt = System.currentTimeMillis()
             AppLog.info("Backup run finished: ${summary.text}")
-            finish(summary, started = true)
+            finish(summary, started = true, announce = userStarted)
         } catch (e: CancellationException) {
             val paused = pauseRequested
             val s = Summary(error = if (paused) "Paused. Tap Back up now to continue where it stopped." else null)
             AppLog.info("Backup stopped: ${if (paused) "paused" else "ended"}")
-            finish(s, started = true)
+            finish(s, started = true, announce = userStarted)
             throw e
         } finally {
             synchronized(gate) { running = false; runJob = null }
         }
     }
 
-    private fun finish(summary: Summary, started: Boolean): Summary {
+    /** [announce]: the user started the run, so the Backup tab says how it went (iOS `announce`); automatic runs stay quiet. */
+    private fun finish(summary: Summary, started: Boolean, announce: Boolean): Summary {
         _activity.update {
-            it.copy(isRunning = false, lastSummary = summary, message = summary.text, lanes = emptyMap(), secondsLeft = emptyMap(),
+            it.copy(isRunning = false, lastSummary = if (announce) summary else it.lastSummary, message = summary.text, lanes = emptyMap(), secondsLeft = emptyMap(),
                 notice = null, total = if (started) it.total else 0)
         }
         rates.clear()

@@ -69,7 +69,7 @@ fun RemovedScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Modifi
         val n = app.backup.enqueue(chosen.map { it.localId })
         if (n > 0) {
             Messages.show(Messages.Style.Info, "Backing up $n item${if (n == 1) "" else "s"}")
-            app.backup.start(includeNew = false)
+            app.startBackup(includeNew = false)
         } else {
             // In Recently Deleted: backing it up again is recovering it, which sends a note (Phase L).
             Messages.show(Messages.Style.Info, "Recover it from Recently Deleted", "It's still in your Telegram library's Recently Deleted.")

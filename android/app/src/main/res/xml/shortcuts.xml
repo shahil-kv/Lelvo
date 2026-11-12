@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press Lelvo's icon. The iPhone's Shortcuts actions: Back Up New Photos and Free Up Space (Backup Status is the
+     Quick Settings tile). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="backup_now"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_backup"
+        android:shortcutShortLabel="@string/shortcut_backup_short"
+        android:shortcutLongLabel="@string/shortcut_backup_long">
+        <intent
+            android:action="app.lelvo.android.action.BACKUP_NOW"
+            android:targetPackage="app.lelvo.android"
+            android:targetClass="app.lelvo.android.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="free_up_space"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_free_up"
+        android:shortcutShortLabel="@string/shortcut_free_up_short"
+        android:shortcutLongLabel="@string/shortcut_free_up_short">
+        <intent
+            android:action="app.lelvo.android.action.FREE_UP_SPACE"
+            android:targetPackage="app.lelvo.android"
+            android:targetClass="app.lelvo.android.MainActivity" />
+    </shortcut>
+</shortcuts>

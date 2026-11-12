@@ -1,5 +1,6 @@
 package app.lelvo.android
 
+import app.lelvo.android.background.BackupScheduler
 import androidx.compose.runtime.mutableStateOf
 import app.lelvo.android.library.LibrarySetup
 import app.lelvo.android.shell.Tab
@@ -24,6 +25,12 @@ class AppModel(private val app: LelvoApp) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     val tab = MutableStateFlow(Tab.Photos)
+
+    /** Set by the Free up space shortcut; the Backup tab opens that page and clears it (iOS `openFreeUpSpace`). */
+    val openFreeUpSpace = MutableStateFlow(false)
+
+    /** A shortcut or the backup notification opened a tab: Settings and other pages over the tabs close. */
+    val actionOpened = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     private val _sessionId = MutableStateFlow(0)
     /** Bumped by [reset] so the signed-in screens are rebuilt with nothing of the old account in memory. */
@@ -78,6 +85,8 @@ class AppModel(private val app: LelvoApp) {
             if (step != AuthStep.Ready || app.demo.active.value) return@collect
             val library = app.library
             if (!library.isConfigured || !library.isUnlocked || !library.setupFinished) return@collect
+            // Background backups start once a library is ready (after sign-in, or the first scan of a new library).
+            BackupScheduler.schedule(app, app.prefs)
             runCatching { app.scanner.catchUp(); app.linker.relink() }.onFailure { if (it !is kotlinx.coroutines.CancellationException) AppLog.warn("Library catch-up failed", it) }
         }
     }

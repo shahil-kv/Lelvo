@@ -136,7 +136,7 @@ internal fun SelectionActions(chosen: List<GalleryEntry>, onDone: () -> Unit, mo
                 scope.launch {
                     val n = app.backup.enqueue(toBackUp.mapNotNull { it.asset?.localId })
                     Messages.show(Messages.Style.Info, if (n == 0) "Already backed up" else "Backing up $n item${if (n == 1) "" else "s"}")
-                    if (n > 0) app.backup.start(includeNew = false)
+                    if (n > 0) app.startBackup(includeNew = false)
                     onDone()
                 }
             }

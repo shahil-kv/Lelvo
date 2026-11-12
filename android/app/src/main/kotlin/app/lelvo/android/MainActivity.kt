@@ -1,5 +1,6 @@
 package app.lelvo.android
 
+import app.lelvo.android.background.BackupScheduler
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -87,7 +88,34 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
+        handleAction(intent)
         if (BuildConfig.DEBUG) debugMessage(intent)
+    }
+
+    /** The launcher shortcuts and the backup notification (iOS's Shortcuts actions open the app the same way). */
+    private fun handleAction(intent: android.content.Intent?) {
+        val app = application as LelvoApp
+        val ready = app.library.isConfigured && app.library.isUnlocked && app.library.setupFinished && !app.demo.active.value
+        when (intent?.action) {
+            ACTION_BACKUP_NOW -> {
+                if (!ready) return
+                app.model.tab.value = Tab.Backup
+                app.startBackup(includeNew = true)
+                Messages.show(Messages.Style.Info, "Backing up new photos")
+            }
+            ACTION_FREE_UP_SPACE -> if (ready) { app.model.tab.value = Tab.Backup; app.model.openFreeUpSpace.value = true }
+            ACTION_OPEN_BACKUP -> if (ready) app.model.tab.value = Tab.Backup
+            else -> return
+        }
+        app.model.actionOpened.tryEmit(Unit)
+        // Handled once: a rotation recreates the activity with the same intent.
+        intent.action = null
+    }
+
+    companion object {
+        const val ACTION_BACKUP_NOW = "app.lelvo.android.action.BACKUP_NOW"
+        const val ACTION_FREE_UP_SPACE = "app.lelvo.android.action.FREE_UP_SPACE"
+        const val ACTION_OPEN_BACKUP = "app.lelvo.android.action.OPEN_BACKUP"
     }
 
     /**
@@ -102,6 +130,13 @@ class MainActivity : ComponentActivity() {
         // `--es lelvo.library found|found2|none|error|searching|unlock|recovery|scanning|photos` shows that library step with sample data.
         intent.getStringExtra("lelvo.library")?.let { libraryPreview.value = it; return }
         // `--ez lelvo.forgetLibrary true` forgets the library on this phone, to run choosing and unlocking for real.
+        // `--es lelvo.work backup.overnight|index.refresh|backup.newPhotos`: runs that background work once now (periodic
+        // work can't be forced early).
+        intent.getStringExtra("lelvo.work")?.let { kind ->
+            androidx.work.WorkManager.getInstance(this).enqueue(androidx.work.OneTimeWorkRequestBuilder<app.lelvo.android.background.BackupWorker>()
+                .setInputData(androidx.work.Data.Builder().putString(app.lelvo.android.background.BackupWorker.KIND, kind).build()).build())
+            return
+        }
         if (intent.getBooleanExtra("lelvo.forgetLibrary", false)) { (application as LelvoApp).model.forgetLibrary(); return }
         val title = intent.getStringExtra("lelvo.message") ?: return
         val style = intent.getStringExtra("lelvo.style")
@@ -125,6 +160,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as LelvoApp
+        if (savedInstanceState == null) handleAction(intent)
         if (BuildConfig.DEBUG) debugMessage(intent)
         // Once per process, like iOS: a warm start or a rotation never plays it again.
         val opening = savedInstanceState == null && !app.openingPlayed
@@ -221,6 +257,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
     var settings by rememberSaveable { mutableStateOf(false) }
     var checking by rememberSaveable { mutableStateOf(false) }
     var libraries by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) { app.model.actionOpened.collect { settings = false; libraries = false; checking = false } }
     // Pages opened from Collections, newest last; Back closes the top one.
     var pages by remember { mutableStateOf(emptyList<CollectionPage>()) }
     val openSettings = { settings = true }
@@ -283,6 +320,8 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                 // Debug builds only: proves the base against the real library before features are built on it.
                 onCoreCheck = if (BuildConfig.DEBUG && real) ({ checking = true }) else null,
                 onLibrary = if (real) ({ libraries = true }) else null,
+                prefs = if (real) app.prefs else null,
+                onBackupRulesChanged = { rules -> BackupScheduler.schedule(app, app.prefs, rulesChanged = rules) },
             )
             if (libraries) LibrariesScreen(app, onClose = { libraries = false })
         }

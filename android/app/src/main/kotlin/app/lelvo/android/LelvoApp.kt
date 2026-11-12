@@ -1,6 +1,11 @@
 package app.lelvo.android
 
 import android.app.Application
+import app.lelvo.android.background.BackupScheduler
+import app.lelvo.android.background.BackupTileService
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import android.os.Build
 import android.util.Log
 import app.lelvo.core.support.AppLog
@@ -53,6 +58,9 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var secondCopy: app.lelvo.data.backup.SecondCopyService private set
     /** The launch opening plays once per process (cold start only). */
     var openingPlayed = false
+    private var startedActivities = 0
+    /** An activity of Lelvo is on screen; background runs then leave the summary to the app. */
+    val isOnScreen: Boolean get() = startedActivities > 0
 
     override fun onCreate() {
         super.onCreate()
@@ -107,6 +115,35 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         duplicates = app.lelvo.data.backup.Duplicates(store, library, scanner, uploads, backup.phone)
         secondCopy = app.lelvo.data.backup.SecondCopyService(this, store, reader)
         model = AppModel(this)
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: android.app.Activity) { startedActivities++ }
+            override fun onActivityStopped(activity: android.app.Activity) { startedActivities = maxOf(0, startedActivities - 1) }
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+            override fun onActivityResumed(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
+        // The Quick Settings tile follows the backup: started, an item done, finished.
+        kotlinx.coroutines.MainScope().launch {
+            backup.activity.map { Triple(it.isRunning, it.done, it.total) }.distinctUntilChanged().collect { BackupTileService.update(this@LelvoApp) }
+        }
+        if (library.isConfigured && library.setupFinished) BackupScheduler.schedule(this, prefs)
+    }
+
+    /**
+     * Back up now, Back up on chosen photos, Retry, the shortcut and the tile: a user run, which keeps going with Lelvo
+     * in the background (its notification shows progress). [includeNew]: every photo not yet in the cloud.
+     */
+    fun startBackup(includeNew: Boolean) {
+        prefs.backupPaused = false
+        BackupScheduler.startNow(this, includeNew)
+    }
+
+    /** Pause backup (the Backup tab, the notification, the tile): stops the run and the user runs queued after it. */
+    fun pauseBackup() {
+        BackupScheduler.cancelUserRuns(this)
+        backup.pause()
     }
 
     /**
@@ -117,6 +154,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
      */
     suspend fun resetEverything(keepingChoices: Boolean) {
         if (backup.isRunning) backup.pause()
+        BackupScheduler.cancelAll(this)
         AppLog.info("Reset this phone: signing out and removing Lelvo's local data${if (keepingChoices) " (session ended elsewhere)" else ""}")
         demo.exit()
         // Telegram is asked only when a session or a sign-in is under way; in the demo it usually isn't.

@@ -2,6 +2,7 @@ package app.lelvo.android.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -38,7 +39,10 @@ data class SettingsInfo(val account: String, val library: String, val version: S
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit, onCoreCheck: (() -> Unit)?, onLibrary: (() -> Unit)? = null) {
+fun SettingsScreen(
+    info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit, onCoreCheck: (() -> Unit)?, onLibrary: (() -> Unit)? = null,
+    prefs: app.lelvo.data.Prefs? = null, onBackupRulesChanged: (rules: Boolean) -> Unit = {},
+) {
     BackHandler(onBack = onClose)
     var confirmSignOut by remember { mutableStateOf(false) }
     Scaffold(
@@ -53,6 +57,10 @@ fun SettingsScreen(info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Uni
             Header("Account")
             Row("Signed in as", info.account)
             Row("Library", info.library, onClick = onLibrary)
+            if (prefs != null) {
+                Divider()
+                BackupSection(prefs, onBackupRulesChanged)
+            }
             if (onCoreCheck != null) {
                 Divider()
                 Header("Developer")
@@ -98,5 +106,32 @@ private fun Row(title: String, value: String?, destructive: Boolean = false, onC
         headlineContent = { Text(title, color = if (destructive) Lelvo.colors.red else MaterialTheme.colorScheme.onSurface) },
         supportingContent = value?.takeIf { it.isNotEmpty() }?.let { { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
         modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+    )
+}
+
+/** iOS Settings → Backup and Backup options → When to upload, as one plain section. */
+@Composable
+private fun BackupSection(prefs: app.lelvo.data.Prefs, onChanged: (rules: Boolean) -> Unit) {
+    var auto by remember { mutableStateOf(prefs.autoBackup) }
+    var wifi by remember { mutableStateOf(prefs.wifiOnly) }
+    var charging by remember { mutableStateOf(prefs.chargingOnly) }
+    Header("Backup")
+    Toggle("Back up new photos automatically",
+        if (auto) "New photos are backed up on their own, including overnight while charging."
+        else "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.",
+        auto) { auto = it; prefs.autoBackup = it; onChanged(false) }
+    Toggle("Wi-Fi only", "Also waits on mobile data, hotspots and other metered networks.", wifi) {
+        wifi = it; prefs.wifiOnly = it; onChanged(true)
+    }
+    Toggle("Only while charging", null, charging) { charging = it; prefs.chargingOnly = it; onChanged(true) }
+}
+
+@Composable
+private fun Toggle(title: String, detail: String?, on: Boolean, onChange: (Boolean) -> Unit) {
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = detail?.let { { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
+        trailingContent = { androidx.compose.material3.Switch(on, onCheckedChange = null) },
+        modifier = Modifier.toggleable(on, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = onChange),
     )
 }
