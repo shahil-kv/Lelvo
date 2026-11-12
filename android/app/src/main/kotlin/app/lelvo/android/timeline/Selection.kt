@@ -34,6 +34,7 @@ import app.lelvo.android.actions.shareEntries
 import app.lelvo.android.shell.Messages
 import app.lelvo.core.index.GalleryEntry
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
 /**
@@ -107,6 +108,7 @@ internal fun EdgeScroll(state: LazyGridState, speed: Float) {
 @Composable
 internal fun SelectionActions(chosen: List<GalleryEntry>, onDone: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
     val actions = rememberPhoneActions(onFavorited = { onDone() }, onTrashed = onDone)
@@ -127,6 +129,17 @@ internal fun SelectionActions(chosen: List<GalleryEntry>, onDone: () -> Unit, mo
     Surface(modifier.fillMaxWidth(), tonalElevation = 3.dp, shadowElevation = 6.dp) {
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             Action(R.drawable.ic_send, "Share", enabled = chosen.isNotEmpty() && !sharing) { sharing = true }
+            // Phone photos not in the cloud yet: queued as chosen, so they go even with automatic backup off.
+            val toBackUp = chosen.filter { it.asset != null && it.badge != app.lelvo.core.index.BackupBadge.BackedUp }
+            if (toBackUp.isNotEmpty()) Action(R.drawable.ic_cloud_upload, "Back up", enabled = true) {
+                val app = context.applicationContext as app.lelvo.android.LelvoApp
+                scope.launch {
+                    val n = app.backup.enqueue(toBackUp.mapNotNull { it.asset?.localId })
+                    Messages.show(Messages.Style.Info, if (n == 0) "Already backed up" else "Backing up $n item${if (n == 1) "" else "s"}")
+                    if (n > 0) app.backup.start(includeNew = false)
+                    onDone()
+                }
+            }
             Action(R.drawable.ic_favorite, if (allFavorite) "Unfavorite" else "Favorite", enabled = chosen.any { it.asset != null }) {
                 actions.favorite(chosen, !allFavorite)
             }
