@@ -48,15 +48,16 @@ object Memories {
         data class Theme(val theme: Memories.Theme) : Kind
     }
 
+    /** Vision's identifiers (iOS) and ML Kit's names (Android) for the same things: each phone labels its own photos. */
     enum class Theme(val title: String, val labels: Set<String>) {
         Dogs("Dogs", setOf("dog", "canine", "bulldog", "sheepdog")),
         Cats("Cats", setOf("cat", "feline", "adult_cat")),
         Beach("At the Beach", setOf("beach", "shore", "ocean")),
         Snow("Snow Days", setOf("snow", "snowman", "skiing", "snowboarding")),
-        Food("Good Food", setOf("food", "dessert", "seafood")),
-        Celebrations("Celebrations", setOf("birthday_cake", "celebration", "fireworks", "wedding", "christmas_tree", "christmas_decoration")),
+        Food("Good Food", setOf("food", "dessert", "seafood", "cuisine", "pizza", "sushi")),
+        Celebrations("Celebrations", setOf("birthday_cake", "celebration", "fireworks", "wedding", "christmas_tree", "christmas_decoration", "party", "cake", "christmas", "balloon")),
         Mountains("Mountains", setOf("mountain", "hiking")),
-        Sunsets("Sunsets", setOf("sunset_sunrise")),
+        Sunsets("Sunsets", setOf("sunset_sunrise", "sunset")),
         Flowers("Flowers", setOf("flower", "flower_arrangement")),
     }
 

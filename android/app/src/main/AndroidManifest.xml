@@ -75,5 +75,15 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/share_paths" />
         </provider>
+
+        <!-- ML Kit (things in photos) runs on this phone, but brings Google's usage logger, which uploads API usage
+             stats. Without its upload backend nothing is sent: Lelvo has no servers and talks only to Telegram. -->
+        <service
+            android:name="com.google.android.datatransport.runtime.backends.TransportBackendDiscovery"
+            tools:node="merge">
+            <meta-data
+                android:name="backend:com.google.android.datatransport.cct.CctBackendFactory"
+                tools:node="remove" />
+        </service>
     </application>
 </manifest>

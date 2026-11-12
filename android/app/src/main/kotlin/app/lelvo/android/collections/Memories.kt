@@ -88,8 +88,7 @@ import kotlin.math.min
 
 /**
  * Memories made on this phone from the timeline (iOS `MemoriesModel.cards`): photos only, with the phone file's place
- * (read by search) or the backup's, and place names from search. Screenshots never count. No image labels
- * on Android yet, so themes stay empty; their setting is kept for when they come.
+ * (read by search) or the backup's, place names and things in photos (themes) from search. Screenshots never count.
  */
 internal fun memoryCards(entries: List<GalleryEntry>, prefs: Prefs, search: app.lelvo.data.search.SearchService): List<MemoryCard> {
     val started = System.currentTimeMillis()
@@ -101,6 +100,7 @@ internal fun memoryCards(entries: List<GalleryEntry>, prefs: Prefs, search: app.
         Memories.Photo(
             e.id, date, place?.first, place?.second,
             isUtility = e.asset?.bucketName == "Screenshots",
+            things = e.asset?.let { search.things(it.localId) }.orEmpty(),
         )
     }
     val zone = ZoneId.systemDefault()

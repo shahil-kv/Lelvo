@@ -124,6 +124,15 @@ class SearchCorpusTest {
         assertEquals(listOf("cloud-c0"), index.search("img_c0"))
     }
 
+    @Test fun thingsInPhotosAreWordsAndTheirAlternativesFindThem() {
+        val labels = mapOf("p1" to listOf("christmas_tree", "dog"), "p2" to listOf("ocean"))
+        val index = SearchCorpus.index(entries, places, phone::get, ZoneOffset.UTC, Locale.US) { e -> e.asset?.let { labels[it.localId] }.orEmpty() }
+        assertEquals(listOf("p1"), index.search("christmas tree"))
+        assertEquals(listOf("p1"), index.search("dog"))
+        assertEquals(listOf("p1"), index.search("pets"), "pets counts as dog, as on iOS")
+        assertEquals(listOf("p2"), index.search("sea"))
+    }
+
     @Test fun zeroZeroIsNoPlace() {
         assertEquals(null, SearchCorpus.cell(entries.last(), phone::get))
     }

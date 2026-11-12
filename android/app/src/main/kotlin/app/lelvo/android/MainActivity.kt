@@ -52,6 +52,7 @@ import app.lelvo.core.index.GalleryFilter
 import app.lelvo.android.collections.CollectionPage
 import app.lelvo.android.collections.CollectionsScreen
 import app.lelvo.android.collections.MapPreview
+import app.lelvo.core.support.AppLog
 import app.lelvo.android.collections.PhotoMapScreen
 import app.lelvo.android.collections.MemoriesScreen
 import app.lelvo.android.collections.MemoriesSettingsScreen
@@ -135,6 +136,15 @@ class MainActivity : ComponentActivity() {
         // `--ez lelvo.map true` shows the map with sample places (and the details sheet's small map under it), so it
         // can be checked signed out or on a library without locations. Nothing is read or written.
         if (intent.getBooleanExtra("lelvo.map", false)) { mapPreview.value = true; return }
+        // `--ez lelvo.labels true` reads places and things in this phone's photos now and logs a few photos' labels.
+        if (intent.getBooleanExtra("lelvo.labels", false)) {
+            val app = application as LelvoApp
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                app.search.index()
+                app.photos.assets().take(8).forEach { a -> AppLog.info("Debug: ${a.filename}: ${app.search.things(a.localId)}") }
+            }
+            return
+        }
         // `--ez lelvo.forgetLibrary true` forgets the library on this phone, to run choosing and unlocking for real.
         // `--es lelvo.work backup.overnight|index.refresh|backup.newPhotos`: runs that background work once now (periodic
         // work can't be forced early).

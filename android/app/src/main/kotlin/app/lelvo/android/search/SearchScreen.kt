@@ -99,7 +99,7 @@ fun SearchScreen(app: LelvoApp, onOpen: (List<GalleryEntry>, Int) -> Unit, onSet
                     val started = System.currentTimeMillis()
                     val places = app.search.placeNames()
                     val built = SearchData(
-                        SearchCorpus.index(entries, places, app.search::phoneLocation),
+                        SearchCorpus.index(entries, places, app.search::phoneLocation, things = { e -> e.asset?.let { app.search.things(it.localId) }.orEmpty() }),
                         SearchCorpus.suggestions(entries, places, app.search::phoneLocation),
                         entries.associateBy { it.id },
                     )

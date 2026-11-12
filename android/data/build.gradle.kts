@@ -21,6 +21,7 @@ ksp {
 dependencies {
     api(project(":telegram"))
     implementation(libs.argon2kt)
+    implementation(libs.mlkit.labeling)
     // The fast version of videos (approved list: "Media3 Transformer for the fast version").
     implementation(libs.media3.transformer)
     implementation(libs.media3.effect)

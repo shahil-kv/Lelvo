@@ -8,7 +8,7 @@ import java.util.Locale
 
 /**
  * What each timeline entry is found by, and the suggestions under an empty field (iOS `SearchService.index` and
- * `suggestions`). Android has no on-device reading of text and things in photos yet, so those words are missing.
+ * `suggestions`). Things in photos come from the phone's labeller; text in photos isn't read on Android yet.
  */
 object SearchCorpus {
     /** A photo's location: the phone file's (read by the app) or the backup's. */
@@ -23,12 +23,17 @@ object SearchCorpus {
     fun cell(e: GalleryEntry, phone: (String) -> Pair<Double, Double>?): String? =
         location(e, phone)?.let { (lat, lon) -> SearchMatcher.placeCell(lat, lon) }
 
-    /** The inverted index of every entry's words, in timeline order. [places]: cell → "City, State, Country". */
+    /**
+     * The inverted index of every entry's words, in timeline order. [places]: cell → "City, State, Country".
+     * [things]: what is in the photo ("christmas_tree"), stored as words the way iOS does (`storedWords`).
+     */
     fun index(
         entries: List<GalleryEntry>, places: Map<String, String>, phone: (String) -> Pair<Double, Double>?,
         zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault(),
+        things: (GalleryEntry) -> List<String> = { emptyList() },
     ): SearchIndex = SearchIndex(entries.map { e ->
         val known = SearchMatcher.dateWords(e.date, zone, locale).toMutableList()
+        known += SearchMatcher.words(things(e).joinToString(" ") { it.replace('_', ' ') })
         cell(e, phone)?.let { places[it] }?.let { known += SearchMatcher.words(it) }
         e.item?.let { known += SearchMatcher.words((it.albums + it.filename).joinToString(" ")) }
         // Android's own albums are folders: "whatsapp", "camera", "screenshots" find their photos.

@@ -46,6 +46,7 @@ class SearchService(context: Context, private val store: LibraryStore, private v
     private val dir = File(app.cacheDir, "search")
     private val placesFile = File(dir, "places.json")
     private val locationsFile = File(dir, "locations.json")
+    private val labels = PhotoLabels(context, photos, dir)
     private val running = Mutex()
 
     /** A phone file's location as read; [lat] NaN means it has none. */
@@ -81,7 +82,21 @@ class SearchService(context: Context, private val store: LibraryStore, private v
      */
     suspend fun index(phone: Boolean = true) {
         if (!running.tryLock()) return
-        try { withContext(Dispatchers.IO) { if (phone) readPlaces(); lookUpNames() } } finally { running.unlock() }
+        try { withContext(Dispatchers.IO) { if (phone) { readPlaces(); readThings() }; lookUpNames() } } finally { running.unlock() }
+    }
+
+    /** Things in a phone photo ("dog", "beach"), by MediaStore id, for search and themed Memories. */
+    fun things(localId: String): List<String> = labels.of(localId)
+
+    /** After the places: they are quick and name the photos first. Not on battery saver, like the places. */
+    private suspend fun readThings() {
+        if (powerSaving()) return
+        var last = System.currentTimeMillis()
+        val read = labels.read(photos.assets()) { _, _ ->
+            // New words show while a long first pass runs, not only at its end.
+            if (System.currentTimeMillis() - last > 20_000) { last = System.currentTimeMillis(); _revision.value++ }
+        }
+        if (read > 0) _revision.value++
     }
 
     private suspend fun readPlaces() {
@@ -219,6 +234,7 @@ class SearchService(context: Context, private val store: LibraryStore, private v
     fun clear() {
         places = emptyMap()
         locations = emptyMap()
+        labels.clear()
         dir.deleteRecursively()
         _status.value = Status(0, 0)
         _revision.value++
