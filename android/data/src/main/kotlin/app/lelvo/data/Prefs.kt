@@ -41,6 +41,8 @@ class Prefs(context: Context) {
     var streamingCopies by flag("streamingCopies", true)
     var keepAwakeDuringBackup by flag("keepAwakeDuringBackup", true)
     var backupPaused by flag("backupPaused", false)
+    /** The one-time "Found a bug? Tell me" note was shown, after the photos first appeared. */
+    var communityNoteShown by flag("communityNoteShown", false)
     /** Android 13+: the notification permission was asked for once (the first Back up now). */
     var askedNotifications by flag("askedNotifications", false)
 

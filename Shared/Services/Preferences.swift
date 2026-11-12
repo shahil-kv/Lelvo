@@ -29,6 +29,8 @@ enum Prefs {
         static let streamingCopies = "streamingCopies"
         static let videoQuality = "videoQuality"
         static let keepAwakeDuringBackup = "keepAwakeDuringBackup"
+        /// The one-time "Found a bug? Tell me" note was closed, after the photos first appeared.
+        static let communityNoteShown = "communityNoteShown"
         static let secondCopyBookmark = "secondCopyBookmark"
         static let secondCopyVolume = "secondCopyVolume"
     }

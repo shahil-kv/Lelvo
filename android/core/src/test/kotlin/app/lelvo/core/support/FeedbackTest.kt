@@ -67,4 +67,15 @@ class FeedbackTest {
         assertEquals("Android", q["app"])
         assertNull(q["version"])
     }
+
+    @Test fun groupPostMatchesThePinnedTemplatesAndCarriesNothingPersonal() {
+        val env = Feedback.Environment("Android", "0.2.0 (7)", "Google Pixel 8", "Android 16")
+        val bug = Feedback.groupPost(Feedback.Kind.Bug, "Lelvo", env)
+        assertTrue(bug.startsWith("🐞 Bug\n\nWhat I did:"))
+        assertTrue("What happened instead:" in bug)
+        assertTrue(bug.endsWith("Phone: Google Pixel 8, Android 16\nLelvo version: 0.2.0 (7) (Android)"))
+        val idea = Feedback.groupPost(Feedback.Kind.Idea, "Lelvo", env)
+        assertTrue(idea.startsWith("💡 Feature idea\n\nWhat I'd like Lelvo to do:"))
+        assertTrue(idea.endsWith("Lelvo 0.2.0 (7) (Android), Google Pixel 8"))
+    }
 }

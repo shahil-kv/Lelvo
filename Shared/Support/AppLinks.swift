@@ -14,6 +14,13 @@ enum AppLinks {
     /// Who Report a problem and Suggest a feature write to, by email.
     static let developerName = "Shahil"
     static let developerEmail = "support@lelvo.app"
+
+    /// The Lelvo group on Telegram: bugs, ideas and help, read by the founder.
+    static let community = URL.literal("https://t.me/lelvo_chat")
+    /// The template pinned at the top of each topic. A message link opens its topic in Telegram, scrolled to the
+    /// template, just above where the user pastes. If those pinned messages are ever deleted, these need new numbers.
+    static let communityBugs = URL.literal("https://t.me/lelvo_chat/16")
+    static let communityIdeas = URL.literal("https://t.me/lelvo_chat/18")
 }
 
 /// Third-party code shipped inside the app, with the license each one is under.

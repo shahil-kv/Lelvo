@@ -92,6 +92,7 @@ private fun Main(
     onCoreCheck: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
     open: (Page) -> Unit, visible: Boolean,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var confirmSignOut by remember { mutableStateOf(false) }
     var ttl by remember { mutableStateOf<Int?>(null) }
     var auto by remember { mutableStateOf(app.prefs.autoBackup) }
@@ -135,6 +136,9 @@ private fun Main(
 
         SectionDivider()
         SectionHeader("Help")
+        SettingRow("Lelvo group on Telegram", "Bugs, ideas and help. Shahil reads every message.", icon = R.drawable.ic_chat) {
+            openLink(context, AppLinks.COMMUNITY)
+        }
         SettingRow("Report a problem", icon = R.drawable.ic_error) { open(Page.Feedback(Feedback.Kind.Bug)) }
         SettingRow("Suggest a feature", icon = R.drawable.ic_auto_awesome) { open(Page.Feedback(Feedback.Kind.Idea)) }
         SettingRow("Logs", icon = R.drawable.ic_description) { open(Page.Logs) }

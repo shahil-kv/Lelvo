@@ -52,6 +52,14 @@ internal object AppLinks {
     const val LICENSE = "https://www.gnu.org/licenses/gpl-3.0.html"
     const val DEVELOPER_NAME = "Shahil"
     const val DEVELOPER_EMAIL = "support@lelvo.app"
+    /** The Lelvo group on Telegram: bugs, ideas and help, read by the founder. */
+    const val COMMUNITY = "https://t.me/lelvo_chat"
+    /**
+     * The template pinned at the top of each topic. A message link opens its topic in Telegram, scrolled to the
+     * template, just above where the user pastes. If those pinned messages are ever deleted, these need new numbers.
+     */
+    const val COMMUNITY_BUGS = "https://t.me/lelvo_chat/16"
+    const val COMMUNITY_IDEAS = "https://t.me/lelvo_chat/18"
 }
 
 /** "0.1.0 (12)": the version and the build number, as About shows them (iOS `displayVersion`). */
@@ -169,7 +177,17 @@ internal fun FeedbackScreen(kind: Feedback.Kind, onLogs: () -> Unit, onBack: () 
             SettingRow("A screenshot or sketch, if it helps", icon = R.drawable.ic_image)
         }
         SectionDivider()
-        SettingRow("Email ${AppLinks.DEVELOPER_NAME}", icon = R.drawable.ic_mail) {
+        SectionHeader("Send it")
+        SettingRow(
+            "Post in the Lelvo group",
+            "Opens ${if (bug) "Bugs" else "Feature ideas"} in Telegram with your ${if (bug) "report" else "idea"} copied. Paste it there.",
+            icon = R.drawable.ic_chat,
+        ) {
+            copy(context, if (bug) "Bug report" else "Feature idea", Feedback.groupPost(kind, "Lelvo", feedbackEnvironment))
+            Messages.show(Messages.Style.Info, if (bug) "Report copied" else "Idea copied", "Paste it in the group and send.")
+            openLink(context, if (bug) AppLinks.COMMUNITY_BUGS else AppLinks.COMMUNITY_IDEAS)
+        }
+        SettingRow("Email ${AppLinks.DEVELOPER_NAME}", AppLinks.DEVELOPER_EMAIL, icon = R.drawable.ic_mail) {
             val url = Feedback.mailUrl(
                 AppLinks.DEVELOPER_EMAIL, Feedback.subject(kind, "Lelvo"),
                 Feedback.draft(kind, "Lelvo", AppLinks.DEVELOPER_NAME, feedbackEnvironment),
@@ -180,13 +198,9 @@ internal fun FeedbackScreen(kind: Feedback.Kind, onLogs: () -> Unit, onBack: () 
                 copyAddress(noMailApp = true)
             }
         }
-        SettingRow(AppLinks.DEVELOPER_EMAIL, "Tap to copy", icon = R.drawable.ic_content_copy) { copyAddress() }
-        SettingRow("Create an issue on GitHub", icon = R.drawable.ic_code) {
-            openLink(context, Feedback.gitHubIssueUrl(AppLinks.REPOSITORY, kind, feedbackEnvironment))
-        }
         Footnote(
-            "Your mail app opens with a message ready for you to finish and send, with your app version and phone model " +
-                "filled in. ${AppLinks.DEVELOPER_NAME} will see your email address. GitHub issues are public and need a GitHub account.",
+            "Both come with your app version and phone model filled in, nothing else. Everyone in the group can read what " +
+                "you post there. By email only ${AppLinks.DEVELOPER_NAME} reads it, and sees your email address.",
         )
     }
 }

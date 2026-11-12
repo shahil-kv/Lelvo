@@ -60,6 +60,7 @@ import app.lelvo.android.collections.MemoriesSettingsScreen
 import app.lelvo.android.collections.MemoryStoryScreen
 import app.lelvo.android.collections.RecentlyDeletedScreen
 import app.lelvo.android.shell.AppShell
+import app.lelvo.android.shell.CommunityNote
 import app.lelvo.android.shell.MessageHost
 import app.lelvo.android.shell.Messages
 import app.lelvo.android.shell.NavigationBarHeight
@@ -182,13 +183,13 @@ class MainActivity : ComponentActivity() {
         Messages.show(s, title, intent.getStringExtra("lelvo.detail"), action = undo)
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
     // Every touch, before any screen sees it: Search's photo reading pauses while someone scrolls or taps.
     override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
         (application as LelvoApp).search.noteTouch()
         return super.dispatchTouchEvent(ev)
     }
 
+    override fun onCreate(savedInstanceState: Bundle?) {
         // The manifest's launch theme draws the launch screen; the app itself uses the plain one.
         setTheme(R.style.Theme_Lelvo)
         super.onCreate(savedInstanceState)
@@ -310,6 +311,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
         }
     }
     PhoneFavoritePrompt(app)
+    CommunityNote(app)
     Box(Modifier.fillMaxSize()) {
         AppShell(app.model.tab) { tab, modifier ->
             when (tab) {

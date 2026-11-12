@@ -33,6 +33,19 @@ public enum Feedback {
         return body + "\n— \(appName) \(env.version), \(env.device), \(env.os)"
     }
 
+    /// The same report for the Lelvo group on Telegram, matching the template pinned in its Bugs and Feature ideas
+    /// topics. Telegram doesn't let an app type into a group, so the app copies this and opens the topic to paste in.
+    public static func groupPost(_ kind: Kind, appName: String, env: Environment) -> String {
+        switch kind {
+        case .bug:
+            return "🐞 Bug\n\nWhat I did:\n\nWhat I expected:\n\nWhat happened instead:\n\nHow often: every time / sometimes / once\n"
+                + "Phone: \(env.device), \(env.os)\n\(appName) version: \(env.version) (\(env.app))"
+        case .idea:
+            return "💡 Feature idea\n\nWhat I'd like \(appName) to do:\n\nWhy it would help me:\n\nHow I do it today:\n\n"
+                + "\(appName) \(env.version) (\(env.app)), \(env.device)"
+        }
+    }
+
     /// The subject line of an email draft.
     public static func subject(_ kind: Kind, appName: String) -> String {
         kind == .bug ? "\(appName): something isn't working" : "\(appName): an idea"

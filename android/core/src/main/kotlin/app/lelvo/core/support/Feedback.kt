@@ -2,7 +2,8 @@ package app.lelvo.core.support
 
 /**
  * Links and message drafts behind Settings → Report a problem and Suggest a feature (iOS `Feedback`, same text). The
- * app never sends anything itself: it opens a mail app or GitHub with the text ready, and the user presses send.
+ * app never sends anything itself: it opens a mail app, GitHub or the Lelvo group with the text ready, and the user
+ * presses send.
  */
 object Feedback {
     enum class Kind { Bug, Idea }
@@ -22,6 +23,17 @@ object Feedback {
             Kind.Idea -> "Hi $developer, I have an idea for $appName.\n\nWhat I'd like:\n\n\nWhy it would help:\n\n"
         }
         return body + "\n— $appName ${env.version}, ${env.device}, ${env.os}"
+    }
+
+    /**
+     * The same report for the Lelvo group on Telegram, matching the template pinned in its Bugs and Feature ideas topics.
+     * Telegram doesn't let an app type into a group, so the app copies this and opens the topic for the user to paste.
+     */
+    fun groupPost(kind: Kind, appName: String, env: Environment): String = when (kind) {
+        Kind.Bug -> "🐞 Bug\n\nWhat I did:\n\nWhat I expected:\n\nWhat happened instead:\n\nHow often: every time / sometimes / once\n" +
+            "Phone: ${env.device}, ${env.os}\n$appName version: ${env.version} (${env.app})"
+        Kind.Idea -> "💡 Feature idea\n\nWhat I'd like $appName to do:\n\nWhy it would help me:\n\nHow I do it today:\n\n" +
+            "$appName ${env.version} (${env.app}), ${env.device}"
     }
 
     fun subject(kind: Kind, appName: String): String =
