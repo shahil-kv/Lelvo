@@ -17,6 +17,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -53,6 +59,7 @@ import app.lelvo.android.shell.Messages
 import app.lelvo.android.shell.NavigationBarHeight
 import app.lelvo.android.shell.Tab
 import app.lelvo.android.shell.TabPlaceholder
+import app.lelvo.android.search.SearchScreen
 import app.lelvo.android.library.UnlockScreen
 import app.lelvo.android.signin.SignInScreen
 import app.lelvo.android.onboarding.IntroScreen
@@ -218,11 +225,22 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
     val openSettings = { settings = true }
     val openPage = { p: CollectionPage -> pages = pages + p }
     val closePage = { pages = pages.dropLast(1) }
+    // Search reads where photos were taken while Lelvo is on screen, as iOS does, and again when photos change.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    val isDemo by app.demo.active.collectAsState()
+    LaunchedEffect(lifecycle, isDemo) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            // New backups bring new places to name; a library scan finishing after launch counts too.
+            val library = app.store.items().map { it.size }.distinctUntilChanged()
+            app.photos.changes().combine(library) { _, _ -> }.conflate().collect { app.search.index(phone = !isDemo) }
+        }
+    }
     Box(Modifier.fillMaxSize()) {
         AppShell(app.model.tab) { tab, modifier ->
             when (tab) {
                 Tab.Photos -> TimelineScreen(app.store, app.photos, app.demo, app.prefs, onOpen = { list, index -> open = list to index }, onSettings = openSettings, modifier = modifier)
                 Tab.Collections -> CollectionsScreen(app, onOpen = openPage, onSettings = openSettings, modifier = modifier)
+                Tab.Search -> SearchScreen(app, onOpen = { list, index -> open = list to index }, onSettings = openSettings, modifier = modifier)
                 else -> TabPlaceholder(tab, app.demo, openSettings, modifier)
             }
         }

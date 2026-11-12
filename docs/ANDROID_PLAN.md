@@ -212,9 +212,9 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Search by date, place, file name, album | `SearchService.swift`, `SearchMatcher.swift`, `SearchModel.swift` | `core/` matcher port | |
-| Suggestions | `SearchSuggestions.swift` | Suggestion chips | |
-| Things in photos (labels) | `SearchService.swift` (Vision) | On-device labels; needs its own issue | |
+| Search by date, place, file name, album | `SearchService.swift`, `SearchMatcher.swift`, `SearchModel.swift` | `core/` matcher port | ✅ plus folder names; phone photos' places read from the files |
+| Suggestions | `SearchSuggestions.swift` | Suggestion chips | ✅ places as covers, recent, months, Try chips |
+| Things in photos (labels) | `SearchService.swift` (Vision) | On-device labels; needs its own issue | not started: needs a labeller on the approved list (at the end, with the map) |
 
 ### Phase I. Backup tab and backup engine
 
@@ -602,11 +602,37 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
     scores (needs an on-device image labeller: not on the approved list), so the Themes switch is hidden; the iPhone
     may make more or different memories for the same library because of those.
   - Test file left on the emulator for Motion Photo checks: `Pictures/MotionTest/PXL_20261111_120000000.MP.jpg`.
+- 2026-11-12, Phase H (Search): `SearchMatcher`, `SearchIndex` (inverted index, binary search on prefixes) and
+  `SearchCorpus` (an entry's words, place and month suggestions) ported to `core/` with every iOS test case (12 tests,
+  plus folders, phone places, video location tags). Words per entry as iOS: year and month (English and the phone's
+  language), place name, albums and file name, kind (video, live, photo, favorite, screenshot); Android adds the folder
+  name ("whatsapp", "camera"). `data/search/SearchService`:
+  - Phone photos' places: Android hides the location from MediaStore, so each file's own is read once (EXIF, or the
+    video's ISO 6709 tag) with `setRequireOriginal`, kept per file until `DATE_MODIFIED` changes, saved when the pass
+    is cancelled mid-way. Skipped without `ACCESS_MEDIA_LOCATION` and in battery saver; 5 ms between files on battery.
+  - Place names: Android's `Geocoder` (Play services on most phones), once per ~1 km cell, only the cell's middle is
+    sent, 1.2 s between requests, stops after 3 failures in a row and tries again next pass. Cached in
+    `cache/search/`, cleared on sign out.
+  - Runs while Lelvo is on screen, again when photos change or the library's size changes.
+  - Search tab, Google Photos style: rounded field under the title, under an empty field Places as covers (most photos
+    first, newest as cover), Recent (kept only when it found something, Clear), Months, Try chips; results while
+    typing (120 ms after the last letter) in the Photos grid; Back clears the search. Memories now use the phone
+    photos' places and the names: trips read "Trip to …".
+  - Grid fixes on the way: a collection's id set no longer goes into saved state (thousands of ids could exceed the
+    bundle limit), and a new filter re-filters without listing the phone again.
+  - Real library: 1,088 items indexed in 0.10–0.11 s; 830 backed-up items have a place, 147 cells to name; phone
+    places read in under 1 s for 15 photos. Checked light and dark, no results, results.
+  - Not proven on the emulator: real place names. Its Play services answer "reverse geocoding network failure" to
+    every request; the UI was checked with test names put in the cache by hand and removed afterwards. Check on a
+    real phone.
+  - Gaps: no text or things in photos (needs a labeller: not on the approved list); `PRIVACY.md` mentions Apple's
+    geocoder only and needs an Android line (Google's geocoder gets the area's middle) before the Android beta.
 - **Next session (start here):**
   1. **Real Android phone check** (owner, later): everything listed in the Phase F notes, plus real Pixel and Samsung
-     Motion Photos (MOTION chip plays), and Collections on a phone with many folders.
-  2. Phase H (Search): `SearchService.swift`, `SearchMatcher.swift`, `SearchModel.swift`. It also brings place names
-     (geocoder cache), which Memories' trip titles use, and phone photo locations.
-  3. Phase G leftovers wait on other phases: Recently Deleted Recover/Delete and album add/rename/delete send notes
-     (Phase L, "Android test" only); Map needs a map library issue.
+     Motion Photos (MOTION chip plays), Collections on a phone with many folders, and Search's place names (the
+     emulator's geocoder can't be reached).
+  2. Phase I (Backup tab and backup engine), "Android test" library only. Model: Fable for the engine.
+  3. Waiting on other phases: Recently Deleted Recover/Delete and album edits (Phase L).
+  4. At the very end (owner, 2026-11-12): the map (details sheet and Collections) and things in photos; both need a
+     library approved first.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.

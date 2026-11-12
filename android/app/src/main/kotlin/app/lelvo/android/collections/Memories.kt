@@ -87,22 +87,24 @@ import java.time.ZoneId
 import kotlin.math.min
 
 /**
- * Memories made on this phone from the timeline (iOS `MemoriesModel.cards`): photos only, with the backup's place
- * (phone-only photos have none until search reads their place, Phase H). Screenshots never count. No image labels
+ * Memories made on this phone from the timeline (iOS `MemoriesModel.cards`): photos only, with the phone file's place
+ * (read by search) or the backup's, and place names from search. Screenshots never count. No image labels
  * on Android yet, so themes stay empty; their setting is kept for when they come.
  */
-internal fun memoryCards(entries: List<GalleryEntry>, prefs: Prefs): List<MemoryCard> {
+internal fun memoryCards(entries: List<GalleryEntry>, prefs: Prefs, search: app.lelvo.data.search.SearchService): List<MemoryCard> {
     val started = System.currentTimeMillis()
     val photos = entries.mapNotNull { e ->
         val date = e.date ?: return@mapNotNull null
         if (e.isVideo) return@mapNotNull null
+        // The phone file's own place (read for search), else the backup's.
+        val place = app.lelvo.core.search.SearchCorpus.location(e, search::phoneLocation)
         Memories.Photo(
-            e.id, date, e.item?.latitude, e.item?.longitude,
+            e.id, date, place?.first, place?.second,
             isUtility = e.asset?.bucketName == "Screenshots",
         )
     }
     val zone = ZoneId.systemDefault()
-    val cards = MemoryCards.of(Memories.all(photos, System.currentTimeMillis(), zone, prefs.memoryKinds), zone)
+    val cards = MemoryCards.of(Memories.all(photos, System.currentTimeMillis(), zone, prefs.memoryKinds), zone, placeName = search::placeName)
     AppLog.info("Memories: ${cards.size} (${cards.joinToString { it.title }}) from ${entries.size} items in %.2f s".format((System.currentTimeMillis() - started) / 1000.0))
     return cards
 }

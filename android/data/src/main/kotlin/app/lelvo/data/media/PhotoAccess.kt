@@ -136,7 +136,7 @@ class PhotoAccess(context: Context) {
             MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.MEDIA_TYPE, MediaStore.MediaColumns.DATE_TAKEN,
             MediaStore.MediaColumns.DATE_ADDED, MediaStore.MediaColumns.DURATION, MediaStore.MediaColumns.WIDTH,
             MediaStore.MediaColumns.HEIGHT, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.BUCKET_ID,
-            MediaStore.MediaColumns.BUCKET_DISPLAY_NAME, favorite,
+            MediaStore.MediaColumns.BUCKET_DISPLAY_NAME, MediaStore.MediaColumns.DATE_MODIFIED, favorite,
         ).toTypedArray()
         val where = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
         runCatching {
@@ -148,8 +148,8 @@ class PhotoAccess(context: Context) {
                         localId = c.getLong(0).toString(), takenAt = taken, isVideo = video,
                         duration = if (video && !c.isNull(4)) c.getLong(4) / 1000.0 else null,
                         width = c.getInt(5), height = c.getInt(6), filename = c.getString(7).orEmpty(),
-                        isFavorite = favorite != null && c.getInt(10) == 1, addedAt = c.getLong(3) * 1000,
-                        bucketId = c.getString(8), bucketName = c.getString(9),
+                        isFavorite = favorite != null && c.getInt(11) == 1, addedAt = c.getLong(3) * 1000,
+                        bucketId = c.getString(8), bucketName = c.getString(9), modifiedAt = c.getLong(10),
                     )
                 }
             }

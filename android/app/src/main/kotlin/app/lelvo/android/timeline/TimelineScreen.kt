@@ -108,6 +108,8 @@ fun TimelineScreen(
     /** An album, folder, day or media type from Collections: the grid shows only it, with Back instead of the menu. */
     collection: GalleryFilter? = null,
     onBack: () -> Unit = {},
+    /** Inside another screen (Search results): no top bar of its own, except while selecting. */
+    embedded: Boolean = false,
 ) {
     var level by rememberSaveable {
         mutableIntStateOf(zoomLevels.indexOfFirst { it.first == prefs.gridColumns }.takeIf { it >= 0 } ?: 1)
@@ -115,16 +117,21 @@ fun TimelineScreen(
     val (columns, grouping) = zoomLevels[level]
     // Sorting and grouping run off the main thread; the grid only lays out the result.
     val isDemo by demo.active.collectAsState()
-    var filter by rememberSaveable { mutableStateOf(collection) }
+    // Only the Photos tab's menu picks a filter. A collection's own stays out of the saved state: a day or search
+    // results can hold thousands of ids, too many for the bundle Android keeps when the app goes to the background.
+    var menuFilter by rememberSaveable { mutableStateOf<GalleryFilter?>(null) }
+    val filter = collection ?: menuFilter
     var legend by remember { mutableStateOf(false) }
     var selection by remember { mutableStateOf(emptySet<String>()) }
     val selecting = selection.isNotEmpty()
     androidx.activity.compose.BackHandler(enabled = selecting) { selection = emptySet() }
     // Phone photos and cloud items in one timeline (iOS `GalleryModel.merge`); merging, filtering and grouping run off
     // the main thread, and a change to either side redraws only what moved.
-    val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(null, store, grouping, filter, isDemo) {
+    // A new filter (search results change with each letter) only filters again; the phone isn't listed again.
+    val filterState = androidx.compose.runtime.rememberUpdatedState(filter)
+    val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(null, store, grouping, isDemo) {
         galleryEntries(store, photos, isDemo)
-            .map { all -> Timeline.groupEntries(filter?.let { f -> all.filter(f::matches) } ?: all, grouping, ZoneId.systemDefault(), LocalDate.now()) }
+            .combine(snapshotFlow { filterState.value }) { all, f -> Timeline.groupEntries(f?.let { all.filter(it::matches) } ?: all, grouping, ZoneId.systemDefault(), LocalDate.now()) }
             .flowOn(Dispatchers.Default)
             .collect { value = it }
     }
@@ -140,6 +147,8 @@ fun TimelineScreen(
 
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        // Embedded, the screen around it already pads for the status bar.
+        contentWindowInsets = if (embedded) androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0) else androidx.compose.material3.ScaffoldDefaults.contentWindowInsets,
         topBar = {
             if (selecting) TopAppBar(
                 navigationIcon = { IconButton(onClick = { selection = emptySet() }) { Icon(painterResource(R.drawable.ic_close), "Clear selection") } },
@@ -147,7 +156,8 @@ fun TimelineScreen(
                 actions = {
                     TextButton(onClick = { selection = sections.orEmpty().flatMap { s -> s.items.map { it.id } }.toSet() }) { Text("Select all") }
                 },
-            ) else if (collection != null) TopAppBar(
+            ) else if (embedded) Unit
+            else if (collection != null) TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), "Back") } },
                 title = { Text(collection.title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
                 scrollBehavior = scrollBehavior,
@@ -172,12 +182,12 @@ fun TimelineScreen(
                         DropdownMenuItem(
                             text = { Text("All photos") },
                             trailingIcon = { if (filter == null) Icon(painterResource(R.drawable.ic_check_circle), null) },
-                            onClick = { menu = false; filter = null },
+                            onClick = { menu = false; menuFilter = null },
                         )
                         for (f in GalleryFilter.entries) DropdownMenuItem(
                             text = { Text(f.title) },
                             trailingIcon = { if (filter == f) Icon(painterResource(R.drawable.ic_check_circle), null) },
-                            onClick = { menu = false; filter = f },
+                            onClick = { menu = false; menuFilter = f },
                         )
                         DropdownMenuItem(text = { Text("What the icons mean") }, onClick = { menu = false; legend = true })
                     }
@@ -185,7 +195,7 @@ fun TimelineScreen(
                 filter?.let { f ->
                     // The filter in use, one tap to clear, like Google Photos' search chips.
                     InputChip(
-                        selected = true, onClick = { filter = null }, label = { Text(f.title) },
+                        selected = true, onClick = { menuFilter = null }, label = { Text(f.title) },
                         trailingIcon = { Icon(painterResource(R.drawable.ic_close), "Show all photos", Modifier.size(18.dp)) },
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )

@@ -104,10 +104,12 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
         val memorySettings = app.prefs.changes().filter { it.startsWith("memories.") }.onStart { emit("") }
         galleryEntries(app.store, app.photos, isDemo)
             .combine(memorySettings) { entries, _ -> entries }
+            // New places and place names (read for search) change memories and their titles.
+            .combine(app.search.revision) { entries, _ -> entries }
             .map { entries ->
                 CollectionsState(
                     Collections.build(entries, ZoneId.systemDefault(), LocalDate.now(), dayTitle::format),
-                    memoryCards(entries, app.prefs), entries.associateBy { it.id },
+                    memoryCards(entries, app.prefs, app.search), entries.associateBy { it.id },
                 )
             }
             .flowOn(Dispatchers.Default)

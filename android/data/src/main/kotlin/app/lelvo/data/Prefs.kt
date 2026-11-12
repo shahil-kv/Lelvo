@@ -78,6 +78,18 @@ class Prefs(context: Context) {
 
     fun setMemoryKind(kind: app.lelvo.core.memories.Memories.KindFilter, on: Boolean) = p.edit().putBoolean("memories.${kind.key}", on).apply()
 
+    /** What was searched before, newest first, at most 20 (iOS `recentSearches`). Kept on this phone only. */
+    var recentSearches: List<String>
+        get() = runCatching { org.json.JSONArray(p.getString("recentSearches", "[]")).let { a -> List(a.length()) { a.getString(it) } } }.getOrDefault(emptyList())
+        set(v) = p.edit().apply { if (v.isEmpty()) remove("recentSearches") else putString("recentSearches", org.json.JSONArray(v.take(20)).toString()) }.apply()
+
+    /** Keeps a search that found something, so it's offered next time. */
+    fun rememberSearch(text: String) {
+        val clean = text.trim()
+        if (clean.isEmpty()) return
+        recentSearches = listOf(clean) + recentSearches.filterNot { it.equals(clean, ignoreCase = true) }
+    }
+
     /** Sign out: every setting back to its default, like a fresh install. */
     fun reset() = p.edit().clear().apply()
 

@@ -18,6 +18,8 @@ data class PhoneAsset(
     /** The folder it's in (MediaStore bucket: Camera, Screenshots, WhatsApp Images…), Android's own "albums". */
     val bucketId: String? = null,
     val bucketName: String? = null,
+    /** When the file last changed (epoch s), so a photo's location is read again only after an edit. */
+    val modifiedAt: Long? = null,
 )
 
 /** What a tile's small badge says about its backup (iOS `BackupBadge`, same meanings and words). */
