@@ -220,16 +220,16 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Job queue, slots, order, stalls, speed | `BackupEngine.swift`, `LelvoCore/Backup/*` | `core/` ports with tests, `data/` engine | ◐ built, 25 tests; not yet run against Telegram |
-| Confirmed encrypted uploads, split parts | `CloudUploader.swift`, `FileCrypto.swift` | `TdClient` uploads | ◐ built (`TdUploads`, `CloudUploader`); needs the "Android test" library |
-| Thumbnail and screen copy at backup | `ScreenCopy.swift`, `CloudUploader.swift` | Same sizes and roles | ◐ built; needs the "Android test" library |
-| Fast version of videos | `StreamingCopyEncoder.swift` | Media3 Transformer | |
-| Edits and extras | `EditCheck.swift`, `ExtraMetadata.swift` | Android has no edit recipe: original only; noted gap | |
-| Dashboard: counts, progress, pause, retry failed | `BackupDashboardView.swift`, `BackupCounts.swift`, `TransferRate.swift` | Backup tab | ◐ header, Back up now / Pause / Retry, lanes with time left, Library counts, Failed list; tools rows to come |
-| Extra copies in Telegram, removed from backup | `Deduplicator.swift`, `RemovedFromBackupView.swift` | Rows on the Backup tab | |
-| Free up space | `FreeUpSpaceService.swift`, `FreeUpSpaceView.swift` | Verify in Telegram, then `createDeleteRequest` | |
-| Save everything to the phone | `SaveAllToPhotosView.swift`, `RestorePlan.swift` | MediaStore writes with date and place | |
-| Second copy to a folder | `SecondCopyService.swift`, `SecondCopy.swift` | Storage Access Framework folder | |
+| Job queue, slots, order, stalls, speed | `BackupEngine.swift`, `LelvoCore/Backup/*` | `core/` ports with tests, `data/` engine | ✅ 2026-11-12, "Android Test" library: 21 items, re-scan reads all back complete |
+| Confirmed encrypted uploads, split parts | `CloudUploader.swift`, `FileCrypto.swift` | `TdClient` uploads | ✅ confirmed parts, size check, resume; split parts not yet tried (needs a 2 GB file) |
+| Thumbnail and screen copy at backup | `ScreenCopy.swift`, `CloudUploader.swift` | Same sizes and roles | ✅ `t` for every item, `d` for the 3 MB photo (417 KB) |
+| Fast version of videos | `StreamingCopyEncoder.swift` | Media3 Transformer | ✅ at backup and "Make fast version" in the viewer: 856×1920, 2–3 Mbit/s, HEVC where the encoder takes the size, else H.264 |
+| Edits and extras | `EditCheck.swift`, `ExtraMetadata.swift` | Android has no edit recipe: original only; noted gap | ✅ by design: Android stores the file as it is; edits overwrite it, so Free up space keeps a photo whose size or date moved |
+| Dashboard: counts, progress, pause, retry failed | `BackupDashboardView.swift`, `BackupCounts.swift`, `TransferRate.swift` | Backup tab | ✅ header, Back up now / Pause / Retry, lanes with time left, Library counts, Failed (delete from phone), Removed from backup, keep screen on, limited access, demo run, Tools |
+| Extra copies in Telegram, removed from backup | `Deduplicator.swift`, `RemovedFromBackupView.swift` | Rows on the Backup tab | ◐ built (extra messages, duplicate items, identical phone copies, Removed from backup); no duplicates in the test library to remove yet |
+| Free up space | `FreeUpSpaceService.swift`, `FreeUpSpaceView.swift` | Verify in Telegram, then `createDeleteRequest` | ✅ 15 checked in Telegram, checked again right before Android's trash prompt; prompt shown and denied (nothing removed) |
+| Save everything to the phone | `SaveAllToPhotosView.swift`, `RestorePlan.swift` | MediaStore writes with date and place | ◐ built on `PhoneSaver`; nothing cloud-only in the test library to save yet |
+| Second copy to a folder | `SecondCopyService.swift`, `SecondCopy.swift` | Storage Access Framework folder | ◐ built, planning ported with the Mac's 15 tests; not run against a folder yet (Mac-only on Apple) |
 
 ### Phase J. Background and automation
 
@@ -653,11 +653,30 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
     background (Phase J: the run lives in the app process now); the demo has no pretend backup (button disabled);
     the grid's Back up action isn't hooked yet; an alias photo still shows as "on the phone only" in the grid; index
     snapshots are not written yet.
+- 2026-11-12, Phase I finished on the "Android Test" library (owner made it on the emulator; the guard now ignores
+  capitals in the name and loads the chat list before reading the title):
+  - First real backup: 15 items (10 photos, 5 videos), each with its encrypted thumbnail, one screen copy; a full
+    re-scan read 31 messages back as 15 complete items. Then 6 more videos with fast versions, and an index snapshot
+    (made with the threshold at 10 in a throwaway build; 500 as iOS in the real one): 47 messages, 21 items, 0
+    incomplete, 0 unreadable.
+  - Fast version bugs found on the emulator and fixed: asking for HEVC on a phone without a big enough HEVC encoder
+    either failed or (emulator, 480p encoder) shrank the video to 214×480; now HEVC only when an encoder takes the
+    size, else H.264. The long side is capped at 1920 like iOS (a 1080×2424 screen recording was too big). Size and
+    codec in the caption are read back from the written file.
+  - Free up space follows `.claude/rules/deleting.md`: each item is checked in Telegram again right before Android's
+    trash prompt (iOS relies on a check from the last 24 h).
+  - Open: once, the trash prompt closed by itself and the page fell back to the Backup tab; not seen again in a
+    second try. Watch for it on a real phone. Not proven yet: split parts (2 GB+), reading a snapshot on an empty
+    index (needs a fresh install, which would sign the emulator out), Save all and second copy runs, removing
+    duplicates.
+  - Gaps kept for later phases: moving incomplete items to Recently Deleted and recovering from Removed from backup
+    send notes (Phase L); Shortcuts and long runs in the background (Phase J); similar photos (Phase M).
 - **Next session (start here):**
   1. **Real Android phone check** (owner, later): everything listed in the Phase F notes, plus real Pixel and Samsung
      Motion Photos (MOTION chip plays), Collections on a phone with many folders, and Search's place names (the
      emulator's geocoder can't be reached).
-  2. Phase I (Backup tab and backup engine), "Android test" library only. Model: Fable for the engine.
+  2. Phase J (background backups: WorkManager trigger on new photos, a foreground service for long runs, Wi-Fi and
+     charging constraints, app shortcuts and a Quick Settings tile). Writes still only to "Android Test".
   3. Waiting on other phases: Recently Deleted Recover/Delete and album edits (Phase L).
   4. At the very end (owner, 2026-11-12): the map (details sheet and Collections) and things in photos; both need a
      library approved first.
