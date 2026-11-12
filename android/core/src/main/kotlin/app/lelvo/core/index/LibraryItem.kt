@@ -1,5 +1,6 @@
 package app.lelvo.core.index
 
+import app.lelvo.core.crypto.FileCrypto
 import app.lelvo.core.format.FieldException
 import app.lelvo.core.format.JsonFields
 import app.lelvo.core.format.JsonIO
@@ -77,6 +78,20 @@ data class LibraryItem(
     val lastError: String? = null,
     /** When it went into Recently Deleted (epoch ms): the note's Telegram date, the same on every device. */
     val trashedAt: Long? = null,
+    // Job queue, local only (iOS `MediaItem` job fields).
+    val attempts: Int = 0,
+    /** Don't start before this time, epoch ms (FLOOD_WAIT or backoff). */
+    val notBefore: Long? = null,
+    /** Queued because the user picked it (Back up, Retry): runs that aren't "Back up now" upload only these. */
+    val chosen: Boolean = false,
+    /** The file's `DATE_MODIFIED` (epoch ms) when it was hashed, so a retry of an unchanged file reuses the hash. */
+    val assetModifiedAt: Long? = null,
+    /** No screen copy will be made: not much smaller, or the photo can't be decoded. */
+    val screenCopySkipped: Boolean = false,
+    /** No fast version will be made: not smaller, or the video can't be converted. */
+    val streamingCopySkipped: Boolean = false,
+    /** Per role: where an interrupted encrypted upload stopped, so a retry sends only the missing parts. */
+    val uploadResume: Map<String, FileCrypto.ResumePoint> = emptyMap(),
 ) {
     /** Roles that must be in the cloud, as iOS `requiredCaptionRoles`: the thumbnail for encrypted items, the edit when declared. */
     val requiredRoles: List<String>
@@ -111,6 +126,17 @@ data class LibraryItem(
     fun keepingLocalState(local: LibraryItem): LibraryItem =
         copy(localId = local.localId, verifiedAt = local.verifiedAt, uploadedAt = local.uploadedAt ?: uploadedAt)
 
+    /** [files] as the parts of [role], with the resume point kept only while the role is incomplete (iOS `setParts`). */
+    fun withParts(role: String, files: List<RemoteFile>, expected: Int, resume: FileCrypto.ResumePoint? = null): LibraryItem {
+        val points = uploadResume.toMutableMap()
+        if (files.isEmpty() || files.size >= expected || resume == null) points.remove(role) else points[role] = resume
+        return copy(parts = parts + (role to files), expectedParts = expectedParts + (role to expected), uploadResume = points)
+    }
+
+    /** Its photo is no longer on this phone (iOS `photoLeftDevice`). */
+    fun photoLeftDevice(): LibraryItem =
+        copy(localId = null, chosen = false, status = if (isCompleteInCloud) ItemStatus.BackedUp else ItemStatus.Failed)
+
     val allMessageIds: List<Long> get() = parts.values.flatten().map { it.messageId }.distinct().sorted()
 
     /** Bytes stored in Telegram for this item. */
@@ -138,12 +164,26 @@ object ItemExtras {
         val editedSize: Long? = null,
         val lastError: String? = null,
         val trashedAt: Long? = null,
+        val attempts: Int = 0,
+        val notBefore: Long? = null,
+        val chosen: Boolean = false,
+        val assetModifiedAt: Long? = null,
+        val screenCopySkipped: Boolean = false,
+        val streamingCopySkipped: Boolean = false,
+        val uploadResume: Map<String, FileCrypto.ResumePoint> = emptyMap(),
     )
 
     private fun strings(map: Map<String, String>): JsonElement? = map.takeIf { it.isNotEmpty() }?.let { m -> JsonObject(m.mapValues { JsonIO.str(it.value)!! }) }
 
     fun encode(item: LibraryItem): String = JsonIO.obj(
         "a" to JsonIO.strings(item.albums.takeIf { it.isNotEmpty() }),
+        "am" to JsonIO.num(item.assetModifiedAt),
+        "at" to JsonIO.num(item.attempts.takeIf { it > 0 }),
+        "ch" to JsonIO.num(if (item.chosen) 1 else null),
+        "nb" to JsonIO.num(item.notBefore),
+        "res" to item.uploadResume.takeIf { it.isNotEmpty() }?.let { m -> JsonObject(m.mapValues { encodeResume(it.value) }) },
+        "scs" to JsonIO.num(if (item.screenCopySkipped) 1 else null),
+        "sps" to JsonIO.num(if (item.streamingCopySkipped) 1 else null),
         "c" to JsonIO.str(item.codec),
         "e" to JsonObject(item.expectedParts.mapValues { JsonIO.num(it.value)!! }),
         "ed" to JsonIO.num(if (item.hasEdit) 1 else null),
@@ -185,6 +225,10 @@ object ItemExtras {
             roleHashes = texts("rh"), roleNames = texts("rn"), pairedVideoName = f.stringOrNull("pn"), pairedVideoSize = f.longOrNull("ps"),
             editedName = f.stringOrNull("en"), editedSize = f.longOrNull("es"), lastError = f.stringOrNull("err"),
             trashedAt = f.longOrNull("ta"),
+            attempts = f.intOrNull("at") ?: 0, notBefore = f.longOrNull("nb"), chosen = f.intOrNull("ch") == 1,
+            assetModifiedAt = f.longOrNull("am"), screenCopySkipped = f.intOrNull("scs") == 1,
+            streamingCopySkipped = f.intOrNull("sps") == 1,
+            uploadResume = f.objOrNull("res")?.mapNotNull { (role, v) -> decodeResume(v)?.let { role to it } }?.toMap() ?: emptyMap(),
         )
     } catch (_: FieldException) {
         Extras()
@@ -196,5 +240,23 @@ object ItemExtras {
         codec = e.codec, hdr = e.hdr, tzOffsetMinutes = e.tzOffsetMinutes, sourceLocalId = e.sourceLocalId, hasEdit = e.hasEdit,
         roleHashes = e.roleHashes, roleNames = e.roleNames, pairedVideoName = e.pairedVideoName, pairedVideoSize = e.pairedVideoSize,
         editedName = e.editedName, editedSize = e.editedSize, lastError = e.lastError, trashedAt = e.trashedAt,
+        attempts = e.attempts, notBefore = e.notBefore, chosen = e.chosen, assetModifiedAt = e.assetModifiedAt,
+        screenCopySkipped = e.screenCopySkipped, streamingCopySkipped = e.streamingCopySkipped, uploadResume = e.uploadResume,
     )
+
+    private fun hexOf(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
+    private fun bytesOf(h: String) = ByteArray(h.length / 2) { h.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+
+    private fun encodeResume(p: FileCrypto.ResumePoint): JsonElement = JsonIO.obj(
+        "c" to JsonIO.num(p.chunkSize), "h" to JsonIO.str(p.plaintextHash), "n" to JsonIO.str(p.nonce?.let(::hexOf)),
+        "o" to JsonIO.num(p.cipherOffset), "s" to JsonIO.str(hexOf(p.fileSalt)),
+    )
+
+    /** An unreadable point is dropped: the upload of that role then starts over, which is always safe. */
+    private fun decodeResume(e: JsonElement): FileCrypto.ResumePoint? = try {
+        val f = JsonFields(e as? JsonObject ?: return null)
+        FileCrypto.ResumePoint(f.long("o"), f.int("c"), bytesOf(f.string("s")), f.stringOrNull("n")?.let(::bytesOf), f.string("h"))
+    } catch (_: Exception) {
+        null
+    }
 }
