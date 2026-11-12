@@ -244,14 +244,14 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Signed in as, library, encryption, storage, version | `SettingsView.swift` | Grouped settings screen | |
-| Change passphrase, recovery key | `EncryptionSettingsView.swift`, `PassphraseBox.swift` | Header rewrite (same format) | |
-| Backup options | `SettingsView.swift` | Same toggles | |
-| Telegram account kept for 2 years | `SettingsView.swift`, `TDService.swift` | Same row | |
-| Logs: share, clear | `SettingsView.swift`, `AppLog.swift` | Share sheet | |
-| Report a problem, suggest a feature | `FeedbackView.swift`, `LelvoCore/Support/Feedback.swift` | Email / GitHub intents | |
-| About, licences, privacy, questions and answers, source code | `SettingsView.swift`, `AppLinks.swift` | Same rows | |
-| Sign out and reset | `AppEnvironment.swift` (`reset`) | Same wording | ◐ (in Settings; reset of every store comes with K) |
+| Signed in as, library, encryption, storage, version | `SettingsView.swift` | Grouped settings screen | ✅ |
+| Change passphrase, recovery key | `EncryptionSettingsView.swift`, `PassphraseBox.swift` | Header rewrite (same format) | ◐ (wrong passphrase proven; a real rewrite needs the owner's passphrase) |
+| Backup options | `SettingsView.swift` | Same toggles | ✅ |
+| Telegram account kept for 2 years | `SettingsView.swift`, `TDService.swift` | Same row | ✅ (green row seen; the button path not tried, account already at 2 years) |
+| Logs: share, clear | `SettingsView.swift`, `AppLog.swift` | Share sheet | ✅ |
+| Report a problem, suggest a feature | `FeedbackView.swift`, `LelvoCore/Support/Feedback.swift` | Email / GitHub intents | ✅ |
+| About, licences, privacy, questions and answers, source code | `SettingsView.swift`, `AppLinks.swift` | Same rows | ✅ |
+| Sign out and reset | `AppEnvironment.swift` (`reset`) | Same wording | ✅ (not run: it would sign the emulator out) |
 
 ### Phase L. Sync between devices
 
@@ -700,16 +700,39 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
     first trigger or periodic job (WorkManager reschedules them itself).
   - Test files left on the emulator: `Pictures/PhaseJ/phasej1–6.jpg`, `Movies/PhaseJ_1–6.mp4` (all backed up to
     "Android Test"); automatic backup is on there.
+- 2026-11-12, Phase K (Settings) on the "Android Test" library:
+  - iOS read first: `SettingsView` (Telegram, Backup, Memories, Storage, Your data, Help, Sign out), `BackupOptionsView`,
+    `AlbumPickerView`, `StorageSettingsView`, `LogsView`, `AboutView`, `AcknowledgementsView`, `EncryptionSettingsView`,
+    `FeedbackView`, LelvoCore `Feedback`, `LibraryService` `refreshHeader`/`changePassphrase`/`newRecoveryKey`/`replaceHeader`,
+    `TDService` `accountTtlDays`/`optimizeStorage`/`clearAllFiles`.
+  - Android: `settings/` `SettingsKit` (plain list, accent section headers, radio-button dialogs like Android Settings),
+    `SettingsScreen` (page stack over Settings, Back closes the top page), `BackupOptionsScreen` + `AlbumPickerScreen`
+    (phone folders), `StorageScreen`, `EncryptionScreen`, `HelpScreens` (Logs, Feedback, About, Acknowledgements).
+    Core: `Feedback` (same links as iOS, its tests ported), `LibraryHeader.V1.upgrading`, `DiskCache.trimToCapacity`.
+  - Header writes go through `requireWritable` first (only "Android Test"), read the header from Telegram again before
+    changing it (iOS learned a stale copy can replace a recovery key), write the description then edit the pinned
+    message in place, and keep the new header only once Telegram returns exactly it. The master key never changes.
+  - TDLib's file cache is now trimmed to the media limit at launch and on a limit change, and cleared by Storage →
+    Clear, like iOS (Android never trimmed it before). Unlike iOS, Clear doesn't delete files TDLib no longer tracks:
+    its folders also hold uploads under way.
+  - "Download a copy of your library" opens the Second copy page (same job: Year/Month, decrypted, resumable).
+  - The GitHub issue forms got "Android" in their App dropdown, so the prefilled link picks it.
+  - Proven on the emulator: every page opens and goes back to the same place; Logs share sheet; email opens Gmail with
+    the draft; date picker, Albums (Exclude, a folder ticked) and the Backup options summary; Storage Clear (all three
+    to 0 B) and a limit change; New recovery key with a wrong passphrase says so and writes nothing; light and dark.
+    Settings left as they were (date off, All photos, 1 GB).
+  - Gaps: changing the passphrase or making a new recovery key on a real header (needs the owner's passphrase for
+    "Android Test"); "Change to 2 years" not tried (the account is at 2 years); no Automations guide (no Shortcuts on
+    Android).
 - **Next session (start here):**
-  1. **Real Android phone check** (owner, later): everything listed in the Phase F notes, plus real Pixel and Samsung
+  1. **Owner on the emulator** (needs the "Android Test" passphrase): Settings → Encryption → New recovery key, then
+     Change passphrase; then open "Android Test" on the iPhone with the new passphrase and the new recovery key.
+  2. **Real Android phone check** (owner, later): everything listed in the Phase F notes, plus real Pixel and Samsung
      Motion Photos (MOTION chip plays), Collections on a phone with many folders, Search's place names (the
      emulator's geocoder can't be reached), and Phase J on a real network: a new photo backs up on its own within a
      few minutes, Wi-Fi only waits on mobile data, a long Back up now survives locking the phone.
-  2. Phase K (Settings): the rest of iOS `SettingsView` — backup options (media, screenshots, date, fast versions,
-     video quality), change passphrase and recovery key, Telegram account kept 2 years, storage, logs, feedback,
-     about and licences, full reset. Settings already has Account, Backup (automatic, Wi-Fi only, charging), Developer,
-     About, Sign out. Writes still only to "Android Test".
-  3. Waiting on other phases: Recently Deleted Recover/Delete and album edits (Phase L).
+  3. Phase L (sync between devices): favorites, albums and Recently Deleted notes written by Android, read by the
+     iPhone and back. Writes still only to "Android Test".
   4. At the very end (owner, 2026-11-12): the map (details sheet and Collections) and things in photos; both need a
      library approved first.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
