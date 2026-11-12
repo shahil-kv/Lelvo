@@ -45,10 +45,16 @@ android {
                 rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
             }
             buildConfigField("boolean", "TELEGRAM_TEST_DC", local.getProperty("telegram.testDc", "true"))
+            // TDLib's two builds: arm64 and x86_64 (emulators on Intel machines).
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         }
         release {
             buildConfigField("boolean", "TELEGRAM_TEST_DC", "false")
             if (keystore != null) signingConfig = signingConfigs.getByName("release")
+            // Only where TDLib is built (Scripts/build-tdlib.sh): MapLibre and ML Kit also ship 32-bit ARM and x86, and
+            // on such a phone the app would install and then have no TDLib. Phones and Apple Silicon emulators are
+            // arm64; one copy of the native code halves the APK.
+            ndk { abiFilters += "arm64-v8a" }
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
