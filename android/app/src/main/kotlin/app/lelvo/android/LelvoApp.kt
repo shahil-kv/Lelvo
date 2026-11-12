@@ -193,6 +193,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
             media.clear()
             motion.clear()
             search.clear()
+            app.lelvo.android.search.forgetSearchIndex()
             positions.clear()
         }
         AppLog.info("Reset finished")

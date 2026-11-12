@@ -281,9 +281,9 @@ private fun StatusHeader(activity: BackupActivity, stats: Stats, lastBackupAt: L
         else -> pending
     }
     val (icon, tint, title) = when {
-        activity.isRunning || pending > 0 -> Triple(R.drawable.ic_cloud_upload, Lelvo.colors.accent, "$left item${if (left == 1) "" else "s"} left to back up")
-        c.notQueued > 0 -> Triple(R.drawable.ic_cloud_off, MaterialTheme.colorScheme.onSurfaceVariant, "${c.notQueued} item${if (c.notQueued == 1) "" else "s"} not in the cloud")
-        c.failed > 0 -> Triple(R.drawable.ic_error, Lelvo.colors.orange, "Backup complete, ${c.failed} item${if (c.failed == 1) "" else "s"} couldn't be backed up")
+        activity.isRunning || pending > 0 -> Triple(R.drawable.ic_cloud_upload, Lelvo.colors.accent, "${"%,d".format(left)} item${if (left == 1) "" else "s"} left to back up")
+        c.notQueued > 0 -> Triple(R.drawable.ic_cloud_off, MaterialTheme.colorScheme.onSurfaceVariant, "${"%,d".format(c.notQueued)} item${if (c.notQueued == 1) "" else "s"} not in the cloud")
+        c.failed > 0 -> Triple(R.drawable.ic_error, Lelvo.colors.orange, "Backup complete, ${"%,d".format(c.failed)} item${if (c.failed == 1) "" else "s"} couldn't be backed up")
         else -> Triple(R.drawable.ic_cloud_done, Lelvo.colors.green, "Backup complete")
     }
     val subtitle = when {

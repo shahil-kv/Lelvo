@@ -65,6 +65,19 @@ class SearchService(context: Context, private val store: LibraryStore, private v
     /** Bumped when new places or names are known, so Search and Memories rebuild. */
     val revision: StateFlow<Int> = _revision
 
+    @Volatile private var touchedAt = 0L
+
+    /**
+     * The user touched the screen. Reading photos waits until they've stopped for [IDLE_MS]: decoding files and
+     * running the labeller compete with scrolling for the CPU and memory, and in a library of thousands the grid
+     * stuttered while a first pass ran.
+     */
+    fun noteTouch() { touchedAt = System.currentTimeMillis() }
+
+    private suspend fun waitForIdle() {
+        while (System.currentTimeMillis() - touchedAt < IDLE_MS) delay(250)
+    }
+
     /** Where a photo on this phone was taken, if it says and was read. */
     fun phoneLocation(localId: String): Pair<Double, Double>? =
         loadLocations()[localId]?.takeIf { !it.lat.isNaN() }?.let { it.lat to it.lon }
@@ -82,7 +95,21 @@ class SearchService(context: Context, private val store: LibraryStore, private v
      */
     suspend fun index(phone: Boolean = true) {
         if (!running.tryLock()) return
-        try { withContext(Dispatchers.IO) { if (phone) { readPlaces(); readThings() }; lookUpNames() } } finally { running.unlock() }
+        try {
+            withContext(Dispatchers.IO) {
+                if (phone) readPlaces()
+                // Names before things: a few hundred quick lookups that title Places and trips, where reading things in
+                // a big library takes the labeller an hour.
+                lookUpNames()
+                if (phone) {
+                    // The labeller is someone else's code: if it fails (it crashed a release build once), search
+                    // goes on without things in photos instead of taking the app down.
+                    try { readThings() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) {
+                        AppLog.warn("Search index: reading things in photos failed: ${e::class.simpleName}")
+                    }
+                }
+            }
+        } finally { running.unlock() }
     }
 
     /** Things in a phone photo ("dog", "beach"), by MediaStore id, for search and themed Memories. */
@@ -92,9 +119,11 @@ class SearchService(context: Context, private val store: LibraryStore, private v
     private suspend fun readThings() {
         if (powerSaving()) return
         var last = System.currentTimeMillis()
-        val read = labels.read(photos.assets()) { _, _ ->
+        // Labelling is the heaviest work Search does (a model run per photo): on battery it leaves the phone room
+        // between photos so scrolling stays smooth in a big library.
+        val read = labels.read(photos.assets(), pause = { delay(if (charging()) 5 else 40); waitForIdle() }) { _, _ ->
             // New words show while a long first pass runs, not only at its end.
-            if (System.currentTimeMillis() - last > 20_000) { last = System.currentTimeMillis(); _revision.value++ }
+            if (System.currentTimeMillis() - last > REBUILD_EVERY_MS) { last = System.currentTimeMillis(); _revision.value++ }
         }
         if (read > 0) _revision.value++
     }
@@ -128,13 +157,14 @@ class SearchService(context: Context, private val store: LibraryStore, private v
             known[a.localId] = loc
             done++
             _status.value = Status(assets.size - todo.size + done, assets.size)
-            if (System.currentTimeMillis() - lastNotice > 20_000) {
+            if (System.currentTimeMillis() - lastNotice > REBUILD_EVERY_MS) {
                 lastNotice = System.currentTimeMillis()
                 save(known)
                 _revision.value++
             }
             // On battery, leave room for everything else the phone is doing.
             if (!charging()) delay(5)
+            waitForIdle()
         } } finally {
             // Also when the app leaves the screen mid-way: what was read stays read.
             if (done > 0 || gone > 0) save(known)
@@ -190,6 +220,7 @@ class SearchService(context: Context, private val store: LibraryStore, private v
         var found = 0
         var failed = 0
         var inARow = 0
+        var lastNotice = System.currentTimeMillis()
         for (cell in missing) {
             kotlin.coroutines.coroutineContext.ensureActive()
             if (!online()) break
@@ -210,7 +241,8 @@ class SearchService(context: Context, private val store: LibraryStore, private v
                     found++
                     places = HashMap(known)
                     // Names show as they come, not only at the end of a long first run.
-                    if (found % 10 == 0) { savePlaces(known); _revision.value++ }
+                    if (found % 10 == 0) savePlaces(known)
+                    if (found == 10 || System.currentTimeMillis() - lastNotice > REBUILD_EVERY_MS) { lastNotice = System.currentTimeMillis(); _revision.value++ }
                 }
             }
             delay(1_200)
@@ -283,6 +315,15 @@ class SearchService(context: Context, private val store: LibraryStore, private v
         tmp.writeText(text)
         tmp.renameTo(file)
     }.onFailure { AppLog.warn("Search index: couldn't save ${file.name}: ${it::class.simpleName}") }
+
+    private companion object {
+        /**
+         * How often a long first pass tells Search and Collections to rebuild. Each rebuild lists every photo again
+         * and remakes the index and Memories (seconds of work in a library of tens of thousands), so not too often.
+         */
+        const val REBUILD_EVERY_MS = 60_000L
+        const val IDLE_MS = 2_000L
+    }
 
     private fun powerSaving() = app.getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
     private fun charging() = app.getSystemService(BatteryManager::class.java)?.isCharging == true

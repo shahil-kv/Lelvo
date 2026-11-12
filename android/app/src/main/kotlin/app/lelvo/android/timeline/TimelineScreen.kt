@@ -149,7 +149,9 @@ fun TimelineScreen(
     }
 
     Scaffold(
-        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        // Embedded there's no bar to collapse. Material's enterAlways behaviour only learns how far it may move from
+        // its TopAppBar; without one the limit stays unbounded and it eats every upward drag, so the grid never scrolls.
+        modifier = if (embedded) modifier else modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         // Embedded, the screen around it already pads for the status bar.
         contentWindowInsets = if (embedded) androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0) else androidx.compose.material3.ScaffoldDefaults.contentWindowInsets,
         topBar = {
@@ -303,6 +305,8 @@ private fun Grid(
 ) {
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val order = remember(sections) { sections.flatMap { s -> s.items.map { it.id } } }
+    // The gesture handler starts once; it must read the list as it is now, not as it was while the library loaded.
+    val currentOrder by androidx.compose.runtime.rememberUpdatedState(order)
     val currentSelection by androidx.compose.runtime.rememberUpdatedState(selection)
     var edgeSpeed by remember { mutableStateOf(0f) }
     val edge = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
@@ -331,7 +335,7 @@ private fun Grid(
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
         modifier = Modifier.fillMaxSize().pinchToZoom(onZoom).dragToSelect(
-            state, order = { order }, selection = { currentSelection }, onChange = onSelection,
+            state, order = { currentOrder }, selection = { currentSelection }, onChange = onSelection,
             onStart = { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) },
             edge = edge, onEdge = { edgeSpeed = it },
         ),
@@ -349,7 +353,7 @@ private fun Grid(
                 Cell(
                     entry, side, photos, selecting = selection.isNotEmpty(), selected = selected,
                     onClick = { if (selection.isNotEmpty()) onSelection(if (selected) selection - entry.id else selection + entry.id) else onOpen(entry) },
-                    description = titles.describe(entry),
+                    description = { titles.describe(entry) },
                 )
             }
         }
@@ -365,14 +369,15 @@ private fun Grid(
  */
 @Composable
 private fun Cell(
-    entry: GalleryEntry, side: Dp, photos: PhotoAccess, selecting: Boolean, selected: Boolean, onClick: () -> Unit, description: String,
+    entry: GalleryEntry, side: Dp, photos: PhotoAccess, selecting: Boolean, selected: Boolean, onClick: () -> Unit, description: () -> String,
 ) {
     // A selected tile shrinks inside its square, like Google Photos.
     val inset by androidx.compose.animation.core.animateDpAsState(if (selected) side * 0.08f else 0.dp, label = "inset")
     Box(
         Modifier.aspectRatio(1f).clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = description
+                // Made only when TalkBack asks: formatting a date for every tile as it scrolls in cost frames.
+                contentDescription = description()
                 if (selecting) this.selected = selected
             },
     ) {

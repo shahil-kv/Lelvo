@@ -183,6 +183,12 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+    // Every touch, before any screen sees it: Search's photo reading pauses while someone scrolls or taps.
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        (application as LelvoApp).search.noteTouch()
+        return super.dispatchTouchEvent(ev)
+    }
+
         // The manifest's launch theme draws the launch screen; the app itself uses the plain one.
         setTheme(R.style.Theme_Lelvo)
         super.onCreate(savedInstanceState)

@@ -78,6 +78,15 @@ private class SearchData(val index: SearchIndex, val suggestions: SearchCorpus.S
 /** Ids found for [query]; kept with it so results for older letters are never shown as the current ones. */
 private class Found(val query: String, val ids: Set<String>)
 
+/**
+ * The last index made, kept while the app runs. Switching tabs disposes Search; without this, coming back to it in a
+ * library of tens of thousands showed a blank screen for seconds while everything was listed and indexed again.
+ */
+@Volatile private var lastData: Pair<Boolean, SearchData>? = null
+
+/** Sign out and reset: the next library mustn't show this one's index, even for a moment. */
+internal fun forgetSearchIndex() { lastData = null }
+
 /** How many rows a suggestion section shows before Show more, like iOS. */
 private const val SHOWN = 4
 
@@ -90,7 +99,7 @@ private const val SHOWN = 4
 @Composable
 fun SearchScreen(app: LelvoApp, onOpen: (List<GalleryEntry>, Int) -> Unit, onSettings: () -> Unit, modifier: Modifier = Modifier) {
     val isDemo by app.demo.active.collectAsState()
-    val data by produceState<SearchData?>(null, isDemo) {
+    val data by produceState(lastData?.takeIf { it.first == isDemo }?.second, isDemo) {
         galleryEntries(app.store, app.photos, isDemo)
             .combine(app.search.revision) { entries, _ -> entries }
             .flowOn(Dispatchers.Default)
@@ -106,6 +115,7 @@ fun SearchScreen(app: LelvoApp, onOpen: (List<GalleryEntry>, Int) -> Unit, onSet
                     AppLog.info("Search: index of ${entries.size} items in %.2f s".format((System.currentTimeMillis() - started) / 1000.0))
                     built
                 }
+                lastData = isDemo to value!!
             }
     }
     var query by rememberSaveable { mutableStateOf("") }
@@ -144,7 +154,9 @@ fun SearchScreen(app: LelvoApp, onOpen: (List<GalleryEntry>, Int) -> Unit, onSet
         val d = data
         val f = found
         when {
-            d == null -> Unit
+            d == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.CircularProgressIndicator()
+            }
             !searching -> Suggestions(
                 d, recent, app, PaddingValues(top = padding.calculateTopPadding(), bottom = 24.dp + padding.calculateBottomPadding()),
                 onChoose = choose, onClearRecent = { app.prefs.recentSearches = emptyList(); recent = emptyList() },

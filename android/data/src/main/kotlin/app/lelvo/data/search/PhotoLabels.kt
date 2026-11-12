@@ -37,7 +37,7 @@ internal class PhotoLabels(context: Context, private val photos: PhotoAccess, di
      * Reads the photos in [assets] not read yet or changed since (videos are left out, as on iOS). Returns how many
      * were read. Stops when cancelled, keeping what it has: the next pass goes on from there.
      */
-    suspend fun read(assets: List<PhoneAsset>, onProgress: (Int, Int) -> Unit = { _, _ -> }): Int {
+    suspend fun read(assets: List<PhoneAsset>, pause: suspend () -> Unit = {}, onProgress: (Int, Int) -> Unit = { _, _ -> }): Int {
         val known = HashMap(load())
         val present = assets.mapTo(HashSet()) { it.localId }
         val gone = known.keys.filter { it !in present }
@@ -47,6 +47,7 @@ internal class PhotoLabels(context: Context, private val photos: PhotoAccess, di
         val labeler = ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(CONFIDENCE).build())
         val started = System.currentTimeMillis()
         var done = 0
+        var saved = started
         try {
             for (a in todo) {
                 kotlin.coroutines.coroutineContext.ensureActive()
@@ -57,8 +58,11 @@ internal class PhotoLabels(context: Context, private val photos: PhotoAccess, di
                 known[a.localId] = Entry(a.modifiedAt ?: 0, labels)
                 done++
                 onProgress(done, todo.size)
-                // Saved as it goes, so a long first pass that is stopped keeps what it read.
-                if (done % 50 == 0) save(known)
+                // Saved as it goes, so a long first pass that is stopped keeps what it read. By time, not by count:
+                // each save writes every photo's labels, so saving every 50 photos made a first pass over a big
+                // library quadratic (hundreds of multi-megabyte writes, and the garbage stalled scrolling).
+                if (System.currentTimeMillis() - saved > SAVE_EVERY_MS) { save(known); saved = System.currentTimeMillis() }
+                pause()
             }
         } finally {
             labeler.close()
@@ -105,5 +109,6 @@ internal class PhotoLabels(context: Context, private val photos: PhotoAccess, di
         /** ML Kit's own default is 0.5; a little higher keeps "Dogs" from catching a fluffy rug. */
         const val CONFIDENCE = 0.6f
         const val SIDE = 384
+        const val SAVE_EVERY_MS = 60_000L
     }
 }

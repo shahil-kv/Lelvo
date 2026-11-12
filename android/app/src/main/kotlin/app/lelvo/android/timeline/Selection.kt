@@ -23,6 +23,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -55,13 +57,42 @@ internal fun Modifier.dragToSelect(
     onStart: () -> Unit,
     edge: Float,
     onEdge: (Float) -> Unit,
+): Modifier {
+    // Set once a long press has started selecting. Tiles are plain clickables, which take a press held for any time as
+    // a tap: without swallowing that finger's lift, the tile under it opened the viewer or flipped its selection.
+    val claimed = java.util.concurrent.atomic.AtomicBoolean(false)
+    return pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+            do {
+                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                if (claimed.get()) event.changes.forEach { if (!it.pressed) it.consume() }
+            } while (event.changes.any { it.pressed })
+            claimed.set(false)
+        }
+    }.dragGestures(state, order, selection, onChange, onStart, edge, onEdge, claimed)
+}
+
+private fun Modifier.dragGestures(
+    state: LazyGridState,
+    order: () -> List<String>,
+    selection: () -> Set<String>,
+    onChange: (Set<String>) -> Unit,
+    onStart: () -> Unit,
+    edge: Float,
+    onEdge: (Float) -> Unit,
+    claimed: java.util.concurrent.atomic.AtomicBoolean,
 ): Modifier = pointerInput(Unit) {
     var anchor = -1
     var adding = true
     var base = emptySet<String>()
     fun indexAt(p: Offset): Int {
-        val key = state.layoutInfo.visibleItemsInfo.firstOrNull {
-            p.x >= it.offset.x && p.x < it.offset.x + it.size.width && p.y >= it.offset.y && p.y < it.offset.y + it.size.height
+        val info = state.layoutInfo
+        // Item offsets start after the grid's top content padding (the top bar); the finger is in the grid's own
+        // coordinates. Without this the finger picked the tile a row below, or nothing over a date header.
+        val y = p.y + info.viewportStartOffset
+        val key = info.visibleItemsInfo.firstOrNull {
+            p.x >= it.offset.x && p.x < it.offset.x + it.size.width && y >= it.offset.y && y < it.offset.y + it.size.height
         }?.key as? String ?: return -1
         return order().indexOf(key)
     }
@@ -75,6 +106,7 @@ internal fun Modifier.dragToSelect(
         onDragStart = { p ->
             anchor = indexAt(p)
             if (anchor < 0) return@detectDragGesturesAfterLongPress
+            claimed.set(true)
             onStart()
             base = selection()
             adding = order()[anchor] !in base
