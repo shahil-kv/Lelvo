@@ -81,6 +81,8 @@ sealed interface CollectionPage {
     /** A memory playing: the photos it plays, and every photo of it for Show all. */
     data class Story(val card: MemoryCard, val entries: List<GalleryEntry>, val allIds: Set<String>) : CollectionPage
     data object MemorySettings : CollectionPage
+    /** The map of every photo with a location (iOS `PhotoMapView`). */
+    data class Places(val entries: List<GalleryEntry>) : CollectionPage
 }
 
 /** Everything Collections shows, made together off the main thread. */
@@ -144,6 +146,11 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
             if (c.folders.isNotEmpty()) item("folders") {
                 Section("On this device", seeAll = if (c.folders.size > SHOWN) ({ onOpen(CollectionPage.All("On this device", c.folders)) }) else null) {
                     CoverRow(c.folders.take(SHOWN), app, onOpen)
+                }
+            }
+            item("places") {
+                Section("Places") {
+                    LinkRow("Map", R.drawable.ic_map, null) { onOpen(CollectionPage.Places(st.byId.values.toList())) }
                 }
             }
             if (c.media.isNotEmpty()) item("media") {

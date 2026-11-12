@@ -1,4 +1,4 @@
-# Every library here is on the approved list in docs/ANDROID_PLAN.md.
+# Every library here is on the approved list in docs/ANDROID_PLAN.md and issue #117.
 [versions]
 argon2kt = "1.6.0"
 annotation = "1.9.1"
@@ -19,6 +19,9 @@ coil = "3.6.3"
 media3 = "1.11.1"
 telephoto = "0.19.0"
 work = "2.11.2"
+# Issue #117: the map (Places, details sheet), tiles from OpenFreeMap; on-device labels for search and Memories.
+maplibre = "13.7.1"
+mlkitLabeling = "17.0.9"
 
 [libraries]
 argon2kt = { module = "com.lambdapioneer.argon2kt:argon2kt", version.ref = "argon2kt" }
@@ -48,6 +51,10 @@ media3-transformer = { module = "androidx.media3:media3-transformer", version.re
 media3-effect = { module = "androidx.media3:media3-effect", version.ref = "media3" }
 work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 telephoto-coil3 = { module = "me.saket.telephoto:zoomable-image-coil3", version.ref = "telephoto" }
+# OpenGL ES, not the default Vulkan build: it runs on every supported phone (older Vulkan drivers vary) and on the
+# Apple Silicon emulator, which the Vulkan build crashed.
+maplibre = { module = "org.maplibre.gl:android-sdk-opengl", version.ref = "maplibre" }
+mlkit-labeling = { module = "com.google.mlkit:image-labeling", version.ref = "mlkitLabeling" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

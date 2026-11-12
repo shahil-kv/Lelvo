@@ -51,6 +51,8 @@ import app.lelvo.android.collections.AllCollectionsScreen
 import app.lelvo.core.index.GalleryFilter
 import app.lelvo.android.collections.CollectionPage
 import app.lelvo.android.collections.CollectionsScreen
+import app.lelvo.android.collections.MapPreview
+import app.lelvo.android.collections.PhotoMapScreen
 import app.lelvo.android.collections.MemoriesScreen
 import app.lelvo.android.collections.MemoriesSettingsScreen
 import app.lelvo.android.collections.MemoryStoryScreen
@@ -78,6 +80,7 @@ class MainActivity : ComponentActivity() {
     private val introPreview = mutableStateOf<Int?>(null)
     private val signInPreview = mutableStateOf<AuthStep?>(null)
     private val libraryPreview = mutableStateOf<String?>(null)
+    private val mapPreview = mutableStateOf(false)
 
     private fun previewStep(name: String): AuthStep? = when (name) {
         "code-telegram" -> AuthStep.WaitCode("We've sent the code to the Telegram app on your other device.", 5, app.lelvo.telegram.CodeDelivery.Telegram, null)
@@ -129,6 +132,9 @@ class MainActivity : ComponentActivity() {
         intent.getStringExtra("lelvo.signin")?.let { signInPreview.value = previewStep(it); return }
         // `--es lelvo.library found|found2|none|error|searching|unlock|recovery|scanning|photos|first` shows that library step with sample data.
         intent.getStringExtra("lelvo.library")?.let { libraryPreview.value = it; return }
+        // `--ez lelvo.map true` shows the map with sample places (and the details sheet's small map under it), so it
+        // can be checked signed out or on a library without locations. Nothing is read or written.
+        if (intent.getBooleanExtra("lelvo.map", false)) { mapPreview.value = true; return }
         // `--ez lelvo.forgetLibrary true` forgets the library on this phone, to run choosing and unlocking for real.
         // `--es lelvo.work backup.overnight|index.refresh|backup.newPhotos`: runs that background work once now (periodic
         // work can't be forced early).
@@ -202,6 +208,7 @@ class MainActivity : ComponentActivity() {
                 if (BuildConfig.DEBUG) libraryPreview.value?.let { k -> key(k) {
                     LibraryPreview(app, k) { libraryPreview.value = null }
                 } }
+                if (BuildConfig.DEBUG && mapPreview.value) MapPreview(app) { mapPreview.value = false }
                 if (BuildConfig.DEBUG) introPreview.value?.let { p -> key(p) {
                     IntroScreen(app.photos, p, onPage = {}, onFinish = { introPreview.value = null })
                 } }
@@ -311,6 +318,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                         CollectionPage.RecentlyDeleted -> RecentlyDeletedScreen(app, onBack = closePage)
                         is CollectionPage.MemoryList -> MemoriesScreen(app, page, onOpen = openPage, onBack = closePage)
                         CollectionPage.MemorySettings -> MemoriesSettingsScreen(app.prefs, onBack = closePage)
+                        is CollectionPage.Places -> PhotoMapScreen(app, page.entries, onOpen = openPage, onBack = closePage)
                         is CollectionPage.Story -> MemoryStoryScreen(
                             app, page,
                             onShowAll = { pages = pages.dropLast(1) + CollectionPage.Grid(GalleryFilter.Matching(page.card.title, page.allIds)) },

@@ -82,6 +82,7 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation(libs.telephoto.coil3)
+    implementation(libs.maplibre)
     implementation(libs.work.runtime)
     debugImplementation(libs.compose.ui.tooling)
 }

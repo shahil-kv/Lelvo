@@ -233,6 +233,11 @@ class SearchService(context: Context, private val store: LibraryStore, private v
         }.getOrDefault(emptyMap()).also { places = it }
     }
 
+    /** Where each phone photo was taken, by MediaStore id, as the index read it from the files (for the map). */
+    suspend fun phoneLocations(): Map<String, Pair<Double, Double>> = withContext(Dispatchers.IO) {
+        loadLocations().entries.mapNotNull { (id, l) -> if (l.lat.isNaN()) null else id to (l.lat to l.lon) }.toMap()
+    }
+
     private fun loadLocations(): Map<String, Location> = locations ?: synchronized(this) {
         locations ?: runCatching {
             val o = JSONObject(locationsFile.readText())

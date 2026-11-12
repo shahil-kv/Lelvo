@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -35,6 +36,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.unit.dp
 import app.lelvo.android.LelvoApp
 import app.lelvo.android.R
+import app.lelvo.android.collections.LocationMap
 import app.lelvo.android.shell.Messages
 import app.lelvo.android.timeline.icon
 import app.lelvo.android.timeline.listTint
@@ -103,8 +105,9 @@ internal fun InfoSheet(entry: GalleryEntry, onDismiss: () -> Unit) {
             val lon = details.longitude ?: item?.longitude
             if (lat != null && lon != null) {
                 val coordinates = String.format(Locale.ROOT, "%.5f, %.5f", lat, lon)
+                // Only map tiles for the area are fetched (OpenFreeMap), as iOS fetches Apple's; never the photo.
+                LocationMap(lat, lon, Modifier.fillMaxWidth().height(180.dp).padding(horizontal = 16.dp, vertical = 8.dp))
                 Row(R.drawable.ic_place, coordinates, "Open in Maps") {
-                    // No map inside the app: Lelvo sends nothing to a map service itself. The user's maps app opens it.
                     val label = Uri.encode(name ?: "Photo")
                     try {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${lat},${lon}($label)")))
