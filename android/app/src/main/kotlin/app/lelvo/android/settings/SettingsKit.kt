@@ -94,15 +94,16 @@ internal fun SettingRow(
     ListItem(
         headlineContent = { Text(title, color = colour) },
         supportingContent = value?.takeIf { it.isNotEmpty() }?.let { { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-        leadingContent = icon?.let { { Icon(painterResource(it), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) } },
+        leadingContent = icon?.let { { Icon(painterResource(it), contentDescription = null, tint = if (destructive) colour else MaterialTheme.colorScheme.onSurfaceVariant) } },
         modifier = if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick) else Modifier,
     )
 }
 
 @Composable
-internal fun ToggleRow(title: String, detail: String?, on: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+internal fun ToggleRow(title: String, detail: String?, on: Boolean, enabled: Boolean = true, icon: Int? = null, onChange: (Boolean) -> Unit) {
     ListItem(
         headlineContent = { Text(title) },
+        leadingContent = icon?.let { { Icon(painterResource(it), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) } },
         supportingContent = detail?.let { { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
         trailingContent = { Switch(on, onCheckedChange = null, enabled = enabled) },
         modifier = Modifier.toggleable(on, enabled = enabled, role = Role.Switch, onValueChange = onChange),

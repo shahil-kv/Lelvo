@@ -103,11 +103,11 @@ private fun Main(
     // Back: SettingsPage closes Settings; a page composed above it takes Back first.
     SettingsPage("Settings", onClose) {
         SectionHeader("Telegram")
-        SettingRow("Signed in as", info.account)
-        SettingRow("Library", info.library, onClick = onLibrary)
+        SettingRow("Signed in as", info.account, icon = R.drawable.ic_account_circle)
+        SettingRow("Library", info.library, icon = R.drawable.ic_photo_library, onClick = onLibrary)
         SettingRow(
             "Encryption", if (real && app.library.needsHeaderUpgrade) "End-to-end · add a recovery key" else "End-to-end",
-            onClick = if (real) ({ open(Page.Encryption) }) else null,
+            icon = R.drawable.ic_lock, onClick = if (real) ({ open(Page.Encryption) }) else null,
         )
         ttl?.let { AccountKept(app, it) { ttl = MAX_TTL_DAYS } }
 
@@ -117,13 +117,13 @@ private fun Main(
             ToggleRow("Back up new photos automatically",
                 if (auto) "New photos are backed up on their own, including overnight while charging."
                 else "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.",
-                auto) { auto = it; app.prefs.autoBackup = it; onBackupRulesChanged(false) }
-            SettingRow("Backup options", summary) { open(Page.BackupOptions) }
+                auto, icon = R.drawable.ic_cloud_upload) { auto = it; app.prefs.autoBackup = it; onBackupRulesChanged(false) }
+            SettingRow("Backup options", summary, icon = R.drawable.ic_tune) { open(Page.BackupOptions) }
         }
 
         SectionDivider()
-        SettingRow("Memories") { open(Page.Memories) }
-        SettingRow("Storage", storage) { open(Page.Storage) }
+        SettingRow("Memories", icon = R.drawable.ic_schedule) { open(Page.Memories) }
+        SettingRow("Storage", storage, icon = R.drawable.ic_storage) { open(Page.Storage) }
         Footnote("Space used on this phone by cloud previews you've viewed. Your photos aren't affected.")
 
         if (real) {
@@ -147,7 +147,7 @@ private fun Main(
         }
 
         SectionDivider()
-        SettingRow("Sign out and reset this phone", destructive = true) { confirmSignOut = true }
+        SettingRow("Sign out and reset this phone", icon = R.drawable.ic_logout, destructive = true) { confirmSignOut = true }
         Footnote("Signs out of Telegram on this phone and removes local data. Your Telegram library is not touched; sign in again to restore it.")
     }
     if (confirmSignOut) {
