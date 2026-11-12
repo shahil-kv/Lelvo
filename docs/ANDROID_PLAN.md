@@ -257,9 +257,9 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Favorites and albums notes, 10 s pacing | `MetaSync.swift`, `MetaLog.swift` | Same notes, outbox table | |
-| Recently Deleted notes | `TrashSync.swift`, `TrashLog.swift` | Same notes | |
-| Favorite on the phone | `PhotosFavoriteSync.swift`, `PhotosFavorite.swift` | MediaStore `IS_FAVORITE` (Android 11+) | |
+| Favorites and albums notes, 10 s pacing | `MetaSync.swift`, `MetaLog.swift` | Same notes, outbox table | ◐ favorites sent and read; albums read only (Android has no Lelvo albums to change yet); iPhone side not checked |
+| Recently Deleted notes | `TrashSync.swift`, `TrashLog.swift` | Same notes | ◐ delete, recover, delete for good proven; iPhone side not checked |
+| Favorite on the phone | `PhotosFavoriteSync.swift`, `PhotosFavorite.swift` | MediaStore `IS_FAVORITE` (Android 11+) | ◐ written, the system prompt path not seen yet |
 
 ### Phase M. Similar photos and duplicates
 
@@ -724,15 +724,44 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   - Gaps: changing the passphrase or making a new recovery key on a real header (needs the owner's passphrase for
     "Android Test"); "Change to 2 years" not tried (the account is at 2 years); no Automations guide (no Shortcuts on
     Android).
+- 2026-11-12, Phase L (sync between devices) on the "Android Test" library:
+  - iOS read first: `TrashSync`, `MetaSync`, `PhotosFavoriteSync`, LelvoCore `TrashLog`, `MetaLog`, `PhotosFavorite`,
+    `CloudTrash`, `LibraryStore` outboxes (`changeTrashState`, `changeMeta`), `GalleryActions` (favorite, delete
+    everywhere, delete from backup, recover, delete for good, 30-day cleanup, `TrashGate`), `LibraryService`
+    `sendTrashNote`/`sendMetaNote`/`applyTrashNotes`/`applyMetaNotes`/`applyDeletes`, `TDService.existingMessages` and
+    `telegramTime`, `BackupEngine.withNoteSlot`; fixes #80, #98, #99, #101.
+  - Android: `data/sync/NoteSync` (both pacers, sending with size check, tidy-up, compaction, follow Telegram, the
+    actions, the 30-day cleanup, phone favorites), Room 3 (`trash_outbox`, `meta_outbox`, `phone_favorite`, new
+    tables only), scanner applies this phone's waiting changes on top of notes, `BackupEngine.withNoteSlot`,
+    `TdClient.telegramTimeMs`, `TdFiles.existingMessages` (Java `GetMessages` answers null for a missing message, so no
+    halving probe like iOS needs for TDLibKit). UI: three-way delete dialog (remove from phone / backup only /
+    everywhere), favorites on cloud items, Recently Deleted with long-press selection, Recover and Delete, "Move to
+    Recently Deleted" for stranded items, Back up on a removed photo recovers it.
+  - Every channel write goes through `requireWritable`; automatic writes (old items' notes, tidy-up, compaction,
+    phone favorites, the 30-day cleanup) are skipped on a library this build may not change.
+  - Proven on the emulator: favorite on 2 items sent `fav, 2 items`; Delete from backup only moved a video to Recently
+    Deleted, `del` note sent, the item took Telegram's date; Recover all sent `recover` and then removed both finished
+    notes; Delete from Telegram deleted the item's messages and its note; open sync runs once per launch; light and dark.
+  - Bug found and fixed: "31 days" in Recently Deleted when Telegram's clock is ahead of the phone's (the shared date
+    is Telegram's). iOS `CloudTrash.daysLeft` has the same formula: tell the owner.
+  - iOS behaviour kept, worth telling the owner: a backup without `fav` counts as "unknown", so a heart added in Photos
+    later to a photo backed up without one never reaches the other devices (`PhotosFavorite.decide` → remember).
+  - Differences: Android can change a phone favorite only through the system prompt, so a favorite from another
+    device waits for Lelvo on screen and asks once; cancelled, it isn't asked again until the next start.
+  - Gaps: the iPhone reading Android's notes (and back) not checked yet; compaction (200+ notes) and the 30-day
+    cleanup not run (no short-retention debug hook yet); a library switch or sign-out doesn't keep waiting changes for
+    later (iOS `LibrarySnapshots.saveChoices`), it gives them 5 s to send; albums notes are never written by Android;
+    the viewer leaves the page after "Delete from backup only" even when the phone copy stays.
 - **Next session (start here):**
+  0. **Owner, Phase L check on the iPhone**: open "Android Test" on the iPhone; the two items favorited on Android are
+     favorites there; favorite or delete one there and see Android follow within a few seconds while open.
   1. **Owner on the emulator** (needs the "Android Test" passphrase): Settings → Encryption → New recovery key, then
      Change passphrase; then open "Android Test" on the iPhone with the new passphrase and the new recovery key.
   2. **Real Android phone check** (owner, later): everything listed in the Phase F notes, plus real Pixel and Samsung
      Motion Photos (MOTION chip plays), Collections on a phone with many folders, Search's place names (the
      emulator's geocoder can't be reached), and Phase J on a real network: a new photo backs up on its own within a
      few minutes, Wi-Fi only waits on mobile data, a long Back up now survives locking the phone.
-  3. Phase L (sync between devices): favorites, albums and Recently Deleted notes written by Android, read by the
-     iPhone and back. Writes still only to "Android Test".
+  3. Phase M next (similar photos and duplicates: needs its own approved issue for the on-device model), then N.
   4. At the very end (owner, 2026-11-12): the map (details sheet and Collections) and things in photos; both need a
      library approved first.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
