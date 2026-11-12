@@ -149,7 +149,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Session ended elsewhere | `LelvoCore/Support/SessionWatch.swift` | `SessionWatch` port | ✅ (no screen on iOS either: the reset shows the intro; device run waits with A7) |
 | Choose library, unlock, recovery key | `LibraryService.swift`, `EncryptionSettingsView.swift` | `LibraryScreens`, `RecoveryKeyScreen` | ◐ (needs real run) |
 | New library with recovery key shown and confirmed | `OnboardingView.swift` (`.recoveryKey`), `PassphraseBox.swift` | Header format 2 writer, key screens | ◐ (needs a real create on "Android test") |
-| Scanning and "library ready" | `LibraryReadyView.swift` | Progress screen, item count | ◐ (scan screen done; "library ready" waits for the first upload, Phase I) |
+| Scanning and "library ready" | `LibraryReadyView.swift` | Progress screen, item count | ✅ scan screen; first backup, "Welcome back" and "Your library is ready" (debug preview `lelvo.library first`) |
 | Photo permission (full, partial, location) | `OnboardingView.swift` (`.photos`), `PhotoLibraryService.swift` | `READ_MEDIA_*`, partial access (Android 14), `ACCESS_MEDIA_LOCATION` | ◐ (photos step done; prompt and partial not run) |
 
 ### Phase C. Library and index
@@ -183,7 +183,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Date scrubber | `NativePhotoGrid.swift`, `VideoNavigation.swift` | Fast-scroll thumb with date | ✅ |
 | Filters: videos, Live Photos, favorites, only in Telegram, not backed up | `GalleryModel.swift` (`Filter`) | Filter chips in the top bar menu | ✅ menu + chip to clear |
 | Select, swipe to select, select all | `SwipeSelection.swift`, `GalleryView.swift` | Long-press + drag selection | ✅ with edge auto-scroll |
-| Actions: back up, share, favorite, add to album, delete (phone / Telegram / everywhere) | `GalleryActions.swift`, `GalleryView.swift` | Bottom action bar, dialogs, system delete prompt | ◐ share (cloud too), favorite and trash on the phone; back up (Phase I), albums (G), favorites and deletes in Telegram (L) |
+| Actions: back up, share, favorite, add to album, delete (phone / Telegram / everywhere) | `GalleryActions.swift`, `GalleryView.swift` | Bottom action bar, dialogs, system delete prompt | ✅ share, back up, favorite (phone and library), add to album / remove from album, delete (phone, backup only, everywhere) |
 
 ### Phase F. Viewer
 
@@ -193,7 +193,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Zoom, double tap | `ViewerView.swift` | Telephoto | ✅ tiles from the file once zoomed, so big photos stay sharp |
 | Screen copy first, then original | `CloudMediaService.swift` | Two-step load | ✅ |
 | Info: date, place, camera, size, where it is | `ViewerView.swift` (Info), `ExtraMetadata.swift` | Bottom sheet | ✅ camera and place from EXIF; place opens the maps app |
-| Share original, save to phone, favorite, delete | `ViewerView.swift`, `GalleryActions.swift` | Top bar and bottom bar | ◐ share (and original), save, favorite and delete on the phone; Telegram-side favorite and delete wait for L, back up for I |
+| Share original, save to phone, favorite, delete | `ViewerView.swift`, `GalleryActions.swift` | Top bar and bottom bar | ✅ share (and original), save, favorite and delete on both sides; the page stays after "Delete from backup only" |
 | Live Photos (press to play), Motion Photos | `ViewerView.swift` | Media3 with the paired video | ✅ cloud Live Photos (LIVE chip or long press); the phone's own Motion Photos (MOTION chip) |
 | Video player: speed, quality, sound off on close | `CloudVideo.swift` | Own controls over Media3 | ✅ play, scrubber with frame strip, times, mute, speed, double tap ±10 s, quality pill, stall fallback |
 
@@ -202,9 +202,9 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
 | Albums from the phone and from your library | `AlbumsView.swift`, `AddToAlbumView.swift`, `MetaSync.swift` | MediaStore buckets + Lelvo albums | ✅ read: Lelvo albums, phone folders, See all |
-| Add to album, rename, delete album | `AddToAlbumView.swift`, `AlbumsView.swift` | Dialogs | |
+| Add to album, rename, delete album | `AddToAlbumView.swift`, `AlbumsView.swift` | Dialogs | ✅ add (existing or new), remove, delete album, as notes; no rename (iOS has none either) |
 | Favorites, videos and other smart rows | `AlbumsView.swift` | Same rows | ✅ Recent days, Favorites, media types |
-| Recently Deleted (30 days, restore, delete now) | `RecentlyDeletedView.swift`, `TrashGrid.swift`, `TrashSync.swift` | Grid + actions | ◐ grid with days left; Recover and Delete send notes (Phase L) |
+| Recently Deleted (30 days, restore, delete now) | `RecentlyDeletedView.swift`, `TrashGrid.swift`, `TrashSync.swift` | Grid + actions | ✅ days left, selection, Recover, Delete, the 30-day cleanup (proven with `lelvo.trashRetentionSeconds`) |
 | Memories | `MemoriesView.swift`, `LelvoCore/Support/Memories.swift`, `MemoriesSettingsView.swift` | Cards, same rules | ◐ on this day, recent, trips, story player, settings; no themes or place names yet |
 | Map | `PhotoMapView.swift` | Needs a map library issue | blocked: needs a map library on the approved list |
 
@@ -257,15 +257,15 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Favorites and albums notes, 10 s pacing | `MetaSync.swift`, `MetaLog.swift` | Same notes, outbox table | ◐ favorites sent and read; albums read only (Android has no Lelvo albums to change yet); iPhone side not checked |
-| Recently Deleted notes | `TrashSync.swift`, `TrashLog.swift` | Same notes | ◐ delete, recover, delete for good proven; iPhone side not checked |
+| Favorites and albums notes, 10 s pacing | `MetaSync.swift`, `MetaLog.swift` | Same notes, outbox table | ◐ favorites and albums sent, read and tidied; iPhone side not checked |
+| Recently Deleted notes | `TrashSync.swift`, `TrashLog.swift` | Same notes | ◐ delete, recover, delete for good, 30-day cleanup proven; iPhone side not checked |
 | Favorite on the phone | `PhotosFavoriteSync.swift`, `PhotosFavorite.swift` | MediaStore `IS_FAVORITE` (Android 11+) | ◐ written, the system prompt path not seen yet |
 
 ### Phase M. Similar photos and duplicates
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Duplicates and similar photos | `SimilarPhotosService.swift`, `SimilarPhotos.swift` | On-device; needs its own issue for the model | |
+| Duplicates and similar photos | `SimilarPhotosService.swift`, `SimilarPhotos.swift` | On-device perceptual hash (no model, no new library) | ✅ grouped, Best, select extras, delete on the phone and from the backup; real bursts not tried |
 
 ### Phase N. Cross-platform gate, parity audit and release
 
@@ -751,17 +751,81 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   - Gaps: the iPhone reading Android's notes (and back) not checked yet; compaction (200+ notes) and the 30-day
     cleanup not run (no short-retention debug hook yet); a library switch or sign-out doesn't keep waiting changes for
     later (iOS `LibrarySnapshots.saveChoices`), it gives them 5 s to send; albums notes are never written by Android;
-    the viewer leaves the page after "Delete from backup only" even when the phone copy stays.
-- **Next session (start here):**
-  0. **Owner, Phase L check on the iPhone**: open "Android Test" on the iPhone; the two items favorited on Android are
-     favorites there; favorite or delete one there and see Android follow within a few seconds while open.
+    the viewer leaves the page after "Delete from backup only" even when the phone copy stays. (All closed later the
+    same day except the iPhone check, see below.)
+- 2026-11-12, gaps closed across phases:
+  - Albums (G): Add to album (existing or new) and Remove from the selection bar, Delete album on the album page. They
+    are the library's albums, written as notes; Android's folders stay folders. Proven: `album-add, 2 items`, then
+    `album-remove, 2 items`, and the add note was removed as finished.
+  - Choices kept per library (iOS `LibrarySnapshots.saveChoices`): the off-backup list and unsent Recently Deleted,
+    favorite and album changes are kept outside the index when the scanner moves to another library, on forgetting a
+    library, and on a reset after the session ended elsewhere; they come back with that library. Before this, a switch
+    and back would back up photos deleted for good again. `core/sync/KeptChoices` is unit-tested; the switch itself is
+    not run (needs a second library's passphrase).
+  - Timeline: a phone photo that is a copy of a backed-up item (an alias) shows that item's badge (iOS
+    `merge(aliases:)`, tested). Before, it read "on this phone only" (Phase I gap).
+  - Viewer: "Delete from backup only" keeps the page, now phone-only.
+  - 30-day cleanup: debug hook `--el lelvo.trashRetentionSeconds N`; proven: Telegram's clock read (70 s ahead),
+    the expired item's messages deleted, its note removed.
+  - Setup (B): after photo access, iOS `FirstBackupView` and `LibraryReadyView`: "Welcome back" with the count for a
+    library that has photos; otherwise choose a first photo, watch it upload (ring, safe, already safe, waiting with
+    the reason), then the pile pulled into the mark. Light mode uses the accent mark over a softer glow (iOS setup is
+    dark only). Bug found and fixed: titles were black on black in dark mode. Checked light and dark.
+  - Cleaned up: the unused tab placeholder and the build's one warning.
+  - Still open, needs the owner or a real phone: everything in "Next session" below; the PRIVACY.md line for
+    Android's geocoder (public text, left for the owner); Memories themes and things in photos (need a labeller on the
+    approved list).
+- 2026-11-12, Phase M (similar photos) on the "Android Test" library:
+  - iOS read first: `SimilarPhotosService`, LelvoCore `SimilarPhotos` and its tests, `DuplicatesView` similar section
+    (Select extras skips photos not backed up, Best = favorite then largest then first, phone photos to the system
+    trash, cloud-only ones to Recently Deleted, one pass at a time, cancelled when the page closes, cache per version).
+  - Android: `core/backup/SimilarPhotos` (runs, groups, best: iOS tests ported) and `PerceptualHash` (64-bit DCT hash of a
+    32×32 grey image, same shot at 10 bits or fewer apart; tested for exposure, noise and a small shift, and against
+    different pictures). `data/backup/SimilarPhotosService` hashes Android's own thumbnail of phone photos and the
+    backup thumbnail of cloud-only ones, skips videos and the Screenshots folder, keeps hashes in
+    `cache/similar-hashes.txt` by `id|DATE_MODIFIED`. The Similar photos section is on Backup → Extra copies and
+    duplicates, with progress, Best, a crossed cloud on photos not backed up, a cloud on cloud-only ones.
+  - Difference: iOS uses Vision feature prints. Android has none built in and a model would be a new library, so it
+    uses a perceptual hash: as good for bursts and near-identical shots, weaker for the same thing from another angle.
+  - Proven on the emulator: three generated burst shots grouped and a striped picture left out (0.1 s); the two extras
+    went to the phone's trash through the system prompt and their backups then showed as cloud-only in the same
+    group (as on iOS); deleting those moved them to Recently Deleted and sent `del, 2 items`; a photo not backed up was
+    left out of Select extras, and picking it by hand warned that it is lost once the trash is emptied; the page
+    stays open after the system prompt; light and dark. Test files left: `Pictures/PhaseM/phasem_*.jpg`.
+  - Gaps: real camera bursts and a large library's timing (the emulator has 20 photos).
+- 2026-11-12, owner on the iPhone: "Android Test" opened there shows the photos Android backed up (screenshots and
+  others). Android → iPhone viewing works; favorites/deletes following back and forth and a bytes-equal check are
+  still Phase N items.
+- 2026-11-12, Phase N start (parity: viewer swipe, Backup motion):
+  - Viewer: the bars now follow the page once it lands (they switched halfway through a swipe, so Save and the video
+    controls jumped sideways and up and down); Save slides in and out; a video's controls keep their room until its
+    player starts; the poster stays the same image under the player (it was loaded again as the page landed).
+    Checked on the emulator with no crash; the emulator's videos are screen recordings of Lelvo, so the owner should
+    judge the feel on a real phone with real videos.
+  - Backup: iOS `CatchingMark` ported (`brand/CatchingMark.kt`): each upload flies into the cloud, the cloud squashes,
+    a check when complete, dimmed while waiting; off with Remove animations and Battery Saver. Proven on the emulator
+    with 3 new photos (`Pictures/PhaseN/phasen_*.jpg`, backed up to "Android Test"). Free up space: burst of the removed
+    photos into the mark and the freed size counting up (built, not yet run: it would trash all 33 emulator items).
+  - Fixed: "0 items left to back up" while a run is still listing; "Last upload 0 minutes ago" → "just now".
+  - Back up now shows only when something waits or isn't in the cloud (or paused), Retry failed on its own, and the
+    Wi-Fi only line only while busy, as on iOS (owner, 2026-11-12). Checked on the emulator.
+  - Test leftovers: two screen recordings were backed up to "Android Test" by automatic backup and their phone files
+    removed, so they show as cloud-only there. Record to `/data/local/tmp`, never `/sdcard`.
+- **Next session (start here): Phase N.** Start with the parity audit (walk iOS `Shared/`, `iOS/`, `LelvoCore` against
+  this plan) and the cross-platform checks: iPhone uploads a HEIC, a PNG and a video to "Android Test" → Android
+  downloads each and the SHA-256 matches the caption's `h`; the same the other way round; a Pixel/Samsung Motion
+  Photo opened on the iPhone (expected: shows as a still). Nothing uncommitted from Phase M is lost: ask the owner
+  whether to commit the Phase L follow-ups and Phase M first.
+  0. Done 2026-11-12 (owner): Android's photos show on the iPhone. Still to see: a favorite or delete made on one side
+     followed by the other within a few seconds while open.
   1. **Owner on the emulator** (needs the "Android Test" passphrase): Settings → Encryption → New recovery key, then
      Change passphrase; then open "Android Test" on the iPhone with the new passphrase and the new recovery key.
   2. **Real Android phone check** (owner, later): everything listed in the Phase F notes, plus real Pixel and Samsung
      Motion Photos (MOTION chip plays), Collections on a phone with many folders, Search's place names (the
      emulator's geocoder can't be reached), and Phase J on a real network: a new photo backs up on its own within a
      few minutes, Wi-Fi only waits on mobile data, a long Back up now survives locking the phone.
-  3. Phase M next (similar photos and duplicates: needs its own approved issue for the on-device model), then N.
+  3. Phase M done (similar photos by perceptual hash, see the 2026-11-12 Phase M notes). Owner: check groups on real
+     bursts on a real phone; if they miss shots iOS groups, a model needs its own approved issue. Next: Phase N.
   4. At the very end (owner, 2026-11-12): the map (details sheet and Collections) and things in photos; both need a
      library approved first.
 - Still open (owner): approved library issue; an "Android test" library on the real account, made on the iPhone.
