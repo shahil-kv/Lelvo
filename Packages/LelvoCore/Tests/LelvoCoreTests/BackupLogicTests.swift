@@ -358,6 +358,8 @@ import LelvoCore
         #expect(CloudTrash.daysLeft(item, now: now.addingTimeInterval(60)) == 30)
         #expect(CloudTrash.daysLeft(item, now: now.addingTimeInterval(29.5 * 86400)) == 1)
         #expect(CloudTrash.daysLeft(item, now: now.addingTimeInterval(31 * 86400)) == 0)
+        // Trashed by Telegram's clock, read on a device clock an hour behind it: still 30, never 31.
+        #expect(CloudTrash.daysLeft(item, now: now.addingTimeInterval(-3600)) == 30)
         #expect(CloudTrash.isExpired(item, now: now.addingTimeInterval(30 * 86400)))
     }
 
