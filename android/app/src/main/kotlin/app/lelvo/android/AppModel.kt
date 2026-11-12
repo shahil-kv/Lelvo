@@ -87,7 +87,8 @@ class AppModel(private val app: LelvoApp) {
             if (!library.isConfigured || !library.isUnlocked || !library.setupFinished) return@collect
             // Background backups start once a library is ready (after sign-in, or the first scan of a new library).
             BackupScheduler.schedule(app, app.prefs)
-            runCatching { app.scanner.catchUp(); app.linker.relink() }.onFailure { if (it !is kotlinx.coroutines.CancellationException) AppLog.warn("Library catch-up failed", it) }
+            // Catches up, then follows Recently Deleted, sends waiting notes and matches favorites with the phone.
+            app.sync.onOpen(force = true) { app.linker.relink() }
         }
     }
 
@@ -96,11 +97,18 @@ class AppModel(private val app: LelvoApp) {
      * index is rebuilt from the new library and linked to this phone's photos. Nothing is deleted from either library.
      */
     suspend fun switchLibrary(chatId: Long, secret: String) {
-        app.library.switchTo(app.library.open(chatId, secret))
+        val opened = app.library.open(chatId, secret)
+        // Waiting changes belong to the library being left: they get a moment to go first.
+        app.sync.sendBeforeLeaving()
+        app.library.switchTo(opened)
     }
 
     /** Reads the whole library again (Settings → Library → Re-scan), then links what it found to this phone's photos. */
-    suspend fun rescan(): app.lelvo.data.LibraryScanner.Summary = app.scanner.fullScan().also { app.linker.relink() }
+    suspend fun rescan(): app.lelvo.data.LibraryScanner.Summary = app.scanner.fullScan().also {
+        app.linker.relink()
+        // The channel was just read: follow Recently Deleted, send and tidy notes, match favorites (iOS re-scan).
+        app.sync.afterCatchUp()
+    }
 
     /**
      * A library just created from Settings: it's in use and empty, so there's nothing to restore. The recovery key

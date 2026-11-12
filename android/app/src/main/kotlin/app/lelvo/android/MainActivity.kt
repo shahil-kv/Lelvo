@@ -273,6 +273,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
             app.photos.changes().combine(library) { _, _ -> }.conflate().collect { app.search.index(phone = !isDemo) }
         }
     }
+    PhoneFavoritePrompt(app)
     Box(Modifier.fillMaxSize()) {
         AppShell(app.model.tab) { tab, modifier ->
             when (tab) {
@@ -328,5 +329,34 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
         // action row while they show.
         val overTabs = open == null && !settings && !checking && pages.isEmpty()
         MessageHost(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (overTabs) NavigationBarHeight else if (open != null) 72.dp else 0.dp))
+    }
+}
+
+/**
+ * A favorite changed on another device reaches this phone's gallery (iOS `PhotosFavoriteSync` sets it in Photos).
+ * Android lets an app change a favorite only through the system prompt, so it shows here, once per change, while
+ * Lelvo is on screen. Cancelling it isn't asked again until Lelvo starts again.
+ */
+@Composable
+private fun PhoneFavoritePrompt(app: LelvoApp) {
+    val requests by app.sync.phoneRequests.collectAsState()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var showing by remember { mutableStateOf<app.lelvo.data.sync.NoteSync.PhoneFavoriteRequest?>(null) }
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult(),
+    ) { r ->
+        val request = showing ?: return@rememberLauncherForActivityResult
+        showing = null
+        scope.launch { app.sync.phoneRequestFinished(request, changed = r.resultCode == android.app.Activity.RESULT_OK) }
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(requests, showing) {
+        if (showing != null || android.os.Build.VERSION.SDK_INT < 30) return@LaunchedEffect
+        val request = requests.firstOrNull() ?: return@LaunchedEffect
+        val uris = app.photos.uris(request.localIds)
+        if (uris.isEmpty()) { app.sync.phoneRequestFinished(request, changed = false); return@LaunchedEffect }
+        showing = request
+        val pi = android.provider.MediaStore.createFavoriteRequest(context.contentResolver, uris, request.value)
+        launcher.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build())
     }
 }

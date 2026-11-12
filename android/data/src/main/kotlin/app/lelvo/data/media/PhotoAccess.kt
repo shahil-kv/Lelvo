@@ -158,6 +158,61 @@ class PhotoAccess(context: Context) {
         out
     }
 
+    /**
+     * MediaStore ids of every favorite on this phone (iOS `favoriteIdentifiers`), in one query however big the
+     * library. Null without full access or before Android 11: with partial access, photos Lelvo can't see would look
+     * unfavorited. A query that fails is null too, never "none are favorites".
+     */
+    suspend fun favoriteIds(): Set<String>? = withContext(Dispatchers.IO) {
+        if (Build.VERSION.SDK_INT < 30 || status() != Status.Full) return@withContext null
+        runCatching {
+            val out = HashSet<String>()
+            app.contentResolver.query(
+                MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), arrayOf(MediaStore.Files.FileColumns._ID),
+                "${MediaStore.MediaColumns.IS_FAVORITE} = 1", null, null,
+            )?.use { c -> while (c.moveToNext()) out += c.getLong(0).toString() } ?: return@runCatching null
+            out
+        }.onFailure { AppLog.warn("Photos: favorites query failed: ${it::class.simpleName}") }.getOrNull()
+    }
+
+    /** The favorite of each of these photos still on the phone, read again right before acting on it. */
+    suspend fun favorites(localIds: Collection<String>): Map<String, Boolean> = withContext(Dispatchers.IO) {
+        if (Build.VERSION.SDK_INT < 30 || localIds.isEmpty()) return@withContext emptyMap()
+        val out = HashMap<String, Boolean>()
+        localIds.chunked(500).forEach { chunk ->
+            runCatching {
+                app.contentResolver.query(
+                    MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
+                    arrayOf(MediaStore.Files.FileColumns._ID, MediaStore.MediaColumns.IS_FAVORITE),
+                    "${MediaStore.Files.FileColumns._ID} IN (${chunk.joinToString(",") { "?" }})", chunk.toTypedArray(), null,
+                )?.use { c -> while (c.moveToNext()) out[c.getLong(0).toString()] = c.getInt(1) == 1 }
+            }
+        }
+        out
+    }
+
+    /** Content Uris by MediaStore id, for the system's favorite prompt (photo or video decided by MediaStore). */
+    suspend fun uris(localIds: Collection<String>): List<android.net.Uri> = withContext(Dispatchers.IO) {
+        val out = ArrayList<android.net.Uri>()
+        localIds.chunked(500).forEach { chunk ->
+            runCatching {
+                app.contentResolver.query(
+                    MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
+                    arrayOf(MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.MEDIA_TYPE),
+                    "${MediaStore.Files.FileColumns._ID} IN (${chunk.joinToString(",") { "?" }})", chunk.toTypedArray(), null,
+                )?.use { c ->
+                    while (c.moveToNext()) {
+                        val video = c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                        out += ContentUris.withAppendedId(
+                            if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI, c.getLong(0),
+                        )
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /** The content Uri of a phone photo or video, for thumbnails, the viewer, sharing and deleting. */
     fun uri(asset: PhoneAsset): android.net.Uri = ContentUris.withAppendedId(
         if (asset.isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI, asset.localId.toLong(),

@@ -195,7 +195,7 @@ fun ViewerScreen(items: List<GalleryEntry>, start: Int, onClose: () -> Unit) {
     }
     if (info) current?.let { InfoSheet(it) { info = false } }
     if (confirmDelete) current?.let { entry ->
-        DeleteDialog(listOf(entry), onDismiss = { confirmDelete = false }, onRemove = { confirmDelete = false; actions.trash(listOf(entry)) })
+        DeleteDialog(listOf(entry), actions, onDismiss = { confirmDelete = false })
     }
 }
 

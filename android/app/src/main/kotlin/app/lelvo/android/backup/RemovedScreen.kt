@@ -71,8 +71,19 @@ fun RemovedScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Modifi
             Messages.show(Messages.Style.Info, "Backing up $n item${if (n == 1) "" else "s"}")
             app.startBackup(includeNew = false)
         } else {
-            // In Recently Deleted: backing it up again is recovering it, which sends a note (Phase L).
-            Messages.show(Messages.Style.Info, "Recover it from Recently Deleted", "It's still in your Telegram library's Recently Deleted.")
+            // Still in Recently Deleted: backing it up again is recovering it (iOS `BackupEngine`), with its note.
+            val recovered = try {
+                withContext(Dispatchers.IO) {
+                    chosen.mapNotNull { app.store.itemForPhone(it.localId) }.filter { it.status == ItemStatus.Trashed }.count { app.sync.recoverForBackup(it) }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Messages.show(Messages.Style.Failure, "Couldn't recover", e.message ?: "Try again.", seconds = 5.0)
+                -1
+            }
+            if (recovered > 0) Messages.show(Messages.Style.Success, if (recovered == 1) "Recovered 1 item" else "Recovered $recovered items", "It's back in your Telegram library.")
+            else if (recovered == 0) Messages.show(Messages.Style.Info, "Already backed up")
         }
         reload++
     }

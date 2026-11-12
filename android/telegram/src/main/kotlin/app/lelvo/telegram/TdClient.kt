@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -67,6 +68,10 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
     private val _updates = MutableSharedFlow<TdApi.Object>(extraBufferCapacity = 256)
     val updates: SharedFlow<TdApi.Object> = _updates
 
+    /** TDLib is connected to Telegram (`connectionStateReady`), so its `unix_time` is Telegram's clock. */
+    private val _connected = MutableStateFlow(false)
+    val connected: StateFlow<Boolean> = _connected
+
     /** Emits once each time the session was ended outside this app (Telegram → Devices, or by Telegram). */
     private val _sessionEndedElsewhere = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val sessionEndedElsewhere: SharedFlow<Unit> = _sessionEndedElsewhere
@@ -126,6 +131,18 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
     private fun isCurrent(c: Client) = synchronized(lock) { client === c }
 
     /** Days without use after which Telegram deletes the account (and the library with it); null when unknown. */
+    /**
+     * Telegram's clock in epoch ms (iOS `telegramTime`), waiting up to [timeoutMs] for a connection; null when it
+     * isn't known. Recently Deleted dates and the 30-day cleanup use it, so a wrong phone clock can't delete early.
+     */
+    suspend fun telegramTimeMs(timeoutMs: Long = 0): Long? {
+        if (!connected.value) {
+            kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { connected.first { it } } ?: return null
+        }
+        val seconds = (runCatching { send(TdApi.GetOption("unix_time")) }.getOrNull() as? TdApi.OptionValueInteger)?.value ?: return null
+        return if (seconds > 0) seconds * 1000 else null
+    }
+
     suspend fun accountTtlDays(): Int? = runCatching { send(TdApi.GetAccountTtl()).days }.getOrNull()
 
     /** 730 days is Telegram's maximum. */
@@ -160,6 +177,7 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
         when (obj) {
             is TdApi.UpdateMessageSendSucceeded -> finishSend(obj.oldMessageId, Result.success(obj.message))
             is TdApi.UpdateMessageSendFailed -> finishSend(obj.oldMessageId, Result.failure(TelegramException(obj.error.code, obj.error.message)))
+            is TdApi.UpdateConnectionState -> if (isCurrent(from)) _connected.value = obj.state is TdApi.ConnectionStateReady
             else -> Unit
         }
         if (obj is TdApi.UpdateAuthorizationState) {

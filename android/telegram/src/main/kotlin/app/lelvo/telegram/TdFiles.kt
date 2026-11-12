@@ -46,6 +46,23 @@ class TdFiles(private val td: TdClient) {
         td.send(TdApi.SearchChatMessages(chatId, null, "", null, fromMessageId, 0, limit, TdApi.SearchMessagesFilterDocument()))
     }
 
+    /**
+     * Which of [ids] are still in the channel (iOS `existingMessages`). TDLib's Java binding answers each missing
+     * message with null, so one request per 100 ids is enough. A request that fails throws: a check that couldn't run
+     * must never read as "they're gone".
+     */
+    suspend fun existingMessages(chatId: Long, ids: Collection<Long>): Set<Long> {
+        if (ids.isEmpty()) return emptySet()
+        ensureChat(chatId)
+        val found = HashSet<Long>()
+        ids.toSortedSet().chunked(100).forEachIndexed { i, batch ->
+            if (i > 0) delay(200)
+            val got = retryingFloodWait { td.send(TdApi.GetMessages(chatId, batch.toLongArray())) }
+            got.messages.forEach { m -> if (m != null) found += m.id }
+        }
+        return found
+    }
+
     /** TDLib's file for a persistent remote id (no message lookup, so no extra round trip). */
     suspend fun file(remoteId: String): TdApi.File = retryingFloodWait { td.send(TdApi.GetRemoteFile(remoteId, null)) }
 

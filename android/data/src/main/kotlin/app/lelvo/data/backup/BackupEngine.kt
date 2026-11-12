@@ -422,6 +422,36 @@ class BackupEngine(
         if (paused) _activity.update { it.copy(notice = null) }
     }
 
+    /**
+     * Runs a note send (Recently Deleted, favorites and albums) in one of the two upload slots, after the same pacing
+     * and FLOOD_WAIT pause as uploads (iOS `withNoteSlot`). A waiting note goes before the lanes' next upload. A
+     * FLOOD_WAIT from the send holds every lane and the note is tried again once it's over.
+     */
+    suspend fun withNoteSlot(send: suspend () -> Unit) {
+        while (true) {
+            try {
+                while (!synchronized(gate) { slots.acquireForNote() }) delay(200)
+            } catch (e: CancellationException) {
+                synchronized(gate) { slots.stopWaitingForNote() }
+                throw e
+            }
+            try {
+                val wait = synchronized(gate) { pausedUntil } - System.currentTimeMillis()
+                if (wait > 0) { delay(wait); continue }
+                paceUploadStart()
+                try {
+                    send()
+                    return
+                } catch (e: TelegramException) {
+                    val flood = TelegramErrorClassifier.classify(e.code, e.message) as? TelegramErrorKind.FloodWait ?: throw e
+                    holdFor(flood.seconds)
+                }
+            } finally {
+                synchronized(gate) { slots.release() }
+            }
+        }
+    }
+
     private fun holdFor(seconds: Int) = synchronized(gate) { pausedUntil = maxOf(pausedUntil, System.currentTimeMillis() + seconds * 1000L) }
 
     /** Null when the backup may go on; waits up to [patienceMs] for a condition to clear and says what it waits for. */

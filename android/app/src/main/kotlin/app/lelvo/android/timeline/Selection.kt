@@ -140,14 +140,14 @@ internal fun SelectionActions(chosen: List<GalleryEntry>, onDone: () -> Unit, mo
                     onDone()
                 }
             }
-            Action(R.drawable.ic_favorite, if (allFavorite) "Unfavorite" else "Favorite", enabled = chosen.any { it.asset != null }) {
+            Action(R.drawable.ic_favorite, if (allFavorite) "Unfavorite" else "Favorite", enabled = chosen.any { it.asset != null || it.item?.status == app.lelvo.core.index.ItemStatus.BackedUp }) {
                 actions.favorite(chosen, !allFavorite)
             }
             Action(R.drawable.ic_delete, "Delete", enabled = chosen.isNotEmpty()) { confirmDelete = true }
         }
     }
 
-    if (confirmDelete) DeleteDialog(chosen, onDismiss = { confirmDelete = false }, onRemove = { confirmDelete = false; actions.trash(chosen) })
+    if (confirmDelete) DeleteDialog(chosen, actions, onDismiss = { confirmDelete = false })
 }
 
 @Composable

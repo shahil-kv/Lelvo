@@ -172,6 +172,46 @@ object TrashLog {
         if (item.status != ItemStatus.Trashed) item
         else item.copy(status = if (item.isCompleteInCloud) ItemStatus.BackedUp else ItemStatus.Failed, trashedAt = null)
 
+    /** Items in Recently Deleted from before notes existed: they get a note once, and so a fresh 30 days. */
+    fun itemsNeedingANote(trashed: List<LibraryItem>, notes: List<Note>, waiting: Set<String>): List<LibraryItem> {
+        val newest = latest(notes)
+        return trashed.filter { it.id !in waiting && newest[it.id]?.op != Op.DELETE && newest[it.id]?.op != Op.GONE }
+    }
+
+    /** The notes a phone must confirm are still in the channel: those that keep its items in Recently Deleted. */
+    fun notesToConfirm(trashed: List<LibraryItem>, notes: List<Note>, waiting: Set<String>): Set<Long> {
+        val newest = latest(notes)
+        return trashed.filter { it.id !in waiting }.mapNotNull { newest[it.id]?.messageId }.toSet()
+    }
+
+    /**
+     * Items in Recently Deleted that no note in the channel keeps there, because another device finished with the note
+     * while this one wasn't listening. Telegram decides what they are: messages gone means deleted for good, messages
+     * still there means recovered. They never get a new note: that could delete a photo the user recovered.
+     */
+    fun uncovered(trashed: List<LibraryItem>, notes: List<Note>, stillInChannel: Set<Long>, waiting: Set<String>): List<LibraryItem> {
+        val newest = latest(notes.filter { it.messageId in stillInChannel })
+        return trashed.filter { item ->
+            item.id !in waiting && (newest[item.id]?.let { it.op != Op.DELETE && it.op != Op.GONE } ?: true)
+        }
+    }
+
+    /**
+     * Whether Telegram has none of the item's messages left. One message going isn't enough: the rest are still the
+     * user's data. An item with no known messages says nothing, so it isn't gone.
+     */
+    fun allMessagesGone(item: LibraryItem, existing: Set<Long>): Boolean {
+        val ids = item.allMessageIds
+        return ids.isNotEmpty() && ids.none(existing::contains)
+    }
+
+    /**
+     * Whether an expired item may really be deleted: its newest note must be a delete note, and nothing may be waiting
+     * to be sent for it. Anything else keeps the photo.
+     */
+    fun mayPurge(item: LibraryItem, latest: Note?, waiting: Set<String>): Boolean =
+        item.id !in waiting && latest != null && (latest.op == Op.DELETE || latest.op == Op.GONE)
+
     /**
      * Notes that have done their job, so nothing stays in the channel. A delete note is finished when each of its
      * items is deleted for good or has a newer note. A recover note is finished when no older delete note still lists

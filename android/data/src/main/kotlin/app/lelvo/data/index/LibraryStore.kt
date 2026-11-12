@@ -73,6 +73,7 @@ class LibraryStore(private val db: IndexDatabase) {
     /** Everything in the index: items, notes, meta and the off-backup list (a new library or a reset). */
     suspend fun deleteAll() = db.withTransaction {
         dao.deleteAll(); notes.clearTrashNotes(); notes.clearMetaNotes(); notes.clearMeta(); notes.clearNoBackup()
+        notes.clearTrashOutbox(); notes.clearMetaOutbox(); notes.clearPhoneFavorites()
     }
 
     /**
@@ -103,6 +104,80 @@ class LibraryStore(private val db: IndexDatabase) {
     }
     suspend fun addMetaNote(n: MetaLog.Note) = notes.addMetaNote(MetaNoteRow(n.messageId, n.date, n.op.wire, encodeIds(n.ids), n.album))
     suspend fun removeMetaNotes(ids: Collection<Long>) = ids.chunked(500).forEach { notes.removeMetaNotes(it) }
+
+    // Changes waiting to be sent (iOS `trash_outbox`, `meta_outbox`)
+
+    /**
+     * Changes an item's Recently Deleted state and queues its note in one transaction (iOS `changeTrashState`).
+     * Written apart, a scan between the two sees a change with no note waiting and follows the channel, which undid
+     * the user's delete or recover. [chatId] null: no note (the demo). A change that didn't take queues nothing.
+     */
+    suspend fun changeTrashState(id: String, op: TrashLog.Op, chatId: Long?, change: (LibraryItem) -> LibraryItem): LibraryItem? =
+        db.withTransaction {
+            val item = dao.item(id)?.let(::toItem) ?: return@withTransaction null
+            val updated = change(item)
+            dao.upsert(listOf(toRow(updated)))
+            if (chatId != null && (item.status == ItemStatus.Trashed) != (updated.status == ItemStatus.Trashed)) {
+                notes.queueTrash(listOf(TrashOutboxRow(id, chatId, op.wire)))
+            }
+            updated
+        }
+
+    /** Queues a change to send. One row per item: only its latest change matters. */
+    suspend fun queueTrashChange(op: TrashLog.Op, ids: Collection<String>, chatId: Long) =
+        db.withTransaction { ids.chunked(500).forEach { c -> notes.queueTrash(c.map { TrashOutboxRow(it, chatId, op.wire) }) } }
+
+    /** Changes waiting to be sent to this library, by action. */
+    suspend fun queuedTrashChanges(chatId: Long): Map<TrashLog.Op, List<String>> =
+        notes.trashOutbox(chatId).mapNotNull { r -> TrashLog.Op.of(r.op)?.let { it to r.itemId } }.groupBy({ it.first }, { it.second })
+
+    /** Clears sent changes. Only rows still holding [op]: the user may have changed their mind during the send. */
+    suspend fun clearTrashChanges(op: TrashLog.Op, ids: Collection<String>) = ids.chunked(500).forEach { notes.clearTrash(it, op.wire) }
+
+    /** iOS test builds queued `gone`; nothing would ever clear those. */
+    suspend fun dropRetiredTrashChanges() = notes.dropRetiredTrash()
+
+    /**
+     * Sets [key] to [value] on the items and queues the change in one transaction (iOS `changeMeta`). Queued even when
+     * the index already agrees: another device may still have the old value. [chatId] null: this phone only.
+     */
+    suspend fun changeMeta(ids: Collection<String>, key: MetaLog.Key, value: Boolean, chatId: Long?): List<LibraryItem> =
+        db.withTransaction {
+            val changed = ArrayList<LibraryItem>()
+            for (item in items(ids)) {
+                val applied = MetaLog.apply(mapOf(key to value), item.favorite, item.albums.ifEmpty { null })
+                if (applied.changed) {
+                    val updated = item.copy(favorite = applied.favorite ?: false, albums = applied.albums ?: emptyList())
+                    dao.upsert(listOf(toRow(updated)))
+                    changed += updated
+                }
+            }
+            if (chatId != null) ids.chunked(500).forEach { c -> notes.queueMeta(c.map { MetaOutboxRow(it, key.stored, chatId, value) }) }
+            changed
+        }
+
+    /** Changes waiting to be sent to this library: item → key → value. */
+    suspend fun queuedMetaChanges(chatId: Long): Map<String, Map<MetaLog.Key, Boolean>> {
+        val result = HashMap<String, MutableMap<MetaLog.Key, Boolean>>()
+        for (r in notes.metaOutbox(chatId)) {
+            val key = MetaLog.Key.ofStored(r.key) ?: continue
+            result.getOrPut(r.itemId) { HashMap() }[key] = r.value
+        }
+        return result
+    }
+
+    /** Clears a sent change. Only rows still holding [value]: the user may have changed their mind during the send. */
+    suspend fun clearMetaChange(ids: Collection<String>, key: MetaLog.Key, value: Boolean) =
+        ids.chunked(500).forEach { notes.clearMeta(it, key.stored, value) }
+
+    /** The favorite the phone had last time it was checked: item id → value. */
+    suspend fun phoneFavorites(): Map<String, Boolean> = notes.phoneFavorites().associate { it.itemId to it.value }
+
+    /** Remembers what the phone has now; null forgets the item. */
+    suspend fun setPhoneFavorites(values: Map<String, Boolean?>) = db.withTransaction {
+        values.entries.filter { it.value == null }.map { it.key }.chunked(500).forEach { notes.forgetPhoneFavorites(it) }
+        notes.setPhoneFavorites(values.mapNotNull { (id, v) -> v?.let { PhoneFavoriteRow(id, it) } })
+    }
 
     suspend fun meta(key: String): String? = notes.meta(key)
     suspend fun setMeta(key: String, value: String?) = if (value == null) notes.removeMeta(key) else notes.setMeta(MetaRow(key, value))

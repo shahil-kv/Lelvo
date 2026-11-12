@@ -31,6 +31,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -352,6 +354,28 @@ private fun FailedScreen(app: LelvoApp, items: List<LibraryItem>, onBack: () -> 
     }
     val stranded = items.filter { it.isStrandedInCloud }
     val scope = rememberCoroutineScope()
+    var confirmStranded by remember { mutableStateOf(false) }
+    if (confirmStranded) AlertDialog(
+        onDismissRequest = { confirmStranded = false },
+        title = { Text("Move ${stranded.size} incomplete item${if (stranded.size == 1) "" else "s"} to Recently Deleted?") },
+        text = { Text("What's left of them stays there for 30 days, then it's deleted from your Telegram library.") },
+        confirmButton = {
+            TextButton(onClick = {
+                confirmStranded = false
+                val targets = stranded
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) { app.sync.deleteFromCloud(targets) }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Messages.show(Messages.Style.Failure, "Couldn't delete", e.message ?: "Try again.", seconds = 5.0)
+                    }
+                }
+            }) { Text("Move to Recently Deleted", color = Lelvo.colors.red) }
+        },
+        dismissButton = { TextButton(onClick = { confirmStranded = false }) { Text("Cancel") } },
+    )
     val format = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
     Scaffold(modifier, topBar = {
         TopAppBar(
@@ -364,8 +388,10 @@ private fun FailedScreen(app: LelvoApp, items: List<LibraryItem>, onBack: () -> 
                 OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth().padding(16.dp)) { Text("Retry all failed") }
             }
             if (stranded.isNotEmpty()) item("stranded") {
-                // Moving them to Recently Deleted sends a note to the library: that comes with Phase L.
-                Note("Part of ${if (stranded.size == 1) "this item is" else "these ${stranded.size} items are"} missing from your Telegram library, and ${if (stranded.size == 1) "it isn't" else "they aren't"} on this phone. Back up from the device that has ${if (stranded.size == 1) "it" else "them"}, or delete what's left from Lelvo on iPhone or Mac.")
+                Note("Part of ${if (stranded.size == 1) "this item is" else "these ${stranded.size} items are"} missing from your Telegram library, and ${if (stranded.size == 1) "it isn't" else "they aren't"} on this phone. Back up from the device that has ${if (stranded.size == 1) "it" else "them"}, or move what's left to Recently Deleted.")
+                TextButton(onClick = { confirmStranded = true }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                    Text("Move ${stranded.size} to Recently Deleted", color = Lelvo.colors.red)
+                }
             }
             if (items.isEmpty()) item("empty") {
                 Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {

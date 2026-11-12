@@ -86,8 +86,47 @@ data class MetaRow(@PrimaryKey val key: String, val value: String)
 @Entity(tableName = "no_backup")
 data class NoBackupRow(@PrimaryKey val key: String)
 
+/**
+ * A Recently Deleted change waiting to be sent (iOS `trash_outbox`): one row per item, its latest change. Per library,
+ * so a switch can't send it to the wrong channel.
+ */
+@Entity(tableName = "trash_outbox")
+data class TrashOutboxRow(
+    @PrimaryKey @ColumnInfo(name = "item_id") val itemId: String,
+    @ColumnInfo(name = "chat_id") val chatId: Long,
+    val op: String,
+)
+
+/** A favorite or album change waiting to be sent (iOS `meta_outbox`): one row per item and key. */
+@Entity(tableName = "meta_outbox", primaryKeys = ["item_id", "key"])
+data class MetaOutboxRow(
+    @ColumnInfo(name = "item_id") val itemId: String,
+    val key: String,
+    @ColumnInfo(name = "chat_id") val chatId: Long,
+    val value: Boolean,
+)
+
+/** The favorite the phone's gallery had last time it was checked (iOS `photos_favorite`, #99). */
+@Entity(tableName = "phone_favorite")
+data class PhoneFavoriteRow(@PrimaryKey @ColumnInfo(name = "item_id") val itemId: String, val value: Boolean)
+
 @Dao
 interface NotesDao {
+    @Upsert suspend fun queueTrash(rows: List<TrashOutboxRow>)
+    @Query("SELECT * FROM trash_outbox WHERE chat_id = :chatId ORDER BY item_id") suspend fun trashOutbox(chatId: Long): List<TrashOutboxRow>
+    @Query("DELETE FROM trash_outbox WHERE item_id IN (:ids) AND op = :op") suspend fun clearTrash(ids: List<String>, op: String)
+    @Query("DELETE FROM trash_outbox WHERE op = 'gone'") suspend fun dropRetiredTrash()
+    @Upsert suspend fun queueMeta(rows: List<MetaOutboxRow>)
+    @Query("SELECT * FROM meta_outbox WHERE chat_id = :chatId") suspend fun metaOutbox(chatId: Long): List<MetaOutboxRow>
+    @Query("DELETE FROM meta_outbox WHERE item_id IN (:ids) AND `key` = :key AND value = :value")
+    suspend fun clearMeta(ids: List<String>, key: String, value: Boolean)
+    @Query("SELECT * FROM phone_favorite") suspend fun phoneFavorites(): List<PhoneFavoriteRow>
+    @Upsert suspend fun setPhoneFavorites(rows: List<PhoneFavoriteRow>)
+    @Query("DELETE FROM phone_favorite WHERE item_id IN (:ids)") suspend fun forgetPhoneFavorites(ids: List<String>)
+    @Query("DELETE FROM trash_outbox") suspend fun clearTrashOutbox()
+    @Query("DELETE FROM meta_outbox") suspend fun clearMetaOutbox()
+    @Query("DELETE FROM phone_favorite") suspend fun clearPhoneFavorites()
+
     @Query("SELECT * FROM trash_notes ORDER BY message_id") suspend fun trashNotes(): List<TrashNoteRow>
     @Upsert suspend fun addTrashNote(row: TrashNoteRow)
     @Query("DELETE FROM trash_notes WHERE message_id IN (:ids)") suspend fun removeTrashNotes(ids: List<Long>)
@@ -110,10 +149,14 @@ interface NotesDao {
 }
 
 @Database(
-    entities = [ItemRow::class, TrashNoteRow::class, MetaNoteRow::class, MetaRow::class, NoBackupRow::class],
-    version = 2,
+    entities = [
+        ItemRow::class, TrashNoteRow::class, MetaNoteRow::class, MetaRow::class, NoBackupRow::class,
+        TrashOutboxRow::class, MetaOutboxRow::class, PhoneFavoriteRow::class,
+    ],
+    version = 3,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    // 2 → 3: the outboxes and the phone's last-seen favorites (Phase L), new tables only.
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 abstract class IndexDatabase : RoomDatabase() {
     abstract fun items(): ItemDao

@@ -16,6 +16,8 @@ class CloudTrashTest {
         assertEquals(1, CloudTrash.daysLeft(item(0), 29 * day + 1))
         assertEquals(0, CloudTrash.daysLeft(item(0), 31 * day))
         assertEquals(30, CloudTrash.daysLeft(item(null), 99 * day))
+        // Telegram's date a minute ahead of the phone's clock.
+        assertEquals(30, CloudTrash.daysLeft(item(60_000), 0))
     }
 
     @Test fun onlyDatedTrashedItemsExpire() {

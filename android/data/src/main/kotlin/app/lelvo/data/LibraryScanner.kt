@@ -151,7 +151,12 @@ class LibraryScanner(
 
         // Before the scan position moves: a note that couldn't be downloaded is read again by the next scan.
         readTrashNotes(trash, keys.master, keys.captionKey)
+        val skippedBefore = skippedMetaNotes
+        skippedMetaNotes = false
         val newMetaIds = readMetaNotes(meta, keys.master, keys.captionKey)
+        val readSkippedMeta = skippedMetaNotes
+        // A recent scan reads only new notes: one skipped earlier is still there, unread.
+        if (!full) skippedMetaNotes = skippedBefore || readSkippedMeta
 
         fromSnapshot?.let { snapshot ->
             // Newer messages read above win over the snapshot's copy of the same message.
@@ -204,11 +209,12 @@ class LibraryScanner(
         // Favorites and albums notes go on in the same write as the captions: written one after the other, the
         // timeline briefly showed favorites as the captions had them.
         val metaLatest = MetaLog.latest(store.metaNotes())
+        val metaWaiting = library.chatId?.let { store.queuedMetaChanges(it) } ?: emptyMap()
         for (built in result.items) {
             val local = existing[built.id]
             var item = built
-            if (metaLatest.containsKey(item.id)) {
-                val applied = MetaLog.apply(MetaLog.values(item.id, metaLatest, null), item.favorite, item.albums)
+            if (metaLatest.containsKey(item.id) || metaWaiting.containsKey(item.id)) {
+                val applied = MetaLog.apply(MetaLog.values(item.id, metaLatest, metaWaiting[item.id]), item.favorite, item.albums)
                 if (applied.changed) item = item.copy(favorite = applied.favorite ?: false, albums = applied.albums ?: emptyList())
             }
             if (local != null) {
@@ -259,14 +265,22 @@ class LibraryScanner(
         }
     }
 
-    /** Makes the index follow the newest note of each item. Notes stay stored, so one that arrived before its photo takes effect later. */
+    /**
+     * Makes the index follow the newest note of each item. Notes stay stored, so one that arrived before its photo
+     * takes effect later. Changes this phone hasn't sent yet are newer than any note.
+     */
     private suspend fun applyTrashNotes(messagesSeen: Boolean) {
-        val notes = store.trashNotes()
-        if (notes.isEmpty()) return
-        val newest = TrashLog.latest(notes)
+        val earlier = store.trashNotes()
+        if (earlier.isEmpty()) return
+        // This order, as a send may finish meanwhile: an item's change is queued with it, and its note is stored
+        // before the row goes. So each item read here is either waiting or its note is in `notes` (iOS).
+        val items = store.items(TrashLog.latest(earlier).keys)
+        val waiting = library.chatId?.let { store.queuedTrashChanges(it).values.flatten().toHashSet() } ?: emptySet()
+        val newest = TrashLog.latest(store.trashNotes())
         val changed = ArrayList<LibraryItem>()
         var removed = 0
-        for (item in store.items(newest.keys)) {
+        for (item in items) {
+            if (item.id in waiting) continue
             val note = newest[item.id] ?: continue
             when (val action = TrashLog.action(item, note, messagesSeen)) {
                 TrashLog.Action.Remove -> { store.forgetDeletedItem(item); removed++ }
@@ -287,27 +301,52 @@ class LibraryScanner(
             if (note.messageId in known) continue
             val caption = note.caption.takeIf { it.startsWith(MetaLog.ENCRYPTED_PREFIX) }?.let { MetaLog.parseCaption(it, captionKey) }
             val body = caption?.let { c -> download(note.remoteId, master)?.let { MetaLog.read(it, c) } }
-            if (body == null) { AppLog.warn("Skipped a favorites and albums note that can't be read"); continue }
+            if (body == null) { skippedMetaNotes = true; AppLog.warn("Skipped a favorites and albums note that can't be read"); continue }
             store.addMetaNote(MetaLog.Note(note.messageId, note.date, body.op, body.ids, body.album))
             touched += body.ids
         }
         return touched
     }
 
-    /** Makes each item's favorite and albums follow its newest notes. [only]: just these items. */
+    /**
+     * Makes each item's favorite and albums follow its newest notes, with changes this phone hasn't sent yet on top.
+     * Each item is changed in place, so an upload finishing meanwhile isn't undone. [only]: just these items (and any
+     * with changes waiting).
+     */
     private suspend fun applyMetaNotes(only: Set<String>?) {
         val notes = store.metaNotes()
-        if (notes.isEmpty()) return
+        val waiting = library.chatId?.let { store.queuedMetaChanges(it) } ?: emptyMap()
+        if (notes.isEmpty() && waiting.isEmpty()) return
         val latest = MetaLog.latest(notes)
-        val ids = only?.intersect(latest.keys) ?: latest.keys
+        val ids = (only?.intersect(latest.keys) ?: latest.keys) + waiting.keys
         if (ids.isEmpty()) return
-        val changed = store.items(ids).mapNotNull { item ->
-            val applied = MetaLog.apply(MetaLog.values(item.id, latest, null), item.favorite, item.albums)
-            if (applied.changed) item.copy(favorite = applied.favorite ?: false, albums = applied.albums ?: emptyList()) else null
+        var changed = 0
+        for (item in store.items(ids)) {
+            val values = MetaLog.values(item.id, latest, waiting[item.id])
+            if (!MetaLog.apply(values, item.favorite, item.albums.ifEmpty { null }).changed) continue
+            store.update(item.id) { now ->
+                val applied = MetaLog.apply(values, now.favorite, now.albums.ifEmpty { null })
+                if (applied.changed) now.copy(favorite = applied.favorite ?: false, albums = applied.albums ?: emptyList()) else now
+            }
+            changed++
         }
-        store.upsert(changed)
-        if (changed.isNotEmpty()) AppLog.info("Favorites and albums synced: ${changed.size} items updated")
+        if (changed > 0) AppLog.info("Favorites and albums synced: $changed items updated")
     }
+
+    /** No full scan has finished for this index yet (iOS `needsRepairScan`): notes and deletes wait for one. */
+    suspend fun needsFullScan(): Boolean = store.meta(REPAIRED) == null
+
+    /** After this phone sent notes (iOS calls these on `LibraryService`): every device now uses Telegram's date. */
+    suspend fun applyTrashNotesNow() = gate.withLock { applyTrashNotes(messagesSeen = false) }
+
+    suspend fun applyMetaNotesNow(only: Set<String>?) = gate.withLock { applyMetaNotes(only) }
+
+    /** Whether the last read skipped a favorites and albums note; compaction waits, so it can't overwrite it. */
+    @Volatile var skippedMetaNotes = false
+        private set
+
+    /** Another device finished with a Recently Deleted note while this phone is open (iOS `followOtherDevice`). */
+    var onTrashNoteRemoved: (() -> Unit)? = null
 
     /** A note's document, decrypted; null when it can't be opened. A network failure throws. */
     private suspend fun download(remoteId: String, master: ByteArray): ByteArray? {
@@ -378,7 +417,10 @@ class LibraryScanner(
     private suspend fun applyDeletes() = gate.withLock {
         val ids = synchronized(pendingDeletes) { pendingDeletes.toSet().also { pendingDeletes.clear(); deletesScheduled = false } }
         if (ids.isEmpty() || !library.isUnlocked) return@withLock
+        val notesBefore = store.trashNotes().size
         store.removeTrashNotes(ids)
+        // A note went: the other device recovered or deleted these items, so this one must follow.
+        if (store.trashNotes().size < notesBefore) onTrashNoteRemoved?.let { scope.launch { it() } }
         // Favorites and albums notes go only once newer ones decide everything they did: nothing to follow.
         store.removeMetaNotes(ids)
         val changed = ArrayList<LibraryItem>()

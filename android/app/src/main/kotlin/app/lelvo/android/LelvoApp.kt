@@ -57,6 +57,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var freeUpSpace: app.lelvo.data.backup.FreeUpSpaceService private set
     lateinit var duplicates: app.lelvo.data.backup.Duplicates private set
     lateinit var secondCopy: app.lelvo.data.backup.SecondCopyService private set
+    lateinit var sync: app.lelvo.data.sync.NoteSync private set
     /** The launch opening plays once per process (cold start only). */
     var openingPlayed = false
     private var startedActivities = 0
@@ -115,10 +116,18 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         freeUpSpace = app.lelvo.data.backup.FreeUpSpaceService(store, library, scanner, uploads, backup.phone)
         duplicates = app.lelvo.data.backup.Duplicates(store, library, scanner, uploads, backup.phone)
         secondCopy = app.lelvo.data.backup.SecondCopyService(this, store, reader)
+        sync = app.lelvo.data.sync.NoteSync(this, store, library, scanner, files, uploads, backup, telegram, photos, isDemo = { demo.active.value })
         model = AppModel(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
-            override fun onActivityStarted(activity: android.app.Activity) { startedActivities++ }
-            override fun onActivityStopped(activity: android.app.Activity) { startedActivities = maxOf(0, startedActivities - 1) }
+            override fun onActivityStarted(activity: android.app.Activity) {
+                // Lelvo comes to the front (iOS scene `.active`): follow the other devices, send what's waiting.
+                if (startedActivities++ == 0 && library.setupFinished) sync.onOpen { linker.relink() }
+            }
+            override fun onActivityStopped(activity: android.app.Activity) {
+                startedActivities = maxOf(0, startedActivities - 1)
+                // To the background (iOS `.background`): changes go now, not after the pacing.
+                if (startedActivities == 0) sync.onBackground()
+            }
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
             override fun onActivityResumed(activity: android.app.Activity) {}
             override fun onActivityPaused(activity: android.app.Activity) {}
@@ -155,10 +164,13 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     /**
      * Sign out and reset, like iOS `AppEnvironment.resetEverything`: Telegram signs out (TDLib removes its own data),
      * then the index, the library's keys, the cached images and every setting go. The channel isn't touched.
-     * [keepingChoices]: the user didn't ask (the session ended elsewhere). Nothing on Android needs keeping yet; the
-     * Recently Deleted and favorites choices come with their notes (Phases C and L).
+     * [keepingChoices]: the user didn't ask (the session ended elsewhere). Android doesn't keep this library's waiting
+     * Recently Deleted and favorites changes for the next sign-in yet (iOS `LibrarySnapshots.saveChoices`).
      */
     suspend fun resetEverything(keepingChoices: Boolean) {
+        // Waiting changes get a moment (iOS `sendBeforeLeaving`); after a sign out the photos stay normal backups on
+        // the other devices, which keeps data.
+        if (!keepingChoices) sync.sendBeforeLeaving()
         if (backup.isRunning) backup.pause()
         BackupScheduler.cancelAll(this)
         AppLog.info("Reset this phone: signing out and removing Lelvo's local data${if (keepingChoices) " (session ended elsewhere)" else ""}")
