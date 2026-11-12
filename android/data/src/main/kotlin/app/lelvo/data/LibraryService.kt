@@ -124,8 +124,13 @@ class LibraryService(
      */
     suspend fun requireWritable(chatId: Long) {
         if (!guardWrites) return
-        val title = withContext(Dispatchers.IO) { runCatching { td.send(TdApi.GetChat(chatId)).title }.getOrNull() }
-        if (title?.trim() != TEST_LIBRARY) throw LibraryException.testOnly
+        val title = withContext(Dispatchers.IO) {
+            runCatching { td.send(TdApi.GetChat(chatId)).title }.getOrNull()
+                // After a restart TDLib knows the channel only once the chat list is loaded.
+                ?: runCatching { td.send(TdApi.LoadChats(TdApi.ChatListMain(), 500)); td.send(TdApi.GetChat(chatId)).title }.getOrNull()
+        }
+        // Any capitalisation: the owner named it "Android Test". Unknown title (offline) counts as not allowed.
+        if (!title?.trim().equals(TEST_LIBRARY, ignoreCase = true)) throw LibraryException.testOnly
     }
 
     /** Renames the channel. Libraries are recognised by their header, never by name, so this is safe. */

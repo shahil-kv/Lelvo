@@ -48,6 +48,9 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var search: app.lelvo.data.search.SearchService private set
     lateinit var uploads: app.lelvo.telegram.TdUploads private set
     lateinit var backup: app.lelvo.data.backup.BackupEngine private set
+    lateinit var freeUpSpace: app.lelvo.data.backup.FreeUpSpaceService private set
+    lateinit var duplicates: app.lelvo.data.backup.Duplicates private set
+    lateinit var secondCopy: app.lelvo.data.backup.SecondCopyService private set
     /** The launch opening plays once per process (cold start only). */
     var openingPlayed = false
 
@@ -100,6 +103,9 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         search = app.lelvo.data.search.SearchService(this, store, photos)
         uploads = app.lelvo.telegram.TdUploads(telegram, files)
         backup = app.lelvo.data.backup.BackupEngine(this, store, library, scanner, uploads, photos, linker, prefs)
+        freeUpSpace = app.lelvo.data.backup.FreeUpSpaceService(store, library, scanner, uploads, backup.phone)
+        duplicates = app.lelvo.data.backup.Duplicates(store, library, scanner, uploads, backup.phone)
+        secondCopy = app.lelvo.data.backup.SecondCopyService(this, store, reader)
         model = AppModel(this)
     }
 

@@ -86,6 +86,11 @@ class LibraryScanner(
         return scan(full = TrashLog.needsFullScan(lastFullAt, System.currentTimeMillis()))
     }
 
+    /** Extra copies of already-stored parts found by the last full scan; safe to delete, the first copy stays. */
+    suspend fun duplicateMessageIds(): List<Long> = store.meta(DUPLICATES)?.split(',')?.mapNotNull { it.toLongOrNull() } ?: emptyList()
+
+    suspend fun forgetDuplicateMessages() = store.setMeta(DUPLICATES, null)
+
     private class FoundNote(val messageId: Long, val date: Long, val caption: String, val remoteId: String)
 
     private suspend fun scanChannel(requestedFull: Boolean, progress: (Int) -> Unit): Summary {
@@ -232,6 +237,8 @@ class LibraryScanner(
             }
         }
         store.upsert(merged)
+        // Extra copies of stored parts, for Backup → Extra copies (a full scan sees them all; iOS `duplicateMessageIds`).
+        if (full) store.setMeta(DUPLICATES, result.orphanMessageIds.takeIf { it.isNotEmpty() }?.joinToString(","))
         return summary.copy(
             items = result.items.size, incomplete = result.items.count { it.status != ItemStatus.BackedUp },
             orphans = result.orphanMessageIds.size,
@@ -392,6 +399,7 @@ class LibraryScanner(
 
     private companion object {
         const val LAST_SCAN = "lastScannedMessageId"
+        const val DUPLICATES = "duplicateMessageIds"
         const val LAST_FULL_SCAN_AT = "lastChannelFullScanAt"
         const val REPAIRED = "fullScanDone"
         const val LIBRARY = "libraryChatId"

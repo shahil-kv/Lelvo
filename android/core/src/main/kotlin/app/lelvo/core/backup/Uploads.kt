@@ -233,3 +233,47 @@ object UploadNames {
     /** Room left for the system and TDLib's own files while a part is on disk. */
     const val SPACE_MARGIN = 200L shl 20
 }
+
+/**
+ * Which backed-up photos may be removed from the phone (iOS `FreeUpSpaceService` and `EditCheck.mayLoseEdit`). Only
+ * items complete in the cloud, checked in Telegram in the last day, and unchanged on the phone since their backup.
+ */
+object FreeUpSpace {
+    const val VERIFICATION_LIFETIME_MS = 24L * 60 * 60 * 1000
+
+    /** Backed up, complete, and linked to a photo on this phone. */
+    fun isCandidate(item: LibraryItem): Boolean = item.status == ItemStatus.BackedUp && item.localId != null && item.isCompleteInCloud
+
+    /**
+     * Changed on the phone since its backup: removing it could lose that change. Android keeps no separate edit, so an
+     * edit shows as a new size or a newer modification date (a minute's slack: favoriting moves the date too).
+     */
+    fun mayHaveChanged(item: LibraryItem, phoneSize: Long, phoneModified: Long?): Boolean {
+        if (phoneSize != item.fileSize) return true
+        val since = item.assetModifiedAt ?: return false
+        return phoneModified != null && phoneModified > since + 60_000
+    }
+
+    fun isFreshlyVerified(item: LibraryItem, now: Long): Boolean = item.verifiedAt?.let { now - it in 0 until VERIFICATION_LIFETIME_MS } ?: false
+
+    fun bytes(items: List<LibraryItem>): Long = items.sumOf { it.fileSize + (it.pairedVideoSize ?: 0) }
+}
+
+/** The same content backed up as more than one item (iOS `CloudDuplicateGroup`): [keep] stays, [extras] can go. */
+data class CloudDuplicateGroup(val keep: LibraryItem, val extras: List<LibraryItem>) {
+    val wastedBytes: Long get() = extras.sumOf { it.fileSize + (it.pairedVideoSize ?: 0) + (it.editedSize ?: 0) }
+
+    companion object {
+        /** Keeps the one linked to a photo on this phone, else the oldest upload. Newest groups first. */
+        fun find(backedUp: List<LibraryItem>, onPhone: Set<String>): List<CloudDuplicateGroup> =
+            backedUp.filter { it.sha256.isNotEmpty() && it.status == ItemStatus.BackedUp }.groupBy { it.sha256 }.values
+                .filter { it.size > 1 }
+                .map { group ->
+                    val sorted = group.sortedWith(
+                        compareBy<LibraryItem> { if (it.localId?.let(onPhone::contains) == true) 0 else 1 }.thenBy { it.uploadedAt ?: Long.MAX_VALUE },
+                    )
+                    CloudDuplicateGroup(sorted.first(), sorted.drop(1))
+                }
+                .sortedByDescending { it.keep.createdAt ?: Long.MIN_VALUE }
+    }
+}

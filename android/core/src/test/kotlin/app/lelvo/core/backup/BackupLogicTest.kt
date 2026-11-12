@@ -332,3 +332,51 @@ class UploadPolicyTest {
         assertEquals(original, back)
     }
 }
+
+class FreeUpSpaceTest {
+    private val day = 86_400_000L
+    private fun done() = item(status = ItemStatus.BackedUp).withParts("o", listOf(RemoteFile(1, "f", "u", 10)), 1)
+        .withParts("t", listOf(RemoteFile(2, "g", "v", 5)), 1).copy(encrypted = true, assetModifiedAt = 1_000_000)
+
+    @Test fun onlyCompleteLinkedItemsAreOffered() {
+        assertTrue(FreeUpSpace.isCandidate(done()))
+        assertFalse(FreeUpSpace.isCandidate(done().copy(localId = null)))
+        assertFalse(FreeUpSpace.isCandidate(done().copy(status = ItemStatus.Trashed)))
+        // Encrypted with no thumbnail in the cloud: not complete.
+        assertFalse(FreeUpSpace.isCandidate(done().copy(parts = done().parts - "t")))
+    }
+
+    @Test fun aChangedPhotoIsKept() {
+        assertFalse(FreeUpSpace.mayHaveChanged(done(), 10, 1_000_000))
+        assertFalse(FreeUpSpace.mayHaveChanged(done(), 10, 1_060_000))
+        assertTrue(FreeUpSpace.mayHaveChanged(done(), 10, 1_060_001))
+        assertTrue(FreeUpSpace.mayHaveChanged(done(), 11, 1_000_000))
+        // Linked after a reinstall (no date): the same size is the same file.
+        assertFalse(FreeUpSpace.mayHaveChanged(done().copy(assetModifiedAt = null), 10, 9_999_999))
+    }
+
+    @Test fun aCheckLastsADay() {
+        val checked = done().copy(verifiedAt = 5 * day)
+        assertTrue(FreeUpSpace.isFreshlyVerified(checked, 5 * day + 1))
+        assertFalse(FreeUpSpace.isFreshlyVerified(checked, 6 * day))
+        assertFalse(FreeUpSpace.isFreshlyVerified(checked, 4 * day))
+        assertFalse(FreeUpSpace.isFreshlyVerified(done(), 5 * day))
+    }
+}
+
+class CloudDuplicateTest {
+    private fun up(id: String, sha: String, local: String?, uploaded: Long?) =
+        LibraryItem(id, local, sha, "$id.jpg", ItemKind.Photo, 1, fileSize = 10, status = ItemStatus.BackedUp, uploadedAt = uploaded)
+
+    @Test fun keepsThePhoneLinkedOneElseTheOldest() {
+        val groups = CloudDuplicateGroup.find(
+            listOf(up("a", "h", null, 1), up("b", "h", "P", 5), up("c", "h", null, 3), up("d", "x", null, 1), up("e", "", null, 1), up("f", "", null, 2)),
+            onPhone = setOf("P"),
+        )
+        assertEquals(1, groups.size)
+        assertEquals("b", groups[0].keep.id)
+        assertEquals(listOf("a", "c"), groups[0].extras.map { it.id })
+        assertEquals(20, groups[0].wastedBytes)
+        assertEquals("a", CloudDuplicateGroup.find(listOf(up("c", "h", null, 3), up("a", "h", "Q", 1)), emptySet())[0].keep.id)
+    }
+}

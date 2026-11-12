@@ -59,6 +59,7 @@ import app.lelvo.core.index.ItemStatus
 import app.lelvo.core.index.LibraryItem
 import app.lelvo.data.LibraryException
 import app.lelvo.data.backup.BackupActivity
+import app.lelvo.data.media.PhotoAccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -82,12 +83,14 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
     val activity by engine.activity.collectAsState()
     val isDemo by app.demo.active.collectAsState()
     val scope = rememberCoroutineScope()
-    var showFailed by rememberSaveable { mutableStateOf(false) }
+    var page by rememberSaveable { mutableStateOf(Page.Main) }
+    val demoRun by app.demo.backup.collectAsState()
     val stats by produceState(Stats(), isDemo) {
         // Recounted when the index or the phone's photos change, and when a run moves on.
         galleryEntries(app.store, app.photos, isDemo).collectLatest { entries ->
             value = withContext(Dispatchers.IO) {
-                val counts = engine.counts()
+                // Demo: the sample items waiting for "Back up now" stand in for this phone's photos.
+                val counts = if (isDemo) BackupCounts(notQueued = app.demo.pendingItems().size) else engine.counts()
                 val trashed = app.store.items(ItemStatus.Trashed)
                 val phoneIds = entries.mapNotNull { it.asset?.localId }.toHashSet()
                 Stats(
@@ -117,16 +120,36 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
         }
     }
 
-    if (showFailed) {
-        FailedScreen(stats.failedItems, onBack = { showFailed = false }, onRetry = {
+    val back = { page = Page.Main }
+    when (page) {
+        Page.Failed -> return FailedScreen(app, stats.failedItems, onBack = back, onRetry = {
             scope.launch { if (engine.retryFailed() > 0) engine.start(includeNew = false) }
         }, modifier = modifier)
-        return
+        Page.FreeUp -> return FreeUpSpaceScreen(app, back, modifier)
+        Page.SaveAll -> return SaveAllScreen(app, back, modifier)
+        Page.Removed -> return RemovedScreen(app, back, modifier)
+        Page.Duplicates -> return DuplicatesScreen(app, back, modifier)
+        Page.SecondCopy -> return SecondCopyScreen(app, back, modifier)
+        Page.Main -> Unit
     }
+    // While a backup runs and Lelvo is open, the screen stays on (iOS "Keep iPhone awake").
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var keepAwake by remember { mutableStateOf(app.prefs.keepAwakeDuringBackup) }
+    if (activity.isRunning && keepAwake) androidx.compose.runtime.DisposableEffect(Unit) {
+        val window = (context as? android.app.Activity)?.window
+        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
+    val access = remember(stats) { app.photos.status() }
 
+    // The App Review demo "uploads" its sample items with real progress and no network.
+    val shown = demoRun?.takeIf { isDemo }?.let { d ->
+        BackupActivity(isRunning = d.running, done = d.done, total = d.total, uploaded = d.done,
+            lanes = d.current.withIndex().associate { (i, n) -> "$i" to BackupActivity.Lane(n, 0, 0) })
+    } ?: activity
     Scaffold(modifier, topBar = { LelvoTopBar("Backup", app.demo, onSettings) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-            item("header") { StatusHeader(activity, stats, app.prefs.lastBackupAt) }
+            item("header") { StatusHeader(shown, stats, app.prefs.lastBackupAt) }
             item("buttons") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     writeBlock?.let {
@@ -138,7 +161,8 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                             Spacer(Modifier.width(8.dp)); Text("Pause backup")
                         }
                     } else {
-                        Button(onClick = { engine.start(includeNew = true) }, enabled = writeBlock == null && !isDemo, modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = { if (isDemo) scope.launch { app.demo.runBackup() } else engine.start(includeNew = true) },
+                            enabled = isDemo || writeBlock == null, modifier = Modifier.fillMaxWidth()) {
                             Icon(painterResource(R.drawable.ic_cloud_upload), contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp)); Text(if (app.prefs.backupPaused) "Resume backup" else "Back up now")
                         }
@@ -158,7 +182,7 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                     }
                 }
             }
-            if (activity.isRunning) item("progress") { RunProgress(activity) }
+            if (shown.isRunning) item("progress") { RunProgress(shown) }
             val rules = listOfNotNull(if (app.prefs.wifiOnly) "Wi-Fi only" else null, if (app.prefs.chargingOnly) "charging only" else null)
             if (rules.isNotEmpty()) item("rules") {
                 Text(rules.joinToString(", ").replaceFirstChar { it.uppercase() } + ". Change in Settings.",
@@ -174,9 +198,54 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                 StatRow("Only in the cloud", stats.cloudOnly, R.drawable.ic_cloud, MaterialTheme.colorScheme.onSurfaceVariant)
                 StatRow("Waiting to upload", stats.counts.pending(app.prefs.autoBackup), R.drawable.ic_schedule, MaterialTheme.colorScheme.onSurfaceVariant)
                 if (stats.counts.failed > 0) {
-                    StatRow("Failed", stats.counts.failed, R.drawable.ic_error, Lelvo.colors.red, onClick = { showFailed = true })
+                    StatRow("Failed", stats.counts.failed, R.drawable.ic_error, Lelvo.colors.red, onClick = { page = Page.Failed })
                 }
-                if (stats.removed > 0) StatRow("Removed from backup", stats.removed, R.drawable.ic_cloud_off, MaterialTheme.colorScheme.onSurfaceVariant)
+                if (stats.removed > 0) StatRow("Removed from backup", stats.removed, R.drawable.ic_cloud_off, MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = { page = Page.Removed })
+            }
+            item("awake") {
+                HorizontalDivider(Modifier.padding(top = 8.dp))
+                ListItem(
+                    headlineContent = { Text("Keep the screen on while backing up") },
+                    supportingContent = {
+                        Text(if (keepAwake) "While a backup runs and Lelvo is open, your phone won't lock. It locks as usual once the backup is done."
+                            else "Your phone may lock and pause a backup; open Lelvo to continue.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    },
+                    trailingContent = { androidx.compose.material3.Switch(keepAwake, { keepAwake = it; app.prefs.keepAwakeDuringBackup = it }) },
+                )
+                if (access == PhotoAccess.Status.Partial) {
+                    ListItem(
+                        leadingContent = { Icon(painterResource(R.drawable.ic_warning), null, tint = Lelvo.colors.orange) },
+                        headlineContent = { Text("Limited photo access: only photos you selected are backed up.") },
+                        supportingContent = { Text("Allow full access in Settings", color = MaterialTheme.colorScheme.primary) },
+                        modifier = Modifier.clickable {
+                            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.fromParts("package", context.packageName, null)))
+                        },
+                    )
+                }
+            }
+            item("tools") {
+                HorizontalDivider(Modifier.padding(top = 8.dp))
+                Text("Tools", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp).semantics { heading() })
+                ToolRow("Free up space", R.drawable.ic_phone) { page = Page.FreeUp }
+                ToolRow("Save all to this phone", R.drawable.ic_download) { page = Page.SaveAll }
+                ToolRow("Extra copies and duplicates", R.drawable.ic_collections) { page = Page.Duplicates }
+                ToolRow("Second copy to a folder", R.drawable.ic_folder) { page = Page.SecondCopy }
+                ToolRow("Re-scan the Telegram library", R.drawable.ic_sync) {
+                    scope.launch {
+                        Messages.progress("Re-scanning…")
+                        try {
+                            val r = app.model.rescan()
+                            Messages.show(Messages.Style.Success, "Library re-scanned", "${"%,d".format(r.items)} items")
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Messages.show(Messages.Style.Failure, "Couldn't re-scan", e.message)
+                        }
+                    }
+                }
             }
         }
     }
@@ -244,6 +313,13 @@ private fun RunProgress(a: BackupActivity) {
     }
 }
 
+private enum class Page { Main, Failed, FreeUp, SaveAll, Removed, Duplicates, SecondCopy }
+
+@Composable
+private fun ToolRow(title: String, icon: Int, onClick: () -> Unit) {
+    ListItem(headlineContent = { Text(title) }, leadingContent = { Icon(painterResource(icon), null) }, modifier = Modifier.clickable(onClick = onClick))
+}
+
 @Composable
 private fun StatRow(title: String, value: Int, icon: Int, tint: Color, onClick: (() -> Unit)? = null) {
     ListItem(
@@ -257,8 +333,14 @@ private fun StatRow(title: String, value: Int, icon: Int, tint: Color, onClick: 
 /** Failed uploads with their reason (iOS `FailedUploadsView`). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FailedScreen(items: List<LibraryItem>, onBack: () -> Unit, onRetry: () -> Unit, modifier: Modifier) {
+private fun FailedScreen(app: LelvoApp, items: List<LibraryItem>, onBack: () -> Unit, onRetry: () -> Unit, modifier: Modifier) {
     BackHandler(onBack = onBack)
+    val context = LocalContext.current
+    val trash = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        if (r.resultCode == android.app.Activity.RESULT_OK) Messages.show(Messages.Style.Success, "Moved to the phone's trash")
+    }
+    val stranded = items.filter { it.isStrandedInCloud }
+    val scope = rememberCoroutineScope()
     val format = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
     Scaffold(modifier, topBar = {
         TopAppBar(
@@ -269,6 +351,10 @@ private fun FailedScreen(items: List<LibraryItem>, onBack: () -> Unit, onRetry: 
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             if (items.any { !it.isStrandedInCloud && it.localId != null }) item("retry") {
                 OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth().padding(16.dp)) { Text("Retry all failed") }
+            }
+            if (stranded.isNotEmpty()) item("stranded") {
+                // Moving them to Recently Deleted sends a note to the library: that comes with Phase L.
+                Note("Part of ${if (stranded.size == 1) "this item is" else "these ${stranded.size} items are"} missing from your Telegram library, and ${if (stranded.size == 1) "it isn't" else "they aren't"} on this phone. Back up from the device that has ${if (stranded.size == 1) "it" else "them"}, or delete what's left from Lelvo on iPhone or Mac.")
             }
             if (items.isEmpty()) item("empty") {
                 Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -284,6 +370,17 @@ private fun FailedScreen(items: List<LibraryItem>, onBack: () -> Unit, onRetry: 
                             Text(if (item.isStrandedInCloud) "Incomplete in your Telegram library" else item.lastError ?: "Unknown error", color = Lelvo.colors.red)
                             Text("${item.createdAt?.let { format.format(java.util.Date(it)) } ?: "No date"} · ${item.attempts} attempt(s)",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    trailingContent = item.localId?.takeIf { android.os.Build.VERSION.SDK_INT >= 30 }?.let { id ->
+                        {
+                            IconButton(onClick = {
+                                scope.launch {
+                                    val uri = withContext(Dispatchers.IO) { app.backup.phone.file(id)?.uri } ?: return@launch
+                                    val pi = android.provider.MediaStore.createTrashRequest(context.contentResolver, listOf(uri), true)
+                                    trash.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build())
+                                }
+                            }) { Icon(painterResource(R.drawable.ic_delete), contentDescription = "Delete from this phone") }
                         }
                     },
                 )

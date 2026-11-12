@@ -136,6 +136,21 @@ class TdUploads(private val td: TdClient, private val files: TdFiles) {
         }
     }
 
+    /**
+     * The stored size of a document message, or null when the message is gone or isn't a document. Other errors
+     * (network) throw, so a check that couldn't run never passes as "gone" or "there".
+     */
+    suspend fun documentSize(chatId: Long, messageId: Long): Long? = withContext(Dispatchers.IO) {
+        files.ensureChat(chatId)
+        val m = try {
+            td.send(TdApi.GetMessage(chatId, messageId))
+        } catch (e: TelegramException) {
+            if (e.code == 404 || e.code == 400) return@withContext null
+            throw e
+        }
+        (m.content as? TdApi.MessageDocument)?.document?.document?.size
+    }
+
     /** Forgets TDLib's local copy of an uploaded file, so later reads go to Telegram instead of a deleted temp file. */
     suspend fun forgetLocalCopy(fileId: Int) {
         runCatching { td.send(TdApi.DeleteFile(fileId)) }

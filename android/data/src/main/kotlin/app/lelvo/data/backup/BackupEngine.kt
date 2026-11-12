@@ -97,7 +97,7 @@ class BackupEngine(
     private val prefs: Prefs,
 ) {
     private val app = context.applicationContext
-    private val phone = PhoneFiles(app)
+    val phone = PhoneFiles(app)
     private val staging = File(app.cacheDir, "backup")
     private val uploader = CloudUploader(uploads, library, staging).also { it.beforeSend = { waitForFloodPause() } }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

@@ -50,6 +50,11 @@ class LibraryStore(private val db: IndexDatabase) {
      */
     suspend fun knownLocalIds(): Set<String> = (dao.localIds() + notes.aliasKeys().map { it.removePrefix(ALIAS) }).toHashSet()
 
+    /** Phone id → the item it's a copy of. */
+    suspend fun aliases(): Map<String, String> = notes.aliasRows().associate { it.key.removePrefix(ALIAS) to it.value }
+
+    suspend fun removeAlias(localId: String) = notes.removeMeta(ALIAS + localId)
+
     suspend fun addAlias(localId: String, itemId: String) = notes.setMeta(MetaRow(ALIAS + localId, itemId))
 
     /** Phone ids deleted from the backup on purpose (`l:` keys of `no_backup`). */

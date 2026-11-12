@@ -102,6 +102,7 @@ interface NotesDao {
     @Query("SELECT `key` FROM no_backup") suspend fun noBackupKeys(): List<String>
     @Query("DELETE FROM no_backup WHERE `key` = :key") suspend fun removeNoBackup(key: String)
     @Query("SELECT `key` FROM meta WHERE `key` LIKE 'alias:%'") suspend fun aliasKeys(): List<String>
+    @Query("SELECT * FROM meta WHERE `key` LIKE 'alias:%'") suspend fun aliasRows(): List<MetaRow>
     @Query("DELETE FROM trash_notes") suspend fun clearTrashNotes()
     @Query("DELETE FROM meta_notes") suspend fun clearMetaNotes()
     @Query("DELETE FROM meta") suspend fun clearMeta()
