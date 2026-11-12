@@ -7,10 +7,17 @@ import Testing
         #expect(PhotosFavorite.decide(photos: false, lastSeen: true, library: false, noteDecides: false) == .remember)
     }
 
-    /// Backups from before favorites were recorded say nothing: Photos is left alone and nothing is sent.
+    /// A backup without a favorite says nothing: Photos is left alone, and nothing is sent until Photos changes.
     @Test func unknownLibraryValueChangesNothing() {
         #expect(PhotosFavorite.decide(photos: true, lastSeen: nil, library: nil, noteDecides: false) == .remember)
-        #expect(PhotosFavorite.decide(photos: true, lastSeen: false, library: nil, noteDecides: false) == .remember)
+        #expect(PhotosFavorite.decide(photos: true, lastSeen: true, library: nil, noteDecides: false) == .remember)
+        #expect(PhotosFavorite.decide(photos: false, lastSeen: false, library: nil, noteDecides: false) == .remember)
+    }
+
+    /// Backed up without a heart, then hearted (or unhearted) in Photos: the change reaches the other devices.
+    @Test func photosChangeAfterBackupWithoutFavoriteIsSent() {
+        #expect(PhotosFavorite.decide(photos: true, lastSeen: false, library: nil, noteDecides: false) == .sendNote(true))
+        #expect(PhotosFavorite.decide(photos: false, lastSeen: true, library: nil, noteDecides: false) == .sendNote(false))
     }
 
     /// The owner's case: unfavorited on the Mac, the iPhone's Photos still has the heart.
