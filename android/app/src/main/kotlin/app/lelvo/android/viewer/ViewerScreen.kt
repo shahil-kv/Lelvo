@@ -181,7 +181,7 @@ fun ViewerScreen(items: List<GalleryEntry>, start: Int, onClose: () -> Unit) {
                 onFavorite = { actions.favorite(listOf(entry), !(favorites[entry.id] ?: entry.isFavorite)) },
                 onInfo = { info = true },
                 onShareOriginal = if (canShareOriginal(entry)) ({ share(entry, original = true) }) else null,
-                quality = video?.takeIf { it.first == entry.id && it.second.hasFast }?.second,
+                quality = video?.takeIf { it.first == entry.id && (it.second.hasFast || it.second.canMakeFast) }?.second,
             )
         }
         AnimatedVisibility(chrome && current != null, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
@@ -268,7 +268,7 @@ private fun TopBar(
                 Icon(painterResource(entry.badge.icon), entry.badge.label, Modifier.size(14.dp), tint = entry.badge.tint())
             }
         }
-        quality?.let { QualityPill(it) }
+        quality?.let { if (it.hasFast) QualityPill(it) else MakeFastPill(it) }
         IconButton(onClick = onFavorite) {
             Icon(
                 painterResource(if (favorite) R.drawable.ic_favorite else R.drawable.ic_favorite_border),

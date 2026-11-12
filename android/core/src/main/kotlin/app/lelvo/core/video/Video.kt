@@ -99,3 +99,37 @@ object VideoLabels {
         else -> "${s.toString().trimEnd('0')}×"
     }
 }
+
+/** When to store a video's fast version, role `sp` (iOS `StreamingCopyPolicy`, the same numbers). */
+object StreamingCopyPolicy {
+    /** 2 Mbit/s stays below even the low end of measured Telegram speeds (300–900 KB/s), so playback doesn't stop. */
+    const val TARGET_BITS_PER_SECOND = 2_000_000
+
+    /** 60 fps videos keep their fluid motion with half as much again. */
+    fun targetBitsPerSecond(fps: Float): Int = if (fps > 31) 3_000_000 else TARGET_BITS_PER_SECOND
+
+    /** Below this the original streams about as easily as a fast version would. */
+    const val MINIMUM_BITS_PER_SECOND = 4_000_000.0
+    const val MINIMUM_BYTES = 4L shl 20
+    const val MAXIMUM_SIZE_RATIO = 0.7
+
+    fun bitsPerSecond(item: app.lelvo.core.index.LibraryItem): Double? {
+        val d = item.duration ?: return null
+        if (d <= 0 || item.fileSize <= 0) return null
+        return item.fileSize * 8.0 / d
+    }
+
+    fun hasCopy(item: app.lelvo.core.index.LibraryItem): Boolean {
+        val have = item.parts["sp"]?.size ?: 0
+        return have > 0 && have == (item.expectedParts["sp"] ?: 1)
+    }
+
+    fun shouldMake(item: app.lelvo.core.index.LibraryItem): Boolean {
+        if (item.kind != app.lelvo.core.index.ItemKind.Video || item.fileSize < MINIMUM_BYTES || item.streamingCopySkipped || hasCopy(item)) return false
+        val bits = bitsPerSecond(item) ?: return false
+        val long = maxOf(item.width, item.height); val short = minOf(item.width, item.height)
+        return bits > MINIMUM_BITS_PER_SECOND || long > 1920 || short > 1080
+    }
+
+    fun isWorthKeeping(copyBytes: Long, originalBytes: Long): Boolean = copyBytes > 0 && copyBytes < originalBytes * MAXIMUM_SIZE_RATIO
+}

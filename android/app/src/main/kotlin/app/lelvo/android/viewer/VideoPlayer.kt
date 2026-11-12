@@ -78,6 +78,8 @@ import app.lelvo.android.media.CloudDataSource
 import app.lelvo.android.media.VideoDecoders
 import app.lelvo.core.index.LibraryItem
 import app.lelvo.core.support.AppLog
+import app.lelvo.android.shell.Messages
+import app.lelvo.core.index.ItemStatus
 import app.lelvo.core.video.VideoLabels
 import app.lelvo.core.video.VideoNavigation
 import app.lelvo.core.video.VideoPreference
@@ -135,6 +137,36 @@ internal class VideoSession(
     }
 
     val hasFast: Boolean get() = item?.hasFastVersion == true
+
+    /** "Make fast version" is running, or just failed (shown briefly in the pill), as on iOS. */
+    var making by mutableStateOf(false)
+    var makeFailed by mutableStateOf(false)
+
+    /** A backed-up cloud video with no fast version: the pill offers to make one. */
+    val canMakeFast: Boolean get() = item != null && !hasFast && item.status == ItemStatus.BackedUp
+
+    fun makeFastVersion() {
+        val id = item?.id ?: return
+        if (making) return
+        making = true
+        makeFailed = false
+        scope.launch {
+            try {
+                app.backup.makeFastVersion(id)
+                Messages.show(Messages.Style.Success, "Fast version ready", "It plays from the next time you open this video.")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.warn("Make fast version failed: ${e::class.simpleName}")
+                makeFailed = true
+                Messages.show(Messages.Style.Failure, "Couldn't make a fast version", e.message)
+                kotlinx.coroutines.delay(3_000)
+                makeFailed = false
+            } finally {
+                making = false
+            }
+        }
+    }
 
     /** This phone can decode the original smoothly (`VideoDecoders.canPlay`); asked once per video. */
     val originalPlayable: Boolean = item == null || VideoDecoders.canPlay(item.codec, item.width, item.height)
@@ -519,6 +551,25 @@ internal fun VideoControls(session: VideoSession, modifier: Modifier = Modifier)
  * The quality pill on a cloud video with a fast version, in the top bar: says what plays and switches to the other
  * version at any time (iOS `VideoQualityMenu`).
  */
+/** For a video without a fast version (iOS: the pill offers "Make Fast Version"). */
+@Composable
+internal fun MakeFastPill(session: VideoSession) {
+    Row(
+        Modifier.background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(50))
+            .pointerInput(Unit) { detectTapGestures { session.makeFastVersion() } }
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .semantics { contentDescription = if (session.making) "Making a fast version" else "Make fast version" },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (session.making) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+        Text(
+            when { session.making -> "Making fast version…"; session.makeFailed -> "Couldn't make it"; else -> "Make fast version" },
+            color = Color.White, style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}
+
 @Composable
 internal fun QualityPill(session: VideoSession) {
     var menu by remember { mutableStateOf(false) }

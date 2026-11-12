@@ -25,6 +25,7 @@ import app.lelvo.core.index.ItemKind
 import app.lelvo.core.index.ItemStatus
 import app.lelvo.core.index.LibraryItem
 import app.lelvo.core.session.TelegramErrors
+import app.lelvo.core.video.StreamingCopyPolicy
 import app.lelvo.core.support.AppLog
 import app.lelvo.data.LibraryException
 import app.lelvo.data.LibraryScanner
@@ -95,6 +96,7 @@ class BackupEngine(
     private val photos: PhotoAccess,
     private val linker: PhotoLinker,
     private val prefs: Prefs,
+    private val reader: app.lelvo.data.media.MediaReader,
 ) {
     private val app = context.applicationContext
     val phone = PhoneFiles(app)
@@ -558,6 +560,11 @@ class BackupEngine(
             store.upsert(listOf(item))
             if (item.status != ItemStatus.BackedUp) return Outcome.Failed
             AppLog.info("Backed up ${item.kind.code} (${item.fileSize shr 10} KB)")
+            // The fast version, from the file that's here: the video then plays at once from the cloud. Optional.
+            if (prefs.streamingCopies && StreamingCopyPolicy.shouldMake(item)) {
+                try { uploadFastVersion(item, laneKey) { out -> FastVersionEncoder.encode(app, file.uri, out) } }
+                catch (e: Exception) { if (e is CancellationException) throw e; noteFastVersionFailure(e, item) }
+            }
             // A big photo's screen copy, from the file that's here. Optional: a failure never undoes the backup.
             if (ScreenCopyPolicy.shouldMake(item)) {
                 try { uploadScreenCopy(item, file, laneKey) } catch (e: Exception) { if (e is CancellationException) throw e; noteScreenCopyFailure(e, item) }
@@ -649,6 +656,82 @@ class BackupEngine(
             out.delete()
             showLane(laneKey, null)
         }
+    }
+
+    /**
+     * "Make fast version" in the viewer: the fast version of one video, now, from the phone's file or, for a video
+     * that's only in the cloud, from its original downloaded first (the user asked for it).
+     */
+    suspend fun makeFastVersion(itemId: String) = withContext(Dispatchers.IO) {
+        val item = store.item(itemId) ?: throw FastVersionUnsupported("gone")
+        if (item.status != ItemStatus.BackedUp || item.kind != ItemKind.Video) throw FastVersionUnsupported("not a backed-up video")
+        if (StreamingCopyPolicy.hasCopy(item)) return@withContext
+        library.chatId?.let { library.requireWritable(it) }
+        val file = item.localId?.let(phone::file)
+        if (file != null) {
+            uploadFastVersion(item, "copy", force = true) { out -> FastVersionEncoder.encode(app, file.uri, out) }
+            return@withContext
+        }
+        val source = File(staging.apply { mkdirs() }, "${item.id}-source.${item.filename.substringAfterLast('.', "mp4")}")
+        try {
+            reader.download(item, "o", source)
+            uploadFastVersion(item, "copy", force = true) { out -> FastVersionEncoder.encode(app, android.net.Uri.fromFile(source), out) }
+        } finally {
+            source.delete()
+        }
+    }
+
+    /** Encodes with [encode] and uploads as role `sp`; false (never tried again) when it wouldn't be much smaller. */
+    private suspend fun uploadFastVersion(item: LibraryItem, laneKey: String, force: Boolean = false, encode: suspend (File) -> FastVersionEncoder.Result): Boolean {
+        val chatId = library.chatId ?: throw LibraryException.notALibrary
+        val label = "${item.filename} (fast version)"
+        showLane(laneKey, BackupActivity.Lane(label, 0, 0))
+        val out = File(staging.apply { mkdirs() }, "${item.id}-fast.mp4")
+        try {
+            // Parts of an earlier, interrupted copy: a new encode isn't byte-identical, so start over.
+            item.parts["sp"]?.takeIf { it.isNotEmpty() }?.let { stale ->
+                uploads.deleteMessages(chatId, stale.map { it.messageId })
+                store.update(item.id) { it.copy(parts = it.parts - "sp", expectedParts = it.expectedParts - "sp", uploadResume = it.uploadResume - "sp") }
+            }
+            val started = System.currentTimeMillis()
+            val copy = encode(out)
+            val size = copy.file.length()
+            if (!force && !StreamingCopyPolicy.isWorthKeeping(size, item.fileSize)) {
+                store.update(item.id) { it.copy(streamingCopySkipped = true) }
+                AppLog.info("No fast version for ${item.filename}: ${size shr 10} KB isn't much smaller than ${item.fileSize shr 10} KB")
+                return false
+            }
+            AppLog.info("Made a fast version (${copy.codec}, ${copy.width}×${copy.height}) in ${(System.currentTimeMillis() - started) / 1000} s")
+            val hash = PhoneFiles.hex(java.security.MessageDigest.getInstance("SHA-256").let { d ->
+                copy.file.inputStream().use { s -> val b = ByteArray(1 shl 20); while (true) { val n = s.read(b); if (n < 0) break; d.update(b, 0, n) } }
+                d.digest()
+            })
+            val name = item.filename.substringBeforeLast('.') + "-fast.mp4"
+            val meta = captionMeta(item, Role.SMOOTH_PREVIEW, hash, name, size)
+                .copy(wh = listOf(copy.width, copy.height), c = copy.codec, hdr = null, m = "video/mp4")
+            val parts = uploader.upload(
+                item.id, Resource("sp", size, meta) { copy.file.inputStream() }, emptyList(), null,
+                checkpoint = { p, expected, _ -> store.update(item.id) { it.withParts("sp", p, expected) } },
+                progress = { sent, total -> showLane(laneKey, BackupActivity.Lane(label, sent, total)) },
+            )
+            store.update(item.id) { it.withParts("sp", parts, parts.size).copy(streamingCopySkipped = false, roleHashes = it.roleHashes + ("sp" to hash)) }
+            AppLog.info("Uploaded a fast version: ${size shr 10} KB for a ${item.fileSize shr 10} KB original")
+            return true
+        } finally {
+            out.delete()
+            showLane(laneKey, null)
+        }
+    }
+
+    /** A fast version is optional: only a video that can't be converted at all is left alone from then on. */
+    private suspend fun noteFastVersionFailure(e: Exception, item: LibraryItem) {
+        if (e is TelegramException) {
+            (TelegramErrorClassifier.classify(e.code, e.message) as? TelegramErrorKind.FloodWait)?.let { holdFor(it.seconds) }
+            AppLog.warn("Fast version of ${item.filename} will be retried: ${e.message}")
+            return
+        }
+        if (e is FastVersionUnsupported) store.update(item.id) { it.copy(streamingCopySkipped = true) }
+        AppLog.warn("No fast version for ${item.filename}${if (e is FastVersionUnsupported) "" else " yet"}: ${e::class.simpleName} ${e.message ?: ""}")
     }
 
     /** A screen copy is optional: only a photo that can't be decoded is left alone from then on. */

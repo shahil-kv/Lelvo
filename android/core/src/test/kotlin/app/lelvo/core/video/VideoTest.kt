@@ -84,3 +84,32 @@ class VideoTest {
         assertEquals(VideoVersion.Original, VideoQualityPolicy.initial(VideoPreference.Original, hasFast = true, originalPlayable = true))
     }
 }
+
+class StreamingCopyPolicyTest {
+    private fun video(size: Long, seconds: Double?, w: Int = 1920, h: Int = 1080) = app.lelvo.core.index.LibraryItem(
+        "v", "1", "h", "v.mp4", app.lelvo.core.index.ItemKind.Video, 0, width = w, height = h, duration = seconds,
+        fileSize = size, status = app.lelvo.core.index.ItemStatus.BackedUp,
+    )
+
+    @Test fun onlyBigOrSharpVideos() {
+        // 8 Mbit/s 1080p: worth a copy.
+        kotlin.test.assertTrue(StreamingCopyPolicy.shouldMake(video(10_000_000, 10.0)))
+        // 3.2 Mbit/s 1080p: streams fine as it is.
+        kotlin.test.assertFalse(StreamingCopyPolicy.shouldMake(video(40_000_000, 100.0)))
+        // Same bitrate but 4K: a copy.
+        kotlin.test.assertTrue(StreamingCopyPolicy.shouldMake(video(40_000_000, 100.0, 3840, 2160)))
+        // Small, no duration, already skipped or already there: no.
+        kotlin.test.assertFalse(StreamingCopyPolicy.shouldMake(video(3_000_000, 1.0)))
+        kotlin.test.assertFalse(StreamingCopyPolicy.shouldMake(video(10_000_000, null)))
+        kotlin.test.assertFalse(StreamingCopyPolicy.shouldMake(video(10_000_000, 10.0).copy(streamingCopySkipped = true)))
+        kotlin.test.assertFalse(StreamingCopyPolicy.shouldMake(video(10_000_000, 10.0).withParts("sp", listOf(app.lelvo.core.index.RemoteFile(1, "f", "u", 5)), 1)))
+    }
+
+    @Test fun keptOnlyWhenMuchSmaller() {
+        kotlin.test.assertTrue(StreamingCopyPolicy.isWorthKeeping(69, 100))
+        kotlin.test.assertFalse(StreamingCopyPolicy.isWorthKeeping(70, 100))
+        kotlin.test.assertFalse(StreamingCopyPolicy.isWorthKeeping(0, 100))
+        kotlin.test.assertEquals(3_000_000, StreamingCopyPolicy.targetBitsPerSecond(60f))
+        kotlin.test.assertEquals(2_000_000, StreamingCopyPolicy.targetBitsPerSecond(30f))
+    }
+}

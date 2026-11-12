@@ -102,7 +102,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         motion = app.lelvo.data.media.MotionVideos(this)
         search = app.lelvo.data.search.SearchService(this, store, photos)
         uploads = app.lelvo.telegram.TdUploads(telegram, files)
-        backup = app.lelvo.data.backup.BackupEngine(this, store, library, scanner, uploads, photos, linker, prefs)
+        backup = app.lelvo.data.backup.BackupEngine(this, store, library, scanner, uploads, photos, linker, prefs, reader)
         freeUpSpace = app.lelvo.data.backup.FreeUpSpaceService(store, library, scanner, uploads, backup.phone)
         duplicates = app.lelvo.data.backup.Duplicates(store, library, scanner, uploads, backup.phone)
         secondCopy = app.lelvo.data.backup.SecondCopyService(this, store, reader)
