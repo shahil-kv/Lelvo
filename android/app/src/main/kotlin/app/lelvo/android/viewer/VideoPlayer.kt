@@ -48,7 +48,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -89,7 +88,6 @@ import app.lelvo.core.video.hasFastVersion
 import app.lelvo.data.DemoMode
 import app.lelvo.data.Prefs
 import app.lelvo.data.media.MediaException
-import coil3.compose.AsyncImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -349,7 +347,7 @@ internal class VideoSession(
 }
 
 /**
- * A video page: the picture and a poster until its first frame; the controls (play, scrubber, times, speed, sound)
+ * A video page: the picture, see-through until its first frame; the controls (play, scrubber, times, speed, sound)
  * sit in the viewer's bottom panel ([VideoControls]). A tap shows or hides the bars; a double tap on either side
  * skips 10 seconds, in the middle it plays or pauses.
  * The sound stops when the page or the viewer goes away (iOS #115) and when the app leaves the screen.
@@ -357,7 +355,7 @@ internal class VideoSession(
 @OptIn(UnstableApi::class)
 @Composable
 internal fun VideoPage(
-    key: String, phone: Uri?, item: LibraryItem?, poster: Any, chrome: Boolean, onTap: () -> Unit, onSession: (VideoSession?) -> Unit,
+    key: String, phone: Uri?, item: LibraryItem?, chrome: Boolean, onTap: () -> Unit, onSession: (VideoSession?) -> Unit,
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as LelvoApp
@@ -418,14 +416,11 @@ internal fun VideoPage(
                     this.player = session.player
                 }
             },
-            // Hidden until its first frame has its real shape; the poster shows meanwhile (it leaves see-through bars
-            // around a portrait or landscape picture, where a stretched frame showed through).
+            // Hidden until its first frame has its real shape; the poster under it ([VideoSlot]) shows meanwhile (it
+            // leaves see-through bars around a portrait or landscape picture, where a stretched frame showed through).
             update = { it.alpha = if (session.shown) 1f else 0f },
             modifier = Modifier.fillMaxSize(),
         )
-        if (!session.shown) {
-            AsyncImage(poster, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-        }
         // Taps over the whole picture: one shows or hides the bars, two on a side skip.
         Box(
             Modifier.fillMaxSize().pointerInput(session) {

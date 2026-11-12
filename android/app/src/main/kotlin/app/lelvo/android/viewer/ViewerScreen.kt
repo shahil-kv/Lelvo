@@ -5,6 +5,9 @@ import androidx.compose.runtime.setValue
 import android.text.format.DateFormat
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -35,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,7 +52,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -97,14 +104,22 @@ fun ViewerScreen(items: List<GalleryEntry>, start: Int, onClose: () -> Unit) {
     var video by remember { mutableStateOf<Pair<String, VideoSession>?>(null) }
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    val current = entries.getOrNull(pager.currentPage)
+    // The bars follow the page once it lands, not halfway through a swipe: before, they switched to the next item while
+    // the old one was still on screen and the buttons and video controls jumped.
+    val current = entries.getOrNull(pager.settledPage)
 
     LaunchedEffect(entries.size) { if (entries.isEmpty()) onClose() }
     LaunchedEffect(pager.settledPage) { zoomed = false }
 
     val actions = rememberPhoneActions(
         onFavorited = { value -> current?.let { favorites[it.id] = value }; haptics.performHapticFeedback(HapticFeedbackType.Confirm) },
-        onTrashed = { current?.let { entries.remove(it) } },
+        onTrashed = { keepsPhone ->
+            current?.let { entry ->
+                // Deleted from the backup only: the photo is still on this phone, so its page stays, now phone-only.
+                val i = entries.indexOf(entry)
+                if (keepsPhone && entry.asset != null && i >= 0) entries[i] = entry.copy(item = null) else entries.remove(entry)
+            }
+        },
     )
 
     // The page on screen says when it's sharp; only then do the neighbours load.
@@ -187,6 +202,7 @@ fun ViewerScreen(items: List<GalleryEntry>, start: Int, onClose: () -> Unit) {
         AnimatedVisibility(chrome && current != null, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             val entry = current ?: return@AnimatedVisibility
             BottomBar(
+                isVideo = entry.asset?.isVideo ?: (entry.item?.kind == ItemKind.Video),
                 video = video?.takeIf { it.first == entry.id }?.second,
                 canSave = canSave(entry), busy = busy,
                 onShare = { share(entry) }, onSave = { save(entry) }, onInfo = { info = true }, onDelete = { confirmDelete = true },
@@ -291,17 +307,29 @@ private fun TopBar(
  */
 @Composable
 private fun BottomBar(
-    video: VideoSession?, canSave: Boolean, busy: Boolean, onShare: () -> Unit, onSave: () -> Unit, onInfo: () -> Unit, onDelete: () -> Unit,
+    isVideo: Boolean, video: VideoSession?, canSave: Boolean, busy: Boolean,
+    onShare: () -> Unit, onSave: () -> Unit, onInfo: () -> Unit, onDelete: () -> Unit,
 ) {
+    // A video's player starts a frame or two after its page lands; its controls' room is kept meanwhile, so the bar
+    // doesn't drop and rise again between two videos.
+    var controlsHeight by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
     Column(
         Modifier.fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f), Color.Black.copy(alpha = 0.7f))))
-            .navigationBarsPadding().padding(top = if (video != null) 48.dp else 40.dp, bottom = 8.dp),
+            .navigationBarsPadding().padding(top = if (isVideo) 48.dp else 40.dp, bottom = 8.dp)
+            .animateContentSize(),
     ) {
-        video?.let { VideoControls(it, Modifier.padding(bottom = 4.dp)) }
+        when {
+            video != null -> VideoControls(video, Modifier.padding(bottom = 4.dp).onSizeChanged { controlsHeight = it.height })
+            isVideo && controlsHeight > 0 -> Spacer(Modifier.height(with(density) { controlsHeight.toDp() }))
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             BarAction(R.drawable.ic_send, "Share", enabled = !busy, onShare)
-            if (canSave) BarAction(R.drawable.ic_download, "Save", enabled = !busy, onSave)
+            // Slides in and out between a cloud item and a phone one, rather than the other buttons jumping sideways.
+            AnimatedVisibility(canSave, enter = fadeIn() + expandHorizontally(), exit = fadeOut() + shrinkHorizontally()) {
+                BarAction(R.drawable.ic_download, "Save", enabled = !busy, onSave)
+            }
             BarAction(R.drawable.ic_info_outline, "Details", enabled = true, onInfo)
             BarAction(R.drawable.ic_delete, "Delete", enabled = true, onDelete)
         }

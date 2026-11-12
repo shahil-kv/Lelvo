@@ -60,18 +60,31 @@ internal fun ViewerPage(
         // the neighbours show their first frame.
         asset != null && asset.isVideo -> {
             val uri = app.photos.uri(asset)
-            if (current) VideoPage(entry.id, uri, null, PhoneThumbnail(uri), chrome, onTap, onVideo) else Still(PhoneThumbnail(uri), "Video", onTap)
+            VideoSlot(PhoneThumbnail(uri), current, onTap) { VideoPage(entry.id, uri, null, chrome, onTap, onVideo) }
         }
         asset != null -> PhonePhotoPage(asset.localId, app.photos.uri(asset), current, chrome, onTap, onZoomed)
         item == null -> Unit
         item.kind == ItemKind.Video -> {
             val poster = DemoMode.assetUri(item) ?: CloudThumbnail(item)
-            if (current) VideoPage(entry.id, null, item, poster, chrome, onTap, onVideo) else Still(poster, "Video", onTap)
+            VideoSlot(poster, current, onTap) { VideoPage(entry.id, null, item, chrome, onTap, onVideo) }
         }
         item.kind == ItemKind.LivePhoto && DemoMode.assetUri(item) == null && !item.parts["pv"].isNullOrEmpty() ->
             LivePhotoPage(item, current, chrome, onTap, onZoomed, onReady)
         else -> DemoMode.assetUri(item)?.let { ZoomablePhoto(it, current, onTap, onZoomed) }
             ?: CloudMotionPhotoPage(item, current, chrome, onTap, onZoomed, onReady = { if (current) onReady() })
+    }
+}
+
+/**
+ * A video page's poster with the player over it once the page lands. The poster stays the same image throughout: when
+ * the player replaced it, the poster was loaded again and the page flashed black for a frame as the swipe settled.
+ * The player stays see-through until its first frame, so the poster shows until then.
+ */
+@Composable
+private fun VideoSlot(poster: Any, current: Boolean, onTap: () -> Unit, player: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize()) {
+        Still(poster, "Video", onTap)
+        if (current) player()
     }
 }
 
