@@ -83,6 +83,8 @@ sealed interface CollectionPage {
     data object MemorySettings : CollectionPage
     /** The map of every photo with a location (iOS `PhotoMapView`). */
     data class Places(val entries: List<GalleryEntry>) : CollectionPage
+    /** Extra copies and similar photos, also on the Backup tab (iOS lists it under Utilities in Albums). */
+    data object Duplicates : CollectionPage
 }
 
 /** Everything Collections shows, made together off the main thread. */
@@ -160,6 +162,7 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
             }
             item("utilities") {
                 Section("Utilities") {
+                    LinkRow("Duplicates and similar", R.drawable.ic_content_copy, null) { onOpen(CollectionPage.Duplicates) }
                     LinkRow("Recently Deleted", R.drawable.ic_delete, trashed) { onOpen(CollectionPage.RecentlyDeleted) }
                 }
             }
