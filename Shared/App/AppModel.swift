@@ -33,7 +33,9 @@ final class AppModel: ObservableObject {
                 let model = AppModel.shared
                 // Telegram asked for a phone number while a library is still set up, without the "logging out" that
                 // marks a session ended elsewhere. Signing in over the app kept the old library and its index, which
-                // another account would then see. Handle it like a session ended elsewhere.
+                // another account would then see. Handle it like a session ended elsewhere. Not re-entrant: this runs
+                // in its own main-actor task after TDService has finished notifying, and reset() clears
+                // onboardingComplete before anything else, so the auth changes the reset itself causes skip this.
                 if case .waitPhone = step, model.onboardingComplete, !UITestSupport.isDemo, !DemoMode.isActive,
                    AppEnvironment.shared.library.isConfigured {
                     appLog("Telegram asked to sign in again with a library still set up; removing it from this \(Device.name)")
