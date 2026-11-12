@@ -4,6 +4,8 @@ import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import app.lelvo.android.brand.CatchingMark
+import app.lelvo.android.brand.CatchingStatus
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -162,7 +164,7 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
     } ?: activity
     Scaffold(modifier, topBar = { LelvoTopBar("Backup", app.demo, onSettings) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-            item("header") { StatusHeader(shown, stats, app.prefs.lastBackupAt) }
+            item("header") { StatusHeader(shown, stats, app.prefs.lastBackupAt, photoUri = { app.photos.uris(listOf(it)).firstOrNull() }) }
             item("buttons") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     writeBlock?.let {
@@ -173,7 +175,9 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                             Icon(painterResource(R.drawable.ic_pause), contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp)); Text("Pause backup")
                         }
-                    } else {
+                    } else if (stats.counts.activeQueue > 0 || stats.counts.notQueued > 0 || app.prefs.backupPaused) {
+                        // Only when something is waiting or not in the cloud yet, as on iOS: a finished backup has
+                        // nothing for the button to do (new photos show up in the counts and bring it back).
                         Button(onClick = { if (isDemo) scope.launch { app.demo.runBackup() } else { askNotifications(); app.startBackup(includeNew = true) } },
                             enabled = isDemo || writeBlock == null, modifier = Modifier.fillMaxWidth()) {
                             Icon(painterResource(R.drawable.ic_cloud_upload), contentDescription = null, modifier = Modifier.size(18.dp))
@@ -183,21 +187,23 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                             Text("Paused. Automatic backups won't run until you resume.", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                         }
-                        if (stats.counts.retryable > 0) {
-                            OutlinedButton(onClick = {
-                                Messages.show(Messages.Style.Info, "Retrying ${stats.counts.retryable} failed")
-                                scope.launch { engine.retryFailed(); app.startBackup(includeNew = false) }
-                            }, enabled = writeBlock == null, modifier = Modifier.fillMaxWidth()) {
-                                Icon(painterResource(R.drawable.ic_sync), contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp)); Text("Retry ${stats.counts.retryable} failed")
-                            }
+                    }
+                    if (!activity.isRunning && stats.counts.retryable > 0) {
+                        OutlinedButton(onClick = {
+                            Messages.show(Messages.Style.Info, "Retrying ${stats.counts.retryable} failed")
+                            scope.launch { engine.retryFailed(); app.startBackup(includeNew = false) }
+                        }, enabled = writeBlock == null, modifier = Modifier.fillMaxWidth()) {
+                            Icon(painterResource(R.drawable.ic_sync), contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp)); Text("Retry ${stats.counts.retryable} failed")
                         }
                     }
                 }
             }
             if (shown.isRunning) item("progress") { RunProgress(shown) }
             val rules = listOfNotNull(if (app.prefs.wifiOnly) "Wi-Fi only" else null, if (app.prefs.chargingOnly) "charging only" else null)
-            if (rules.isNotEmpty()) item("rules") {
+            // Only while something is going up or waiting, as on iOS: under "Backup complete" it read like a problem.
+            val busy = shown.isRunning || stats.counts.activeQueue > 0 || stats.counts.notQueued > 0
+            if (rules.isNotEmpty() && busy) item("rules") {
                 Text(rules.joinToString(", ").replaceFirstChar { it.uppercase() } + ". Change in Settings.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
@@ -265,10 +271,15 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
 }
 
 @Composable
-private fun StatusHeader(activity: BackupActivity, stats: Stats, lastBackupAt: Long?) {
+private fun StatusHeader(activity: BackupActivity, stats: Stats, lastBackupAt: Long?, photoUri: suspend (String) -> android.net.Uri?) {
     val c = stats.counts
     val pending = c.pending(autoBackup = false).coerceAtLeast(c.activeQueue)
-    val left = if (activity.isRunning && activity.total > 0) activity.remaining else pending
+    // A run that is still listing its photos has no total yet: the new photos it's about to queue count, not "0 left".
+    val left = when {
+        activity.isRunning && activity.total > 0 -> activity.remaining
+        activity.isRunning -> pending.coerceAtLeast(c.notQueued)
+        else -> pending
+    }
     val (icon, tint, title) = when {
         activity.isRunning || pending > 0 -> Triple(R.drawable.ic_cloud_upload, Lelvo.colors.accent, "$left item${if (left == 1) "" else "s"} left to back up")
         c.notQueued > 0 -> Triple(R.drawable.ic_cloud_off, MaterialTheme.colorScheme.onSurfaceVariant, "${c.notQueued} item${if (c.notQueued == 1) "" else "s"} not in the cloud")
@@ -284,15 +295,31 @@ private fun StatusHeader(activity: BackupActivity, stats: Stats, lastBackupAt: L
         Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Icon(painterResource(icon), contentDescription = null, tint = tint, modifier = Modifier.size(56.dp))
-        AnimatedContent(title, label = "backup title") { Text(it, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center) }
+        // The mark catches each photo as it lands, like the iPhone (iOS `CatchingMark`); the icon beside the title
+        // only marks the states that need a look.
+        val mark = when {
+            activity.isRunning -> CatchingStatus.Working
+            pending > 0 || c.notQueued > 0 -> CatchingStatus.Idle
+            c.failed > 0 -> CatchingStatus.Attention
+            else -> CatchingStatus.Complete
+        }
+        CatchingMark(mark, activity.landed, photoUri, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (mark == CatchingStatus.Attention || (!activity.isRunning && pending == 0 && c.notQueued > 0)) {
+                Icon(painterResource(icon), contentDescription = null, tint = tint, modifier = Modifier.size(22.dp).padding(end = 6.dp))
+            }
+            AnimatedContent(title, label = "backup title") { Text(it, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center) }
+        }
         Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         activity.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Lelvo.colors.orange, textAlign = TextAlign.Center) }
         if (activity.isRunning) activity.message?.takeIf { it.startsWith("Waiting") || it.startsWith("No internet") }?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = Lelvo.colors.orange, textAlign = TextAlign.Center)
         }
         lastBackupAt?.let {
-            Text("Last upload ${DateUtils.getRelativeTimeSpanString(it, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)}",
+            val now = System.currentTimeMillis()
+            // Under a minute, Android's wording is "0 minutes ago".
+            val ago = if (now - it < DateUtils.MINUTE_IN_MILLIS) "just now" else DateUtils.getRelativeTimeSpanString(it, now, DateUtils.MINUTE_IN_MILLIS)
+            Text("Last upload $ago",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

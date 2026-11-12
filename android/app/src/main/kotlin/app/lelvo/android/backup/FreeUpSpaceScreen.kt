@@ -8,6 +8,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,12 +40,26 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.lelvo.android.LelvoApp
 import app.lelvo.android.R
+import app.lelvo.android.brand.CatchingBurst
+import app.lelvo.android.brand.CatchingMark
+import app.lelvo.android.brand.CatchingStatus
+import app.lelvo.android.media.PhoneThumbnail
+import app.lelvo.android.ui.theme.rememberReduceMotion
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.toBitmap
 import app.lelvo.android.shell.Messages
 import app.lelvo.core.backup.FreeUpSpace
 import app.lelvo.core.index.LibraryItem
@@ -64,6 +80,7 @@ fun FreeUpSpaceScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mo
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     val service = app.freeUpSpace
     var candidates by remember { mutableStateOf<List<LibraryItem>?>(null) }
     var verified by remember { mutableStateOf<List<LibraryItem>>(emptyList()) }
@@ -71,6 +88,11 @@ fun FreeUpSpaceScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mo
     var checking by remember { mutableStateOf<Job?>(null) }
     var removing by remember { mutableStateOf<List<LibraryItem>>(emptyList()) }
     var freed by remember { mutableStateOf<Pair<Int, Long>?>(null) }
+    // The freed space counts up while the removed photos fly into the cloud (iOS `showFreed`).
+    val shownBytes = remember { Animatable(0f) }
+    var burst by remember { mutableStateOf<CatchingBurst?>(null) }
+    var previews by remember { mutableStateOf<Map<String, Any>>(emptyMap()) }
+    val reduceMotion = rememberReduceMotion()
     var reload by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(reload) {
@@ -82,15 +104,22 @@ fun FreeUpSpaceScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mo
 
     val trash = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
         val asked = removing
+        val pictures = previews
         removing = emptyList()
+        previews = emptyMap()
         if (r.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
         scope.launch {
             val ids = asked.mapNotNull { it.localId }
             val still = withContext(Dispatchers.IO) { service.stillOnPhone(ids) }
             val gone = asked.filter { it.localId !in still }
             AppLog.info("Freed up space: moved ${gone.size} items to the phone's trash")
-            freed = gone.size to FreeUpSpace.bytes(gone)
+            val bytes = FreeUpSpace.bytes(gone)
+            freed = gone.size to bytes
+            if (gone.isNotEmpty()) haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            burst = gone.mapNotNull { it.localId?.let(pictures::get) }.takeIf { it.isNotEmpty() }?.let(::CatchingBurst)
             reload++
+            shownBytes.snapTo(0f)
+            shownBytes.animateTo(bytes.toFloat(), tween(700, easing = { 1 - (1 - it) * (1 - it) * (1 - it) }))
         }
     }
 
@@ -101,6 +130,16 @@ fun FreeUpSpaceScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mo
             if (Build.VERSION.SDK_INT < 30) { Messages.show(Messages.Style.Info, "Removing needs Android 11 or later"); return@launch }
             val uris = withContext(Dispatchers.IO) { service.files(safe).map { it.uri } }
             removing = safe
+            // Small pictures of the first few, loaded now: once in the trash, the phone no longer hands them out.
+            if (!reduceMotion) previews = withContext(Dispatchers.IO) {
+                val loader = SingletonImageLoader.get(context)
+                safe.take(8).mapNotNull { item ->
+                    val id = item.localId ?: return@mapNotNull null
+                    val uri = app.photos.uris(listOf(id)).firstOrNull() ?: return@mapNotNull null
+                    val image = (loader.execute(ImageRequest.Builder(context).data(PhoneThumbnail(uri)).size(120).build()) as? SuccessResult)?.image
+                    image?.let { id to it.toBitmap() }
+                }.toMap()
+            }
             trash.launch(IntentSenderRequest.Builder(MediaStore.createTrashRequest(context.contentResolver, uris, true).intentSender).build())
         } catch (e: IllegalStateException) {
             Messages.show(Messages.Style.Failure, "Couldn't check your library", e.message)
@@ -115,12 +154,18 @@ fun FreeUpSpaceScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mo
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item("intro") {
                 Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(painterResource(R.drawable.ic_phone), null, tint = MaterialTheme.colorScheme.primary)
                     val f = freed
-                    Text(
-                        if (f != null) "Freed ${Formatter.formatShortFileSize(context, f.second)}" else "Free up space on this phone",
-                        style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center,
-                    )
+                    CatchingMark(if (f == null) CatchingStatus.Idle else CatchingStatus.Complete, width = 84.dp, burst = burst, modifier = Modifier.padding(top = 6.dp))
+                    if (f != null) {
+                        Text(
+                            Formatter.formatShortFileSize(context, shownBytes.value.toLong()),
+                            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum"),
+                            color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center,
+                            modifier = Modifier.semantics { contentDescription = "Freed ${Formatter.formatShortFileSize(context, f.second)}" },
+                        )
+                    } else {
+                        Text("Free up space on this phone", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+                    }
                     Text(
                         if (f != null) "Freed from ${"%,d".format(f.first)} item${if (f.first == 1) "" else "s"}. They're still in your Telegram library and in Lelvo. Empty the trash in your gallery app to get the space back now."
                         else "Remove photos and videos from this phone that are already safely backed up, to get storage back. They stay in Lelvo, and you can save any of them back anytime.",
