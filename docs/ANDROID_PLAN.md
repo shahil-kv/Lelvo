@@ -220,12 +220,12 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Job queue, slots, order, stalls, speed | `BackupEngine.swift`, `LelvoCore/Backup/*` | `core/` ports with tests, `data/` engine | |
-| Confirmed encrypted uploads, split parts | `CloudUploader.swift`, `FileCrypto.swift` | `TdClient` uploads | |
-| Thumbnail and screen copy at backup | `ScreenCopy.swift`, `CloudUploader.swift` | Same sizes and roles | |
+| Job queue, slots, order, stalls, speed | `BackupEngine.swift`, `LelvoCore/Backup/*` | `core/` ports with tests, `data/` engine | ◐ built, 25 tests; not yet run against Telegram |
+| Confirmed encrypted uploads, split parts | `CloudUploader.swift`, `FileCrypto.swift` | `TdClient` uploads | ◐ built (`TdUploads`, `CloudUploader`); needs the "Android test" library |
+| Thumbnail and screen copy at backup | `ScreenCopy.swift`, `CloudUploader.swift` | Same sizes and roles | ◐ built; needs the "Android test" library |
 | Fast version of videos | `StreamingCopyEncoder.swift` | Media3 Transformer | |
 | Edits and extras | `EditCheck.swift`, `ExtraMetadata.swift` | Android has no edit recipe: original only; noted gap | |
-| Dashboard: counts, progress, pause, retry failed | `BackupDashboardView.swift`, `BackupCounts.swift`, `TransferRate.swift` | Backup tab | |
+| Dashboard: counts, progress, pause, retry failed | `BackupDashboardView.swift`, `BackupCounts.swift`, `TransferRate.swift` | Backup tab | ◐ header, Back up now / Pause / Retry, lanes with time left, Library counts, Failed list; tools rows to come |
 | Extra copies in Telegram, removed from backup | `Deduplicator.swift`, `RemovedFromBackupView.swift` | Rows on the Backup tab | |
 | Free up space | `FreeUpSpaceService.swift`, `FreeUpSpaceView.swift` | Verify in Telegram, then `createDeleteRequest` | |
 | Save everything to the phone | `SaveAllToPhotosView.swift`, `RestorePlan.swift` | MediaStore writes with date and place | |
@@ -627,6 +627,32 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
     real phone.
   - Gaps: no text or things in photos (needs a labeller: not on the approved list); `PRIVACY.md` mentions Apple's
     geocoder only and needs an Android line (Google's geocoder gets the area's middle) before the Android beta.
+- 2026-11-12, Phase I engine (not yet proven against Telegram):
+  - `core/backup`: `JobMachine`, error classes, `UploadSlots`, `UploadOrder`, `UploadStall`, `TransferRate`,
+    `BackupCounts`, hash reuse, `PhotoChangeScan.queuedButDeleted`, `ScreenCopyPolicy`, part names; every iOS test
+    case ported (25 tests). `LibraryItem` gained the local job fields (attempts, notBefore, chosen, assetModifiedAt,
+    resume points, copy skips), kept in the extras column, so no Room migration; scans keep them.
+  - `TdUploads`: confirmed `sendDocument` (returns only after Telegram stored it), the 180 s stall watchdog that
+    deletes the stuck send before retrying, cancel deletes the pending message, `deleteMessages` loads messages first
+    (iOS lost deletes without it), speed-limit notice.
+  - `CloudUploader`: always CGFE, one part on disk at a time, split above the account limit, resume from the saved
+    point, size check per part, checkpoint after each. Android reads straight from MediaStore (no export copy), so the
+    plaintext is hashed again while it's encrypted and a mismatch deletes the parts and re-hashes next time.
+  - `BackupEngine`: iOS `run`/`process`: scan first, relink, drop queued photos deleted from the phone, queue new
+    photos by the backup selection (media, videos, screenshots, folders, date), two lanes, 1.5 s apart, FLOOD_WAIT
+    holds both lanes, waits up to 2 min for Wi-Fi / charger / network, retry later up to 5 times per run, duplicates
+    by stored hash then by hash (aliases in `meta`), photos deleted from the backup stay off, thumbnail as role `t`,
+    screen copy (`d`) for photos of 3 MB+ or RAW, 20 earlier screen copies per run. `requireWritable` is checked
+    before every run and every upload: the real library is refused (seen on the emulator).
+  - Original bytes need `ACCESS_MEDIA_LOCATION`; without it the item fails with a sentence saying how to allow it,
+    rather than backing up a copy with the location removed.
+  - iOS bug to tell the owner: `CloudUploader.upload` with `existing.count == partCount` sets `done = []` and sends
+    the whole role again, so a retry after a later role failed leaves duplicate messages. Android returns the
+    complete parts instead.
+  - Gaps: fast version (`sp`), extra copies, free up space, save all, second copy (rest of Phase I); long runs in the
+    background (Phase J: the run lives in the app process now); the demo has no pretend backup (button disabled);
+    the grid's Back up action isn't hooked yet; an alias photo still shows as "on the phone only" in the grid; index
+    snapshots are not written yet.
 - **Next session (start here):**
   1. **Real Android phone check** (owner, later): everything listed in the Phase F notes, plus real Pixel and Samsung
      Motion Photos (MOTION chip plays), Collections on a phone with many folders, and Search's place names (the
