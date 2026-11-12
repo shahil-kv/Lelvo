@@ -19,6 +19,9 @@ import app.lelvo.core.backup.UploadSlots
 import app.lelvo.core.backup.reduced
 import app.lelvo.core.crypto.CryptoException
 import app.lelvo.core.format.CaptionMeta
+import app.lelvo.core.format.IndexSnapshot
+import app.lelvo.core.index.LibraryIndexer
+import app.lelvo.core.crypto.FileCrypto
 import app.lelvo.core.format.Kind
 import app.lelvo.core.format.Role
 import app.lelvo.core.index.ItemKind
@@ -365,6 +368,8 @@ class BackupEngine(
                 }
             }
             makeEarlierScreenCopies()
+            waitForFloodPause()
+            writeSnapshotIfDue()
             val snap = counter.snapshot()
             val left = runnable(Long.MAX_VALUE, onlyChosen, store.items(ItemStatus.Queued)).size
             val summary = Summary(uploaded = snap.first, alreadyBackedUp = snap.second, failed = snap.third, remaining = left)
@@ -597,6 +602,49 @@ class BackupEngine(
         )
     }
 
+    /**
+     * Uploads an index snapshot (docs/CLOUD_FORMAT.md §7.1) once 500 messages are newer than the last one, so a new
+     * phone reads one document instead of the whole channel (iOS `writeSnapshotIfDue`). The older snapshot goes only
+     * after the new one is confirmed with its size. Optional: a failure is logged and tried after the next run.
+     */
+    private suspend fun writeSnapshotIfDue() {
+        val chatId = library.chatId ?: return
+        val keys = library.keys ?: return
+        val items = store.allItems()
+        val messages = items.filter { it.hasCloudParts }.flatMap { LibraryIndexer.knownMessages(it, emptySet()) }
+        val upto = messages.maxOfOrNull { it.messageId } ?: return
+        val lastUpto = store.meta(SNAPSHOT_UPTO)?.toLongOrNull() ?: 0
+        if (messages.count { it.messageId > lastUpto } < SNAPSHOT_EVERY) return
+        val started = System.currentTimeMillis()
+        val file = File(staging.apply { mkdirs() }, "library-index.cge")
+        try {
+            library.requireWritable(chatId)
+            val body = IndexSnapshot.body(messages, upto)
+            val plain = IndexSnapshot.encode(body)
+            val caption = IndexSnapshot.caption(IndexSnapshot.captionFor(plain, body), keys.captionKey)
+            file.writeBytes(FileCrypto.encrypt(plain, keys.master))
+            val size = file.length()
+            val message = uploads.sendDocument(chatId, file, caption)
+            val doc = (message.content as? org.drinkless.tdlib.TdApi.MessageDocument)?.document?.document
+            if (doc == null || doc.size != size) {
+                runCatching { uploads.deleteMessages(chatId, listOf(message.id)) }
+                return
+            }
+            val previous = store.meta(SNAPSHOT_MESSAGE)?.toLongOrNull()
+            store.setMeta(SNAPSHOT_MESSAGE, message.id.toString())
+            store.setMeta(SNAPSHOT_UPTO, upto.toString())
+            previous?.let { runCatching { uploads.deleteMessages(chatId, listOf(it)) } }
+            uploads.forgetLocalCopy(doc.id)
+            AppLog.info("Uploaded the index snapshot: ${body.messages.size} messages, ${size shr 10} KB, in ${(System.currentTimeMillis() - started) / 1000.0} s")
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            (e as? TelegramException)?.let { t -> (TelegramErrorClassifier.classify(t.code, t.message) as? TelegramErrorKind.FloodWait)?.let { holdFor(it.seconds) } }
+            AppLog.warn("Index snapshot not uploaded: ${e::class.simpleName}")
+        } finally {
+            file.delete()
+        }
+    }
+
     /** Photos backed up before (or whose copy failed) get one a few at a time at the end of a run, from the phone file. */
     private suspend fun makeEarlierScreenCopies(limit: Int = 20) {
         val candidates = store.items(ItemStatus.BackedUp).filter { it.localId != null && it.hasCloudParts && ScreenCopyPolicy.shouldMake(it) }
@@ -799,5 +847,8 @@ class BackupEngine(
     companion object {
         const val MAX_CONCURRENT_UPLOADS = 2
         const val UPLOAD_SPACING_MS = 1_500L
+        const val SNAPSHOT_EVERY = 500
+        const val SNAPSHOT_UPTO = "snapshotUpto"
+        const val SNAPSHOT_MESSAGE = "snapshotMessageId"
     }
 }
