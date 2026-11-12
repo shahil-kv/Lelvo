@@ -78,10 +78,17 @@ final class FreeUpSpaceService: @unchecked Sendable {
         do { try await env.library.catchUp() } catch { throw TrashError.needsConnection }
         guard !env.library.needsRepairScan else { throw TrashError.needsConnection }
         let current = (try? env.store.items(ids: items.map(\.id))) ?? []
-        let safe = current.filter { item in
-            guard isFreshlyVerified(item), item.sizeClass == .normal, item.status == .backedUp else { return false }
-            guard let id = item.localIdentifier, let asset = env.photos.asset(localIdentifier: id) else { return false }
-            return !hasUnbackedChanges(item, asset: asset)
+        var safe: [MediaItem] = []
+        for item in current {
+            guard isFreshlyVerified(item), item.sizeClass == .normal, item.status == .backedUp else { continue }
+            guard let id = item.localIdentifier, let asset = env.photos.asset(localIdentifier: id),
+                  !hasUnbackedChanges(item, asset: asset) else { continue }
+            // Checked in Telegram again right now: a check from earlier (up to a day old) isn't enough to delete on.
+            guard await verify(item) else {
+                AppLog.shared.warn("Free up space: kept \(item.filename), it couldn't be confirmed in Telegram just now")
+                continue
+            }
+            safe.append(item)
         }
         let ids = safe.compactMap(\.localIdentifier)
         guard !ids.isEmpty else { return [] }
