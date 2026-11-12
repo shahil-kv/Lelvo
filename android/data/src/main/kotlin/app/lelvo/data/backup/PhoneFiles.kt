@@ -16,6 +16,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Size
+import app.lelvo.core.index.captureDate
 import app.lelvo.core.backup.ScreenCopyPolicy
 import app.lelvo.core.index.ItemKind
 import app.lelvo.core.search.SearchMatcher
@@ -35,7 +36,7 @@ data class PhoneFile(
     val size: Long,
     /** `DATE_MODIFIED`, epoch ms: moves when the file is edited. */
     val modifiedAt: Long?,
-    /** Capture time, epoch ms (`DATE_TAKEN`, else when it was added). */
+    /** Capture time, epoch ms (`DATE_TAKEN`, else the file's own dates: `captureDate`). */
     val createdAt: Long?,
     /** As shown: turned for photos stored sideways. */
     val width: Int,
@@ -101,7 +102,10 @@ class PhoneFiles(context: Context) {
                         ),
                         isVideo = video, filename = c.getString(2).orEmpty(), mimeType = c.getString(3), size = c.getLong(4),
                         modifiedAt = if (c.isNull(5)) null else c.getLong(5) * 1000,
-                        createdAt = if (!c.isNull(6)) c.getLong(6) else if (!c.isNull(7)) c.getLong(7) * 1000 else null,
+                        createdAt = captureDate(
+                            if (c.isNull(6)) null else c.getLong(6), if (c.isNull(5)) null else c.getLong(5),
+                            if (c.isNull(7)) null else c.getLong(7) * 1000,
+                        ),
                         width = if (sideways) h else w, height = if (sideways) w else h,
                         duration = if (video && !c.isNull(10)) c.getLong(10) / 1000.0 else null,
                         bucketId = c.getString(11), bucketName = c.getString(12), relativePath = c.getString(13),

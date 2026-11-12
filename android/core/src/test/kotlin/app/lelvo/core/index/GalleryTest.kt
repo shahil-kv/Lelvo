@@ -87,4 +87,28 @@ class GalleryTest {
         assertTrue(GalleryFilter.NotBackedUp.matches(GalleryEntry("p", 1, asset("p", 1), null)))
         assertTrue(!GalleryFilter.NotBackedUp.matches(GalleryEntry("cloud-c", 1, null, item("c", 1))))
     }
+
+    @Test fun aFileWithoutCaptureDateUsesItsOwnDatesNotTheDayItWasCopied() {
+        // A screenshot from 2025 copied to this phone today: modified time 2025, added today.
+        val modified = 1_740_000_000L
+        val addedToday = 1_794_490_000_000L
+        assertEquals(modified * 1000, captureDate(null, modified, addedToday))
+        // A capture date always wins.
+        assertEquals(5L, captureDate(5L, modified, addedToday))
+        // Edited after it was added: the earlier date.
+        assertEquals(addedToday, captureDate(null, addedToday / 1000 + 3600, addedToday))
+        // Only one of them known, or neither.
+        assertEquals(addedToday, captureDate(null, null, addedToday))
+        assertEquals(addedToday, captureDate(null, 0, addedToday))
+        assertEquals(modified * 1000, captureDate(null, modified, null))
+        assertNull(captureDate(null, null, null))
+    }
+
+    @Test fun mergePlacesScreenshotsByTheirFileDate() {
+        val shot = PhoneAsset("s", takenAt = null, isVideo = false, addedAt = 9_000_000L, modifiedAt = 1_000L)
+        val photo = PhoneAsset("p", takenAt = 5_000_000L, isVideo = false)
+        val merged = Gallery.merge(listOf(shot, photo), emptyList())
+        assertEquals(listOf("p", "s"), merged.map { it.id })
+        assertEquals(1_000_000L, merged[1].date)
+    }
 }

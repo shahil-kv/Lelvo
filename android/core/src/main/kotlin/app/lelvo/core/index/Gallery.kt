@@ -3,7 +3,7 @@ package app.lelvo.core.index
 /**
  * A photo or video on this phone, as the timeline needs it (iOS uses `PHAsset`). [localId] is the MediaStore id;
  * [takenAt] is the capture date and [addedAt] when it came to the phone, both in epoch ms. Files without a capture
- * date (no EXIF date, and Android doesn't let an app set one) have only [addedAt].
+ * date (no EXIF date, and Android doesn't let an app set one) are placed by [PhoneAsset.date].
  */
 data class PhoneAsset(
     val localId: String,
@@ -21,6 +21,25 @@ data class PhoneAsset(
     /** When the file last changed (epoch s), so a photo's location is read again only after an edit. */
     val modifiedAt: Long? = null,
 )
+
+/** Where a phone file sits in time: its capture date, else [captureDate]'s best guess. */
+val PhoneAsset.date: Long? get() = captureDate(takenAt, modifiedAt, addedAt)
+
+/**
+ * A phone file's date in epoch ms. [taken] (EXIF or the video's own date) when it has one. Screenshots, saved images
+ * and many downloads have none; then the earliest of the file's modified time ([modifiedSeconds]) and when it was
+ * added. Added alone moves to the day of the copy when photos come over to a new phone or back from a backup, so a
+ * whole library of screenshots landed on one day; the modified time travels with the file, as gallery apps use it.
+ */
+fun captureDate(taken: Long?, modifiedSeconds: Long?, added: Long?): Long? {
+    if (taken != null) return taken
+    val modified = modifiedSeconds?.takeIf { it > 0 }?.times(1000)
+    return when {
+        modified == null -> added
+        added == null || added <= 0 -> modified
+        else -> minOf(modified, added)
+    }
+}
 
 /** What a tile's small badge says about its backup (iOS `BackupBadge`, same meanings and words). */
 enum class BackupBadge(val label: String, val explanation: String) {
@@ -117,8 +136,8 @@ object Gallery {
             val item = byLocal[a.localId] ?: aliases[a.localId]?.let(byId::get)
             if (item != null) onPhone += item.id
             // No capture date on the phone: the backup's, when it's the same photo (saved back from the cloud), else
-            // the day it was added, so it still has a place.
-            val date = a.takenAt ?: item?.createdAt ?: a.addedAt
+            // the file's own dates, so it still has a place.
+            val date = a.takenAt ?: item?.createdAt ?: a.date
             if (date != a.takenAt) reorder = true
             local += GalleryEntry(a.localId, date, a, item)
         }

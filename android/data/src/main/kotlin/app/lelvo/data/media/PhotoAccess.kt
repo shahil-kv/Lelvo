@@ -12,6 +12,7 @@ import android.provider.MediaStore
 import android.util.Size
 import app.lelvo.core.index.AssetKey
 import app.lelvo.core.index.PhoneAsset
+import app.lelvo.core.index.date
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -154,7 +155,7 @@ class PhotoAccess(context: Context) {
                 }
             }
         }.onFailure { AppLog.error("Photos: timeline listing failed: ${it::class.simpleName}") }
-        out.sortByDescending { it.takenAt ?: it.addedAt ?: Long.MIN_VALUE }
+        out.sortByDescending { it.date ?: Long.MIN_VALUE }
         out
     }
 
