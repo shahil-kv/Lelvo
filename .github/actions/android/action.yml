@@ -35,7 +35,8 @@ runs:
         sudo apt-get update -qq
         sudo apt-get install -y -qq gperf php-cli > /dev/null
         NDK=$(grep -E '^NDK_VERSION=' android/Scripts/build-tdlib.sh | cut -d= -f2)
-        yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK" "cmake;3.22.1" > /dev/null
+        # `yes` is cut off with a broken pipe once sdkmanager has its answers; under pipefail that failed the step.
+        { yes || true; } | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK" "cmake;3.22.1" > /dev/null
         android/Scripts/build-tdlib.sh > build-tdlib.log 2>&1 || { tail -80 build-tdlib.log; exit 1; }
         tail -1 build-tdlib.log
 
