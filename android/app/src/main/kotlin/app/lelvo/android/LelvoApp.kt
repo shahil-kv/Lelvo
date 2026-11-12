@@ -4,6 +4,7 @@ import android.app.Application
 import app.lelvo.android.background.BackupScheduler
 import app.lelvo.android.background.BackupTileService
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import android.os.Build
@@ -129,6 +130,11 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
             backup.activity.map { Triple(it.isRunning, it.done, it.total) }.distinctUntilChanged().collect { BackupTileService.update(this@LelvoApp) }
         }
         if (library.isConfigured && library.setupFinished) BackupScheduler.schedule(this, prefs)
+        // Every cache within its limit once Telegram is up, TDLib's files too (iOS does this at launch).
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO).launch {
+            telegram.auth.first { it == AuthStep.Ready }
+            media.enforceLimits()
+        }
     }
 
     /**

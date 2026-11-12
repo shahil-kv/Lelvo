@@ -10,6 +10,7 @@ import app.lelvo.core.format.LibraryHeader
 import app.lelvo.telegram.TdClient
 import com.lambdapioneer.argon2kt.Argon2Kt
 import com.lambdapioneer.argon2kt.Argon2Mode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
@@ -21,6 +22,10 @@ class LibraryException(message: String) : Exception(message) {
         val wrongPassphrase = LibraryException("That passphrase or recovery key doesn't open this library.")
         val newerVersion = LibraryException("This library was set up by a newer version of Lelvo. Update Lelvo to open it.")
         val damaged = LibraryException("This library's settings in Telegram can't be read. Open it in Lelvo on iPhone or Mac.")
+        val noLibrary = LibraryException("Choose or create your Lelvo library first.")
+        val headerNotSaved = LibraryException(
+            "Telegram didn't save the change. Check your connection and try again; your library still opens as before.",
+        )
         val testOnly = LibraryException(
             "This test version changes only the library named “Android test”. Your other libraries are read, never changed.",
         )
@@ -221,6 +226,99 @@ class LibraryService(
     fun forget() {
         prefs.edit().clear().apply()
         forgetKeys()
+    }
+
+    // Passphrase and recovery key (header format 2, CLOUD_FORMAT.md §6.1). The master key never changes, so files,
+    // captions and the stored keys stay as they are; only the header is written again.
+
+    /** Format 1: no recovery key, and the passphrase can't change until the header is upgraded. */
+    val needsHeaderUpgrade: Boolean get() = header is LibraryHeader.V1
+
+    /**
+     * Reads the header from Telegram and keeps it, so changes act on the channel's current header (iOS
+     * `refreshHeader`): a copy saved earlier can be stale (another device upgraded the library), and acting on it
+     * would replace a header that already has a recovery key with a new one.
+     */
+    suspend fun refreshHeader(): LibraryHeader {
+        val chat = chatId ?: throw LibraryException.noLibrary
+        val current = when (val r = withContext(Dispatchers.IO) { readHeader(chat) }) {
+            is HeaderResult.Found -> r.header
+            is HeaderResult.Newer -> throw LibraryException.newerVersion
+            HeaderResult.Damaged -> throw LibraryException.damaged
+            HeaderResult.Missing -> throw LibraryException.notALibrary
+        }
+        if (current != header) prefs.edit().putString(HEADER, current.line).apply()
+        return current
+    }
+
+    /**
+     * A new passphrase; the recovery key keeps working. [current] can also be the recovery key, so someone who forgot
+     * the passphrase sets a new one with it. A format 1 library is upgraded on the way and gets a recovery key, which
+     * is returned to show; otherwise null.
+     */
+    suspend fun changePassphrase(current: String, new: String): RecoveryKey? {
+        val chat = chatId ?: throw LibraryException.noLibrary
+        requireWritable(chat)
+        val header = refreshHeader()
+        val (changed, recovery) = withContext(Dispatchers.Default) {
+            val keys = keysFor(header, current)
+            when (header) {
+                is LibraryHeader.V1 -> header.upgrading(keys, new, argon2)
+                is LibraryHeader.V2 -> header.changingPassphrase(keys, new, argon2) to null
+                else -> throw LibraryException.notEncrypted
+            }
+        }
+        replaceHeader(chat, changed)
+        AppLog.info("Changed the library passphrase")
+        return recovery
+    }
+
+    /**
+     * A new recovery key; the old one stops working. The passphrase confirms it's the owner asking. A format 1
+     * library is upgraded to format 2 on the way (iOS `upgradeHeader`).
+     */
+    suspend fun newRecoveryKey(passphrase: String): RecoveryKey {
+        val chat = chatId ?: throw LibraryException.noLibrary
+        requireWritable(chat)
+        val header = refreshHeader()
+        val (replaced, recovery) = withContext(Dispatchers.Default) {
+            when (header) {
+                // Only the passphrase here, never a recovery key: this is the step that replaces it.
+                is LibraryHeader.V1 -> header.upgrading(header.unlock(passphrase) ?: throw LibraryException.wrongPassphrase, passphrase, argon2)
+                is LibraryHeader.V2 -> header.replacingRecoveryKey(header.unlock(passphrase, argon2) ?: throw LibraryException.wrongPassphrase)
+                else -> throw LibraryException.notEncrypted
+            }
+        }
+        replaceHeader(chat, replaced)
+        AppLog.info(if (header is LibraryHeader.V1) "Upgraded the library header to format 2 (recovery key added)" else "Replaced the library recovery key")
+        return recovery
+    }
+
+    /**
+     * Writes [new] to both places (iOS `replaceHeader`): the description first, then the pinned message edited in
+     * place, so the old header doesn't stay readable in the channel. Either partial state still opens with the same
+     * master key. Saved here only once Telegram returns exactly this header.
+     */
+    private suspend fun replaceHeader(chat: Long, new: LibraryHeader.V2) = withContext(Dispatchers.IO) {
+        try {
+            td.send(TdApi.SetChatDescription(chat, "Lelvo Library · do not edit\n" + new.line))
+            val content = TdApi.InputMessageText(TdApi.FormattedText(new.messageText, emptyArray()), null, false)
+            val pinned = runCatching { td.send(TdApi.GetChatPinnedMessage(chat)) }.getOrNull()
+            val pinnedText = (pinned?.content as? TdApi.MessageText)?.text?.text
+            if (pinned != null && pinnedText != null && LibraryHeader.parse(pinnedText) !is HeaderResult.Missing) {
+                td.send(TdApi.EditMessageText(chat, pinned.id, null, content))
+            } else {
+                val message = td.sendText(chat, new.messageText)
+                td.send(TdApi.PinChatMessage(chat, message.id, true, false))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.error("Writing the library header failed", e)
+            throw LibraryException.headerNotSaved
+        }
+        if ((readHeader(chat) as? HeaderResult.Found)?.header != new) throw LibraryException.headerNotSaved
+        prefs.edit().putString(HEADER, new.line).apply()
     }
 
     private fun forgetKeys() {

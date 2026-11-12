@@ -69,6 +69,15 @@ sealed class LibraryHeader {
             return null
         }
 
+        /**
+         * Format 2 for this library (iOS `upgradeHeader`): the master key it already has, locked with [passphrase] and
+         * a new recovery key. Files and captions don't change. [keys] come from [unlock].
+         */
+        fun upgrading(keys: E2EKeys, passphrase: String, argon2: Argon2id, argon: Argon2Parameters = Argon2Parameters.STANDARD): Pair<V2, RecoveryKey> {
+            val recovery = RecoveryKey.random()
+            return locking(keys, passphrase, argon2, recovery, argon) to recovery
+        }
+
         override fun equals(other: Any?): Boolean =
             other is V1 && iterations == other.iterations && salt.contentEquals(other.salt) && keyCheck.contentEquals(other.keyCheck)
         override fun hashCode(): Int = salt.contentHashCode()

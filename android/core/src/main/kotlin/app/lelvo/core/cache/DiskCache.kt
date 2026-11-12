@@ -45,8 +45,12 @@ class DiskCache(private val dir: File, private val capacity: () -> Long) {
     @Synchronized
     fun clear() { dir.listFiles()?.forEach { it.delete() } }
 
+    /** After the limit was lowered (Settings → Storage): oldest first until the folder fits. */
+    @Synchronized
+    fun trimToCapacity() = trim(keep = null)
+
     /** Oldest first until the folder fits; the file just stored stays even if it alone is bigger. */
-    private fun trim(keep: File) {
+    private fun trim(keep: File?) {
         val all = dir.listFiles()?.filter { it.isFile } ?: return
         var total = all.sumOf { it.length() }
         val cap = capacity()

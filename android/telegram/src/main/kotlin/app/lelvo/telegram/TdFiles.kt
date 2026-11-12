@@ -169,6 +169,26 @@ class TdFiles(private val td: TdClient) {
         withTimeoutOrNull(250) { td.updates.first { it is TdApi.UpdateFile && it.file.id == id } }
     }
 
+    /** Bytes of downloaded Telegram files on this phone (Settings → Storage); 0 when TDLib can't say. */
+    suspend fun storageBytes(): Long = runCatching { td.send(TdApi.GetStorageStatisticsFast()).filesSize }.getOrDefault(0)
+
+    /**
+     * Keeps TDLib's own file cache within [maxBytes] and a week (iOS `optimizeStorage`). Files used in the last minute
+     * stay, so a video playing or a part being read isn't pulled away.
+     */
+    suspend fun trim(maxBytes: Long) {
+        runCatching { td.send(TdApi.OptimizeStorage(maxBytes, 7 * 24 * 3600, -1, 60, null, null, null, false, 0)) }
+    }
+
+    /**
+     * Deletes every downloaded file (Settings → Storage → Clear), with no age, size or recent-use exceptions (iOS
+     * `clearAllFiles`). Anything needed again is downloaded from Telegram on demand. Unlike iOS, files TDLib no longer
+     * tracks are left alone: its folders also hold the temporary copies of uploads under way.
+     */
+    suspend fun clearAll() {
+        runCatching { td.send(TdApi.OptimizeStorage(0, 0, 0, 0, null, null, null, false, 0)) }
+    }
+
     /** Removes TDLib's downloaded copy (the file stays in Telegram). */
     suspend fun deleteLocalCopy(remoteId: String) {
         runCatching { td.send(TdApi.DeleteFile(file(remoteId).id)) }

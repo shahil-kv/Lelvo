@@ -143,6 +143,13 @@ class MediaReader(private val files: TdFiles, private val library: LibraryServic
         FileCrypto.decrypt(cipher, master)
     }
 
+    suspend fun telegramStorageBytes(): Long = files.storageBytes()
+    suspend fun trimTelegramFiles(maxBytes: Long) = files.trim(maxBytes)
+    suspend fun clearTelegramFiles() {
+        files.clearAll()
+        forgetCaches()
+    }
+
     fun forgetCaches() {
         remoteIds.clear()
         headers.clear()

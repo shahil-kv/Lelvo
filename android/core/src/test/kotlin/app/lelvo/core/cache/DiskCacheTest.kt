@@ -27,6 +27,17 @@ class DiskCacheTest {
         assertNotNull(cache.get("c", "bin"))
     }
 
+    @Test fun aLowerLimitRemovesTheOldestAtOnce() {
+        var cap = 1000L
+        val cache = DiskCache(dir) { cap }
+        cache.put("old", "bin", ByteArray(100)).setLastModified(1_000)
+        cache.put("new", "bin", ByteArray(100)).setLastModified(2_000)
+        cap = 150
+        cache.trimToCapacity()
+        assertEquals(100, cache.totalBytes)
+        assertNotNull(cache.get("new", "bin"))
+    }
+
     @Test fun keepsAFileBiggerThanTheCapacity() {
         val cache = DiskCache(dir) { 50 }
         cache.put("big", "bin", ByteArray(100))

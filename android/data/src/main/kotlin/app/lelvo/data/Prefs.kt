@@ -65,9 +65,17 @@ class Prefs(context: Context) {
         get() = p.getLong("lastBackupAt", 0).takeIf { it > 0 }
         set(v) = p.edit().apply { if (v == null) remove("lastBackupAt") else putLong("lastBackupAt", v) }.apply()
 
+    /** Settings → Storage limits in MB, iOS keys and defaults. */
+    var cacheCapMB: Int
+        get() = p.getInt("cacheCapMB", 1000)
+        set(v) = p.edit().putInt("cacheCapMB", v).apply()
+    var thumbnailCacheMB: Int
+        get() = p.getInt("thumbnailCacheMB", 300)
+        set(v) = p.edit().putInt("thumbnailCacheMB", v).apply()
+
     /** Same floors as iOS: at least 100 MB of media cache and 50 MB of thumbnails. */
-    val mediaCacheBytes: Long get() = maxOf(100, p.getInt("cacheCapMB", 1000)).toLong() shl 20
-    val thumbnailCacheBytes: Long get() = maxOf(50, p.getInt("thumbnailCacheMB", 300)).toLong() shl 20
+    val mediaCacheBytes: Long get() = maxOf(100, cacheCapMB).toLong() shl 20
+    val thumbnailCacheBytes: Long get() = maxOf(50, thumbnailCacheMB).toLong() shl 20
 
     /** Columns in the Photos grid, kept across launches like iOS `gridColumns`; 3 is the day view. */
     var gridColumns: Int

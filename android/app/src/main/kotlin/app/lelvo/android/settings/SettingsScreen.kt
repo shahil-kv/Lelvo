@@ -1,77 +1,154 @@
 package app.lelvo.android.settings
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import app.lelvo.android.LelvoApp
 import app.lelvo.android.R
+import app.lelvo.android.backup.SecondCopyScreen
+import app.lelvo.android.collections.MemoriesSettingsScreen
+import app.lelvo.android.shell.Messages
 import app.lelvo.android.ui.theme.Lelvo
+import app.lelvo.core.support.Feedback
+import app.lelvo.telegram.TelegramException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /** What Settings shows about the account and library; filled in by the caller. */
-data class SettingsInfo(val account: String, val library: String, val version: String)
+data class SettingsInfo(val account: String, val library: String)
+
+/** The pages under Settings, newest last; Back closes the top one. */
+private sealed interface Page {
+    data object BackupOptions : Page
+    data object Albums : Page
+    data object Memories : Page
+    data object Storage : Page
+    data object DownloadCopy : Page
+    data object Encryption : Page
+    data object Logs : Page
+    data class Feedback(val kind: app.lelvo.core.support.Feedback.Kind) : Page
+    data object About : Page
+    data object Acknowledgements : Page
+}
+
+/** Telegram's longest setting: the account is kept for 2 years without use. */
+private const val MAX_TTL_DAYS = 730
 
 /**
- * Settings, as a plain Material list with section headers like Google Photos' settings (iOS `SettingsView` has the
- * same rows in grouped cards). This first version holds the account, the library and sign out; Phase K adds the rest.
+ * Settings (iOS `SettingsView`), as a plain Material list with section headers like Google Photos' settings; each
+ * row with more behind it opens its own page. [real] is false in the demo, which has no Telegram account to change.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit, onCoreCheck: (() -> Unit)?, onLibrary: (() -> Unit)? = null,
-    prefs: app.lelvo.data.Prefs? = null, onBackupRulesChanged: (rules: Boolean) -> Unit = {},
+    app: LelvoApp, real: Boolean, info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit,
+    onCoreCheck: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
 ) {
-    BackHandler(onBack = onClose)
-    var confirmSignOut by remember { mutableStateOf(false) }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Settings") },
-                navigationIcon = { IconButton(onClick = onClose) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") } },
-            )
-        },
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
-            Header("Account")
-            Row("Signed in as", info.account)
-            Row("Library", info.library, onClick = onLibrary)
-            if (prefs != null) {
-                Divider()
-                BackupSection(prefs, onBackupRulesChanged)
+    var pages by remember { mutableStateOf(emptyList<Page>()) }
+    val open = { p: Page -> pages = pages + p }
+    val back = { pages = pages.dropLast(1) }
+
+    Main(app, real, info, onClose, onSignOut, onCoreCheck, onLibrary, onBackupRulesChanged, open, visible = pages.isEmpty())
+    pages.forEachIndexed { i, page ->
+        // Each page stays composed under the next, so Back returns to the same place.
+        key(i, page) {
+            Surface(Modifier.fillMaxSize()) {
+                when (page) {
+                    Page.BackupOptions -> BackupOptionsScreen(app.prefs, onAlbums = { open(Page.Albums) }, onRulesChanged = onBackupRulesChanged, onBack = back)
+                    Page.Albums -> AlbumPickerScreen(app, onChanged = { onBackupRulesChanged(false) }, onBack = back)
+                    Page.Memories -> MemoriesSettingsScreen(app.prefs, onBack = back)
+                    Page.Storage -> StorageScreen(app, onBack = back)
+                    Page.DownloadCopy -> SecondCopyScreen(app, back)
+                    Page.Encryption -> EncryptionScreen(app, onBack = back)
+                    Page.Logs -> LogsScreen(onBack = back)
+                    is Page.Feedback -> FeedbackScreen(page.kind, onLogs = { open(Page.Logs) }, onBack = back)
+                    Page.About -> AboutScreen(onFeedback = { open(Page.Feedback(it)) }, onAcknowledgements = { open(Page.Acknowledgements) }, onBack = back)
+                    Page.Acknowledgements -> AcknowledgementsScreen(onBack = back)
+                }
             }
-            if (onCoreCheck != null) {
-                Divider()
-                Header("Developer")
-                Row("Core check", "Proves Android reads your library like the iPhone", onClick = onCoreCheck)
-            }
-            Divider()
-            Header("About")
-            Row("Version", info.version)
-            Divider()
-            Row("Sign out", null, destructive = true, onClick = { confirmSignOut = true })
         }
+    }
+}
+
+@Composable
+private fun Main(
+    app: LelvoApp, real: Boolean, info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit,
+    onCoreCheck: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
+    open: (Page) -> Unit, visible: Boolean,
+) {
+    var confirmSignOut by remember { mutableStateOf(false) }
+    var ttl by remember { mutableStateOf<Int?>(null) }
+    var auto by remember { mutableStateOf(app.prefs.autoBackup) }
+    // Read again on coming back, so a change in Backup options shows in the summary.
+    val summary = remember(visible) { backupSummary(app.prefs) }
+    val storage = if (visible) storageTotal(app) else "…"
+    LaunchedEffect(real) { if (real) ttl = app.telegram.accountTtlDays() }
+
+    // Back: SettingsPage closes Settings; a page composed above it takes Back first.
+    SettingsPage("Settings", onClose) {
+        SectionHeader("Telegram")
+        SettingRow("Signed in as", info.account)
+        SettingRow("Library", info.library, onClick = onLibrary)
+        SettingRow(
+            "Encryption", if (real && app.library.needsHeaderUpgrade) "End-to-end · add a recovery key" else "End-to-end",
+            onClick = if (real) ({ open(Page.Encryption) }) else null,
+        )
+        ttl?.let { AccountKept(app, it) { ttl = MAX_TTL_DAYS } }
+
+        if (real) {
+            SectionDivider()
+            SectionHeader("Backup")
+            ToggleRow("Back up new photos automatically",
+                if (auto) "New photos are backed up on their own, including overnight while charging."
+                else "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.",
+                auto) { auto = it; app.prefs.autoBackup = it; onBackupRulesChanged(false) }
+            SettingRow("Backup options", summary) { open(Page.BackupOptions) }
+        }
+
+        SectionDivider()
+        SettingRow("Memories") { open(Page.Memories) }
+        SettingRow("Storage", storage) { open(Page.Storage) }
+        Footnote("Space used on this phone by cloud previews you've viewed. Your photos aren't affected.")
+
+        if (real) {
+            SectionDivider()
+            SectionHeader("Your data")
+            SettingRow("Download a copy of your library", "Everything you've backed up, saved to a folder or a USB drive. Your library is never locked in.",
+                icon = R.drawable.ic_download) { open(Page.DownloadCopy) }
+        }
+
+        SectionDivider()
+        SectionHeader("Help")
+        SettingRow("Report a problem", icon = R.drawable.ic_error) { open(Page.Feedback(Feedback.Kind.Bug)) }
+        SettingRow("Suggest a feature", icon = R.drawable.ic_auto_awesome) { open(Page.Feedback(Feedback.Kind.Idea)) }
+        SettingRow("Logs", icon = R.drawable.ic_description) { open(Page.Logs) }
+        SettingRow("About and licences", displayVersion, icon = R.drawable.ic_info_outline) { open(Page.About) }
+
+        if (onCoreCheck != null) {
+            SectionDivider()
+            SectionHeader("Developer")
+            SettingRow("Core check", "Proves Android reads your library like the iPhone", onClick = onCoreCheck)
+        }
+
+        SectionDivider()
+        SettingRow("Sign out and reset this phone", destructive = true) { confirmSignOut = true }
+        Footnote("Signs out of Telegram on this phone and removes local data. Your Telegram library is not touched; sign in again to restore it.")
     }
     if (confirmSignOut) {
         AlertDialog(
@@ -88,50 +165,45 @@ fun SettingsScreen(
     }
 }
 
+/**
+ * Telegram deletes an account after months without use, and the library with it (iOS shows the same). Green when
+ * it's kept for the longest Telegram allows; otherwise a warning with a button that sets it.
+ */
 @Composable
-private fun Header(text: String) {
-    Text(
-        text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp),
-    )
-}
-
-@Composable
-private fun Divider() = HorizontalDivider(Modifier.padding(top = 8.dp), color = Lelvo.colors.separator)
-
-/** A setting: its name, and its value or a short explanation under it. */
-@Composable
-private fun Row(title: String, value: String?, destructive: Boolean = false, onClick: (() -> Unit)? = null) {
-    ListItem(
-        headlineContent = { Text(title, color = if (destructive) Lelvo.colors.red else MaterialTheme.colorScheme.onSurface) },
-        supportingContent = value?.takeIf { it.isNotEmpty() }?.let { { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
-    )
-}
-
-/** iOS Settings → Backup and Backup options → When to upload, as one plain section. */
-@Composable
-private fun BackupSection(prefs: app.lelvo.data.Prefs, onChanged: (rules: Boolean) -> Unit) {
-    var auto by remember { mutableStateOf(prefs.autoBackup) }
-    var wifi by remember { mutableStateOf(prefs.wifiOnly) }
-    var charging by remember { mutableStateOf(prefs.chargingOnly) }
-    Header("Backup")
-    Toggle("Back up new photos automatically",
-        if (auto) "New photos are backed up on their own, including overnight while charging."
-        else "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.",
-        auto) { auto = it; prefs.autoBackup = it; onChanged(false) }
-    Toggle("Wi-Fi only", "Also waits on mobile data, hotspots and other metered networks.", wifi) {
-        wifi = it; prefs.wifiOnly = it; onChanged(true)
+private fun AccountKept(app: LelvoApp, days: Int, onChanged: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    if (days >= MAX_TTL_DAYS) {
+        ListItem(
+            leadingContent = { androidx.compose.material3.Icon(painterResource(R.drawable.ic_verified_user), null, tint = Lelvo.colors.green) },
+            headlineContent = { Text("Account kept for 2 years without use", color = Lelvo.colors.green) },
+        )
+        return
     }
-    Toggle("Only while charging", null, charging) { charging = it; prefs.chargingOnly = it; onChanged(true) }
-}
-
-@Composable
-private fun Toggle(title: String, detail: String?, on: Boolean, onChange: (Boolean) -> Unit) {
-    ListItem(
-        headlineContent = { Text(title) },
-        supportingContent = detail?.let { { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-        trailingContent = { androidx.compose.material3.Switch(on, onCheckedChange = null) },
-        modifier = Modifier.toggleable(on, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = onChange),
-    )
+    val span = if (days >= 365) "${days / 365} year" else "${days / 30} months"
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+        ListItem(
+            leadingContent = { androidx.compose.material3.Icon(painterResource(R.drawable.ic_warning), null, tint = Lelvo.colors.orange) },
+            headlineContent = {
+                Text("Telegram deletes your account after $span of inactivity, and your library with it.",
+                    style = MaterialTheme.typography.bodyMedium, color = Lelvo.colors.orange)
+            },
+        )
+        TextButton(enabled = !busy, onClick = {
+            busy = true
+            scope.launch {
+                try {
+                    app.telegram.setAccountTtl(MAX_TTL_DAYS)
+                    onChanged()
+                    Messages.show(Messages.Style.Success, "Set to 2 years")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Messages.show(Messages.Style.Failure, "Something went wrong", (e as? TelegramException)?.friendly ?: "Try again.")
+                } finally {
+                    busy = false
+                }
+            }
+        }) { Text("Change to 2 years (the maximum)") }
+    }
 }

@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Thumbnails and full-size photos of cloud items (iOS `CloudMediaService`): a 300 MB thumbnail cache and a capped
  * cache of viewed originals, both on disk. Videos stream instead.
  */
-class CloudMedia(context: Context, private val reader: MediaReader, prefs: Prefs) {
+class CloudMedia(context: Context, private val reader: MediaReader, private val prefs: Prefs) {
     private val thumbnails = DiskCache(File(context.cacheDir, "Thumbnails")) { prefs.thumbnailCacheBytes }
     private val originals = DiskCache(File(context.cacheDir, "Originals")) { prefs.mediaCacheBytes }
     private val work = File(context.cacheDir, "Downloading").apply { mkdirs() }
@@ -102,10 +102,30 @@ class CloudMedia(context: Context, private val reader: MediaReader, prefs: Prefs
 
     val cacheBytes: Long get() = thumbnails.totalBytes + originals.totalBytes
 
+    /** Settings → Storage: what each cache holds on this phone. Reads folders, so call it off the main thread. */
+    data class Usage(val thumbnails: Long, val originals: Long, val telegram: Long) { val total get() = thumbnails + originals + telegram }
+
+    suspend fun usage(): Usage = Usage(thumbnails.totalBytes, originals.totalBytes, reader.telegramStorageBytes())
+
+    /** Every cache within its limit, TDLib's own file cache too (iOS `enforceCacheLimits`); at launch and on a change. */
+    suspend fun enforceLimits() {
+        thumbnails.trimToCapacity()
+        originals.trimToCapacity()
+        reader.trimTelegramFiles(prefs.mediaCacheBytes)
+    }
+
     fun clear() {
         thumbnails.clear()
         originals.clear()
         reader.forgetCaches()
+    }
+
+    /** Settings → Storage → Clear: the caches here and every file TDLib downloaded. Photos and the backup stay. */
+    suspend fun clearAll() {
+        clear()
+        reader.clearTelegramFiles()
+        val left = usage()
+        AppLog.info("Cleared caches: ${left.total shr 10} KB left (thumbnails ${left.thumbnails shr 10} KB, viewed ${left.originals shr 10} KB, Telegram ${left.telegram shr 10} KB)")
     }
 
     private companion object { const val PREFETCH_LIMIT = 15L shl 20 }

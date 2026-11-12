@@ -114,6 +114,20 @@ class LibraryHeaderTest {
     }
 
     @Test
+    fun upgradingFormat1KeepsTheMasterKeyAndAddsARecoveryKey() {
+        val salt = ByteArray(16) { it.toByte() }
+        val keys = E2EKeys.derive("old", salt, E2EKeys.MINIMUM_ITERATIONS)
+        val v1 = LibraryHeader.V1(E2EKeys.MINIMUM_ITERATIONS, salt, keys.keyCheck)
+        val opened = assertNotNull(v1.unlock("old"))
+        val (upgraded, recovery) = v1.upgrading(opened, "new’s", testArgon2, cheapArgon)
+        // Files were sealed with the format 1 key, so the upgraded header must open to exactly that key.
+        assertContentEquals(keys.master, upgraded.unlock("new's", testArgon2)?.master)
+        assertContentEquals(keys.master, upgraded.unlock(recovery)?.master)
+        assertNull(upgraded.unlock("old", testArgon2))
+        assertEquals(2, found(upgraded.line).version)
+    }
+
+    @Test
     fun aNewRecoveryKeyReplacesTheOldOne() {
         val made = newLibrary("pw")
         val (replaced, fresh) = made.header.replacingRecoveryKey(made.keys)

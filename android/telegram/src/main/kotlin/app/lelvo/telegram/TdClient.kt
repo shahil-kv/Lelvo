@@ -125,6 +125,15 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
 
     private fun isCurrent(c: Client) = synchronized(lock) { client === c }
 
+    /** Days without use after which Telegram deletes the account (and the library with it); null when unknown. */
+    suspend fun accountTtlDays(): Int? = runCatching { send(TdApi.GetAccountTtl()).days }.getOrNull()
+
+    /** 730 days is Telegram's maximum. */
+    suspend fun setAccountTtl(days: Int) {
+        send(TdApi.SetAccountTtl(TdApi.AccountTtl(days)))
+        AppLog.info("Account self-destruct set to $days days")
+    }
+
     /** Sends text and returns the message only once Telegram has stored it (not TDLib's local, pending copy). */
     suspend fun sendText(chatId: Long, text: String): TdApi.Message {
         val content = TdApi.InputMessageText(TdApi.FormattedText(text, emptyArray()), null, false)

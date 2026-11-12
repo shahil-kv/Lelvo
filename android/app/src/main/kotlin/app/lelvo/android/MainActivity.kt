@@ -310,17 +310,15 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
         }
         open?.let { (list, index) -> ViewerScreen(list, index, onClose = { open = null }) }
         if (settings) {
-            val info by produceState(SettingsInfo("", "", BuildConfig.VERSION_NAME), real, libraries) {
-                value = if (!real) SettingsInfo("Demo account", "Demo library", BuildConfig.VERSION_NAME)
-                else SettingsInfo(app.accountName(), app.libraryTitle(), BuildConfig.VERSION_NAME)
+            val info by produceState(SettingsInfo("", ""), real, libraries) {
+                value = if (!real) SettingsInfo("Demo account", "Demo library") else SettingsInfo(app.accountName(), app.libraryTitle())
             }
             SettingsScreen(
-                info, onClose = { settings = false },
+                app, real, info, onClose = { settings = false },
                 onSignOut = { settings = false; app.model.reset() },
                 // Debug builds only: proves the base against the real library before features are built on it.
                 onCoreCheck = if (BuildConfig.DEBUG && real) ({ checking = true }) else null,
                 onLibrary = if (real) ({ libraries = true }) else null,
-                prefs = if (real) app.prefs else null,
                 onBackupRulesChanged = { rules -> BackupScheduler.schedule(app, app.prefs, rulesChanged = rules) },
             )
             if (libraries) LibrariesScreen(app, onClose = { libraries = false })
