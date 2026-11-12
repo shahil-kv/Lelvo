@@ -55,7 +55,8 @@ class PhoneActions internal constructor(
     private val launchFavorite: (IntentSenderRequest, () -> Unit) -> Unit,
     private val launchTrash: (IntentSenderRequest, () -> Unit) -> Unit,
     private val onFavorited: (Boolean) -> Unit,
-    private val onDeleted: () -> Unit,
+    /** True when the phone copy stays (deleted from the backup only). */
+    private val onDeleted: (keepsPhone: Boolean) -> Unit,
 ) {
     private val app = context.applicationContext as LelvoApp
 
@@ -87,7 +88,7 @@ class PhoneActions internal constructor(
     /** Removes the phone copies only, through the system prompt. Android 11+ keeps them in its trash. */
     fun removeFromPhone(chosen: List<GalleryEntry>) = trashOnPhone(chosen) {
         Messages.show(Messages.Style.Success, "Moved to the phone's trash", "Backed-up items are still in your Telegram library.")
-        onDeleted()
+        onDeleted(false)
     }
 
     /** Moves the backups to Recently Deleted; copies on this phone stay. */
@@ -97,7 +98,7 @@ class PhoneActions internal constructor(
             val n = moveToTrash(items) ?: return@launch
             Messages.show(Messages.Style.Success, "Deleted $n from your backup",
                 "Copies on this phone stay. You can get the backups back from Collections › Recently Deleted for 30 days.", seconds = 5.0)
-            onDeleted()
+            onDeleted(true)
         }
     }
 
@@ -116,7 +117,7 @@ class PhoneActions internal constructor(
                 } else {
                     Messages.show(Messages.Style.Success, "Moved to the phone's trash")
                 }
-                onDeleted()
+                onDeleted(false)
             }
         }
         if (chosen.any { it.asset != null }) trashOnPhone(chosen, cloudThen) else cloudThen()
@@ -157,7 +158,7 @@ class PhoneActions internal constructor(
 }
 
 @Composable
-fun rememberPhoneActions(onFavorited: (Boolean) -> Unit = {}, onTrashed: () -> Unit = {}): PhoneActions {
+fun rememberPhoneActions(onFavorited: (Boolean) -> Unit = {}, onTrashed: (keepsPhone: Boolean) -> Unit = {}): PhoneActions {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -182,7 +183,7 @@ fun rememberPhoneActions(onFavorited: (Boolean) -> Unit = {}, onTrashed: () -> U
             { request, then -> pending[0] = then; favorite.launch(request) },
             { request, then -> pending[1] = then; trash.launch(request) },
             onFavorited = { favorited(it) },
-            onDeleted = { haptics.performHapticFeedback(HapticFeedbackType.Confirm); trashed() },
+            onDeleted = { keepsPhone -> haptics.performHapticFeedback(HapticFeedbackType.Confirm); trashed(keepsPhone) },
         )
     }
 }

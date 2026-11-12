@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -121,8 +122,8 @@ private fun RestoringMark() {
 }
 
 /**
- * The last step: ask for photos (iOS `photos`). Once access is decided the button finishes setup. The upload of the
- * first photo and "Your library is ready" (iOS `FirstBackupView`, `LibraryReadyView`) come with the backup engine.
+ * The last step: ask for photos (iOS `photos`). With access, the first backup or "Welcome back" follows (iOS
+ * `FirstBackupView`); without it, the button finishes setup.
  */
 @Composable
 fun PhotosStepScreen(setup: LibrarySetup, photos: PhotoAccess, onFinish: () -> Unit) {
@@ -134,6 +135,12 @@ fun PhotosStepScreen(setup: LibrarySetup, photos: PhotoAccess, onFinish: () -> U
     val decided = status != PhotoAccess.Status.NotAsked
     // Access just given: the restored items find their photos on this phone.
     LaunchedEffect(status) { if (status == PhotoAccess.Status.Full || status == PhotoAccess.Status.Partial) setup.relink() }
+    val app = context.applicationContext as app.lelvo.android.LelvoApp
+    val isDemo by app.demo.active.collectAsState()
+    if (!isDemo && (status == PhotoAccess.Status.Full || status == PhotoAccess.Status.Partial)) {
+        FirstBackupScreen(app, onDone = onFinish)
+        return
+    }
     val found = setup.found
     OnboardingPage(
         icon = R.drawable.ic_photo_library, title = "Back up your photos",

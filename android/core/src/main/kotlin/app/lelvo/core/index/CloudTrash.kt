@@ -9,18 +9,25 @@ import kotlin.math.ceil
 object CloudTrash {
     const val RETENTION_MS = 30L * 24 * 3600 * 1000
 
+    /**
+     * How long items stay. Only debug builds change it (`--el lelvo.trashRetentionSeconds N`, iOS
+     * `-TestTrashRetentionSeconds`), to try the 30-day cleanup and its notes without waiting 30 days.
+     */
+    @Volatile var retentionMs: Long = RETENTION_MS
+
     /** Days until the messages are deleted, rounded up like Photos: 30 right after deleting, 1 on the last day. */
     fun daysLeft(item: LibraryItem, nowMs: Long): Int {
-        val at = item.trashedAt ?: return (RETENTION_MS / 86_400_000L).toInt()
+        val full = maxOf(1, (retentionMs / 86_400_000L).toInt())
+        val at = item.trashedAt ?: return full
         // Never more than 30: the date is Telegram's, and a phone clock behind it would round up to 31.
-        return ceil((at + RETENTION_MS - nowMs) / 86_400_000.0).toInt().coerceIn(0, (RETENTION_MS / 86_400_000L).toInt())
+        return ceil((at + retentionMs - nowMs) / 86_400_000.0).toInt().coerceIn(0, full)
     }
 
     /** A missing date never expires: keep data when in doubt. */
     fun isExpired(item: LibraryItem, nowMs: Long): Boolean {
         if (item.status != ItemStatus.Trashed) return false
         val at = item.trashedAt ?: return false
-        return nowMs >= at + RETENTION_MS
+        return nowMs >= at + retentionMs
     }
 
     /** Into Recently Deleted at [atMs] (iOS `CloudTrash.trash`): only a backed-up item, or one stranded in the cloud. */

@@ -121,26 +121,3 @@ fun DemoBanner() {
         }
     }
 }
-
-/** A tab whose screen comes in a later phase. Says what will be there, with the iPhone's words. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun TabPlaceholder(tab: Tab, demo: DemoMode, onSettings: () -> Unit, modifier: Modifier) {
-    val (icon, title, message) = when (tab) {
-        Tab.Collections -> Triple(R.drawable.ic_collections, "Collections", "Albums, favorites, videos, Recently Deleted and Memories show up here.")
-        Tab.Search -> Triple(R.drawable.ic_search, "Search", "Search your library by date, place, album or name.")
-        Tab.Backup -> Triple(R.drawable.ic_backup, "Backup", "What's backed up, what's waiting, and Back up now.")
-        Tab.Photos -> Triple(R.drawable.ic_photos, "Photos", "")
-    }
-    Scaffold(modifier, topBar = { LelvoTopBar(tab.title, demo, onSettings) }) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).padding(32.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(title, style = MaterialTheme.typography.titleLarge)
-            Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        }
-    }
-}

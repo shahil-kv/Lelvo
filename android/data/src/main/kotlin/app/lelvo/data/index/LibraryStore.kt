@@ -93,6 +93,16 @@ class LibraryStore(private val db: IndexDatabase) {
 
     suspend fun isNoBackup(key: String): Boolean = notes.isNoBackup(key) > 0
 
+    /** Every key of the off-backup list, to keep with the library's choices (iOS `offBackupKeys`). */
+    suspend fun noBackupKeys(): List<String> = notes.noBackupKeys()
+
+    suspend fun restoreNoBackupKeys(keys: Collection<String>) = keys.chunked(500).forEach { c -> notes.addNoBackup(c.map(::NoBackupRow)) }
+
+    /** Puts waiting changes back after a library switch (iOS `queueMetaChanges`): sent like any other. */
+    suspend fun queueMetaChanges(changes: Map<String, Map<MetaLog.Key, Boolean>>, chatId: Long) = db.withTransaction {
+        changes.flatMap { (id, keys) -> keys.map { (k, v) -> MetaOutboxRow(id, k.stored, chatId, v) } }.chunked(500).forEach { notes.queueMeta(it) }
+    }
+
     suspend fun trashNotes(): List<TrashLog.Note> = notes.trashNotes().mapNotNull { r ->
         TrashLog.Note(r.messageId, r.date, TrashLog.Op.of(r.op) ?: return@mapNotNull null, decodeIds(r.ids))
     }

@@ -24,6 +24,18 @@ class GalleryTest {
         assertEquals(BackupBadge.PhoneOnly, entries[3].badge)
     }
 
+    // iOS `merge(aliases:)`: a second phone copy of a backed-up photo shows its badge, and the item has no cloud tile.
+    @Test fun aliasesShowTheirItemsBadge() {
+        val entries = Gallery.merge(
+            assets = listOf(asset("copy", 200), asset("own", 100)),
+            items = listOf(item("x", 200, localId = "gone-elsewhere")),
+            aliases = mapOf("copy" to "x"),
+        )
+        assertEquals(listOf("copy", "own"), entries.map { it.id })
+        assertEquals(BackupBadge.BackedUp, entries[0].badge)
+        assertEquals(BackupBadge.PhoneOnly, entries[1].badge)
+    }
+
     @Test fun onlyBackedUpCloudItemsShowOnTheirOwn() {
         val entries = Gallery.merge(emptyList(), listOf(item("a", 1, status = ItemStatus.Failed), item("b", 2, status = ItemStatus.Trashed), item("c", 3)))
         assertEquals(listOf("cloud-c"), entries.map { it.id })

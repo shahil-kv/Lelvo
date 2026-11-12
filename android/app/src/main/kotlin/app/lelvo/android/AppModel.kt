@@ -126,7 +126,11 @@ class AppModel(private val app: LelvoApp) {
      */
     fun forgetLibrary() {
         scope.launch {
-            withContext(Dispatchers.IO) { app.store.deleteAll(); app.library.forget() }
+            withContext(Dispatchers.IO) {
+                app.sync.sendBeforeLeaving()
+                app.library.chatId?.let { app.choices.save(it, app.store) }
+                app.store.deleteAll(); app.library.forget()
+            }
             librarySetup = LibrarySetup(app.library, scope, app.scanner, relink = { app.linker.relink() })
             pendingRecoveryKey.value = null
             _sessionId.value++

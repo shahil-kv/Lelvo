@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import app.lelvo.android.debug.CoreCheckScreen
 import app.lelvo.android.library.LibraryScreen
 import app.lelvo.android.library.PhotosStepScreen
+import app.lelvo.android.library.FirstBackupScreen
 import app.lelvo.android.library.ScanningScreen
 import app.lelvo.android.library.LibrarySetup
 import app.lelvo.android.library.RecoveryKeyScreen
@@ -59,7 +60,6 @@ import app.lelvo.android.shell.MessageHost
 import app.lelvo.android.shell.Messages
 import app.lelvo.android.shell.NavigationBarHeight
 import app.lelvo.android.shell.Tab
-import app.lelvo.android.shell.TabPlaceholder
 import app.lelvo.android.backup.BackupScreen
 import app.lelvo.android.search.SearchScreen
 import app.lelvo.android.library.UnlockScreen
@@ -127,7 +127,7 @@ class MainActivity : ComponentActivity() {
         if (intent.hasExtra("lelvo.intro")) { introPreview.value = intent.getIntExtra("lelvo.intro", 0); return }
         // `--es lelvo.signin code-telegram|code-sms|password` shows that sign-in step without signing out (nothing is sent).
         intent.getStringExtra("lelvo.signin")?.let { signInPreview.value = previewStep(it); return }
-        // `--es lelvo.library found|found2|none|error|searching|unlock|recovery|scanning|photos` shows that library step with sample data.
+        // `--es lelvo.library found|found2|none|error|searching|unlock|recovery|scanning|photos|first` shows that library step with sample data.
         intent.getStringExtra("lelvo.library")?.let { libraryPreview.value = it; return }
         // `--ez lelvo.forgetLibrary true` forgets the library on this phone, to run choosing and unlocking for real.
         // `--es lelvo.work backup.overnight|index.refresh|backup.newPhotos`: runs that background work once now (periodic
@@ -135,6 +135,17 @@ class MainActivity : ComponentActivity() {
         intent.getStringExtra("lelvo.work")?.let { kind ->
             androidx.work.WorkManager.getInstance(this).enqueue(androidx.work.OneTimeWorkRequestBuilder<app.lelvo.android.background.BackupWorker>()
                 .setInputData(androidx.work.Data.Builder().putString(app.lelvo.android.background.BackupWorker.KIND, kind).build()).build())
+            return
+        }
+        // `--el lelvo.trashRetentionSeconds N`: Recently Deleted keeps items N seconds for this run, then the cleanup runs
+        // (iOS `-TestTrashRetentionSeconds`). Only on the "Android test" library: the cleanup asks `requireWritable`.
+        if (intent.hasExtra("lelvo.trashRetentionSeconds")) {
+            val seconds = intent.getLongExtra("lelvo.trashRetentionSeconds", 0)
+            if (seconds > 0) {
+                app.lelvo.core.index.CloudTrash.retentionMs = seconds * 1000
+                app.lelvo.core.support.AppLog.info("Debug: Recently Deleted keeps items $seconds s")
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { (application as LelvoApp).sync.emptyExpiredTrash() }
+            }
             return
         }
         if (intent.getBooleanExtra("lelvo.forgetLibrary", false)) { (application as LelvoApp).model.forgetLibrary(); return }
@@ -246,6 +257,7 @@ private fun LibraryPreview(app: LelvoApp, kind: String, onClose: () -> Unit) {
         "unlock" -> UnlockScreen(setup, onUnlocked = onClose, onBack = onClose)
         "scanning" -> if (setup.scanDone) PhotosStepScreen(setup, app.photos, onFinish = onClose) else ScanningScreen(setup)
         "photos" -> PhotosStepScreen(setup, app.photos, onFinish = onClose)
+        "first" -> FirstBackupScreen(app, onDone = onClose, previewNew = true)
         else -> LibraryScreen(setup, onChosen = onClose, onCreated = { key = it }, onSignOut = onClose)
     }
 }
@@ -281,7 +293,6 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                 Tab.Collections -> CollectionsScreen(app, onOpen = openPage, onSettings = openSettings, modifier = modifier)
                 Tab.Search -> SearchScreen(app, onOpen = { list, index -> open = list to index }, onSettings = openSettings, modifier = modifier)
                 Tab.Backup -> BackupScreen(app, onSettings = openSettings, modifier = modifier)
-                else -> TabPlaceholder(tab, app.demo, openSettings, modifier)
             }
         }
         pages.forEachIndexed { i, page ->

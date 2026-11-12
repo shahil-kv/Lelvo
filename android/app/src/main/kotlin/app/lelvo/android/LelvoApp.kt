@@ -56,8 +56,10 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var backup: app.lelvo.data.backup.BackupEngine private set
     lateinit var freeUpSpace: app.lelvo.data.backup.FreeUpSpaceService private set
     lateinit var duplicates: app.lelvo.data.backup.Duplicates private set
+    lateinit var similar: app.lelvo.data.backup.SimilarPhotosService private set
     lateinit var secondCopy: app.lelvo.data.backup.SecondCopyService private set
     lateinit var sync: app.lelvo.data.sync.NoteSync private set
+    lateinit var choices: app.lelvo.data.sync.LibraryChoices private set
     /** The launch opening plays once per process (cold start only). */
     var openingPlayed = false
     private var startedActivities = 0
@@ -115,7 +117,10 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         backup = app.lelvo.data.backup.BackupEngine(this, store, library, scanner, uploads, photos, linker, prefs, reader)
         freeUpSpace = app.lelvo.data.backup.FreeUpSpaceService(store, library, scanner, uploads, backup.phone)
         duplicates = app.lelvo.data.backup.Duplicates(store, library, scanner, uploads, backup.phone)
+        similar = app.lelvo.data.backup.SimilarPhotosService(this, store, photos, media)
         secondCopy = app.lelvo.data.backup.SecondCopyService(this, store, reader)
+        choices = app.lelvo.data.sync.LibraryChoices(java.io.File(noBackupFilesDir, "choices"))
+        scanner.choices = choices
         sync = app.lelvo.data.sync.NoteSync(this, store, library, scanner, files, uploads, backup, telegram, photos, isDemo = { demo.active.value })
         model = AppModel(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
@@ -164,8 +169,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     /**
      * Sign out and reset, like iOS `AppEnvironment.resetEverything`: Telegram signs out (TDLib removes its own data),
      * then the index, the library's keys, the cached images and every setting go. The channel isn't touched.
-     * [keepingChoices]: the user didn't ask (the session ended elsewhere). Android doesn't keep this library's waiting
-     * Recently Deleted and favorites changes for the next sign-in yet (iOS `LibrarySnapshots.saveChoices`).
+     * [keepingChoices]: the user didn't ask (the session ended elsewhere). This library's choices (deleted for good,
+     * changes not sent yet) are kept for the next sign-in then (iOS `LibrarySnapshots.saveChoices`).
      */
     suspend fun resetEverything(keepingChoices: Boolean) {
         // Waiting changes get a moment (iOS `sendBeforeLeaving`); after a sign out the photos stay normal backups on
@@ -178,6 +183,9 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         // Telegram is asked only when a session or a sign-in is under way; in the demo it usually isn't.
         if (telegram.auth.value !in listOf(AuthStep.WaitPhone, AuthStep.NeedsCredentials, AuthStep.Closed)) telegram.logOut()
         withContext(Dispatchers.IO) {
+            // Signing in again after the session ended elsewhere must not undo deletes or back up deleted photos again.
+            val chat = library.chatId
+            if (keepingChoices && chat != null) choices.save(chat, store) else if (!keepingChoices) choices.removeAll()
             store.deleteAll()
             library.forget()
             prefs.reset()

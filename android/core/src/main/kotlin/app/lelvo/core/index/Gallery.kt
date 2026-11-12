@@ -96,9 +96,11 @@ object Gallery {
     /**
      * Phone photos and cloud items in one newest-first list (iOS `GalleryModel.merge`). Every phone photo is a tile,
      * with its backup item when linked. A cloud item is a tile of its own only when it's backed up, not hidden, and
-     * its photo isn't on this phone. [assets] must be newest first by capture date, else date added.
+     * its photo isn't on this phone. [assets] must be newest first by capture date, else date added. [aliases]: phone
+     * photos that are copies of a backed-up item (phone id → item id) show that item's badge instead of looking unknown.
      */
-    fun merge(assets: List<PhoneAsset>, items: List<LibraryItem>): List<GalleryEntry> {
+    fun merge(assets: List<PhoneAsset>, items: List<LibraryItem>, aliases: Map<String, String> = emptyMap()): List<GalleryEntry> {
+        val byId = if (aliases.isEmpty()) emptyMap() else items.associateBy { it.id }
         val byLocal = HashMap<String, LibraryItem>()
         for (item in items) {
             val id = item.localId ?: continue
@@ -112,7 +114,7 @@ object Gallery {
         var reorder = false
         for (a in assets) {
             present += a.localId
-            val item = byLocal[a.localId]
+            val item = byLocal[a.localId] ?: aliases[a.localId]?.let(byId::get)
             if (item != null) onPhone += item.id
             // No capture date on the phone: the backup's, when it's the same photo (saved back from the cloud), else
             // the day it was added, so it still has a place.

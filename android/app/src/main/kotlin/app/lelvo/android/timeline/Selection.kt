@@ -29,6 +29,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import app.lelvo.android.R
 import app.lelvo.android.actions.DeleteDialog
+import app.lelvo.android.actions.AlbumActions
+import app.lelvo.android.actions.AddToAlbumDialog
+import app.lelvo.android.LelvoApp
+import app.lelvo.core.index.ItemStatus
+import app.lelvo.core.index.BackupBadge
 import app.lelvo.android.actions.rememberPhoneActions
 import app.lelvo.android.actions.shareEntries
 import app.lelvo.android.shell.Messages
@@ -106,12 +111,15 @@ internal fun EdgeScroll(state: LazyGridState, speed: Float) {
 
 /** The action row while photos are selected: Share, Favorite and Delete, as in Google Photos. */
 @Composable
-internal fun SelectionActions(chosen: List<GalleryEntry>, onDone: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SelectionActions(chosen: List<GalleryEntry>, onDone: () -> Unit, modifier: Modifier = Modifier, album: String? = null) {
     val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
-    val actions = rememberPhoneActions(onFavorited = { onDone() }, onTrashed = onDone)
+    var addingToAlbum by remember { mutableStateOf(false) }
+    val app = context.applicationContext as LelvoApp
+    val inLibrary = chosen.any { it.item?.status == ItemStatus.BackedUp }
+    val actions = rememberPhoneActions(onFavorited = { onDone() }, onTrashed = { onDone() })
     val allFavorite = chosen.isNotEmpty() && chosen.all { it.isFavorite }
 
     if (sharing) LaunchedEffect(chosen) {
@@ -130,9 +138,8 @@ internal fun SelectionActions(chosen: List<GalleryEntry>, onDone: () -> Unit, mo
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             Action(R.drawable.ic_send, "Share", enabled = chosen.isNotEmpty() && !sharing) { sharing = true }
             // Phone photos not in the cloud yet: queued as chosen, so they go even with automatic backup off.
-            val toBackUp = chosen.filter { it.asset != null && it.badge != app.lelvo.core.index.BackupBadge.BackedUp }
+            val toBackUp = chosen.filter { it.asset != null && it.badge != BackupBadge.BackedUp }
             if (toBackUp.isNotEmpty()) Action(R.drawable.ic_cloud_upload, "Back up", enabled = true) {
-                val app = context.applicationContext as app.lelvo.android.LelvoApp
                 scope.launch {
                     val n = app.backup.enqueue(toBackUp.mapNotNull { it.asset?.localId })
                     Messages.show(Messages.Style.Info, if (n == 0) "Already backed up" else "Backing up $n item${if (n == 1) "" else "s"}")
@@ -140,14 +147,21 @@ internal fun SelectionActions(chosen: List<GalleryEntry>, onDone: () -> Unit, mo
                     onDone()
                 }
             }
-            Action(R.drawable.ic_favorite, if (allFavorite) "Unfavorite" else "Favorite", enabled = chosen.any { it.asset != null || it.item?.status == app.lelvo.core.index.ItemStatus.BackedUp }) {
+            Action(R.drawable.ic_favorite, if (allFavorite) "Unfavorite" else "Favorite", enabled = chosen.any { it.asset != null || it.item?.status == ItemStatus.BackedUp }) {
                 actions.favorite(chosen, !allFavorite)
             }
+            // Inside an album: take them out of it; elsewhere: add them to one (the library's albums, iOS "Add to Album").
+            if (album != null) Action(R.drawable.ic_library_add, "Remove", enabled = inLibrary) {
+                scope.launch { if (AlbumActions.remove(app, chosen, album)) onDone() }
+            } else Action(R.drawable.ic_library_add, "Add to album", enabled = chosen.isNotEmpty()) { addingToAlbum = true }
             Action(R.drawable.ic_delete, "Delete", enabled = chosen.isNotEmpty()) { confirmDelete = true }
         }
     }
 
     if (confirmDelete) DeleteDialog(chosen, actions, onDismiss = { confirmDelete = false })
+    if (addingToAlbum) AddToAlbumDialog(app, chosen.size, onDismiss = { addingToAlbum = false }) { name ->
+        scope.launch { if (AlbumActions.add(app, chosen, name)) onDone() }
+    }
 }
 
 @Composable

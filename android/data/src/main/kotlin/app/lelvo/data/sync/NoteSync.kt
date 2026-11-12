@@ -89,6 +89,7 @@ class NoteSync(
 
     init {
         scanner.onTrashNoteRemoved = { followOtherDevice() }
+        scanner.onChoicesRestored = { trashPacer.schedule(); metaPacer.schedule() }
     }
 
     /** The library notes are queued for; null in the demo, where changes stay on this phone. */

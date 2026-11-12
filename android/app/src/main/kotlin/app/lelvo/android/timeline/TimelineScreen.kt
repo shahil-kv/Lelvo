@@ -48,6 +48,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import app.lelvo.android.actions.AlbumActions
+import app.lelvo.android.LelvoApp
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -122,6 +124,7 @@ fun TimelineScreen(
     var menuFilter by rememberSaveable { mutableStateOf<GalleryFilter?>(null) }
     val filter = collection ?: menuFilter
     var legend by remember { mutableStateOf(false) }
+    var deletingAlbum by remember { mutableStateOf(false) }
     var selection by remember { mutableStateOf(emptySet<String>()) }
     val selecting = selection.isNotEmpty()
     androidx.activity.compose.BackHandler(enabled = selecting) { selection = emptySet() }
@@ -164,6 +167,10 @@ fun TimelineScreen(
                 actions = {
                     IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        if (collection is GalleryFilter.Album) DropdownMenuItem(
+                            text = { Text("Delete album", color = Lelvo.colors.red) },
+                            onClick = { menu = false; deletingAlbum = true },
+                        )
                         DropdownMenuItem(text = { Text("What the icons mean") }, onClick = { menu = false; legend = true })
                     }
                 },
@@ -226,7 +233,7 @@ fun TimelineScreen(
         if (selecting) {
             val byId = remember(list) { list.orEmpty().flatMap { it.items }.associateBy { it.id } }
             Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding()), contentAlignment = Alignment.BottomCenter) {
-                SelectionActions(selection.mapNotNull(byId::get), onDone = { selection = emptySet() })
+                SelectionActions(selection.mapNotNull(byId::get), onDone = { selection = emptySet() }, album = (collection as? GalleryFilter.Album)?.name)
             }
         }
     }
@@ -236,6 +243,23 @@ fun TimelineScreen(
         if (selection.any { it !in ids }) selection = selection.filterTo(HashSet()) { it in ids }
     }
     if (legend) BadgeLegend(onDismiss = { legend = false })
+    (collection as? GalleryFilter.Album)?.let { album ->
+        if (deletingAlbum) {
+            val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as LelvoApp
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { deletingAlbum = false },
+                title = { Text("Delete “${album.name}”?") },
+                text = { Text("The album goes from Lelvo on all your devices. No photo is deleted.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        deletingAlbum = false
+                        scope.launch { if (AlbumActions.delete(app, album.name)) onBack() }
+                    }) { Text("Delete album", color = Lelvo.colors.red) }
+                },
+                dismissButton = { TextButton(onClick = { deletingAlbum = false }) { Text("Cancel") } },
+            )
+        }
+    }
 }
 
 /**
@@ -244,7 +268,8 @@ fun TimelineScreen(
  */
 fun galleryEntries(store: LibraryStore, photos: PhotoAccess, isDemo: Boolean): kotlinx.coroutines.flow.Flow<List<GalleryEntry>> {
     val phone = if (isDemo) flowOf(emptyList()) else photos.changes().map { photos.assets() }
-    return combine(store.items(), phone) { items, assets -> Gallery.merge(assets, items) }.flowOn(Dispatchers.Default)
+    // Aliases are read with each change: a backup run adds them as it finds copies.
+    return combine(store.items(), phone) { items, assets -> Gallery.merge(assets, items, if (isDemo) emptyMap() else store.aliases()) }.flowOn(Dispatchers.Default)
 }
 
 @Composable

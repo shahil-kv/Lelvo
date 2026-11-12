@@ -99,8 +99,11 @@ class LibraryScanner(
         // The index is a cache of one library. Another library chosen since (on this screen or after a reset that
         // didn't finish) starts from empty, so none of its items are taken for vanished ones of this library.
         if (store.meta(LIBRARY) != chatId.toString()) {
+            // What only this phone knows about the library being left is kept for when it comes back.
+            store.meta(LIBRARY)?.toLongOrNull()?.let { choices?.save(it, store) }
             store.deleteAll()
             store.setMeta(LIBRARY, chatId.toString())
+            if (choices?.restore(chatId, store) == true) onChoicesRestored?.invoke()
         }
         // The first scan of this index is always full, so every item is built from its own captions.
         val full = requestedFull || store.meta(REPAIRED) == null
@@ -335,6 +338,12 @@ class LibraryScanner(
 
     /** No full scan has finished for this index yet (iOS `needsRepairScan`): notes and deletes wait for one. */
     suspend fun needsFullScan(): Boolean = store.meta(REPAIRED) == null
+
+    /** Kept per library outside the index; set by the app. */
+    var choices: app.lelvo.data.sync.LibraryChoices? = null
+
+    /** Changes waiting from an earlier visit to this library were put back: they go now. */
+    var onChoicesRestored: (() -> Unit)? = null
 
     /** After this phone sent notes (iOS calls these on `LibraryService`): every device now uses Telegram's date. */
     suspend fun applyTrashNotesNow() = gate.withLock { applyTrashNotes(messagesSeen = false) }
