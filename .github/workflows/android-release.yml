@@ -1,0 +1,109 @@
+name: Android release
+
+run-name: "android ${{ github.event_name == 'push' && 'beta (automatic)' || inputs.channel }} #${{ github.run_number }}"
+
+# A signed APK on GitHub Releases. Runs by itself when a push to main changes the Android app, and from
+# Actions → Android release → Run workflow. Docs, website and iPhone/Mac changes never start it.
+#   version      = versionName in android/app/build.gradle.kts (0.1.0), or the one typed in
+#   beta version = <version>-beta.<run number>, published as a pre-release
+#   tag          = android-v<version> (with the beta suffix for betas)
+#   versionCode  = run number + 1 (always increases, so each APK installs over the last)
+# Secrets: ANDROID_KEYSTORE_B64 (base64 .jks), ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD,
+# TD_API_ID and TD_API_HASH. Without the key the run fails rather than publish an APK that can't be updated.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '!android/**/*.md'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel
+        type: choice
+        options: [beta, stable]
+        default: beta
+      version:
+        description: "Version without suffix, e.g. 0.2.0 (empty: the one in build.gradle.kts)"
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ inputs.channel || 'beta' }}
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "::error::Release from main only (this run is on $GITHUB_REF)."; exit 1; }
+          BASE="${INPUT_VERSION:-$(grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' android/app/build.gradle.kts | head -1 | tr -d '"')}"
+          [[ "$BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Version must look like 0.2.0, got '$BASE'."; exit 1; }
+          if [ "$CHANNEL" = beta ]; then FULL="$BASE-beta.$GITHUB_RUN_NUMBER"; PRE=true; else FULL="$BASE"; PRE=false; fi
+          {
+            echo "version=$FULL"; echo "code=$((GITHUB_RUN_NUMBER + 1))"; echo "prerelease=$PRE"; echo "tag=android-v$FULL"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing Android $FULL (versionCode $((GITHUB_RUN_NUMBER + 1)))" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Refuse an existing tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: "! gh release view \"$TAG\" --repo \"$GITHUB_REPOSITORY\" >/dev/null 2>&1 || { echo \"::error::$TAG already exists.\"; exit 1; }"
+
+      - uses: ./.github/actions/android
+        with:
+          td-api-id: ${{ secrets.TD_API_ID }}
+          td-api-hash: ${{ secrets.TD_API_HASH }}
+
+      - name: Build signed APK
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          LELVO_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          LELVO_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          LELVO_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          CODE: ${{ steps.meta.outputs.code }}
+        run: |
+          set -euo pipefail
+          [ -n "$KEYSTORE_B64" ] || { echo "::error::ANDROID_KEYSTORE_B64 is not set."; exit 1; }
+          export LELVO_KEYSTORE="$RUNNER_TEMP/release.jks"
+          trap 'rm -f "$LELVO_KEYSTORE"' EXIT
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$LELVO_KEYSTORE"
+          cd android
+          ./gradlew :app:assembleRelease --no-daemon -Plelvo.versionCode="$CODE" -Plelvo.versionName="$VERSION" \
+            > ../build-android-release.log 2>&1 || { grep -E '^e: |What went wrong' -A6 ../build-android-release.log | head -60; tail -40 ../build-android-release.log; exit 1; }
+          cd ..
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/Lelvo-$VERSION.apk"
+          "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner" verify "dist/Lelvo-$VERSION.apk"
+          (cd dist && sha256sum "Lelvo-$VERSION.apk" > "Lelvo-$VERSION.apk.sha256")
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          PRE=""; [ "${{ steps.meta.outputs.prerelease }}" = true ] && PRE="--prerelease"
+          LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[].tagName | select(startswith("android-v"))][0] // empty')
+          START=""; [ -n "$LAST" ] && START="--notes-start-tag $LAST"
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" $PRE $START \
+            --title "Lelvo for Android $VERSION" --generate-notes \
+            --notes "Signed APK for Android 10 or later. Download, open, and allow installing from this source. Beta: backs up only to a library named \"Android Test\"; other libraries can be viewed."

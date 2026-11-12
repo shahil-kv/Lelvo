@@ -11,7 +11,7 @@ MIN_API=29
 ABIS="arm64-v8a x86_64"
 
 ANDROID_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 WORK="$ANDROID_DIR/../build/tdlib-android"
 mkdir -p "$WORK"
 
@@ -22,7 +22,8 @@ EX="$WORK/td/example/android"
 
 # Android 15+ devices can use 16 KB memory pages; Google Play requires native libraries that load on them.
 # NDK 27 needs this flag for it (NDK 28+ does it by default).
-sed -i '' 's/-DTD_ENABLE_PCH:BOOL=ON/-DTD_ENABLE_PCH:BOOL=ON -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON/' "$EX/build-tdlib.sh"
+# perl, not sed -i: the same line runs on macOS and on Linux (GitHub Actions).
+perl -pi -e 's/-DTD_ENABLE_PCH:BOOL=ON/-DTD_ENABLE_PCH:BOOL=ON -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON/' "$EX/build-tdlib.sh"
 
 cd "$EX"
 if [ ! -d third-party/openssl ]; then ./build-openssl.sh "$SDK" "$NDK_VERSION"; fi

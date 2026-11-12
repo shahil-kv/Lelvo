@@ -13,8 +13,9 @@ android {
         applicationId = "app.lelvo.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // The release workflow passes the build number and the beta suffix; local builds stay 1 / 0.1.0.
+        versionCode = (findProperty("lelvo.versionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("lelvo.versionName") as String?) ?: "0.1.0"
 
         // Telegram app keys come from local.properties (ignored by git), never from the repository.
         val local = Properties().apply {
@@ -22,6 +23,18 @@ android {
         }
         buildConfigField("int", "TELEGRAM_API_ID", local.getProperty("telegram.apiId", "0"))
         buildConfigField("String", "TELEGRAM_API_HASH", "\"${local.getProperty("telegram.apiHash", "")}\"")
+    }
+
+    // The release key never lives in the repository: the release workflow decodes it from GitHub secrets into a
+    // temporary file and passes its path and passwords in these variables. Without them a release build is unsigned.
+    val keystore = System.getenv("LELVO_KEYSTORE")?.let(::file)?.takeIf { it.exists() }
+    signingConfigs {
+        if (keystore != null) create("release") {
+            storeFile = keystore
+            storePassword = System.getenv("LELVO_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("LELVO_KEY_ALIAS")
+            keyPassword = System.getenv("LELVO_KEY_PASSWORD")
+        }
     }
 
     buildTypes {
@@ -35,6 +48,7 @@ android {
         }
         release {
             buildConfigField("boolean", "TELEGRAM_TEST_DC", "false")
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

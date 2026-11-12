@@ -1,0 +1,56 @@
+name: iPhone and Mac automatic beta
+
+# After a push to main that changes the iPhone or Mac app, starts the Release workflow for just that app, as a beta
+# of the version last released (ios-v0.3.0-beta.3 → 0.3.0-beta.<run>). Docs, website and Android changes start
+# nothing. A new version number is still chosen by hand: Actions → Release → Run workflow.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Shared/**'
+      - 'iOS/**'
+      - 'macOS/**'
+      - 'Packages/**'
+      - 'Config/**'
+      - 'project.yml'
+      - '!**/*.md'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: apple-auto-release
+  cancel-in-progress: false
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Which app, which version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # A push of several commits: compare with what main was before it.
+          if git cat-file -e "$BEFORE" 2>/dev/null; then RANGE="$BEFORE..$GITHUB_SHA"; else RANGE="HEAD~1..HEAD"; fi
+          CHANGED=$(git diff --name-only $RANGE -- Shared iOS macOS Packages Config project.yml | grep -v '\.md$' || true)
+          [ -n "$CHANGED" ] || { echo "Nothing for the apps."; exit 0; }
+          IOS=false; MAC=false
+          while read -r f; do
+            case "$f" in
+              iOS/*) IOS=true ;;
+              macOS/*) MAC=true ;;
+              *) IOS=true; MAC=true ;;
+            esac
+          done <<< "$CHANGED"
+          if $IOS && $MAC; then APP=both; elif $IOS; then APP=ios; else APP=macos; fi
+          LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[].tagName | select(startswith("ios-v") or startswith("macos-v"))][0] // empty')
+          VERSION=$(echo "$LAST" | sed -E 's/^(ios|macos)-v([0-9]+\.[0-9]+\.[0-9]+).*/\2/')
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::No earlier iPhone or Mac release to take the version from."; exit 1; }
+          echo "Starting a $APP beta of $VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f app="$APP" -f channel=beta -f version="$VERSION"
