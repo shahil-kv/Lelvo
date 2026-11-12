@@ -59,6 +59,7 @@ import app.lelvo.android.shell.Messages
 import app.lelvo.android.shell.NavigationBarHeight
 import app.lelvo.android.shell.Tab
 import app.lelvo.android.shell.TabPlaceholder
+import app.lelvo.android.backup.BackupScreen
 import app.lelvo.android.search.SearchScreen
 import app.lelvo.android.library.UnlockScreen
 import app.lelvo.android.signin.SignInScreen
@@ -241,6 +242,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                 Tab.Photos -> TimelineScreen(app.store, app.photos, app.demo, app.prefs, onOpen = { list, index -> open = list to index }, onSettings = openSettings, modifier = modifier)
                 Tab.Collections -> CollectionsScreen(app, onOpen = openPage, onSettings = openSettings, modifier = modifier)
                 Tab.Search -> SearchScreen(app, onOpen = { list, index -> open = list to index }, onSettings = openSettings, modifier = modifier)
+                Tab.Backup -> BackupScreen(app, onSettings = openSettings, modifier = modifier)
                 else -> TabPlaceholder(tab, app.demo, openSettings, modifier)
             }
         }

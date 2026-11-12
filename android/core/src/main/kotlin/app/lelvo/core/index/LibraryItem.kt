@@ -123,8 +123,13 @@ data class LibraryItem(
      * Rebuilt from the channel, with what only this phone knows taken from [local]: which photo it is and when it was
      * backed up and checked (iOS `keepingLocalState`).
      */
-    fun keepingLocalState(local: LibraryItem): LibraryItem =
-        copy(localId = local.localId, verifiedAt = local.verifiedAt, uploadedAt = local.uploadedAt ?: uploadedAt)
+    fun keepingLocalState(local: LibraryItem): LibraryItem = copy(
+        localId = local.localId, verifiedAt = local.verifiedAt, uploadedAt = local.uploadedAt ?: uploadedAt,
+        assetModifiedAt = local.assetModifiedAt ?: assetModifiedAt, chosen = local.chosen,
+        screenCopySkipped = local.screenCopySkipped, streamingCopySkipped = local.streamingCopySkipped,
+        // Safe to keep: a resume is used only when the parts in the channel end exactly where it says.
+        uploadResume = local.uploadResume,
+    )
 
     /** [files] as the parts of [role], with the resume point kept only while the role is incomplete (iOS `setParts`). */
     fun withParts(role: String, files: List<RemoteFile>, expected: Int, resume: FileCrypto.ResumePoint? = null): LibraryItem {

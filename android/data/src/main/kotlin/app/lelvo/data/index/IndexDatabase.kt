@@ -51,6 +51,11 @@ interface ItemDao {
     @Query("SELECT * FROM items") suspend fun allNow(): List<ItemRow>
     @Query("SELECT * FROM items WHERE id IN (:ids)") suspend fun items(ids: List<String>): List<ItemRow>
     @Query("DELETE FROM items WHERE id = :id") suspend fun delete(id: String)
+    @Query("SELECT * FROM items WHERE status = :status") suspend fun withStatus(status: String): List<ItemRow>
+    @Query("SELECT * FROM items WHERE sha256 = :sha256") suspend fun withHash(sha256: String): List<ItemRow>
+    @Query("SELECT * FROM items WHERE local_id = :localId LIMIT 1") suspend fun withLocalId(localId: String): ItemRow?
+    @Query("SELECT local_id FROM items WHERE local_id IS NOT NULL") suspend fun localIds(): List<String>
+    @Query("DELETE FROM items WHERE id = :id AND status = 'queued'") suspend fun deleteIfQueued(id: String): Int
 
     /** One transaction, so the timeline never sees the index half replaced. */
     @Transaction suspend fun replaceAll(rows: List<ItemRow>) {
@@ -94,6 +99,9 @@ interface NotesDao {
     @Query("DELETE FROM meta WHERE key = :key") suspend fun removeMeta(key: String)
     @Upsert suspend fun addNoBackup(rows: List<NoBackupRow>)
     @Query("SELECT COUNT(*) FROM no_backup WHERE key = :key") suspend fun isNoBackup(key: String): Int
+    @Query("SELECT `key` FROM no_backup") suspend fun noBackupKeys(): List<String>
+    @Query("DELETE FROM no_backup WHERE `key` = :key") suspend fun removeNoBackup(key: String)
+    @Query("SELECT `key` FROM meta WHERE `key` LIKE 'alias:%'") suspend fun aliasKeys(): List<String>
     @Query("DELETE FROM trash_notes") suspend fun clearTrashNotes()
     @Query("DELETE FROM meta_notes") suspend fun clearMetaNotes()
     @Query("DELETE FROM meta") suspend fun clearMeta()

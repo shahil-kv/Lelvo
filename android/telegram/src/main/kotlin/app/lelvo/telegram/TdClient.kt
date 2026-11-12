@@ -140,7 +140,7 @@ class TdClient(private val config: TelegramConfig?, private val keys: DatabaseKe
         return try { waiter.await() } finally { synchronized(lock) { sendWaiters.remove(pendingId) } }
     }
 
-    private fun finishSend(oldId: Long, result: Result<TdApi.Message>) {
+    internal fun finishSend(oldId: Long, result: Result<TdApi.Message>) {
         val waiter = synchronized(lock) {
             sendWaiters.remove(oldId) ?: run { finishedSends[oldId] = result; null }
         } ?: return

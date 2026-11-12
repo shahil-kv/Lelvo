@@ -46,6 +46,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var details: app.lelvo.data.media.MediaDetailsReader private set
     lateinit var motion: app.lelvo.data.media.MotionVideos private set
     lateinit var search: app.lelvo.data.search.SearchService private set
+    lateinit var uploads: app.lelvo.telegram.TdUploads private set
+    lateinit var backup: app.lelvo.data.backup.BackupEngine private set
     /** The launch opening plays once per process (cold start only). */
     var openingPlayed = false
 
@@ -96,6 +98,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         details = app.lelvo.data.media.MediaDetailsReader(this)
         motion = app.lelvo.data.media.MotionVideos(this)
         search = app.lelvo.data.search.SearchService(this, store, photos)
+        uploads = app.lelvo.telegram.TdUploads(telegram, files)
+        backup = app.lelvo.data.backup.BackupEngine(this, store, library, scanner, uploads, photos, linker, prefs)
         model = AppModel(this)
     }
 
@@ -106,6 +110,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
      * Recently Deleted and favorites choices come with their notes (Phases C and L).
      */
     suspend fun resetEverything(keepingChoices: Boolean) {
+        if (backup.isRunning) backup.pause()
         AppLog.info("Reset this phone: signing out and removing Lelvo's local data${if (keepingChoices) " (session ended elsewhere)" else ""}")
         demo.exit()
         // Telegram is asked only when a session or a sign-in is under way; in the demo it usually isn't.
