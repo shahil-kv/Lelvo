@@ -205,8 +205,8 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 | Add to album, rename, delete album | `AddToAlbumView.swift`, `AlbumsView.swift` | Dialogs | ✅ add (existing or new), remove, delete album, as notes; no rename (iOS has none either) |
 | Favorites, videos and other smart rows | `AlbumsView.swift` | Same rows | ✅ Recent days, Favorites, media types |
 | Recently Deleted (30 days, restore, delete now) | `RecentlyDeletedView.swift`, `TrashGrid.swift`, `TrashSync.swift` | Grid + actions | ✅ days left, selection, Recover, Delete, the 30-day cleanup (proven with `lelvo.trashRetentionSeconds`) |
-| Memories | `MemoriesView.swift`, `LelvoCore/Support/Memories.swift`, `MemoriesSettingsView.swift` | Cards, same rules | ◐ on this day, recent, trips, story player, settings; no themes or place names yet |
-| Map | `PhotoMapView.swift` | Needs a map library issue | blocked: needs a map library on the approved list |
+| Memories | `MemoriesView.swift`, `LelvoCore/Support/Memories.swift`, `MemoriesSettingsView.swift` | Cards, same rules | ◐ on this day, recent, trips, themes (ML Kit labels), story player, settings |
+| Map | `PhotoMapView.swift` | MapLibre (OpenGL) + OpenFreeMap, #117 | ✅ Places map with grouped thumbnails, details-sheet map; checked with sample places, light and dark |
 
 ### Phase H. Search tab
 
@@ -214,7 +214,7 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 |---|---|---|---|
 | Search by date, place, file name, album | `SearchService.swift`, `SearchMatcher.swift`, `SearchModel.swift` | `core/` matcher port | ✅ plus folder names; phone photos' places read from the files |
 | Suggestions | `SearchSuggestions.swift` | Suggestion chips | ✅ places as covers, recent, months, Try chips |
-| Things in photos (labels) | `SearchService.swift` (Vision) | On-device labels; needs its own issue | not started: needs a labeller on the approved list (at the end, with the map) |
+| Things in photos (labels) | `SearchService.swift` (Vision) | ML Kit Image Labeling, bundled, #117 | ✅ phone photos labelled once (8 photos in 2 s on the emulator), search and themes; usage-stats upload removed; cloud-only photos and text in photos not read yet |
 
 ### Phase I. Backup tab and backup engine
 
@@ -811,6 +811,22 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
     Wi-Fi only line only while busy, as on iOS (owner, 2026-11-12). Checked on the emulator.
   - Test leftovers: two screen recordings were backed up to "Android Test" by automatic backup and their phone files
     removed, so they show as cloud-only there. Record to `/data/local/tmp`, never `/sdcard`.
+- 2026-11-12, Phase N continued (owner: build everything missing, CI per app, APK releases):
+  - CI: Apple jobs only for Apple code, Android jobs (core tests, app build with TDLib cached) only for `android/`,
+    nothing for docs or the website. The uncommitted filter matched no file at all (fixed). A push to main that
+    changes `android/` publishes a signed beta APK; one that changes the iPhone or Mac app starts that app's beta
+    (`docs/RELEASING.md` → Automatic betas). Release key outside the repo, in GitHub secrets. Issue #117 (approved)
+    covers the libraries; draft PR #118.
+  - Release build: R8 keeps TDLib's JNI classes (`proguard-rules.pro` was empty). Checked on a fresh emulator:
+    opens, intro, phone step, no crash. A full sign-in on a release build still needs the owner.
+  - Beta writes: the guard stays (owner): only a library named "Android Test" can be changed.
+  - Map (#117): MapLibre's default build is Vulkan and crashed the Apple Silicon emulator; the OpenGL build works.
+    That crash reset the Pixel_9 emulator to a July snapshot: the owner must sign in on it again.
+  - Things in photos (#117): ML Kit labels, search and themes; its Google usage-stats upload is removed from the
+    manifest (checked: "backend 'cct' is not registered", labels still read).
+  - Collections: Places → Map, Utilities → Duplicates and similar (as on iOS).
+  - Still missing vs iOS: text in photos (Documents and Receipts, words in screenshots) needs ML Kit Text
+    Recognition, a second library for #117; labels for cloud-only photos (would download each thumbnail).
 - **Next session (start here): Phase N.** Start with the parity audit (walk iOS `Shared/`, `iOS/`, `LelvoCore` against
   this plan) and the cross-platform checks: iPhone uploads a HEIC, a PNG and a video to "Android Test" → Android
   downloads each and the SHA-256 matches the caption's `h`; the same the other way round; a Pixel/Samsung Motion
