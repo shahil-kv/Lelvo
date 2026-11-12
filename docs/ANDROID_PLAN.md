@@ -235,10 +235,10 @@ Each row is one feature; a phase is a few pull requests. Status: ✅ done, ◐ p
 
 | Feature | iOS source | Android | Status |
 |---|---|---|---|
-| Back up new photos automatically | `BackgroundTasks.swift`, `PhotoChangeScan.swift` | WorkManager with a MediaStore content trigger | |
-| Long runs with progress | `BackgroundTasks.swift` (continued task) | User-initiated job or `dataSync` foreground service | |
-| Wi-Fi only, while charging | `Preferences.swift`, `SettingsView.swift` | WorkManager constraints | |
-| Shortcuts: back up, status, free up space | `iOS/Intents/BackupIntents.swift`, `AutomationGuideView.swift` | App shortcuts and a Quick Settings tile | |
+| Back up new photos automatically | `BackgroundTasks.swift`, `PhotoChangeScan.swift` | WorkManager with a MediaStore content trigger | ✅ 2026-11-12: new photo → run in the background (app alive and cold), re-arms itself; overnight (charging) and refresh workers |
+| Long runs with progress | `BackgroundTasks.swift` (continued task) | User-initiated job or `dataSync` foreground service | ✅ user runs are a WorkManager worker with a `dataSync` foreground notification: progress, Pause, "Backup finished" when Lelvo is closed |
+| Wi-Fi only, while charging | `Preferences.swift`, `SettingsView.swift` | WorkManager constraints | ✅ constraints on the automatic work, updated when the switch changes (Settings → Backup); user runs let the engine say why they wait |
+| Shortcuts: back up, status, free up space | `iOS/Intents/BackupIntents.swift`, `AutomationGuideView.swift` | App shortcuts and a Quick Settings tile | ✅ launcher shortcuts Back up now and Free up space; tile shows status ("3 waiting", "0 of 6", "Paused") and starts or pauses |
 
 ### Phase K. Settings
 
@@ -671,12 +671,44 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
     duplicates.
   - Gaps kept for later phases: moving incomplete items to Recently Deleted and recovering from Removed from backup
     send notes (Phase L); Shortcuts and long runs in the background (Phase J); similar photos (Phase M).
+- 2026-11-12, Phase J (background and automation) on the "Android Test" library, WorkManager 2.11.2 (approved list):
+  - iOS read first: `BackgroundTasks` (overnight processing task needs power + network, refresh every 4 h, continued
+    task for user runs that iOS may end, resumed when Lelvo is next open), `PhotoChangeScan`, `BackupIntents` (25 s
+    runs, Status counts, Free Up Space opens the app), `AutomationGuideView`. Android equivalents in
+    `app/background/`: `BackupScheduler` (four unique works), `BackupWorker`, `BackupNotifications` (+ Pause
+    receiver), `BackupTileService`.
+  - Every start goes through `LelvoApp.startBackup` / `pauseBackup`: a user run is unique work `backup.user`
+    (APPEND_OR_REPLACE, so chosen photos added mid-run go next), expedited when the quota allows, `setForeground`
+    with `dataSync`. If Android refuses the foreground service (started from the background), the run continues as
+    an ordinary job (≤10 min) and the queue keeps the rest. A user run started while an automatic one uploads waits
+    for it. Pause cancels the queued user runs too, so one queued behind can't un-pause.
+  - Automatic runs never announce on the Backup tab (engine `finish(announce = userStarted)`, as iOS); only user runs
+    set `lastSummary`. `BackupEngine.start` is gone.
+  - Notification permission (Android 13+) asked once, on the first Back up now; without it runs still work.
+  - Proven on the emulator: content trigger satisfied by a new photo; forced runs of the trigger job backed up 1, then
+    2 photos (process alive in the background) and re-armed; user run with Lelvo in the background showed "0 of 6"
+    with the speed-limit notice and Pause; Pause stopped it at once; the tile showed Paused, a tap from the shade
+    started a foreground run (Android allowed it) that backed up 6 videos with fast versions and posted "Backup
+    finished"; overnight and refresh ran once through the debug hook `--es lelvo.work backup.overnight|index.refresh`;
+    the Free up space shortcut closed Settings and opened the page; Settings checked light and dark.
+  - Emulator limits: its Wi-Fi isn't "validated", so JobScheduler never meets a network constraint on its own; the
+    automatic jobs were forced with `cmd jobscheduler run -f -n androidx.work.systemjobscheduler app.lelvo.android <id>`.
+    `am kill` looks like a force stop to WorkManager, which re-registers every job and drops a pending trigger; the next
+    run (any run with automatic backup on queues every new photo) picks those photos up.
+  - Gaps: no Automations guide (Android has no Shortcuts automations; automatic backup and the tile cover it);
+    Android 15+ caps `dataSync` at 6 h a day, after which runs are ordinary jobs; no run starts at boot until the
+    first trigger or periodic job (WorkManager reschedules them itself).
+  - Test files left on the emulator: `Pictures/PhaseJ/phasej1–6.jpg`, `Movies/PhaseJ_1–6.mp4` (all backed up to
+    "Android Test"); automatic backup is on there.
 - **Next session (start here):**
   1. **Real Android phone check** (owner, later): everything listed in the Phase F notes, plus real Pixel and Samsung
-     Motion Photos (MOTION chip plays), Collections on a phone with many folders, and Search's place names (the
-     emulator's geocoder can't be reached).
-  2. Phase J (background backups: WorkManager trigger on new photos, a foreground service for long runs, Wi-Fi and
-     charging constraints, app shortcuts and a Quick Settings tile). Writes still only to "Android Test".
+     Motion Photos (MOTION chip plays), Collections on a phone with many folders, Search's place names (the
+     emulator's geocoder can't be reached), and Phase J on a real network: a new photo backs up on its own within a
+     few minutes, Wi-Fi only waits on mobile data, a long Back up now survives locking the phone.
+  2. Phase K (Settings): the rest of iOS `SettingsView` — backup options (media, screenshots, date, fast versions,
+     video quality), change passphrase and recovery key, Telegram account kept 2 years, storage, logs, feedback,
+     about and licences, full reset. Settings already has Account, Backup (automatic, Wi-Fi only, charging), Developer,
+     About, Sign out. Writes still only to "Android Test".
   3. Waiting on other phases: Recently Deleted Recover/Delete and album edits (Phase L).
   4. At the very end (owner, 2026-11-12): the map (details sheet and Collections) and things in photos; both need a
      library approved first.
