@@ -104,6 +104,19 @@ import Testing
         #expect(try store.isSourceFinished(id: "A") == false)
     }
 
+    /// The date that was actually written has to be in the index. The result list reads it again after a relaunch.
+    @Test func testDateUsedIsStoredWithThePlan() throws {
+        let store = try LibraryStore(url: nil)
+        var item = planned(key: "k")
+        item.dateSource = .fileWillTell
+        item.dateUsed = .zipModified
+        try store.upsertPlanned([item])
+        try store.setImportStatus(key: "k", status: .done, itemId: "item-1", error: nil)
+        let again = try store.importItems(status: .done)
+        #expect(again.first?.0.dateUsed == .zipModified)
+        #expect(again.first?.0.dateSource == .fileWillTell)
+    }
+
     @Test func testCounts() throws {
         let store = try LibraryStore(url: nil)
         try store.upsertPlanned([planned(key: "a"), planned(key: "b"), planned(key: "c")])

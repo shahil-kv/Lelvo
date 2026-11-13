@@ -1,5 +1,39 @@
 import Foundation
 
+/// The date written on an imported item. Google's JSON wins, then a date read from the file, then the zip
+/// entry's modified date once every file is here or this upload already started. Only that last one is listed
+/// as imported without a date from Google: a date from the file is still a capture date.
+public enum TakeoutDateChoice {
+    public enum Source: String, Codable, Sendable, Equatable {
+        case google
+        case file
+        case zipModified
+    }
+
+    public struct Result: Equatable, Sendable {
+        public var date: Date?
+        public var source: Source
+    }
+
+    public static func choose(google: Date?, file: Date?, zipModified: Date?,
+                              allFilesAdded: Bool, alreadyUploading: Bool) -> Result? {
+        if let google {
+            return Result(date: google, source: .google)
+        }
+        if let file {
+            return Result(date: file, source: .file)
+        }
+        if allFilesAdded || alreadyUploading {
+            return Result(date: zipModified, source: .zipModified)
+        }
+        return nil
+    }
+
+    public static func importedWithoutGoogleDate(_ source: Source?) -> Bool {
+        source == .zipModified
+    }
+}
+
 /// What to do with one Takeout entry, before anything is extracted. The importer asks this twice: once with the
 /// facts it has up front (status, whether the zip is still there, free space), and again after the file is hashed
 /// if a backed-up twin turns up.
@@ -51,6 +85,14 @@ public enum TakeoutImportStep {
 }
 
 extension TakeoutPlannedItem {
+    /// A later catalogue is built before the file is read, so it doesn't know which date was written.
+    public func keepingDateUsed(_ previous: TakeoutDateChoice.Source?) -> TakeoutPlannedItem {
+        guard dateUsed == nil, let previous else { return self }
+        var item = self
+        item.dateUsed = previous
+        return item
+    }
+
     /// Albums and a favourite from a later zip. A zip that doesn't mention one is not a removal.
     public func addingLateDetails(albums extra: [String], favorite: Bool) -> TakeoutPlannedItem {
         var item = self

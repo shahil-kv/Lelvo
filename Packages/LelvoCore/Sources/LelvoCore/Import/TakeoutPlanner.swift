@@ -11,7 +11,7 @@ public struct TakeoutSourceEntry: Sendable, Equatable, Hashable, Codable {
     }
 }
 
-/// Where an item's capture date will come from.
+/// Where an item's capture date will come from, before the file is read. The date that was written is `dateUsed`.
 public enum DateSource: String, Sendable, Codable {
     /// Google's JSON file.
     case google
@@ -34,6 +34,8 @@ public struct TakeoutPlannedItem: Sendable, Equatable, Codable {
     public var albums: [String]
     public var sidecar: TakeoutSidecar?
     public var dateSource: DateSource
+    /// Set once the file has been read, and kept in the import index so the result list still works after a relaunch.
+    public var dateUsed: TakeoutDateChoice.Source? = nil
 }
 
 /// Albums and favourite for an item imported in an earlier run (an album copy that came in a later zip).

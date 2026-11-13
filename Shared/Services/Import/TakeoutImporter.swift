@@ -62,7 +62,8 @@ enum TakeoutImportLists {
             if status == .failed { failed.append(name) }
             if status == .done {
                 if item.kind == .video { videos += 1 } else { photos += 1 }
-                if item.dateSource != .google { undated.append(name) }
+                // dateSource is only the plan. A photo dated from the file is not on this list.
+                if TakeoutDateChoice.importedWithoutGoogleDate(item.dateUsed) { undated.append(name) }
             }
         }
         let notMedia = TakeoutImportMemory.notes.filter { !$0.separate }.map(\.name)
@@ -434,7 +435,7 @@ final class TakeoutImporter: ObservableObject {
         if !previous.albums.isEmpty {
             item.albums = Array(Set(item.albums).union(previous.albums)).sorted()
         }
-        return item
+        return item.keepingDateUsed(previous.dateUsed)
     }
 
     nonisolated private static func remember(_ urls: [URL], store: LibraryStore) throws {
@@ -621,18 +622,16 @@ final class TakeoutImporter: ObservableObject {
         }
         let fileDate = info.takenAt ?? videoInfo?.takenAt
         let fileZone = info.takenAt != nil ? info.tzMinutes : videoInfo?.tzMinutes
-        let (date, zone): (Date?, Int?)
-        if let taken = planned.sidecar?.takenAt {
-            (date, zone) = (taken, nil)
-        } else if let fileDate {
-            (date, zone) = (fileDate, fileZone)
-        } else if TakeoutImportMemory.allFilesAdded || status == .uploading {
-            // The zip's own stamp, and only once the user has said every file is here (or this upload already started).
-            (date, zone) = (planned.primary.entry.modified, nil)
-        } else {
+        // The zip's own stamp, and only once the user has said every file is here (or this upload already started).
+        guard let choice = TakeoutDateChoice.choose(
+            google: planned.sidecar?.takenAt, file: fileDate, zipModified: planned.primary.entry.modified,
+            allFilesAdded: TakeoutImportMemory.allFilesAdded, alreadyUploading: status == .uploading) else {
             try env.store.setImportStatus(key: key, status: .waitingForDetails, itemId: storedId, error: nil)
             return
         }
+        let date = choice.date
+        let zone = choice.source == .file ? fileZone : nil
+        try rememberDateUsed(choice.source, key: key)
 
         let place = Self.place(sidecar: planned.sidecar, file: info)
         let id = existing?.id ?? storedId ?? UUID().uuidString.lowercased()
@@ -869,6 +868,13 @@ final class TakeoutImporter: ObservableObject {
 
     nonisolated private func storedPlan(_ key: String) -> TakeoutPlannedItem? {
         ((try? env.store.importItems(status: nil)) ?? []).first { $0.0.key == key }?.0
+    }
+
+    /// Written on the stored plan before the upload, so a relaunch can still name the photos that used the zip date.
+    nonisolated private func rememberDateUsed(_ source: TakeoutDateChoice.Source, key: String) throws {
+        guard var stored = storedPlan(key), stored.dateUsed != source else { return }
+        stored.dateUsed = source
+        try env.store.upsertPlanned([stored])
     }
 
     /// Wi-Fi only, same check as backup, without Charging only. Waits until the network is usable or the user pauses.

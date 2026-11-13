@@ -44,6 +44,50 @@ import Testing
         #expect(TakeoutImportStep.openCount([.done: 1, .duplicate: 4, .skipped: 2]) == 0)
     }
 
+    /// The "Imported without a date from Google" list is only the zip entry's modified date. A date from the
+    /// file, or from Google's JSON, is a capture date and stays off that list.
+    @Test func zipModifiedDateIsTheOnlyUndatedImport() {
+        let google = Date(timeIntervalSince1970: 1_500_000_000)
+        let file = Date(timeIntervalSince1970: 1_600_000_000)
+        let zip = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let fromGoogle = TakeoutDateChoice.choose(google: google, file: file, zipModified: zip,
+                                                  allFilesAdded: true, alreadyUploading: false)
+        #expect(fromGoogle?.source == .google)
+        #expect(fromGoogle?.date == google)
+        #expect(!TakeoutDateChoice.importedWithoutGoogleDate(fromGoogle?.source))
+
+        let fromFile = TakeoutDateChoice.choose(google: nil, file: file, zipModified: zip,
+                                                allFilesAdded: true, alreadyUploading: false)
+        #expect(fromFile?.source == .file)
+        #expect(fromFile?.date == file)
+        #expect(!TakeoutDateChoice.importedWithoutGoogleDate(fromFile?.source))
+
+        let fromZip = TakeoutDateChoice.choose(google: nil, file: nil, zipModified: zip,
+                                               allFilesAdded: true, alreadyUploading: false)
+        #expect(fromZip?.source == .zipModified)
+        #expect(fromZip?.date == zip)
+        #expect(TakeoutDateChoice.importedWithoutGoogleDate(fromZip?.source))
+
+        let resumed = TakeoutDateChoice.choose(google: nil, file: nil, zipModified: zip,
+                                               allFilesAdded: false, alreadyUploading: true)
+        #expect(resumed?.source == .zipModified)
+
+        let waiting = TakeoutDateChoice.choose(google: nil, file: nil, zipModified: zip,
+                                               allFilesAdded: false, alreadyUploading: false)
+        #expect(waiting == nil)
+        #expect(!TakeoutDateChoice.importedWithoutGoogleDate(nil))
+        #expect(!TakeoutDateChoice.importedWithoutGoogleDate(.file))
+        #expect(!TakeoutDateChoice.importedWithoutGoogleDate(.google))
+    }
+
+    @Test func laterPlanKeepsTheDateThatWasWritten() {
+        var item = plannedItem()
+        #expect(item.keepingDateUsed(.file).dateUsed == .file)
+        item.dateUsed = .zipModified
+        #expect(item.keepingDateUsed(.file).dateUsed == .zipModified)
+    }
+
     @Test func lateDetailsAreAddedToAPlannedItem() {
         var item = plannedItem()
         item.albums = ["Home"]
