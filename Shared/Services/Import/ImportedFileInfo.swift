@@ -110,9 +110,9 @@ struct ImportedFileInfo: Sendable {
         let common = (try? await asset.load(.commonMetadata)) ?? []
         let all = (try? await asset.load(.metadata)) ?? []
         let groups: [[AVMetadataItem]] = [
-            all.filter { $0.identifier == AVMetadataIdentifierQuickTimeMetadataCreationDate },
-            common.filter { $0.commonKey == AVMetadataCommonKeyCreationDate || $0.identifier == AVMetadataCommonIdentifierCreationDate },
-            all.filter { $0.identifier == AVMetadataIdentifierQuickTimeUserDataCreationDate }
+            all.filter { $0.identifier == .quickTimeMetadataCreationDate },
+            common.filter { $0.commonKey == .commonKeyCreationDate || $0.identifier == .commonIdentifierCreationDate },
+            all.filter { $0.identifier == .quickTimeUserDataCreationDate }
         ]
         for item in groups.joined() {
             if let string = try? await item.load(.stringValue), let parsed = parseStamp(string) { return parsed }

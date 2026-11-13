@@ -1495,22 +1495,7 @@ final class BackupEngine: @unchecked Sendable {
     }
 
     private func captionMeta(_ item: MediaItem, role: CaptionMeta.Role, hash: String, name: String, size: Int64) -> CaptionMeta {
-        let kind: CaptionMeta.Kind = item.kind == .livePhoto ? .live : (item.kind == .video ? .video : .photo)
-        var m = CaptionMeta(id: item.id, role: role, kind: kind, sha256: hash, name: name, size: size)
-        m.m = name.mimeTypeForFilename
-        m.t = item.creationDate.map { Int64($0.timeIntervalSince1970) }
-        m.tz = item.tzOffsetMinutes
-        if let lat = item.latitude, let lon = item.longitude { m.g = CaptionMeta.roundedGPS(lat, lon) }
-        if item.pixelWidth > 0 { m.wh = [item.pixelWidth, item.pixelHeight] }
-        m.d = role == .thumbnail ? nil : item.duration
-        m.c = item.codec
-        m.hdr = item.hdr
-        m.a = item.albums
-        m.fav = item.favorite == true ? 1 : nil
-        m.l = item.localIdentifier
-        m.ed = (role == .original && item.hasEdit == true) ? 1 : nil
-        m.hid = item.hidden == true ? 1 : nil
-        return m
+        CaptionMeta.make(for: item, role: role, hash: hash, name: name, size: size)
     }
 }
 
