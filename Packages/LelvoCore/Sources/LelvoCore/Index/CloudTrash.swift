@@ -28,8 +28,10 @@ public enum CloudTrash {
     /// Days until the messages are deleted, rounded up like Photos' Recently Deleted: 30 right after deleting,
     /// 1 on the last day.
     public static func daysLeft(_ item: MediaItem, now: Date = Date()) -> Int {
-        guard let at = item.trashedAt else { return Int(retention / 86400) }
-        return max(0, Int((at.addingTimeInterval(retention).timeIntervalSince(now) / 86400).rounded(.up)))
+        let full = max(1, Int(retention / 86400))
+        guard let at = item.trashedAt else { return full }
+        // Never more than 30: the date can be Telegram's, and a device clock behind it would round up to 31.
+        return min(full, max(0, Int((at.addingTimeInterval(retention).timeIntervalSince(now) / 86400).rounded(.up))))
     }
 
     public static func isExpired(_ item: MediaItem, now: Date = Date()) -> Bool {

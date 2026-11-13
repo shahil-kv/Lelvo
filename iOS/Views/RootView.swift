@@ -6,6 +6,9 @@ struct RootView: View {
     @AppStorage(Prefs.Key.keepAwakeDuringBackup) private var keepAwake = true
     @StateObject private var gallery = GalleryModel()
     @StateObject private var memories = MemoriesModel()
+    @AppStorage(Prefs.Key.communityNoteShown) private var communityNoteShown = false
+    @State private var showingCommunityNote = false
+    @State private var communityNoteHeight: CGFloat = 640
 
     var body: some View {
         Group {
@@ -36,6 +39,28 @@ struct RootView: View {
                 .toastHost(bottomPadding: 64)
                 .fullScreenCover(isPresented: $model.needsSignIn) {
                     OnboardingView().environmentObject(model)
+                }
+                // Once, a moment after the photos first show: someone who just signed in sees their library working
+                // before being asked anything. Marked seen only when closed, so a killed app shows it again.
+                .task(id: gallery.loaded) {
+                    var forced = false
+                    #if DEBUG
+                    // `-ShowCommunityNote`: shows it now, also in the demo library, to check how it looks.
+                    forced = ProcessInfo.processInfo.arguments.contains("-ShowCommunityNote")
+                    #endif
+                    // Not in UI tests either: the sheet would cover the screens they tap.
+                    guard gallery.loaded, forced || (!communityNoteShown && !DemoMode.isActive && !UITestSupport.isRunning),
+                          !model.needsSignIn else { return }
+                    try? await Task.sleep(for: .seconds(3))
+                    if !Task.isCancelled, !model.needsSignIn { showingCommunityNote = true }
+                }
+                .sheet(isPresented: $showingCommunityNote, onDismiss: { communityNoteShown = true }) {
+                    CommunityNoteView(onClose: { showingCommunityNote = false }, onHeight: { communityNoteHeight = $0 + 24 })
+                        .presentationDetents([.height(communityNoteHeight), .large])
+                        // Solid: a part-height sheet is see-through glass on iOS 26, and the text over bright photos
+                        // was hard to read.
+                        .presentationBackground(Color(uiColor: .systemBackground))
+                        .presentationDragIndicator(.visible)
                 }
             } else {
                 OnboardingView()

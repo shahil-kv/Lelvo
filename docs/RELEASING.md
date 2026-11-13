@@ -36,6 +36,29 @@ of `0.2.0` as you like, then run it once as `stable`.
 
 5. **Check the release page** and edit the notes into a short summary for users if needed.
 
+## Automatic betas
+
+A push to `main` releases only the app it changed. Docs, the website and workflows release nothing.
+
+- **Android** (`android/`): `.github/workflows/android-release.yml` builds a signed APK, tag
+  `android-v<versionName>-beta.<run>` (versionName in `android/app/build.gradle.kts`, now 0.1.0), versionCode
+  run + 1. Run it by hand for a stable release or a new version. The first run builds TDLib (about 40 minutes),
+  later runs restore it from the cache.
+- **iPhone and Mac** (`Shared/`, `iOS/`, `macOS/`, `Packages/`, `Config/`, `project.yml`):
+  `.github/workflows/apple-auto-release.yml` starts the Release workflow for `ios`, `macos` or `both`, as a beta of
+  the version last released. A new version number is still chosen by hand (Steps above).
+
+CI builds the same way: Apple jobs only for Apple code, Android jobs only for `android/`, the shared test vectors
+for both.
+
+### Android signing key
+
+The release key is `~/.config/lelvo/android-release.jks` on the owner's Mac (alias `lelvo`, password in the macOS
+Keychain item "Lelvo Android release key"), and in GitHub secrets `ANDROID_KEYSTORE_B64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Keep an offline backup: an APK signed
+with another key can't update the installed app. Certificate SHA-256:
+`70:A7:91:44:33:EA:8C:AB:CF:EE:55:03:C5:85:65:C7:A1:08:D7:B0:F3:FA:2E:CB:61:19:65:60:95:C4:57:F2`.
+
 ## Website
 
 Merging to `main` deploys [lelvo.app](https://lelvo.app) (Cloudflare, [WEBSITE.md](WEBSITE.md)), so the site can go live

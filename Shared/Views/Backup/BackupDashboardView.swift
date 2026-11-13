@@ -277,7 +277,10 @@ struct BackupDashboardView: View {
 
     /// Mirrors Google Photos: "Backup complete" when nothing is left, failures called out separately.
     private var statusHeader: some View {
-        let left = activity.isRunning && activity.total > 0 ? activity.remaining : stats.pending
+        // A run that is still listing its photos has no total yet: the photos it's about to queue count, not "0 left".
+        let left = activity.isRunning
+            ? (activity.total > 0 ? activity.remaining : max(stats.pending, stats.notQueued))
+            : stats.pending
         let state = headerState
         let icon: String, tint: Color, title: String
         switch state {

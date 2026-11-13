@@ -22,7 +22,7 @@ body:
     id: app
     attributes:
       label: App
-      options: [iPhone, iPad, Mac]
+      options: [iPhone, iPad, Mac, Android]
     validations:
       required: true
   - type: input

@@ -21,7 +21,14 @@ public enum PhotosFavorite {
     ///   - library: the item's favorite in the Telegram library, nil when its backup didn't record one.
     ///   - noteDecides: a note (sent or waiting) sets this item's favorite, so `library` isn't just the backup's value.
     public static func decide(photos: Bool, lastSeen: Bool?, library: Bool?, noteDecides: Bool) -> Decision {
-        guard let library, library != photos else { return .remember }
+        guard let library else {
+            // The backup didn't record a favorite (captions only carry it when set), so Photos is never changed from
+            // it. But a heart added or removed in Photos since the last check is the user's choice: it goes to the
+            // other devices like any other change.
+            if let lastSeen, photos != lastSeen { return .sendNote(photos) }
+            return .remember
+        }
+        guard library != photos else { return .remember }
         guard let lastSeen else {
             // First check: nothing says which side changed last. A note is a change made in Lelvo after the backup, so
             // it wins; without one, Photos differs from what was backed up, so the user changed it in Photos.

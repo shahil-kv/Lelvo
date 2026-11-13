@@ -1,8 +1,8 @@
 import SwiftUI
 import LelvoCore
 
-/// Report a problem / Suggest a feature: what helps, then a choice between an email to the developer and a GitHub
-/// issue. Both open with the app version and device filled in; the user sends it themselves.
+/// Report a problem / Suggest a feature: what helps, then a choice between the Lelvo group on Telegram and an email to
+/// the developer. Both come with the app version and device filled in; the user sends it themselves.
 struct FeedbackView: View {
     let kind: Feedback.Kind
 
@@ -20,6 +20,13 @@ struct FeedbackView: View {
         PlatformActions.open(mailURL) { opened in
             if !opened { copyAddress(noMailApp: true) }
         }
+    }
+
+    /// Telegram doesn't let an app type into a group: the report goes on the clipboard and the topic opens to paste in.
+    private func postInGroup() {
+        PlatformActions.copy(Feedback.groupPost(kind, appName: "Lelvo", env: env))
+        ToastCenter.shared.show(.info, kind == .bug ? "Report copied. Paste it in the group and send." : "Idea copied. Paste it in the group and send.")
+        PlatformActions.open(kind == .bug ? AppLinks.communityBugs : AppLinks.communityIdeas)
     }
 
     private func copyAddress(noMailApp: Bool = false) {
@@ -54,22 +61,22 @@ struct FeedbackView: View {
             }
 
             Section {
+                Button(action: postInGroup) {
+                    Label {
+                        Text("Post in the Lelvo group")
+                        Text("Opens \(kind == .bug ? "Bugs" : "Feature ideas") in Telegram with your \(kind == .bug ? "report" : "idea") copied. Paste it there.")
+                    } icon: { Image(systemName: "bubble.left.and.bubble.right") }
+                }
                 Button(action: email) {
-                    Label("Email \(AppLinks.developerName)", systemImage: "envelope")
+                    Label {
+                        Text("Email \(AppLinks.developerName)")
+                        Text(AppLinks.developerEmail)
+                    } icon: { Image(systemName: "envelope") }
                 }
-                Button { copyAddress() } label: {
-                    LabeledContent {
-                        Image(systemName: "doc.on.doc").foregroundStyle(.tint)
-                    } label: {
-                        Label(AppLinks.developerEmail, systemImage: "at").foregroundStyle(.primary)
-                    }
-                }
-                .accessibilityLabel("Copy \(AppLinks.developerEmail)")
-                if let issue = Feedback.gitHubIssueURL(repository: AppLinks.repository, kind: kind, env: env) {
-                    Link(destination: issue) { Label("Create an issue on GitHub", systemImage: "chevron.left.forwardslash.chevron.right") }
-                }
+            } header: {
+                Text("Send it")
             } footer: {
-                Text("Your mail app opens with a message ready for you to finish and send, with your app version and \(Device.name) model filled in. \(AppLinks.developerName) will see your email address. GitHub issues are public and need a GitHub account.")
+                Text("Both come with your app version and \(Device.name) model filled in, nothing else. Everyone in the group can read what you post there. By email only \(AppLinks.developerName) reads it, and sees your email address.")
             }
         }
         .formStyle(.grouped)

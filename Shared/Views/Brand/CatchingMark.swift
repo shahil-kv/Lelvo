@@ -87,7 +87,8 @@ struct CatchingMark: View {
                 guard let asset = photos.asset(localIdentifier: localIdentifier) else { return nil }
                 return await photos.image(for: asset, targetSize: CGSize(width: 120, height: 120), mode: .fastFormat)
             }.value
-            guard let image, visible else { return }
+            // Checked again after the image load: other landings may have filled the slots while it was loading.
+            guard let image, visible, flights.count < 3 else { return }
             let flight = Flight(image: image, from: from)
             flights.append(flight)
             try? await Task.sleep(for: .milliseconds(520))

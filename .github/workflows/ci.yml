@@ -1,7 +1,8 @@
 name: CI
 
-# Every pull request and push to main: core unit tests, iOS and Mac builds with no warnings in our code, iOS tests.
-# Docs-only changes skip the macOS jobs; skipped jobs still count as passed for the required checks on main.
+# Every pull request and push to main builds only what changed: Apple code → core tests, iOS and Mac builds and iOS
+# tests; android/ → Android core tests and the Android build; docs and the website → no builds (just the website
+# check). The test vectors are shared, so they run both. Skipped jobs still count as passed for required checks.
 # Set the repository variable MACOS_RUNNER to use another macOS runner image (for example xcode-27).
 on:
   pull_request:
@@ -21,22 +22,37 @@ jobs:
     name: What changed
     runs-on: ubuntu-latest
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      apple: ${{ steps.filter.outputs.apple == 'true' || steps.filter.outputs.apple_setup == 'true' || steps.filter.outputs.vectors == 'true' || steps.filter.outputs.ci == 'true' }}
+      android: ${{ steps.filter.outputs.android == 'true' || steps.filter.outputs.android_setup == 'true' || steps.filter.outputs.vectors == 'true' || steps.filter.outputs.ci == 'true' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
+          # `every`: a file counts for a filter only when it matches all of its patterns, so each filter has at most
+          # one positive pattern (two would have to match the same file) plus exclusions.
           filters: |
-            code:
+            apple:
+              - '!android/**'
               - '!**/*.md'
               - '!docs/**'
               - '!LICENSE'
-              - '!.github/ISSUE_TEMPLATE/**'
+              - '!.github/**'
               - '!website/**'
               - '!wrangler.jsonc'
               - '!website-worker.js'
               - '!Scripts/waitlist.gs'
+            android:
+              - 'android/**'
+              - '!android/**/*.md'
+            android_setup:
+              - '.github/actions/android/**'
+            apple_setup:
+              - '.github/actions/setup/**'
+            vectors:
+              - 'docs/test-vectors/**'
+            ci:
+              - '.github/workflows/ci.yml'
           predicate-quantifier: every
       - name: Website pages match their Markdown
         run: |
@@ -46,7 +62,7 @@ jobs:
   core:
     name: Core unit tests
     needs: changes
-    if: needs.changes.outputs.code == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.apple == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
     timeout-minutes: 20
     steps:
@@ -55,10 +71,46 @@ jobs:
         working-directory: Packages/LelvoCore
         run: swift test 2>&1 | tail -40
 
+  # The Android app writes the same Telegram libraries, so its format and encryption code must pass the same test
+  # vectors as the Swift core on every change. Pure JVM: no Android SDK or emulator needed.
+  android-core:
+    name: Android core unit tests
+    needs: changes
+    if: needs.changes.outputs.android == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: gradle test
+        working-directory: android
+        run: ./gradlew :core:test --no-daemon
+
+  android-app:
+    name: Android app build
+    needs: changes
+    if: needs.changes.outputs.android == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # The first run builds TDLib (about 40 minutes); later runs restore it from the cache.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/android
+      - name: Build debug app, no Kotlin warnings
+        working-directory: android
+        run: |
+          ./gradlew :app:assembleDebug --no-daemon > ../build-android.log 2>&1 || { grep -E '^e: |What went wrong' -A6 ../build-android.log | head -60; tail -40 ../build-android.log; exit 1; }
+          if grep -E '^w: ' ../build-android.log; then echo "::error::Kotlin warnings above"; exit 1; fi
+          tail -2 ../build-android.log
+
   apps:
     name: iOS and Mac
     needs: changes
-    if: needs.changes.outputs.code == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.apple == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
     # Hosted macOS runners take about an hour for the UI tests (run twice on a failure); 75 minutes cut off the
     # Release build that comes after them.

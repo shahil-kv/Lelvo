@@ -21,7 +21,7 @@ body:
     attributes:
       label: App
       multiple: true
-      options: [iPhone, iPad, Mac]
+      options: [iPhone, iPad, Mac, Android]
     validations:
       required: true
   - type: textarea

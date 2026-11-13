@@ -12,6 +12,18 @@ Settings → About → Acknowledgements.
 | [OpenSSL](https://www.openssl.org) 3.x | Cryptography inside TDLib | [Apache License 2.0](https://www.openssl.org/source/license.html) |
 | [Argon2](https://github.com/P-H-C/phc-winner-argon2) reference implementation | Passphrase key derivation (Argon2id), included unchanged in [Packages/LelvoCore/Sources/CArgon2](Packages/LelvoCore/Sources/CArgon2) | [CC0 1.0 or Apache License 2.0](https://github.com/P-H-C/phc-winner-argon2/blob/master/LICENSE) |
 
+The Android app ([android/](android/)) also includes:
+
+| Software | What it does | License |
+|---|---|---|
+| [argon2kt](https://github.com/lambdapioneer/argon2kt) | Argon2id on Android, with the Argon2 reference implementation inside | [MIT](https://github.com/lambdapioneer/argon2kt/blob/main/LICENSE) |
+| [Android Jetpack](https://developer.android.com/jetpack) (Compose, Material 3, Room, WorkManager, Media3, AndroidX) | Screens, the index, background work, video | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [Kotlin](https://kotlinlang.org) and kotlinx (coroutines, serialization) | The language and its libraries | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [Coil](https://github.com/coil-kt/coil) | Loading thumbnails and photos | [Apache License 2.0](https://github.com/coil-kt/coil/blob/main/LICENSE.txt) |
+| [Telephoto](https://github.com/saket/telephoto) | Zooming into photos | [Apache License 2.0](https://github.com/saket/telephoto/blob/trunk/LICENSE.txt) |
+
+TDLib and OpenSSL, above, are in the Android app too.
+
 The website ([website/](website/)) uses the fonts [Bricolage Grotesque](https://github.com/ateliertriay/bricolage) and
 [Source Serif 4](https://github.com/adobe-fonts/source-serif), both under the [SIL Open Font License 1.1](https://openfontlicense.org).
 The App Review demo library in the iPhone app ([iOS/DemoLibrary](iOS/DemoLibrary)) uses sample photos from

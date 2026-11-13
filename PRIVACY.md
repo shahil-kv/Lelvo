@@ -1,6 +1,6 @@
 # Privacy policy
 
-Effective 3 November 2026. Applies to the Lelvo apps for iPhone, iPad and Mac.
+Effective 12 November 2026. Applies to the Lelvo apps for iPhone, iPad, Mac and Android.
 
 **In one sentence:** Lelvo sends your photos from your device to your own Telegram account and nowhere else;
 the people who make it never receive any of your data.
@@ -38,6 +38,22 @@ applies to the Sheet. The apps never collect your email.
   passphrase and the key derived from it never leave your device, and nobody, including us, can recover them.
 - **Links you open** from the app (this policy, the FAQ, GitHub) open in your browser, under that site's own policy.
 
+## Places, maps and things in photos
+
+These features use services built into your phone. None of them receives a photo, and none of them receives anything
+from us.
+
+- **Place names** (Search, Memories, the map): the app asks for the name of an area about 1 km across: Apple's
+  service on iPhone, iPad and Mac, Google's on Android. It sends only the middle of that area, never a photo or its
+  exact location. Apple's [privacy policy](https://www.apple.com/legal/privacy/) or Google's
+  [privacy policy](https://policies.google.com/privacy) applies.
+- **Maps:** map pictures come from Apple Maps on iPhone, iPad and Mac, and from [OpenFreeMap](https://openfreemap.org)
+  on Android. Like any map, the service sees which part of the world is on screen, and your IP address.
+- **Things in photos** ("dog", "beach"): read on your device. On iPhone, iPad and Mac by Apple's Vision, which sends
+  nothing. On Android by Google's ML Kit: your photos and what it finds never leave the phone, but ML Kit sends Google
+  usage metrics (device model, Android version, how fast it ran and any errors), which Google uses to keep ML Kit
+  working. The app can't turn this off. See Google's [ML Kit terms](https://developers.google.com/ml-kit/terms).
+
 ## What stays on your device
 
 - Your Telegram session (in an encrypted database), the Telegram app keys and your encryption key, in the Keychain,
@@ -58,16 +74,18 @@ your library in Telegram.
   [privacy policy](https://telegram.org/privacy), and we can't see or delete it for you. You can delete the channel in
   the Telegram app, or your whole account at [my.telegram.org/delete](https://my.telegram.org/delete).
 - **To stop sharing:** signing out ends Lelvo's access to your Telegram account. You can also end the session in
-  Telegram under Settings → Devices. Turning off Photos access in iOS or macOS settings stops new backups.
+  Telegram under Settings → Devices. Turning off Photos access in your phone's or Mac's settings stops new backups.
 
-Telegram is the only third party that receives your data, and only because you sign in and choose to back up. We don't
-share data with anyone else, so no other company has to protect it.
+Telegram is the only company that receives your photos, and only because you sign in and choose to back up. Apart from
+the place, map and ML Kit requests above, we don't share data with anyone, so no other company has to protect it.
 
 ## Permissions
 
 - **Photos:** to read the photos you choose to back up and to save downloaded ones back. You can allow limited access,
   or none, and still browse your cloud library.
 - **Network:** to talk to Telegram.
+- **Android only:** location in photos (to read where a photo was taken, for Places), notifications (to show a long
+  backup's progress), and running in the background (for automatic backups you turn on).
 
 ## Children
 

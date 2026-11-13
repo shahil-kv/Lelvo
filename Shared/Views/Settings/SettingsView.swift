@@ -87,6 +87,12 @@ struct SettingsView: View {
                     #if os(iOS)
                     NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
                     #endif
+                    Link(destination: AppLinks.community) {
+                        Label {
+                            Text("Lelvo group on Telegram")
+                            Text("Bugs, ideas and help. \(AppLinks.developerName) reads every message.")
+                        } icon: { Image(systemName: "bubble.left.and.bubble.right") }
+                    }
                     NavigationLink { FeedbackView(kind: .bug) } label: { Label("Report a problem", systemImage: "ladybug") }
                     NavigationLink { FeedbackView(kind: .idea) } label: { Label("Suggest a feature", systemImage: "lightbulb") }
                     NavigationLink { LogsView() } label: { Label("Logs", systemImage: "doc.text.magnifyingglass") }
@@ -236,6 +242,7 @@ struct AboutView: View {
             }
             Section {
                 Link(destination: AppLinks.faq) { Label("Questions and answers", systemImage: "questionmark.circle") }
+                Link(destination: AppLinks.community) { Label("Lelvo group on Telegram", systemImage: "bubble.left.and.bubble.right") }
                 NavigationLink { FeedbackView(kind: .bug) } label: { Label("Report a problem", systemImage: "ladybug") }
                 NavigationLink { FeedbackView(kind: .idea) } label: { Label("Suggest a feature", systemImage: "lightbulb") }
                 Link(destination: AppLinks.privacyPolicy) { Label("Privacy policy", systemImage: "hand.raised") }

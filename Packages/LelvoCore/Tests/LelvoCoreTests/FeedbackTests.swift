@@ -60,4 +60,14 @@ import LelvoCore
         #expect(q["app"] == "iPhone")
         #expect(q["version"] == nil)
     }
+
+    @Test func groupPostMatchesThePinnedTemplatesAndCarriesNothingPersonal() {
+        let bug = Feedback.groupPost(.bug, appName: "Lelvo", env: env)
+        #expect(bug.hasPrefix("🐞 Bug\n\nWhat I did:"))
+        #expect(bug.contains("What happened instead:"))
+        #expect(bug.hasSuffix("Phone: iPhone17,1, iOS 26.1\nLelvo version: 0.1.0 (12) (iPhone)"))
+        let idea = Feedback.groupPost(.idea, appName: "Lelvo", env: env)
+        #expect(idea.hasPrefix("💡 Feature idea\n\nWhat I'd like Lelvo to do:"))
+        #expect(idea.hasSuffix("Lelvo 0.1.0 (12) (iPhone), iPhone17,1"))
+    }
 }

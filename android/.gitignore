@@ -1,0 +1,10 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+# TDLib binaries are built by Scripts/build-tdlib.sh, never committed
+telegram/src/main/jniLibs/
+telegram/src/main/java/org/drinkless/

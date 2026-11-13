@@ -370,6 +370,7 @@ final class OnboardingModel: ObservableObject {
     }
 
     func scan() {
+        scanned = 0
         run {
             let summary = try await self.env.library.scan(full: true) { n in
                 Task { @MainActor in self.scanned = n }
@@ -527,6 +528,11 @@ struct OnboardingView: View {
                 .contentTransition(.numericText(value: Double(m.scanned))).motion(Motion.standard, value: m.scanned)
             if let error = m.error { ErrorBanner(message: error).padding(.horizontal, 24) }
             Spacer()
+            // A failed scan otherwise left this screen with no way on; the scan is read-only, so retrying is safe.
+            if m.error != nil {
+                PrimaryCapsuleButton(title: "Try again", enabled: true, busy: m.busy, busyTitle: nil) { m.scan() }
+                    .padding(.horizontal, 24).padding(.vertical, 12)
+            }
         }
         .frame(maxWidth: .infinity)
     }
