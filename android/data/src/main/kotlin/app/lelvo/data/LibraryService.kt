@@ -7,6 +7,7 @@ import app.lelvo.core.crypto.E2EKeys
 import app.lelvo.core.crypto.RecoveryKey
 import app.lelvo.core.format.HeaderResult
 import app.lelvo.core.format.LibraryHeader
+import app.lelvo.core.format.LibraryNames
 import app.lelvo.telegram.TdClient
 import com.lambdapioneer.argon2kt.Argon2Kt
 import com.lambdapioneer.argon2kt.Argon2Mode
@@ -26,9 +27,6 @@ class LibraryException(message: String) : Exception(message) {
         val headerNotSaved = LibraryException(
             "Telegram didn't save the change. Check your connection and try again; your library still opens as before.",
         )
-        val testOnly = LibraryException(
-            "This test version changes only the library named “Android test”. Your other libraries are read, never changed.",
-        )
         val notEncrypted = LibraryException(
             "This library isn't end-to-end encrypted. Lelvo for Android opens only encrypted libraries. Open it in Lelvo on iPhone or Mac.",
         )
@@ -40,11 +38,9 @@ class LibraryException(message: String) : Exception(message) {
  * unlocking half of iOS `LibraryService`.
  */
 class LibraryService(
-    context: Context,
+    private val context: Context,
     private val td: TdClient,
     private val secrets: SecretStore,
-    /** Until the cross-platform gate (Phase N) passes, writes go only to the "Android test" library (owner, 2026-11-11). */
-    private val guardWrites: Boolean = true,
 ) {
     private val prefs = context.getSharedPreferences("library", Context.MODE_PRIVATE)
     @Volatile private var cachedKeys: E2EKeys? = null
@@ -98,7 +94,7 @@ class LibraryService(
             val found = readHeader(id)
             val h = (found as? HeaderResult.Found)?.header
             val isLibrary = found !is HeaderResult.Missing
-            out += ChannelChoice(id, chat.title, isLibrary, h?.encrypted == true)
+            out += ChannelChoice(id, LibraryNames.plain(chat.title), isLibrary, h?.encrypted == true)
         }
         out.sortedWith(compareBy({ if (it.isLibrary) 0 else 1 }, { it.title.lowercase() }))
     }
@@ -111,11 +107,12 @@ class LibraryService(
         // Argon2id takes seconds and 256 MiB: done before anything is written, so a failure leaves no empty channel.
         val made = withContext(Dispatchers.Default) { LibraryHeader.newLibrary(passphrase, argon2) }
         return withContext(Dispatchers.IO) {
-            val chat = td.send(TdApi.CreateNewSupergroupChat(title, false, true, "Lelvo Library · do not edit\n" + made.header.line, null, 0, false))
+            val chat = td.send(TdApi.CreateNewSupergroupChat(LibraryNames.channelTitle(title), false, true, "Lelvo Library · do not edit\n" + made.header.line, null, 0, false))
             val message = td.sendText(chat.id, made.header.messageText)
             // The description holds the header too, so a library whose pin failed still opens.
             runCatching { td.send(TdApi.PinChatMessage(chat.id, message.id, true, false)) }
                 .onFailure { AppLog.warn("Pinning the library header failed") }
+            decorate(chat.id)
             prefs.edit().putLong(CHAT_ID, chat.id).putString(HEADER, made.header.line).putBoolean(SETUP_FINISHED, false).apply()
             storeKeys(made.keys)
             AppLog.info("Created library channel (E2E, header format ${made.header.version})")
@@ -124,26 +121,27 @@ class LibraryService(
     }
 
     /**
-     * Throws unless this build may write to [chatId]. Every write to a library channel (rename, backups, notes,
-     * deletes) asks first: Android must not change a real library before it's proven to write what the iPhone reads.
+     * Gives a new library the Lelvo logo and pins it to the top of the Telegram chat list, so it's easy to find and
+     * hard to mistake for a chat to clear out (iOS `decorate`). Both are extras: the library works without them.
      */
-    suspend fun requireWritable(chatId: Long) {
-        if (!guardWrites) return
-        val title = withContext(Dispatchers.IO) {
-            runCatching { td.send(TdApi.GetChat(chatId)).title }.getOrNull()
-                // After a restart TDLib knows the channel only once the chat list is loaded.
-                ?: runCatching { td.send(TdApi.LoadChats(TdApi.ChatListMain(), 500)); td.send(TdApi.GetChat(chatId)).title }.getOrNull()
-        }
-        // Any capitalisation: the owner named it "Android Test". Unknown title (offline) counts as not allowed.
-        if (!title?.trim().equals(TEST_LIBRARY, ignoreCase = true)) throw LibraryException.testOnly
+    private suspend fun decorate(chatId: Long) {
+        runCatching {
+            // TDLib needs a file path; the logo ships as a raw resource.
+            val file = java.io.File(context.cacheDir, "library_photo.jpg")
+            context.resources.openRawResource(R.raw.library_photo).use { input -> file.outputStream().use { input.copyTo(it) } }
+            td.send(TdApi.SetChatPhoto(chatId, TdApi.InputChatPhotoStatic(TdApi.InputFileLocal(file.absolutePath))))
+        }.onFailure { if (it is CancellationException) throw it; AppLog.warn("Setting the library photo failed") }
+        // Telegram refuses when the user's pinned chats are full; it never unpins another chat, so a refusal just
+        // leaves the library unpinned.
+        runCatching { td.send(TdApi.ToggleChatIsPinned(TdApi.ChatListMain(), chatId, true)) }
+            .onFailure { if (it is CancellationException) throw it; AppLog.info("Library not pinned in the chat list") }
     }
 
     /** Renames the channel. Libraries are recognised by their header, never by name, so this is safe. */
     suspend fun rename(chatId: Long, title: String) = withContext(Dispatchers.IO) {
         val clean = title.trim()
         if (clean.isEmpty()) return@withContext
-        requireWritable(chatId)
-        td.send(TdApi.SetChatTitle(chatId, clean.take(128)))
+        td.send(TdApi.SetChatTitle(chatId, LibraryNames.channelTitle(clean)))
         AppLog.info("Renamed library channel")
     }
 
@@ -258,7 +256,6 @@ class LibraryService(
      */
     suspend fun changePassphrase(current: String, new: String): RecoveryKey? {
         val chat = chatId ?: throw LibraryException.noLibrary
-        requireWritable(chat)
         val header = refreshHeader()
         val (changed, recovery) = withContext(Dispatchers.Default) {
             val keys = keysFor(header, current)
@@ -279,7 +276,6 @@ class LibraryService(
      */
     suspend fun newRecoveryKey(passphrase: String): RecoveryKey {
         val chat = chatId ?: throw LibraryException.noLibrary
-        requireWritable(chat)
         val header = refreshHeader()
         val (replaced, recovery) = withContext(Dispatchers.Default) {
             when (header) {
@@ -345,6 +341,5 @@ class LibraryService(
         const val KEYS_CHAT_ID = "keysChatId"
         const val MASTER_KEY = "e2e-master-key"
         const val SETUP_FINISHED = "setupFinished"
-        const val TEST_LIBRARY = "Android test"
     }
 }

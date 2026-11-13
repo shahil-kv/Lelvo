@@ -58,7 +58,7 @@ class TrashException(message: String) : Exception(message) {
  *
  * A change is written to the index and queued in its outbox in one transaction, so it survives the app closing and a
  * scan can't undo it. Notes go grouped (5 s) and at most one every 10 s per kind, through the backup engine's upload
- * slots and FLOOD_WAIT pause. Every write to the channel asks [LibraryService.requireWritable] first.
+ * slots and FLOOD_WAIT pause.
  */
 class NoteSync(
     context: Context,
@@ -97,12 +97,6 @@ class NoteSync(
 
     private val ready: Boolean get() = !isDemo() && library.isConfigured && library.isUnlocked
 
-    /** The library, when this build may write to it (only "Android test" before the gate); null otherwise. */
-    private suspend fun writableChat(): Long? {
-        val chatId = library.chatId ?: return null
-        return try { library.requireWritable(chatId); chatId } catch (e: LibraryException) { null }
-    }
-
     // MARK: Actions the user takes
 
     /**
@@ -113,7 +107,6 @@ class NoteSync(
         val ids = items.filter { it.status == ItemStatus.BackedUp || it.status == ItemStatus.Trashed }.map { it.id }
         if (ids.isEmpty()) return 0
         val chatId = noteChatId
-        chatId?.let { library.requireWritable(it) }
         store.changeMeta(ids, key, value, chatId)
         if (chatId != null) metaPacer.schedule()
         return ids.size
@@ -125,7 +118,6 @@ class NoteSync(
      */
     suspend fun deleteFromCloud(items: List<LibraryItem>): Int {
         val chatId = noteChatId
-        chatId?.let { library.requireWritable(it) }
         val telegramNow = if (chatId != null) telegram.telegramTimeMs() else null
         logClockGap(telegramNow)
         val at = CloudTrash.deletedAt(System.currentTimeMillis(), telegramNow)
@@ -149,7 +141,6 @@ class NoteSync(
         var chatId: Long? = null
         if (!demo) {
             chatId = library.chatId ?: throw TrashException.needsConnection
-            library.requireWritable(chatId)
             telegram.telegramTimeMs(10_000) ?: throw TrashException.needsConnection
             try { withTimeout(120_000) { scanner.catchUp() } } catch (e: Exception) {
                 if (e is CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException) throw e
@@ -192,7 +183,6 @@ class NoteSync(
     /** Backing up again a photo still in Recently Deleted is recovering it (iOS `BackupEngine` chosen photos). */
     suspend fun recoverForBackup(item: LibraryItem): Boolean {
         val chatId = noteChatId
-        chatId?.let { library.requireWritable(it) }
         val done = gate.ifNotDeleting(item.id) {
             store.changeTrashState(item.id, TrashLog.Op.RECOVER, chatId) { TrashLog.recover(it) }
         }
@@ -207,7 +197,7 @@ class NoteSync(
      */
     suspend fun deletePermanently(items: List<LibraryItem>, expiredBy: Long? = null) {
         if (items.isEmpty()) return
-        val chatId = if (isDemo()) null else (library.chatId ?: throw LibraryException.noLibrary).also { library.requireWritable(it) }
+        val chatId = if (isDemo()) null else (library.chatId ?: throw LibraryException.noLibrary)
         CloudTrash.deleteBatches(items).forEachIndexed { index, batch ->
             if (index > 0 && chatId != null) delay(BackupEngine.UPLOAD_SPACING_MS)
             while (true) {
@@ -259,7 +249,7 @@ class NoteSync(
         if (!ready) return
         // Nothing due by this phone's clock means nothing is due at all: the earlier clock decides.
         if (store.items(ItemStatus.Trashed).none { CloudTrash.isExpired(it, System.currentTimeMillis()) }) return
-        val chatId = writableChat() ?: return
+        val chatId = library.chatId ?: return
         val telegramNow = telegram.telegramTimeMs(30_000)
         logClockGap(telegramNow)
         val now = CloudTrash.expiryClock(System.currentTimeMillis(), telegramNow) ?: run {
@@ -373,8 +363,7 @@ class NoteSync(
         var notes = store.trashNotes()
         val oldKey = "trashNotesForOldItemsAdded.$chatId"
         if (!prefs.getBoolean(oldKey, false)) {
-            // Only where this build may write: a note can't go to the real library before the gate.
-            if (writableChat() != chatId) return
+            if (library.chatId != chatId) return
             val old = TrashLog.itemsNeedingANote(trashed, notes, waiting)
             if (old.isNotEmpty()) {
                 AppLog.info("Adding ${old.size} items already in Recently Deleted to your other devices")
@@ -516,7 +505,6 @@ class NoteSync(
         withContext(Dispatchers.IO) {
             // These ids belong to that library; a switch while this waited must not send them to the new one.
             if (library.chatId != chatId) throw LibraryException.noLibrary
-            library.requireWritable(chatId)
             val keys = library.keys ?: throw LibraryException.wrongPassphrase
             val dir = File(staging, UUID.randomUUID().toString()).apply { mkdirs() }
             try {
@@ -546,7 +534,7 @@ class NoteSync(
         try {
             val notes = store.trashNotes()
             if (notes.isEmpty() || scanner.needsFullScan()) return
-            val chatId = writableChat() ?: return
+            val chatId = library.chatId ?: return
             val known = store.allItems().map { it.id }.toHashSet()
             deleteNotes(chatId, TrashLog.notesToRemove(notes, known).map { it.messageId }, "Recently Deleted") { store.removeTrashNotes(it) }
         } finally {
@@ -560,7 +548,7 @@ class NoteSync(
         try {
             val notes = store.metaNotes()
             if (notes.isEmpty() || scanner.needsFullScan()) return
-            val chatId = writableChat() ?: return
+            val chatId = library.chatId ?: return
             val now = System.currentTimeMillis() / 1000
             // The whole index only when a note is old enough for its items to have been deleted for good.
             val anyOld = notes.any { now - it.date > MetaLog.GONE_AFTER_SECONDS }
@@ -596,7 +584,7 @@ class NoteSync(
     private suspend fun compactIfLong() {
         val chatId = library.chatId ?: return
         if (store.metaNotes().size <= MetaLog.COMPACT_ABOVE || store.queuedMetaChanges(chatId).isNotEmpty()) return
-        if (writableChat() != chatId) return
+        if (library.chatId != chatId) return
         metaSend.withLock {
             // Read the newest messages right before, so a change another device just sent is part of the state written.
             runCatching { scanner.scan(full = false) }.getOrNull() ?: return
@@ -637,7 +625,7 @@ class NoteSync(
      */
     suspend fun matchPhoneFavorites(): Int {
         if (!ready || scanner.needsFullScan()) return 0
-        val chatId = writableChat() ?: return 0
+        val chatId = library.chatId ?: return 0
         val phoneFavorites = photos.favoriteIds() ?: return 0
         val items = store.items(ItemStatus.BackedUp).filter { it.localId != null }
         val lastSeen = store.phoneFavorites()

@@ -61,7 +61,6 @@ import app.lelvo.core.backup.BackupCounts
 import app.lelvo.core.index.BackupBadge
 import app.lelvo.core.index.ItemStatus
 import app.lelvo.core.index.LibraryItem
-import app.lelvo.data.LibraryException
 import app.lelvo.data.backup.BackupActivity
 import app.lelvo.data.media.PhotoAccess
 import kotlinx.coroutines.Dispatchers
@@ -119,13 +118,6 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
             }
         }
     }
-    // Until Phase N, a debug build writes only to the "Android test" library: say so before anyone taps.
-    val writeBlock by produceState<String?>(null, isDemo) {
-        value = withContext(Dispatchers.IO) {
-            val chat = app.library.chatId ?: return@withContext null
-            try { app.library.requireWritable(chat); null } catch (e: LibraryException) { e.message }
-        }
-    }
     LaunchedEffect(activity.lastSummary) {
         val s = activity.lastSummary ?: return@LaunchedEffect
         when {
@@ -167,9 +159,6 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
             item("header") { StatusHeader(shown, stats, app.prefs.lastBackupAt, photoUri = { app.photos.uris(listOf(it)).firstOrNull() }) }
             item("buttons") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    writeBlock?.let {
-                        Text(it, style = MaterialTheme.typography.bodyMedium, color = Lelvo.colors.orange, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                    }
                     if (activity.isRunning) {
                         OutlinedButton(onClick = { Messages.show(Messages.Style.Info, "Pausing the backup"); app.pauseBackup() }, modifier = Modifier.fillMaxWidth()) {
                             Icon(painterResource(R.drawable.ic_pause), contentDescription = null, modifier = Modifier.size(18.dp))
@@ -179,7 +168,7 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                         // Only when something is waiting or not in the cloud yet, as on iOS: a finished backup has
                         // nothing for the button to do (new photos show up in the counts and bring it back).
                         Button(onClick = { if (isDemo) scope.launch { app.demo.runBackup() } else { askNotifications(); app.startBackup(includeNew = true) } },
-                            enabled = isDemo || writeBlock == null, modifier = Modifier.fillMaxWidth()) {
+                            modifier = Modifier.fillMaxWidth()) {
                             Icon(painterResource(R.drawable.ic_cloud_upload), contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp)); Text(if (app.prefs.backupPaused) "Resume backup" else "Back up now")
                         }
@@ -192,7 +181,7 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                         OutlinedButton(onClick = {
                             Messages.show(Messages.Style.Info, "Retrying ${stats.counts.retryable} failed")
                             scope.launch { engine.retryFailed(); app.startBackup(includeNew = false) }
-                        }, enabled = writeBlock == null, modifier = Modifier.fillMaxWidth()) {
+                        }, modifier = Modifier.fillMaxWidth()) {
                             Icon(painterResource(R.drawable.ic_sync), contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp)); Text("Retry ${stats.counts.retryable} failed")
                         }

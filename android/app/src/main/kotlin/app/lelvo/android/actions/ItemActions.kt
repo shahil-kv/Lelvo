@@ -68,7 +68,7 @@ class PhoneActions internal constructor(
             return
         }
         scope.launch {
-            // The library first: a refused write (a library this test version doesn't change) stops before the prompt.
+            // The library first: a refused change stops before the phone prompt.
             if (inLibrary.isNotEmpty() && !tryChange { app.sync.change(inLibrary, MetaLog.Key.Favorite, favorite) }) return@launch
             if (onPhone.isEmpty()) { onFavorited(favorite); return@launch }
             if (Build.VERSION.SDK_INT < 30) {
