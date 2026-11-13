@@ -84,6 +84,60 @@ public enum TakeoutImportStep {
     }
 }
 
+/// What to do with a paired edit or Live Photo video once the original's SHA-256 is already a backed-up twin.
+/// The original is a duplicate either way. These files stay off that twin: writing them on would replace its caption.
+public enum TakeoutDuplicateExtras {
+    public enum Action: Equatable, Sendable {
+        /// The edit, as its own photo.
+        case uploadOwnPhoto
+        /// The Live Photo video, as its own video.
+        case uploadOwnVideo
+        /// The file is already on the twin, or already backed up as its own item.
+        case alreadyInLibrary
+    }
+
+    public struct Result: Equatable, Sendable {
+        public var edit: Action?
+        public var pairedVideo: Action?
+
+        /// True when nothing here still has to be uploaded, so the import row may become `.duplicate`.
+        public var mayMarkDuplicate: Bool {
+            [edit, pairedVideo].compactMap { $0 }.allSatisfy { $0 == .alreadyInLibrary }
+        }
+
+        public init(edit: Action?, pairedVideo: Action?) {
+            self.edit = edit
+            self.pairedVideo = pairedVideo
+        }
+    }
+
+    /// `backedUpOriginalHashes` are SHA-256 values of items already `.backedUp` (the original file, not a role).
+    public static func decide(editedHash: String?, pairedHash: String?, twin: MediaItem,
+                              backedUpOriginalHashes: Set<String>) -> Result {
+        Result(
+            edit: editAction(editedHash, twin: twin, backedUpOriginalHashes: backedUpOriginalHashes),
+            pairedVideo: videoAction(pairedHash, twin: twin, backedUpOriginalHashes: backedUpOriginalHashes))
+    }
+
+    /// A different crop is its own photo. The same edit already on the twin, or the same bytes already backed up,
+    /// is not uploaded again and is not attached to the twin.
+    private static func editAction(_ hash: String?, twin: MediaItem, backedUpOriginalHashes: Set<String>) -> Action? {
+        guard let hash else { return nil }
+        if Deduplicator.isSamePhoto(editHash: hash, as: twin) { return .alreadyInLibrary }
+        if backedUpOriginalHashes.contains(hash) { return .alreadyInLibrary }
+        return .uploadOwnPhoto
+    }
+
+    /// A Live Photo video the twin does not already have as `pv` is its own video, unless those bytes are already
+    /// backed up on their own.
+    private static func videoAction(_ hash: String?, twin: MediaItem, backedUpOriginalHashes: Set<String>) -> Action? {
+        guard let hash else { return nil }
+        if twin.roleHashes?["pv"] == hash { return .alreadyInLibrary }
+        if backedUpOriginalHashes.contains(hash) { return .alreadyInLibrary }
+        return .uploadOwnVideo
+    }
+}
+
 extension TakeoutPlannedItem {
     /// A later catalogue is built before the file is read, so it doesn't know which date was written.
     public func keepingDateUsed(_ previous: TakeoutDateChoice.Source?) -> TakeoutPlannedItem {
@@ -108,6 +162,14 @@ extension TakeoutPlannedItem {
             item.sidecar = sidecar
         }
         return item
+    }
+
+    /// Files from this plan that were uploaded as their own items. Empty until that happens, so an edit or Live
+    /// Photo video that stayed attached to its original is not listed as separate.
+    public func entriesUploadedSeparately() -> [TakeoutSourceEntry] {
+        let names = Set(uploadedSeparately ?? [])
+        guard !names.isEmpty else { return [] }
+        return [edited, pairedVideo].compactMap { $0 }.filter { names.contains(TakeoutMatcher.fileName($0.entry.path)) }
     }
 }
 

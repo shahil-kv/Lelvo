@@ -83,16 +83,18 @@ extension LibraryStore {
     }
 
     /// Re-planning (a later zip, a Live Photo pair) must not restart an item already uploading or done.
-    /// A catalogue plan has no `dateUsed`: send stores that after reading the file, and this write can land
-    /// later, while the row is still pending. The JSON replace has to keep that choice. A finished row is
-    /// not planned again, so a nil written here would leave the photo off the undated list for good.
+    /// A catalogue plan has no `dateUsed` or `uploadedSeparately`: send stores those after reading the file,
+    /// and this write can land later, while the row is still pending. The JSON replace has to keep them.
+    /// A finished row is not planned again, so a nil date written here would leave the photo off the undated list.
     public func upsertPlanned(_ items: [TakeoutPlannedItem]) throws {
         guard !items.isEmpty else { return }
         let now = Date().timeIntervalSince1970
         try inWriteTransaction {
             for var item in items {
-                if item.dateUsed == nil {
-                    item.dateUsed = try storedDateUsed(key: item.key)
+                if item.dateUsed == nil || item.uploadedSeparately == nil {
+                    let stored = try storedPlanned(key: item.key)
+                    if item.dateUsed == nil { item.dateUsed = stored?.dateUsed }
+                    if item.uploadedSeparately == nil { item.uploadedSeparately = stored?.uploadedSeparately }
                 }
                 let json = String(decoding: try Self.importEncoder.encode(item), as: UTF8.self)
                 try withStatement(
@@ -114,16 +116,16 @@ extension LibraryStore {
         }
     }
 
-    /// Read on the writer, inside the upsert transaction, so a `dateUsed` send committed after the catalogue
-    /// read its snapshot is still here. Nil means the row is new, or send has not chosen yet.
-    private func storedDateUsed(key: String) throws -> TakeoutDateChoice.Source? {
+    /// Read on the writer, inside the upsert transaction, so a choice send committed after the catalogue
+    /// read its snapshot is still here. Nil means the row is new, or send has not stored one yet.
+    private func storedPlanned(key: String) throws -> TakeoutPlannedItem? {
         try withStatement(
             "SELECT json FROM import_items WHERE key = ? LIMIT 1;",
             bind: { bindText($0, 1, key) }
         ) { s in
             guard sqlite3_step(s) == SQLITE_ROW, let text = sqlite3_column_text(s, 0) else { return nil }
             let json = Data(String(cString: text).utf8)
-            return (try? Self.importDecoder.decode(TakeoutPlannedItem.self, from: json))?.dateUsed
+            return try? Self.importDecoder.decode(TakeoutPlannedItem.self, from: json)
         }
     }
 

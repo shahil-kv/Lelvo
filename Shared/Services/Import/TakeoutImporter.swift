@@ -374,7 +374,10 @@ final class TakeoutImporter: ObservableObject {
         // those, and the delete step still has to name it.
         let already = previous.compactMap { imported.contains($0.0.key) ? $0.0 : nil }
         let separate = TakeoutPlanner.importedSeparately(plan.items + already, alreadyImported: already)
-        Self.rememberNotes(skipped: plan.skipped, separate: separate,
+        let split = previous.flatMap { $0.0.entriesUploadedSeparately() }
+        var seen = Set<TakeoutSourceEntry>()
+        let named = (separate + split).filter { seen.insert($0).inserted }
+        Self.rememberNotes(skipped: plan.skipped, separate: named,
                            openedIDs: Set(sources.map(\.id)), recordIDs: Set(records.map(\.id)))
         let counts = try env.store.importCounts()
         let estimate = spaceEstimate()
@@ -604,14 +607,58 @@ final class TakeoutImporter: ObservableObject {
         let existing = storedId.flatMap { try? env.store.item(id: $0) }
         let twin = ((try? env.store.items(sha256: primaryHash)) ?? []).first { $0.status == .backedUp && $0.id != existing?.id }
         let hasParts = existing?.hasCloudParts == true
-        // No confirmed part yet: a twin is a duplicate. Parts already in the channel keep going, so a resume isn't dropped.
+        // No confirmed part yet: a twin duplicates the original only. Parts already in the channel keep going, so a
+        // resume isn't dropped. A different edit or Live Photo video is its own item; writing it onto the twin
+        // would replace the caption already in the channel.
         let afterHash = TakeoutImportStep.next(status: hasParts ? .uploading : .pending, existingBackedUpTwin: twin != nil,
                                                sourceAvailable: true, freeBytes: Int64.max, neededBytes: 0)
         if afterHash == .markDuplicate, let twin {
             if let existing, existing.id != twin.id, !hasParts { try? env.store.delete(id: existing.id) }
-            try env.store.setImportStatus(key: key, status: .duplicate, itemId: twin.id, error: nil)
+            let followUp = TakeoutDuplicateExtras.decide(
+                editedHash: editedHash, pairedHash: pairedHash, twin: twin,
+                backedUpOriginalHashes: backedUpOriginalHashes([editedHash, pairedHash].compactMap { $0 }))
             addNotes(itemId: twin.id, albums: planned.albums, favorite: planned.sidecar?.favorite == true)
-            appLog("\(filename) is already in the library (\(primarySize) bytes)")
+            if followUp.mayMarkDuplicate {
+                try env.store.setImportStatus(key: key, status: .duplicate, itemId: twin.id, error: nil)
+                appLog("\(filename) is already in the library (\(primarySize) bytes)")
+                return
+            }
+            // Unsettled until each extra file is uploaded or is itself a duplicate, so Delete zip stays hidden.
+            try env.store.setImportStatus(key: key, status: .uploading, itemId: nil, error: nil)
+            var waiting = false
+            if followUp.edit == .uploadOwnPhoto {
+                guard let edited = planned.edited, let editedURL, let editedHash else {
+                    try env.store.setImportStatus(key: key, status: .failed, itemId: nil,
+                                                  error: "This photo didn't finish uploading. It will be tried again.")
+                    return
+                }
+                if try await uploadSeparately(url: editedURL, hash: editedHash, entry: edited, kind: .photo,
+                                              twinId: twin.id, sidecar: planned.sidecar, laneKey: laneKey,
+                                              epoch: epoch, importKey: key) == .waiting {
+                    waiting = true
+                }
+            }
+            if followUp.pairedVideo == .uploadOwnVideo {
+                guard let paired = planned.pairedVideo, let pairedURL, let pairedHash else {
+                    try env.store.setImportStatus(key: key, status: .failed, itemId: nil,
+                                                  error: "This photo didn't finish uploading. It will be tried again.")
+                    return
+                }
+                if try await uploadSeparately(url: pairedURL, hash: pairedHash, entry: paired, kind: .video,
+                                              twinId: twin.id, sidecar: planned.sidecar, laneKey: laneKey,
+                                              epoch: epoch, importKey: key) == .waiting {
+                    waiting = true
+                }
+            }
+            if waiting {
+                try env.store.setImportStatus(key: key, status: .waitingForDetails, itemId: nil, error: nil)
+                return
+            }
+            if let recorded = storedPlan(key) {
+                addNotes(itemId: twin.id, albums: recorded.albums, favorite: recorded.sidecar?.favorite == true)
+            }
+            try env.store.setImportStatus(key: key, status: .duplicate, itemId: twin.id, error: nil)
+            appLog("\(filename) is already in the library; an edit or video was imported on its own")
             return
         }
 
@@ -785,6 +832,156 @@ final class TakeoutImporter: ObservableObject {
         }
         _ = try? env.thumbnailCache.store(data: thumbData, for: CloudMediaService.thumbnailKey(item), ext: "jpg")
         appLog("Imported \(filename) (\(primarySize) bytes)")
+    }
+
+    private enum SeparateUpload: Equatable {
+        case uploaded
+        case waiting
+    }
+
+    /// SHA-256 values that already belong to a backed-up item's original. Role hashes are not included: a Live
+    /// Photo video only counts as present when it is `pv` on the twin, which the decision checks itself.
+    nonisolated private func backedUpOriginalHashes(_ hashes: [String]) -> Set<String> {
+        var found = Set<String>()
+        for hash in hashes {
+            let items = (try? env.store.items(sha256: hash)) ?? []
+            if items.contains(where: { $0.status == .backedUp }) { found.insert(hash) }
+        }
+        return found
+    }
+
+    /// One edit or Live Photo video, uploaded as its own photo or video. Nothing here is written onto the twin.
+    nonisolated private func uploadSeparately(url: URL, hash: String, entry: TakeoutSourceEntry, kind: MediaKind,
+                                              twinId: String, sidecar: TakeoutSidecar?, laneKey: String, epoch: Int,
+                                              importKey: String) async throws -> SeparateUpload {
+        let matches = (try? env.store.items(sha256: hash)) ?? []
+        if matches.contains(where: { $0.status == .backedUp }) { return .uploaded }
+        let name = ImportPaths.fileName(entry.entry.path)
+        let info = await ImportedFileInfo.read(url, kind: kind)
+        let prior = matches.first { $0.id != twinId && $0.status != .trashed }
+        guard let choice = TakeoutDateChoice.choose(
+            google: sidecar?.takenAt, file: info.takenAt, zipModified: entry.entry.modified,
+            allFilesAdded: TakeoutImportMemory.allFilesAdded,
+            alreadyUploading: prior?.status == .uploading || prior?.hasCloudParts == true) else {
+            return .waiting
+        }
+        let date = choice.date
+        let zone = choice.source == .file ? info.tzMinutes : nil
+        let place = Self.place(sidecar: sidecar, file: info)
+        let size = try CloudUploader.size(of: url)
+        let id = prior?.id ?? UUID().uuidString.lowercased()
+        var item = prior ?? MediaItem(id: id, localIdentifier: nil, sha256: hash, filename: name, kind: kind,
+                                      creationDate: date, latitude: place?.0, longitude: place?.1,
+                                      pixelWidth: info.width, pixelHeight: info.height,
+                                      duration: kind == .video ? info.duration : nil, fileSize: size,
+                                      encrypted: env.library.isEncrypted, status: .uploading)
+        item.localIdentifier = nil
+        item.sha256 = hash
+        item.filename = name
+        item.kind = kind
+        item.uti = UTType(filenameExtension: (name as NSString).pathExtension)?.identifier
+        item.creationDate = date
+        item.latitude = place?.0
+        item.longitude = place?.1
+        item.pixelWidth = info.width
+        item.pixelHeight = info.height
+        item.duration = kind == .video ? info.duration : nil
+        item.fileSize = size
+        item.encrypted = env.library.isEncrypted
+        item.status = .uploading
+        item.mimeType = name.mimeTypeForFilename
+        item.codec = info.codec
+        item.hdr = info.hdr
+        item.tzOffsetMinutes = zone
+        item.albums = nil
+        item.favorite = nil
+        item.hasEdit = nil
+        item.pairedVideoFilename = nil
+        item.pairedVideoSize = nil
+        item.editedFilename = nil
+        item.editedSize = nil
+        item.extrasChecked = true
+        item.roleHashes = ["o": hash]
+        item.lastError = nil
+        try env.store.upsert(item)
+        // Named before the bytes go out, so a crash while uploading still lists the file once the row can settle.
+        try rememberSeparateUpload(key: importKey, entry: entry)
+
+        let thumbData = info.thumbnailJPEG ?? ImportPlaceholder.jpeg(for: kind)
+        let thumbURL = url.deletingLastPathComponent().appendingPathComponent("thumb-\(kind.rawValue).jpg")
+        try thumbData.write(to: thumbURL)
+        var thumbSize = (320, 320)
+        if let px = ImageDimensions.pixelSize(of: thumbData) { thumbSize = (px.width, px.height) }
+        let original = CaptionMeta.make(for: item, role: .original, hash: hash, name: name, size: size)
+        var resources = [PreparedResource(role: "o", fileURL: url, meta: original)]
+        if item.encrypted {
+            resources.append(PreparedResource(role: "t", fileURL: thumbURL,
+                                              meta: CaptionMeta.make(for: item, role: .thumbnail, hash: IndexCodec.sha256Hex(thumbData),
+                                                                     name: "thumb.jpg", size: Int64(thumbData.count))))
+        }
+
+        let store = env.store
+        let itemId = item.id
+        let streamTotal = resources.reduce(Int64(0)) { $0 + ((try? CloudUploader.size(of: $1.fileURL)) ?? 0) }
+        var sentBefore: Int64 = 0
+        for resource in resources {
+            try Task.checkCancellation()
+            if !control.allows(epoch) { throw CancellationError() }
+            let base = sentBefore
+            let role = resource.role
+            let parts = try await env.uploader.upload(
+                itemId: itemId, resource: resource, encrypted: item.encrypted,
+                thumbnail: (thumbURL, thumbSize.0, thumbSize.1),
+                existing: item.parts(role), resume: item.uploadResume?[role],
+                checkpoint: { parts, expected, resume in
+                    try store.update(id: itemId) { $0.setParts(parts, role: role, expected: expected, resume: resume) }
+                },
+                progress: { sent, _ in
+                    let total = streamTotal
+                    Task { @MainActor in
+                        BackupActivity.shared.lanes[laneKey] = BackupActivity.LaneProgress(name: name, sent: min(base + sent, total), total: total)
+                    }
+                })
+            item = (try? store.item(id: itemId)) ?? item
+            item.setParts(parts, role: role, expected: parts.count)
+            sentBefore += (try? CloudUploader.size(of: resource.fileURL)) ?? 0
+        }
+        item = (try? store.item(id: itemId)) ?? item
+        var finalHashes = item.roleHashes ?? ["o": hash]
+        finalHashes["o"] = hash
+        item.roleHashes = finalHashes
+        guard item.isCompleteInCloud else {
+            item.status = .failed
+            item.lastError = "This photo didn't finish uploading. It will be tried again."
+            try store.upsert(item)
+            throw ImportFailure(item.lastError ?? "This photo didn't finish uploading. It will be tried again.")
+        }
+        item.status = .backedUp
+        item.uploadedAt = Date()
+        item.lastError = nil
+        try store.upsert(item)
+        _ = try? env.thumbnailCache.store(data: thumbData, for: CloudMediaService.thumbnailKey(item), ext: "jpg")
+        appLog("Imported \(name) on its own (\(size) bytes)")
+        return .uploaded
+    }
+
+    /// The delete dialog lists a file here only after this import uploaded it on its own.
+    nonisolated private func rememberSeparateUpload(key: String, entry: TakeoutSourceEntry) throws {
+        let name = ImportPaths.fileName(entry.entry.path)
+        if var stored = storedPlan(key) {
+            var names = stored.uploadedSeparately ?? []
+            if !names.contains(name) {
+                names.append(name)
+                stored.uploadedSeparately = names
+                try env.store.upsertPlanned([stored])
+            }
+        }
+        var notes = TakeoutImportMemory.notes
+        let note = TakeoutNotedName(sourceId: entry.sourceId, name: name, separate: true)
+        if !notes.contains(note) {
+            notes.append(note)
+            TakeoutImportMemory.notes = notes
+        }
     }
 
     nonisolated private func resolved(_ stored: TakeoutSourceEntry, sources: OpenSources) throws -> (any ImportSource, ZipEntry) {

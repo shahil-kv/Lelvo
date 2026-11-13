@@ -151,6 +151,17 @@ import Testing
         }
 
         var chosen = planned(key: "fresh")
+        var named = planned(key: "split")
+        named.uploadedSeparately = ["IMG_1-edited.jpg"]
+        try store.upsertPlanned([named])
+        var catalogue = planned(key: "split")
+        catalogue.uploadedSeparately = nil
+        catalogue.albums = ["Trip"]
+        try store.upsertPlanned([catalogue])
+        let kept = try store.importItems(status: .pending).first { $0.0.key == "split" }
+        #expect(kept?.0.uploadedSeparately == ["IMG_1-edited.jpg"])
+        #expect(kept?.0.albums == ["Trip"])
+
         chosen.dateUsed = nil
         try store.upsertPlanned([chosen])
         chosen.dateUsed = .zipModified

@@ -36,6 +36,9 @@ public struct TakeoutPlannedItem: Sendable, Equatable, Codable {
     public var dateSource: DateSource
     /// Set once the file has been read, and kept in the import index so the result list still works after a relaunch.
     public var dateUsed: TakeoutDateChoice.Source? = nil
+    /// File names uploaded as their own items because this original was already in the library. Send stores them;
+    /// a later catalogue does not know the hashes, so a rebuild has to keep the list, the same way it keeps `dateUsed`.
+    public var uploadedSeparately: [String]? = nil
 }
 
 /// Albums and favourite for an item imported in an earlier run (an album copy that came in a later zip).

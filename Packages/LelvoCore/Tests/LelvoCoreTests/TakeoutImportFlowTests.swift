@@ -44,6 +44,69 @@ import Testing
         #expect(TakeoutImportStep.openCount([.done: 1, .duplicate: 4, .skipped: 2]) == 0)
     }
 
+    /// The original is already in the library. The edit and the Live Photo video in this same plan still have to
+    /// be uploaded on their own. Marking the whole row duplicate would let the zip be deleted first.
+    @Test func aDifferentEditOrLivePhotoIsUploadedWhenTheOriginalIsAlreadyBackedUp() {
+        let twin = backedUpTwin(edit: nil, paired: nil)
+        let edit = TakeoutDuplicateExtras.decide(editedHash: "crop", pairedHash: nil, twin: twin,
+                                                backedUpOriginalHashes: ["primary"])
+        #expect(edit.edit == .uploadOwnPhoto)
+        #expect(edit.mayMarkDuplicate == false)
+
+        let video = TakeoutDuplicateExtras.decide(editedHash: nil, pairedHash: "motion", twin: twin,
+                                                 backedUpOriginalHashes: ["primary"])
+        #expect(video.pairedVideo == .uploadOwnVideo)
+        #expect(video.mayMarkDuplicate == false)
+
+        let otherCrop = TakeoutDuplicateExtras.decide(editedHash: "crop", pairedHash: "motion",
+                                                     twin: backedUpTwin(edit: "other", paired: nil),
+                                                     backedUpOriginalHashes: ["primary"])
+        #expect(otherCrop.edit == .uploadOwnPhoto)
+        #expect(otherCrop.pairedVideo == .uploadOwnVideo)
+        #expect(otherCrop.mayMarkDuplicate == false)
+    }
+
+    /// An attached edit stays one item until this import actually uploads it on its own. The delete dialog
+    /// reads that list back after a relaunch.
+    @Test func onlyFilesUploadedOnTheirOwnAreListedSeparately() {
+        var item = plannedItem()
+        let edited = TakeoutSourceEntry(sourceId: "A", entry: ZipEntry(
+            path: "Takeout/Google Photos/Photos from 2019/IMG_1-edited.jpg",
+            compressedSize: 10, size: 10, crc32: 2, method: 0, localHeaderOffset: 0, modified: nil))
+        let movie = TakeoutSourceEntry(sourceId: "A", entry: ZipEntry(
+            path: "Takeout/Google Photos/Photos from 2019/IMG_1.MOV",
+            compressedSize: 10, size: 10, crc32: 3, method: 0, localHeaderOffset: 0, modified: nil))
+        item.edited = edited
+        item.pairedVideo = movie
+        #expect(item.entriesUploadedSeparately().isEmpty)
+        item.uploadedSeparately = ["IMG_1-edited.jpg"]
+        #expect(item.entriesUploadedSeparately() == [edited])
+    }
+
+    /// The same bytes on the twin, or already backed up as their own item, are not uploaded again. With nothing
+    /// left to send, the row may become a duplicate.
+    @Test func anEditOrLivePhotoAlreadyInTheLibraryStaysADuplicate() {
+        let twin = backedUpTwin(edit: "crop", paired: "motion")
+        let same = TakeoutDuplicateExtras.decide(editedHash: "crop", pairedHash: "motion", twin: twin,
+                                                backedUpOriginalHashes: ["primary"])
+        #expect(same.edit == .alreadyInLibrary)
+        #expect(same.pairedVideo == .alreadyInLibrary)
+        #expect(same.mayMarkDuplicate)
+
+        let bare = backedUpTwin(edit: nil, paired: nil)
+        let own = TakeoutDuplicateExtras.decide(editedHash: "crop", pairedHash: "motion", twin: bare,
+                                               backedUpOriginalHashes: ["primary", "crop", "motion"])
+        #expect(own.edit == .alreadyInLibrary)
+        #expect(own.pairedVideo == .alreadyInLibrary)
+        #expect(own.mayMarkDuplicate)
+
+        let none = TakeoutDuplicateExtras.decide(editedHash: nil, pairedHash: nil, twin: bare,
+                                                backedUpOriginalHashes: ["primary"])
+        #expect(none.edit == nil)
+        #expect(none.pairedVideo == nil)
+        #expect(none.mayMarkDuplicate)
+    }
+
     /// The "Imported without a date from Google" list is only the zip entry's modified date. A date from the
     /// file, or from Google's JSON, is a capture date and stays off that list.
     @Test func zipModifiedDateIsTheOnlyUndatedImport() {
@@ -149,6 +212,16 @@ import Testing
         #expect(notes.isEmpty)
         #expect(albums == ["Goa"])
         #expect(favorite == true)
+    }
+
+    private func backedUpTwin(edit: String?, paired: String?) -> MediaItem {
+        var item = MediaItem(localIdentifier: nil, sha256: "primary", filename: "IMG_1.jpg", kind: .photo,
+                             creationDate: nil, fileSize: 10, status: .backedUp)
+        var hashes = ["o": "primary"]
+        if let edit { hashes["e"] = edit }
+        if let paired { hashes["pv"] = paired }
+        item.roleHashes = hashes
+        return item
     }
 
     private func plannedItem() -> TakeoutPlannedItem {
