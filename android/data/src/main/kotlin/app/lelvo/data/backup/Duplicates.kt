@@ -48,7 +48,6 @@ class Duplicates(
     /** Deletes the extra copies a full scan found. */
     suspend fun removeMessageDuplicates() = withContext(Dispatchers.IO) {
         val chatId = library.chatId ?: throw LibraryException.notALibrary
-        library.requireWritable(chatId)
         uploads.deleteMessages(chatId, messageDuplicates())
         scanner.forgetDuplicateMessages()
         AppLog.info("Removed duplicate messages from the library channel")
@@ -57,7 +56,6 @@ class Duplicates(
     /** Deletes the extra items' messages; their photos stay linked to the kept item. */
     suspend fun removeCloudDuplicates(groups: List<CloudDuplicateGroup>): Int = withContext(Dispatchers.IO) {
         val chatId = library.chatId ?: throw LibraryException.notALibrary
-        library.requireWritable(chatId)
         var removed = 0
         for (g in groups) for (extra in g.extras) {
             uploads.deleteMessages(chatId, extra.allMessageIds)

@@ -156,7 +156,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         // `--el lelvo.trashRetentionSeconds N`: Recently Deleted keeps items N seconds for this run, then the cleanup runs
-        // (iOS `-TestTrashRetentionSeconds`). Only on the "Android test" library: the cleanup asks `requireWritable`.
+        // (iOS `-TestTrashRetentionSeconds`).
         if (intent.hasExtra("lelvo.trashRetentionSeconds")) {
             val seconds = intent.getLongExtra("lelvo.trashRetentionSeconds", 0)
             if (seconds > 0) {

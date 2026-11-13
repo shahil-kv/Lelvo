@@ -24,8 +24,7 @@ class UploadStalledException(val sent: Long, val total: Long) :
     Exception("The upload stopped moving at ${sent shr 20} of ${total shr 20} MB. It will be tried again.")
 
 /**
- * Writing documents to the library channel (iOS `TDService.sendDocument` and `deleteMessages`). Callers check
- * `LibraryService.requireWritable` first; nothing here knows which channel is allowed.
+ * Writing documents to the library channel (iOS `TDService.sendDocument` and `deleteMessages`).
  */
 class TdUploads(private val td: TdClient, private val files: TdFiles) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

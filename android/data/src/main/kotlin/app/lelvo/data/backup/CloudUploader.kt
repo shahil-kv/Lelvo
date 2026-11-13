@@ -57,7 +57,6 @@ class CloudUploader(
         progress: (Long, Long) -> Unit,
     ): List<RemoteFile> = withContext(Dispatchers.IO) {
         val chatId = library.chatId ?: throw LibraryException.notALibrary
-        library.requireWritable(chatId)
         val keys = library.keys ?: throw LibraryException("Unlock your library to back up.")
         val chunk = if (resource.role == "sp") FileCrypto.FAST_VERSION_CHUNK_SIZE else FileCrypto.DEFAULT_CHUNK_SIZE
         val streamSize = FileCrypto.encryptedSize(resource.size, chunk)

@@ -295,11 +295,6 @@ class BackupEngine(
             return@withContext finish(Summary(error = reason.text), started = false, announce = userStarted)
         }
         val chatId = library.chatId ?: return@withContext finish(Summary(error = StopReason.NotConfigured.text), started = false, announce = userStarted)
-        try {
-            library.requireWritable(chatId)
-        } catch (e: LibraryException) {
-            return@withContext finish(Summary(error = e.message), started = false, announce = userStarted)
-        }
         synchronized(gate) {
             if (running) return@withContext Summary(error = StopReason.AlreadyRunning.text)
             running = true
@@ -646,7 +641,6 @@ class BackupEngine(
         val started = System.currentTimeMillis()
         val file = File(staging.apply { mkdirs() }, "library-index.cge")
         try {
-            library.requireWritable(chatId)
             val body = IndexSnapshot.body(messages, upto)
             val plain = IndexSnapshot.encode(body)
             val caption = IndexSnapshot.caption(IndexSnapshot.captionFor(plain, body), keys.captionKey)
@@ -742,7 +736,6 @@ class BackupEngine(
         val item = store.item(itemId) ?: throw FastVersionUnsupported("gone")
         if (item.status != ItemStatus.BackedUp || item.kind != ItemKind.Video) throw FastVersionUnsupported("not a backed-up video")
         if (StreamingCopyPolicy.hasCopy(item)) return@withContext
-        library.chatId?.let { library.requireWritable(it) }
         val file = item.localId?.let(phone::file)
         if (file != null) {
             uploadFastVersion(item, "copy", force = true) { out -> FastVersionEncoder.encode(app, file.uri, out) }
