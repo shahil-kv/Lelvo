@@ -165,6 +165,41 @@ public enum TakeoutPlanner {
         return plan
     }
 
+    /// A Live Photo video or an edited copy whose other half was already imported. It uploads as its own item.
+    /// The zip it came from names it before that zip can be deleted, so the split isn't silent.
+    public static func importedSeparately(_ items: [TakeoutPlannedItem], alreadyImported: [TakeoutPlannedItem]) -> [TakeoutSourceEntry] {
+        var stillStems = Set<String>()
+        var paths = Set<String>()
+        for item in alreadyImported {
+            for file in files(of: item) {
+                paths.insert(TakeoutMatcher.normalized(file.entry.path))
+                if livePhotoStillExtensions.contains(ext(file.entry.path)) {
+                    stillStems.insert(stemKey(file.entry.path))
+                }
+            }
+        }
+        var separate: [TakeoutSourceEntry] = []
+        for item in items {
+            let own = files(of: item)
+            let splitVideo = ext(item.primary.entry.path) == "mov"
+                && own.contains { stillStems.contains(stemKey($0.entry.path)) }
+            // Only the item whose own file is the edited copy. An original that already has its edit attached
+            // is one item, and naming it here would tell the user it was split.
+            let splitEdit = TakeoutMatcher.originalPath(ofEditedPath: item.primary.entry.path)
+                .map { paths.contains(TakeoutMatcher.normalized($0)) } ?? false
+            if splitVideo || splitEdit { separate.append(contentsOf: own) }
+        }
+        return separate
+    }
+
+    private static func files(of item: TakeoutPlannedItem) -> [TakeoutSourceEntry] {
+        var all = [item.primary]
+        if let paired = item.pairedVideo { all.append(paired) }
+        if let edited = item.edited { all.append(edited) }
+        all.append(contentsOf: item.copies)
+        return all
+    }
+
     public static func key(for entry: ZipEntry) -> String {
         let name = TakeoutMatcher.splitDuplicate(TakeoutMatcher.fileName(entry.path)).plain
         return "\(TakeoutMatcher.normalized(name))|\(entry.size)|\(String(entry.crc32, radix: 16))"

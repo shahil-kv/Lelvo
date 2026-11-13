@@ -68,6 +68,28 @@ all use the same instance. `AppModel` holds UI-wide state (onboarding, tabs, sig
 - Transient errors retry with exponential backoff, up to 5 attempts; then the item waits for a manual **Retry**.
 - `verified` items with a local asset are eligible for Free Up Space, after a fresh check in Telegram.
 
+## Import
+
+Google Photos and Google Drive libraries come in through Google Takeout. Lelvo doesn't sign in to Google. The user
+picks zip files, or an unzipped folder, in Files on iPhone or Finder on Mac. A security-scoped bookmark is kept so a
+later launch can continue with the same files.
+
+`TakeoutImporter` (`Shared/Services/Import`) reads each zip's central directory, plans one item per photo in
+`TakeoutPlanner` (`Packages/LelvoCore`), and uploads through `BackupEngine`'s lane slots. Backup and import together
+stay at two uploads, with the same gap and the same `FLOOD_WAIT` pause. Wi-Fi only applies. Charging only doesn't.
+The cloud format doesn't change: each file is an ordinary item, encrypted like any other backup.
+
+`import_sources` and `import_items` in the local index remember the zips and each item's status (`pending`,
+`waitingForDetails`, `uploading`, `done`, `duplicate`, `skipped`, `failed`). They are a cache of this import, not
+part of the channel. A zip is finished only when every photo and video in it is done, already in the library, or
+skipped. Deleting it is a separate step the user confirms, through the security-scoped URL. The importer never
+deletes a zip on its own. Files that aren't photos or videos are counted and listed, and never uploaded.
+
+A photo with no date yet waits, because its JSON file may be in a zip that hasn't been added. **That's all my files**
+uploads those with the date stored on the zip entry and lists them afterwards as imported without a date from Google.
+A Live Photo video or an edited copy that arrives after its photo is already in the library is imported as its own
+item, and the delete step names it.
+
 ## Streaming
 
 `MediaReader.read(item, role, range)`:

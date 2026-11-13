@@ -6,10 +6,20 @@ import LelvoCore
 import UIKit
 #endif
 
-/// Remembers "That's all my files" and how many entries weren't photos or videos. Neither is uploaded.
+/// A file name kept for the result lists and the delete confirmation. `separate` is a Live Photo video or an
+/// edited copy that was imported on its own because its other half was already in the library.
+private struct TakeoutNotedName: Codable, Equatable, Sendable {
+    var sourceId: String
+    var name: String
+    var separate: Bool
+}
+
+/// Remembers "That's all my files", how many entries weren't photos or videos, and the names of those entries.
+/// None of them is uploaded. Names stay after a zip is deleted so the result list can still show them.
 private enum TakeoutImportMemory {
     static let allFilesKey = "takeoutAllFilesAdded"
     static let notMediaKey = "takeoutNotMediaCount"
+    static let notesKey = "takeoutNotedNames"
 
     static var allFilesAdded: Bool {
         get { UserDefaults.standard.bool(forKey: allFilesKey) }
@@ -19,6 +29,48 @@ private enum TakeoutImportMemory {
     static var notMedia: Int {
         get { UserDefaults.standard.integer(forKey: notMediaKey) }
         set { UserDefaults.standard.set(newValue, forKey: notMediaKey) }
+    }
+
+    static var notes: [TakeoutNotedName] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: notesKey),
+                  let notes = try? JSONDecoder().decode([TakeoutNotedName].self, from: data) else { return [] }
+            return notes
+        }
+        set {
+            guard let data = try? JSONEncoder().encode(newValue) else { return }
+            UserDefaults.standard.set(data, forKey: notesKey)
+        }
+    }
+}
+
+/// Names for the import screen. Read off the main actor; the index and the saved notes are both local.
+enum TakeoutImportLists {
+    static func leftovers(sourceId: String) -> (notMedia: [String], separate: [String]) {
+        let notes = TakeoutImportMemory.notes.filter { $0.sourceId == sourceId }
+        return (sorted(notes.filter { !$0.separate }.map(\.name)), sorted(notes.filter(\.separate).map(\.name)))
+    }
+
+    static func results(in store: LibraryStore) -> (failed: [String], undated: [String], notMedia: [String], photos: Int, videos: Int) {
+        let rows = (try? store.importItems(status: nil)) ?? []
+        var failed: [String] = []
+        var undated: [String] = []
+        var photos = 0
+        var videos = 0
+        for (item, status, _) in rows {
+            let name = ImportPaths.fileName(item.primary.entry.path)
+            if status == .failed { failed.append(name) }
+            if status == .done {
+                if item.kind == .video { videos += 1 } else { photos += 1 }
+                if item.dateSource != .google { undated.append(name) }
+            }
+        }
+        let notMedia = TakeoutImportMemory.notes.filter { !$0.separate }.map(\.name)
+        return (sorted(failed), sorted(undated), sorted(notMedia), photos, videos)
+    }
+
+    private static func sorted(_ names: [String]) -> [String] {
+        names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 }
 
@@ -101,6 +153,8 @@ final class TakeoutImporter: ObservableObject {
     @Published private(set) var counts: [ImportStatus: Int] = [:]
     /// Files that aren't photos or videos. They are counted and never uploaded.
     @Published private(set) var notMedia: Int = 0
+    /// The user said every zip is here. Waiting photos can then use the date stored on the zip entry.
+    @Published private(set) var allFilesAdded = false
     /// Why the import is waiting or stopped, in the same words backup uses for Wi-Fi.
     @Published private(set) var message: String?
 
@@ -160,6 +214,7 @@ final class TakeoutImporter: ObservableObject {
 
     func allFilesAdded() async {
         TakeoutImportMemory.allFilesAdded = true
+        allFilesAdded = true
         let importing = state == .importing
         if !importing {
             state = .cataloguing
@@ -172,25 +227,16 @@ final class TakeoutImporter: ObservableObject {
         }
     }
 
+    /// Removes one finished zip. The screen asks first; this never runs on its own, and it refuses while any
+    /// photo or video from that zip is still open. The file goes through the security-scoped bookmark the user granted.
     func deleteSource(id: String) async throws {
         guard state != .importing, state != .cataloguing else {
             throw ImportFailure("Pause the import before deleting a file.")
         }
-        guard let record = try env.store.importSources().first(where: { $0.id == id }) else { return }
-        if let url = OpenedImport.resolve(record.bookmark) {
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                let path = url.path
-            try await Task.detached {
-                guard FileManager.default.fileExists(atPath: path) else { return }
-                do {
-                    try FileManager.default.removeItem(at: url)
-                } catch {
-                    throw ImportFailure("Lelvo can't delete this file. Delete it in Files.")
-                }
-            }.value
-        }
-        try env.store.removeImportSource(id: id)
+        let store = env.store
+        try await Task.detached {
+            try Self.removeFinishedZip(id: id, store: store)
+        }.value
         try await rebuild(updateState: true)
     }
 
@@ -201,11 +247,35 @@ final class TakeoutImporter: ObservableObject {
         clearLanes()
         TakeoutImportMemory.allFilesAdded = false
         TakeoutImportMemory.notMedia = 0
+        TakeoutImportMemory.notes = []
         try? env.store.clearImport()
         counts = [:]
         notMedia = 0
+        allFilesAdded = false
         message = nil
         state = .idle
+    }
+
+    /// Deletes the zip file, then forgets the bookmark. A missing file is already gone, so the bookmark can go too.
+    /// A refusal leaves the bookmark, and the screen repeats the system's answer.
+    nonisolated private static func removeFinishedZip(id: String, store: LibraryStore) throws {
+        guard let record = try store.importSources().first(where: { $0.id == id }) else { return }
+        guard record.kind == "zip" else { return }
+        guard try store.isSourceFinished(id: id) else {
+            throw ImportFailure("This zip still has photos or videos to import.")
+        }
+        if let url = OpenedImport.resolve(record.bookmark) {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            if FileManager.default.fileExists(atPath: url.path) {
+                do {
+                    try FileManager.default.removeItem(at: url)
+                } catch {
+                    throw ImportFailure("Lelvo can't delete this file. Delete it in Files.")
+                }
+            }
+        }
+        try store.removeImportSource(id: id)
     }
 
     // MARK: - Cataloguing
@@ -217,6 +287,7 @@ final class TakeoutImporter: ObservableObject {
         await MainActor.run {
             self.counts = snap.counts
             self.notMedia = snap.notMedia
+            self.allFilesAdded = TakeoutImportMemory.allFilesAdded
             if snap.noRows {
                 self.state = .idle
             } else if open == 0 {
@@ -298,6 +369,12 @@ final class TakeoutImporter: ObservableObject {
             }
         }
         try keepLateDetails(plan.lateDetails, previous: previous)
+        // Items already uploaded aren't in `plan.items`. A Live Photo half that arrived in this zip is one of
+        // those, and the delete step still has to name it.
+        let already = previous.compactMap { imported.contains($0.0.key) ? $0.0 : nil }
+        let separate = TakeoutPlanner.importedSeparately(plan.items + already, alreadyImported: already)
+        Self.rememberNotes(skipped: plan.skipped, separate: separate,
+                           openedIDs: Set(sources.map(\.id)), recordIDs: Set(records.map(\.id)))
         let counts = try env.store.importCounts()
         let estimate = spaceEstimate()
         let left = TakeoutImportStep.openCount(counts)
@@ -317,6 +394,26 @@ final class TakeoutImporter: ObservableObject {
             message = nil
         }
         return CatalogOutcome(counts: counts, skipped: plan.skipped.count, state: state, message: message)
+    }
+
+    /// Replaces the notes for zips that were just read. Notes for a zip that was deleted stay, without the
+    /// "imported separately" names, so the final list can still say what was never a photo or video.
+    nonisolated private static func rememberNotes(skipped: [TakeoutSourceEntry], separate: [TakeoutSourceEntry],
+                                                  openedIDs: Set<String>, recordIDs: Set<String>) {
+        var fresh: [TakeoutNotedName] = []
+        fresh.reserveCapacity(skipped.count + separate.count)
+        for entry in skipped where openedIDs.contains(entry.sourceId) {
+            fresh.append(TakeoutNotedName(sourceId: entry.sourceId, name: ImportPaths.fileName(entry.entry.path), separate: false))
+        }
+        for entry in separate where openedIDs.contains(entry.sourceId) {
+            fresh.append(TakeoutNotedName(sourceId: entry.sourceId, name: ImportPaths.fileName(entry.entry.path), separate: true))
+        }
+        let kept = TakeoutImportMemory.notes.filter { note in
+            if openedIDs.contains(note.sourceId) { return false }
+            if !recordIDs.contains(note.sourceId) { return !note.separate }
+            return true
+        }
+        TakeoutImportMemory.notes = kept + fresh
     }
 
     nonisolated private static func touches(_ item: TakeoutPlannedItem, missing: Set<String>) -> Bool {

@@ -13,6 +13,7 @@ Read this first when resuming. Scope: the iOS and Mac apps. Android isn't part o
 | Repo | Standalone GPL-3.0 repository: only the owner's commits, `iOS/` `macOS/` `Shared/` `Packages/`, CLA, issue forms, approved-issue gate, CI, CodeRabbit, docs | ✅ 2026-10-24, local; not pushed yet |
 | App Store | [APP_STORE_RELEASE.md](APP_STORE_RELEASE.md): name and icon, reviewer demo mode, listing | ⏳ Next |
 | Mac 2 | WhatsApp backup via Mac (iPhone backup → WhatsApp only → encrypted → Telegram) | ⏳ Research first |
+| Takeout | Import from Google Photos and Google Drive, one zip at a time | ✅ Built, not checked on a device |
 
 ## iOS: done
 
@@ -50,6 +51,12 @@ Read this first when resuming. Scope: the iOS and Mac apps. Android isn't part o
 - Library switching: saved per-library index (`LibrarySnapshots`) → 0.13 s, background re-scan; `PhotoAvailability` probe so PhotoKit never blocks (a Mac without a Photos library made every call wait ~30 s); thumbnails by remote id (`ThumbnailIdStore`).
 - Debug builds: `DebugHooks` snapshot / drive the window via distributed notifications (no Screen Recording permission needed).
 - Build: `Scripts/build.sh mac Release`, or `xcodebuild -project Lelvo.xcodeproj -scheme LelvoMac -configuration Release -derivedDataPath build/DerivedData DEVELOPMENT_TEAM=<team> CODE_SIGN_IDENTITY="Apple Development" build`, then copy `build/DerivedData/Build/Products/Release/Lelvo.app` to /Applications.
+
+## Google Takeout import (2026-11-13)
+
+- Backup → Tools: **Import from Google Photos** and **Import from Google Drive**. The guide, the import screen, deleting a finished zip (only after every photo and video in it is settled, and only after the user confirms), and the three result lists live in `Shared/Views/Backup/TakeoutImportView.swift` and `Shared/Services/Import/TakeoutImporter.swift`. Planning is `TakeoutPlanner` in `Packages/LelvoCore`.
+- A zip is deleted through its security-scoped bookmark. The importer never deletes one on its own. If the system refuses, the screen says to delete it in Files.
+- Not checked on a device with a real Takeout. Don't install on the owner's iPhone without asking.
 
 ## iOS: not done / known gaps
 

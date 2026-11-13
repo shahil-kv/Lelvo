@@ -14,6 +14,11 @@ import Foundation
         TakeoutSidecar(takenAt: Date(timeIntervalSince1970: seconds), favorite: favorite)
     }
 
+    func planned(_ source: TakeoutSourceEntry, kind: MediaKind = .photo) -> TakeoutPlannedItem {
+        TakeoutPlannedItem(key: TakeoutPlanner.key(for: source.entry), kind: kind, primary: source,
+                           pairedVideo: nil, edited: nil, copies: [], albums: [], sidecar: nil, dateSource: .fileWillTell)
+    }
+
     func plan(_ entries: [TakeoutSourceEntry], sidecars: [String: TakeoutSidecar] = [:], albums: [String: String] = [:],
               allFilesAdded: Bool = false, imported: Set<String> = []) -> TakeoutPlan {
         TakeoutPlanner.plan(entries: entries,
@@ -135,6 +140,36 @@ import Foundation
         let p = plan([still, movie], imported: [TakeoutPlanner.key(for: still.entry)])
         #expect(p.items.map(\.kind) == [.video])
         #expect(p.items[0].primary == movie)
+        let separate = TakeoutPlanner.importedSeparately(p.items, alreadyImported: [planned(still)])
+        #expect(separate.map(\.entry.path) == [movie.entry.path])
+    }
+
+    @Test func editedCopyImportedSeparatelyWhenTheOriginalIsAlreadyIn() {
+        let original = entry("Photos from 2019/IMG_3.jpg")
+        let edited = entry("Photos from 2019/IMG_3-edited.jpg", source: "B", crc: 3)
+        let p = plan([original, edited], imported: [TakeoutPlanner.key(for: original.entry)])
+        let separate = TakeoutPlanner.importedSeparately(p.items, alreadyImported: [planned(original)])
+        #expect(separate.map(\.entry.path) == [edited.entry.path])
+    }
+
+    @Test func pairedLivePhotoAndOrdinaryVideoAreNotSeparate() {
+        let still = entry("Photos from 2019/IMG_1.HEIC")
+        let movie = entry("Photos from 2019/IMG_1.MOV", crc: 9)
+        let alone = entry("Photos from 2019/IMG_2.MOV", crc: 2)
+        let paired = plan([still, movie])
+        #expect(TakeoutPlanner.importedSeparately(paired.items, alreadyImported: []).isEmpty)
+        let video = plan([alone])
+        #expect(TakeoutPlanner.importedSeparately(video.items, alreadyImported: []).isEmpty)
+        let editedOnly = plan([entry("Photos from 2019/IMG_3-edited.jpg")])
+        #expect(TakeoutPlanner.importedSeparately(editedOnly.items, alreadyImported: []).isEmpty)
+    }
+
+    @Test func attachedEditIsNotListedAsSeparate() {
+        let original = entry("Photos from 2019/IMG_3.jpg")
+        let edited = entry("Photos from 2019/IMG_3-edited.jpg", crc: 3)
+        var item = planned(original)
+        item.edited = edited
+        #expect(TakeoutPlanner.importedSeparately([item], alreadyImported: [item]).isEmpty)
     }
 
     @Test func yearFoldersWithMetadataAreNotAlbums() {

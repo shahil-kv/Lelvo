@@ -1,8 +1,8 @@
 import SwiftUI
 import LelvoCore
 
-/// The zips and folders the user has added, and the import itself. Deleting a finished zip waits for its own
-/// confirmation; this screen only adds files, starts, pauses, and says when every file is here.
+/// The zips and folders the user has added, and the import itself. A finished zip is deleted only after this
+/// screen asks, and only once every photo and video in it is already settled.
 struct TakeoutImportView: View {
     @ObservedObject private var importer: TakeoutImporter
     @ObservedObject private var activity = BackupActivity.shared
@@ -10,6 +10,11 @@ struct TakeoutImportView: View {
     @Environment(\.dynamicTypeSize) private var dynamicType
     @State private var space: (needed: Int64, free: Int64)?
     @State private var addError: String?
+    @State private var deleteError: String?
+    @State private var deleteTarget: TakeoutImportModel.SourceRow?
+    @State private var deleteID: String?
+    @State private var deleteNotMedia: [String] = []
+    @State private var deleteSeparate: [String] = []
     @State private var fixtureLoading = false
 
     init() {
@@ -25,13 +30,8 @@ struct TakeoutImportView: View {
             if isCataloguing { readingSection }
             if showsStart || isImporting || isCataloguing { actionSection }
             if !importLanes.isEmpty { lanesSection }
-            if showsAllFiles { allFilesSection }
-            if case .finished = importer.state {
-                Section {
-                    Text("These photos and videos are in your Telegram library.")
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            if showsAllFiles, !importer.allFilesAdded { allFilesSection }
+            if showsResults { resultsSection }
         }
         .platformGroupedForm()
         .navigationTitle("Import")
@@ -45,10 +45,25 @@ struct TakeoutImportView: View {
             reload()
         }
         .onChange(of: importer.notMedia) { _, _ in reload() }
+        .onChange(of: importer.counts) { _, _ in reload() }
         .alert("Couldn't add these files", isPresented: showAddError) {
             Button("OK", role: .cancel) { addError = nil }
         } message: {
             Text(addError ?? "")
+        }
+        .confirmationDialog(deleteTitle, isPresented: confirmingDelete, titleVisibility: .visible) {
+            Button("Delete zip", role: .destructive) {
+                let id = deleteID
+                deleteID = nil
+                guard let id else { return }
+                Task { await delete(id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(deleteMessage)
+        }
+        .alert(deleteError ?? "", isPresented: showDeleteError) {
+            Button("OK", role: .cancel) { deleteError = nil }
         }
     }
 
@@ -87,6 +102,45 @@ struct TakeoutImportView: View {
         }
     }
 
+    private var showsResults: Bool {
+        if case .finished = importer.state { return true }
+        if isImporting || isCataloguing { return false }
+        return !model.failed.isEmpty
+    }
+
+    private var showsNextZip: Bool {
+        if case .finished = importer.state { return true }
+        return model.sources.contains { $0.finished && $0.kind == "zip" }
+    }
+
+    private var confirmingDelete: Binding<Bool> {
+        Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } })
+    }
+
+    private var showDeleteError: Binding<Bool> {
+        Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })
+    }
+
+    private var deleteTitle: String {
+        "Delete \(deleteTarget?.name ?? "this zip")?"
+    }
+
+    /// The question, then every entry in this zip that was not imported as part of a photo or video.
+    private var deleteMessage: String {
+        var lines = ["Every photo and video in it is in your Telegram library."]
+        if !deleteNotMedia.isEmpty {
+            lines.append("")
+            lines.append("Not a photo or video:")
+            lines.append(contentsOf: deleteNotMedia)
+        }
+        if !deleteSeparate.isEmpty {
+            lines.append("")
+            lines.append("Imported separately:")
+            lines.append(contentsOf: deleteSeparate)
+        }
+        return lines.joined(separator: "\n")
+    }
+
     private var importLanes: [(key: String, lane: BackupActivity.LaneProgress)] {
         activity.lanes
             .filter { $0.key.hasPrefix("import-") }
@@ -96,15 +150,47 @@ struct TakeoutImportView: View {
 
     private var filesSection: some View {
         Section {
-            if model.sources.isEmpty && model.loaded && !isCataloguing {
+            if model.sources.isEmpty && model.loaded && !isCataloguing && !showsNextZip {
                 Text("Choose the zip files from Google Takeout, or a folder of them.")
                     .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(model.sources) { source in
-                valueRow(source.name, source.status)
+                sourceRow(source)
+            }
+            if showsNextZip {
+                Button("Add the next zip", action: choose)
+                    .disabled(isImporting)
             }
             Button("Choose files", action: choose)
                 .disabled(isImporting)
+        }
+    }
+
+    /// A finished zip offers deletion. The button is the only way a zip is removed, and the dialog names it first.
+    @ViewBuilder private func sourceRow(_ source: TakeoutImportModel.SourceRow) -> some View {
+        if source.finished, source.kind == "zip" {
+            finishedZipRow(source)
+        } else {
+            valueRow(source.name, source.status)
+        }
+    }
+
+    private func finishedZipRow(_ source: TakeoutImportModel.SourceRow) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(source.name)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Done. You can delete \(source.name) to free \(Format.bytes(source.bytes)).")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Delete zip") {
+                if isImporting || isCataloguing {
+                    deleteError = "Pause the import before deleting a file."
+                } else {
+                    prepareDelete(source)
+                }
+            }
+            .accessibilityLabel("Delete \(source.name)")
         }
     }
 
@@ -170,8 +256,33 @@ struct TakeoutImportView: View {
             Button("That's all my files") {
                 Task { await importer.allFilesAdded() }
             }
-            .disabled(isCataloguing)
         }
+    }
+
+    private var resultsSection: some View {
+        Section {
+            if case .finished = importer.state {
+                Text(finishedSummary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            NavigationLink("Failed") { TakeoutNameList(title: "Failed", names: model.failed) }
+            NavigationLink("Imported without a date from Google") {
+                TakeoutNameList(title: "Imported without a date from Google", names: model.undated)
+            }
+            NavigationLink("Not imported (not a photo or video)") {
+                TakeoutNameList(title: "Not imported", names: model.notImported)
+            }
+        }
+    }
+
+    private var finishedSummary: String {
+        let photos = model.importedPhotos
+        let videos = model.importedVideos
+        let already = model.already
+        let photoWord = photos == 1 ? "photo" : "photos"
+        let videoWord = videos == 1 ? "video" : "videos"
+        let alreadyWord = already == 1 ? "was" : "were"
+        return "Imported \(photos.formatted()) \(photoWord) and \(videos.formatted()) \(videoWord). \(already.formatted()) \(alreadyWord) already in your library."
     }
 
     /// The same lane row the backup screen uses, for this import's uploads.
@@ -265,6 +376,25 @@ struct TakeoutImportView: View {
         }
     }
 
+    private func prepareDelete(_ source: TakeoutImportModel.SourceRow) {
+        let id = source.id
+        Task {
+            let leftover = await Task.detached { TakeoutImportLists.leftovers(sourceId: id) }.value
+            deleteNotMedia = leftover.notMedia
+            deleteSeparate = leftover.separate
+            deleteID = id
+            deleteTarget = source
+        }
+    }
+
+    private func delete(_ id: String) async {
+        do {
+            try await importer.deleteSource(id: id)
+        } catch {
+            deleteError = error.localizedDescription
+        }
+    }
+
     /// UI tests have no Takeout on disk. The argument drops any earlier import and loads a tiny folder
     /// through the same add path, off the main actor.
     private func loadFixtureIfNeeded() async {
@@ -292,6 +422,9 @@ private final class TakeoutImportModel: ObservableObject {
         var id: String
         var name: String
         var status: String
+        var kind: String
+        var bytes: Int64
+        var finished: Bool
     }
 
     @Published private(set) var sources: [SourceRow] = []
@@ -300,6 +433,11 @@ private final class TakeoutImportModel: ObservableObject {
     @Published private(set) var already = 0
     @Published private(set) var notMedia = 0
     @Published private(set) var waiting = 0
+    @Published private(set) var importedPhotos = 0
+    @Published private(set) var importedVideos = 0
+    @Published private(set) var failed: [String] = []
+    @Published private(set) var undated: [String] = []
+    @Published private(set) var notImported: [String] = []
     @Published private(set) var loaded = false
 
     private var generation = 0
@@ -318,6 +456,11 @@ private final class TakeoutImportModel: ObservableObject {
             already = snapshot.already
             self.notMedia = snapshot.notMedia
             waiting = snapshot.waiting
+            importedPhotos = snapshot.importedPhotos
+            importedVideos = snapshot.importedVideos
+            failed = snapshot.failed
+            undated = snapshot.undated
+            notImported = snapshot.notImported
             loaded = true
         }
     }
@@ -329,6 +472,11 @@ private final class TakeoutImportModel: ObservableObject {
         var already: Int
         var notMedia: Int
         var waiting: Int
+        var importedPhotos: Int
+        var importedVideos: Int
+        var failed: [String]
+        var undated: [String]
+        var notImported: [String]
     }
 
     nonisolated private static func snapshot(cataloguing: Bool, importing: Bool, notMedia: Int) -> Snapshot {
@@ -336,6 +484,7 @@ private final class TakeoutImportModel: ObservableObject {
         let records = (try? store.importSources()) ?? []
         let items = (try? store.importItems(status: nil)) ?? []
         let counts = (try? store.importCounts()) ?? [:]
+        let lists = TakeoutImportLists.results(in: store)
         let sources = records.map { record -> SourceRow in
             let missing = OpenedImport.resolve(record.bookmark) == nil
             let finished = (try? store.isSourceFinished(id: record.id)) == true
@@ -351,7 +500,8 @@ private final class TakeoutImportModel: ObservableObject {
             } else {
                 status = "Ready"
             }
-            return SourceRow(id: record.id, name: record.name, status: status)
+            return SourceRow(id: record.id, name: record.name, status: status, kind: record.kind,
+                             bytes: record.size, finished: finished && !cataloguing && !missing)
         }
         return Snapshot(
             sources: sources,
@@ -359,7 +509,12 @@ private final class TakeoutImportModel: ObservableObject {
             videos: items.filter { $0.0.kind == .video }.count,
             already: counts[.duplicate] ?? 0,
             notMedia: notMedia,
-            waiting: counts[.waitingForDetails] ?? 0)
+            waiting: counts[.waitingForDetails] ?? 0,
+            importedPhotos: lists.photos,
+            importedVideos: lists.videos,
+            failed: lists.failed,
+            undated: lists.undated,
+            notImported: lists.notMedia)
     }
 }
 
@@ -395,3 +550,24 @@ enum TakeoutFixture {
     private static let sidecar = #"{"title":"IMG_0001.jpg","photoTakenTime":{"timestamp":"1562257320"}}"#
 }
 #endif
+
+/// A plain list of file names from the import: failed, imported without a date from Google, or not a photo or video.
+struct TakeoutNameList: View {
+    var title: String
+    var names: [String]
+
+    var body: some View {
+        List {
+            if names.isEmpty {
+                Text("None.")
+            } else {
+                ForEach(Array(names.enumerated()), id: \.offset) { _, name in
+                    Text(name)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .navigationTitle(title)
+        .inlineNavigationTitle()
+    }
+}

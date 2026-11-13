@@ -5,6 +5,9 @@ What's new in Lelvo for iPhone and Mac, newest first. Downloads for each version
 
 ## Unreleased
 
+- **Import from Google Photos or Google Drive:** Backup → Tools walks through Google Takeout. Lelvo reads each zip and
+  uploads the photos and videos to your Telegram library, with the date, place, albums and favourite Google kept.
+  When a zip is done, you can delete it and add the next one. Nothing is deleted unless you confirm.
 - **Always end-to-end encrypted:** every new library is locked on your device before upload, so Telegram stores only
   files it can't open. There's no unencrypted choice any more. Libraries you already have keep working exactly as
   before.
