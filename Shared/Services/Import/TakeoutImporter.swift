@@ -210,20 +210,19 @@ final class TakeoutImporter: ObservableObject {
 
     // MARK: - Cataloguing
 
-    private func restore() async {
-        let counts = (try? env.store.importCounts()) ?? [:]
-        let sources = (try? env.store.importSources()) ?? []
-        let estimate = spaceEstimate()
+    /// The index, bookmarks and free-space check run off the main actor. Only the published state hops back.
+    nonisolated private func restore() async {
+        let snap = await Task.detached { self.snapshot() }.value
+        let open = TakeoutImportStep.openCount(snap.counts)
         await MainActor.run {
-            self.counts = counts
-            self.notMedia = TakeoutImportMemory.notMedia
-            let pending = (counts[.pending] ?? 0) + (counts[.uploading] ?? 0) + (counts[.waitingForDetails] ?? 0) + (counts[.failed] ?? 0)
-            if sources.isEmpty && counts.isEmpty {
+            self.counts = snap.counts
+            self.notMedia = snap.notMedia
+            if snap.noRows {
                 self.state = .idle
-            } else if pending == 0 {
+            } else if open == 0 {
                 self.state = .finished
             } else {
-                self.state = .ready(neededBytes: estimate.needed, freeBytes: estimate.free)
+                self.state = .ready(neededBytes: snap.needed, freeBytes: snap.free)
             }
         }
     }
@@ -298,15 +297,10 @@ final class TakeoutImporter: ObservableObject {
                 try env.store.setImportStatus(key: item.key, status: .pending, itemId: itemId, error: nil)
             }
         }
-        var ids: [String: String] = [:]
-        for row in previous { if let id = row.2 { ids[row.0.key] = id } }
-        for detail in plan.lateDetails {
-            guard let itemId = ids[detail.key] else { continue }
-            addNotes(itemId: itemId, albums: detail.albums, favorite: detail.favorite)
-        }
+        try keepLateDetails(plan.lateDetails, previous: previous)
         let counts = try env.store.importCounts()
         let estimate = spaceEstimate()
-        let left = (counts[.pending] ?? 0) + (counts[.uploading] ?? 0) + (counts[.waitingForDetails] ?? 0) + (counts[.failed] ?? 0)
+        let left = TakeoutImportStep.openCount(counts)
         let state: State
         let message: String?
         if records.isEmpty && counts.isEmpty {
@@ -568,8 +562,13 @@ final class TakeoutImporter: ObservableObject {
         item.codec = planned.kind == .video ? info.codec : (videoInfo?.codec ?? info.codec)
         item.hdr = planned.kind == .video ? info.hdr : (videoInfo?.hdr ?? info.hdr)
         item.tzOffsetMinutes = zone
-        item.albums = planned.albums.isEmpty ? nil : planned.albums
-        item.favorite = planned.sidecar?.favorite == true ? true : nil
+        // A zip added while this file was extracting is already on the stored plan. Union, so nothing already
+        // on the item is cleared.
+        let recorded = storedPlan(key) ?? planned
+        var albumNames = Set(item.albums ?? [])
+        albumNames.formUnion(recorded.albums)
+        item.albums = albumNames.isEmpty ? nil : albumNames.sorted()
+        if recorded.sidecar?.favorite == true { item.favorite = true }
         item.hasEdit = planned.edited == nil ? nil : true
         item.pairedVideoFilename = planned.pairedVideo.map { ImportPaths.fileName($0.entry.path) }
         if let pairedURL { item.pairedVideoSize = try CloudUploader.size(of: pairedURL) }
@@ -674,6 +673,11 @@ final class TakeoutImporter: ObservableObject {
         item.lastError = nil
         try store.upsert(item)
         try store.setImportStatus(key: key, status: .done, itemId: item.id, error: nil)
+        // Albums that arrived after the caption was built are notes now: the item is backed up, and the caption
+        // already went out without them.
+        if let recorded = storedPlan(key) {
+            addNotes(itemId: item.id, albums: recorded.albums, favorite: recorded.sidecar?.favorite == true)
+        }
         _ = try? env.thumbnailCache.store(data: thumbData, for: CloudMediaService.thumbnailKey(item), ext: "jpg")
         appLog("Imported \(filename) (\(primarySize) bytes)")
     }
@@ -721,17 +725,43 @@ final class TakeoutImporter: ObservableObject {
         return meta
     }
 
-    /// Adds albums and a favourite. Never clears one: a Takeout that doesn't mention an album isn't a removal.
+    /// Albums and a favourite for an item that is already backed up or trashed. Queued as additions only, and
+    /// written on the item here so this device shows them before the note comes back.
     nonisolated private func addNotes(itemId: String, albums: [String], favorite: Bool) {
-        guard let item = try? env.store.item(id: itemId) else { return }
-        if favorite, item.favorite != true {
-            _ = try? MetaSync.shared.change([item], key: .favorite, value: true)
+        guard let item = try? env.store.item(id: itemId),
+              item.status == .backedUp || item.status == .trashed else { return }
+        let additions = TakeoutLateNotes.additions(existingAlbums: item.albums ?? [], existingFavorite: item.favorite == true,
+                                                   albums: albums, favorite: favorite)
+        guard !additions.isEmpty else { return }
+        if let chatId = MetaSync.shared.noteChatId {
+            try? env.store.queueMetaChanges([itemId: additions], chatId: chatId)
+            MetaSync.shared.schedule()
         }
-        let have = Set((try? env.store.item(id: itemId))?.albums ?? item.albums ?? [])
-        for album in albums where !have.contains(album) {
-            guard let current = try? env.store.item(id: itemId) else { return }
-            _ = try? MetaSync.shared.change([current], key: .album(album), value: true)
+        _ = try? env.store.update(id: itemId) { MetaLog.apply(additions, to: &$0) }
+    }
+
+    /// A later zip's albums. An item already backed up (or trashed) gets a note. One still uploading or failed,
+    /// and not backed up yet, keeps them on the stored plan so the upload that finishes later includes them.
+    nonisolated private func keepLateDetails(_ details: [TakeoutLateDetail], previous: [(TakeoutPlannedItem, ImportStatus, String?)]) throws {
+        guard !details.isEmpty else { return }
+        let rows = Dictionary(previous.map { ($0.0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        var merged: [TakeoutPlannedItem] = []
+        for detail in details {
+            guard let (planned, status, itemId) = rows[detail.key] else { continue }
+            if let itemId, let library = try env.store.item(id: itemId),
+               library.status == .backedUp || library.status == .trashed {
+                addNotes(itemId: itemId, albums: detail.albums, favorite: detail.favorite)
+                continue
+            }
+            guard status == .uploading || status == .failed else { continue }
+            let next = planned.addingLateDetails(albums: detail.albums, favorite: detail.favorite)
+            if next != planned { merged.append(next) }
         }
+        if !merged.isEmpty { try env.store.upsertPlanned(merged) }
+    }
+
+    nonisolated private func storedPlan(_ key: String) -> TakeoutPlannedItem? {
+        ((try? env.store.importItems(status: nil)) ?? []).first { $0.0.key == key }?.0
     }
 
     /// Wi-Fi only, same check as backup, without Charging only. Waits until the network is usable or the user pauses.
@@ -757,6 +787,15 @@ final class TakeoutImporter: ObservableObject {
         if !NetworkStatus.shared.isOnline { return .offline }
         if Prefs.wifiOnly && NetworkStatus.shared.isExpensive { return .waitingForWiFi }
         return nil
+    }
+
+    /// Counts, whether anything is stored, free space, and how many entries weren't photos or videos.
+    /// Bookmarks and the volume check live in `spaceEstimate`. Call this off the main actor.
+    nonisolated private func snapshot() -> (counts: [ImportStatus: Int], noRows: Bool, needed: Int64, free: Int64, notMedia: Int) {
+        let counts = (try? env.store.importCounts()) ?? [:]
+        let sources = (try? env.store.importSources()) ?? []
+        let estimate = spaceEstimate()
+        return (counts, sources.isEmpty && counts.isEmpty, estimate.needed, estimate.free, TakeoutImportMemory.notMedia)
     }
 
     nonisolated private func spaceEstimate() -> (needed: Int64, free: Int64) {
@@ -807,26 +846,28 @@ final class TakeoutImporter: ObservableObject {
         appLog("Import finished: \(counts[.done] ?? 0) imported, \(counts[.duplicate] ?? 0) already in the library, \(counts[.failed] ?? 0) failed")
     }
 
-    private func settle(epoch: Int? = nil) async {
+    /// Same reads as `restore`, off the main actor. Failed rows stay open so Start can retry them.
+    nonisolated private func settle(epoch: Int? = nil) async {
         if let epoch, control.currentEpoch != epoch { return }
-        let counts = (try? env.store.importCounts()) ?? [:]
-        let records = (try? env.store.importSources()) ?? []
-        let estimate = spaceEstimate()
+        let snap = await Task.detached { self.snapshot() }.value
         if let epoch, control.currentEpoch != epoch { return }
-        self.counts = counts
-        let left = (counts[.pending] ?? 0) + (counts[.uploading] ?? 0) + (counts[.waitingForDetails] ?? 0)
-        if records.isEmpty && counts.isEmpty {
-            state = .idle
-            message = nil
-        } else if let name = control.missingSource, left > 0 {
-            state = .needsSource(name: name)
-            message = "\(name) is no longer where it was. Choose it again to continue."
-        } else if left == 0 {
-            state = .finished
-            message = nil
-        } else {
-            state = .ready(neededBytes: estimate.needed, freeBytes: estimate.free)
-            message = nil
+        let open = TakeoutImportStep.openCount(snap.counts)
+        await MainActor.run {
+            if let epoch, self.control.currentEpoch != epoch { return }
+            self.counts = snap.counts
+            if snap.noRows {
+                self.state = .idle
+                self.message = nil
+            } else if let name = self.control.missingSource, open > 0 {
+                self.state = .needsSource(name: name)
+                self.message = "\(name) is no longer where it was. Choose it again to continue."
+            } else if open == 0 {
+                self.state = .finished
+                self.message = nil
+            } else {
+                self.state = .ready(neededBytes: snap.needed, freeBytes: snap.free)
+                self.message = nil
+            }
         }
     }
 

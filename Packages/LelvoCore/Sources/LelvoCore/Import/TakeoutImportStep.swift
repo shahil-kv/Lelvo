@@ -42,4 +42,50 @@ public enum TakeoutImportStep {
     public static func laneCount(backupRunning: Bool) -> Int {
         backupRunning ? 1 : 2
     }
+
+    /// Rows Start still has to upload. Failed counts: a run that only failed is not finished, so Start can retry
+    /// them, the same as the next launch.
+    public static func openCount(_ counts: [ImportStatus: Int]) -> Int {
+        (counts[.pending] ?? 0) + (counts[.uploading] ?? 0) + (counts[.waitingForDetails] ?? 0) + (counts[.failed] ?? 0)
+    }
+}
+
+extension TakeoutPlannedItem {
+    /// Albums and a favourite from a later zip. A zip that doesn't mention one is not a removal.
+    public func addingLateDetails(albums extra: [String], favorite: Bool) -> TakeoutPlannedItem {
+        var item = self
+        let known = Set(item.albums)
+        let adding = extra.filter { !known.contains($0) }
+        if !adding.isEmpty {
+            item.albums = Array(known.union(adding)).sorted()
+        }
+        // A favourite-only sidecar has no date, so the upload still takes the date from the file.
+        if favorite, item.sidecar?.favorite != true {
+            var sidecar = item.sidecar ?? TakeoutSidecar()
+            sidecar.favorite = true
+            item.sidecar = sidecar
+        }
+        return item
+    }
+}
+
+/// What to queue for an item already backed up or trashed. Only additions: a Takeout that omits an album is not
+/// an instruction to remove it, and a favourite is never cleared.
+public enum TakeoutLateNotes {
+    public static func additions(existingAlbums: [String], existingFavorite: Bool, albums: [String], favorite: Bool) -> [MetaLog.Key: Bool] {
+        var have = Set(existingAlbums)
+        for name in existingAlbums {
+            if let trimmed = MetaLog.albumName(name) { have.insert(trimmed) }
+        }
+        var result: [MetaLog.Key: Bool] = [:]
+        for album in albums {
+            guard let name = MetaLog.albumName(album), !have.contains(name) else { continue }
+            result[.album(name)] = true
+            have.insert(name)
+        }
+        if favorite, !existingFavorite {
+            result[.favorite] = true
+        }
+        return result
+    }
 }
