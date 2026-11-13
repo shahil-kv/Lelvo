@@ -22,6 +22,7 @@ final class AppEnvironment: @unchecked Sendable {
     private(set) var similar: SimilarPhotosService!
     private(set) var search: SearchService!
     private(set) var secondCopy: SecondCopyService!
+    private(set) var importer: TakeoutImporter!
 
     private init() {
         Prefs.registerDefaults()
@@ -56,6 +57,7 @@ final class AppEnvironment: @unchecked Sendable {
         similar = SimilarPhotosService(photos: photos, store: store, media: { [unowned self] in self.media })
         search = SearchService(store: store, photos: photos, media: { [unowned self] in self.media })
         secondCopy = SecondCopyService(environment: self)
+        importer = TakeoutImporter(environment: self)
     }
 
     /// Signed in to Telegram, library chosen and (if encrypted) unlocked.

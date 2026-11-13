@@ -237,6 +237,8 @@ struct BackupDashboardView: View {
                 Section("Tools") {
                     NavigationLink { FreeUpSpaceView() } label: { Label("Free up space", systemImage: "internaldrive") }
                     NavigationLink { SaveAllToPhotosView() } label: { Label("Save all to Photos", systemImage: "square.and.arrow.down.on.square") }
+                    NavigationLink { TakeoutGuideView(source: .photos) } label: { Label("Import from Google Photos", systemImage: "photo.stack") }
+                    NavigationLink { TakeoutGuideView(source: .drive) } label: { Label("Import from Google Drive", systemImage: "folder") }
                     #if os(iOS)
                     NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
                     #endif

@@ -537,6 +537,16 @@ import LelvoCore
         #expect(c.pending(autoBackup: false) == 1)
     }
 
+    /// A Takeout import is uploading it: it isn't failed and it isn't left for backup to do.
+    @Test func anImportInFlightIsNotCountedByBackup() {
+        let c = compute(queued: [item(.uploading, local: nil, cloud: true), item(.uploading, local: nil)], auto: true)
+        #expect(c.failed == 0)
+        #expect(c.left == 0)
+        #expect(item(.uploading, local: nil).isImportInFlight)
+        #expect(!item(.uploading).isImportInFlight)
+        #expect(!item(.queued, local: nil, cloud: true).isImportInFlight)
+    }
+
     @Test func photosDeletedFromTheBackupAreNotLeftToDo() {
         let c = compute(candidates: ["A", "B"], offBackup: ["A"], auto: true)
         #expect(c.left == 1)
@@ -877,5 +887,17 @@ import LelvoCore
         let report = RescanReport(itemsBefore: 3, itemsAfter: 3, incomplete: 0, duplicates: 0, favoritesMatched: 2)
         #expect(!report.upToDate)
         #expect(report.detail == "2 favorites updated.")
+    }
+}
+
+@Suite struct UploadSlotTests {
+    /// Backup and another uploader share one pool of two lane slots.
+    @Test func testLanesFromTwoOwnersNeverExceedTwo() {
+        var slots = UploadSlots(limit: 2)
+        #expect(slots.acquireForLane() == true)
+        #expect(slots.acquireForLane() == true)
+        #expect(slots.acquireForLane() == false)
+        slots.release()
+        #expect(slots.acquireForLane() == true)
     }
 }

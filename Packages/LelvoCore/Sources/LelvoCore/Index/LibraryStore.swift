@@ -110,6 +110,14 @@ public final class LibraryStore: @unchecked Sendable {
         // 5 → 6: the favorite Apple Photos had last time it was checked, per item on this device (#99), to tell a change
         // made in Photos from one made on another device.
         "CREATE TABLE IF NOT EXISTS photos_favorite (item_id TEXT PRIMARY KEY, value INTEGER NOT NULL);",
+        // 6 → 7: Google Takeout import progress on this device only. Never uploaded; a later zip must not restart items
+        // already sent.
+        """
+        CREATE TABLE IF NOT EXISTS import_sources (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL,
+                                                   bookmark BLOB NOT NULL, size INTEGER NOT NULL, added_at REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS import_items (key TEXT PRIMARY KEY, json TEXT NOT NULL, status TEXT NOT NULL,
+                                                 item_id TEXT, error TEXT, updated_at REAL NOT NULL);
+        """,
     ]
 
     /// The database's schema version (`PRAGMA user_version`).
@@ -186,7 +194,20 @@ public final class LibraryStore: @unchecked Sendable {
         fatalError("SQLite is unavailable")
     }
 
-    private func exec(_ sql: String) throws {
+    /// Held for a batch so other writers can't commit between our `BEGIN` and `COMMIT`. Extensions in other files use this.
+    func inWriteTransaction(_ body: () throws -> Void) throws {
+        lock.lock(); defer { lock.unlock() }
+        try exec("BEGIN IMMEDIATE;")
+        do {
+            try body()
+            try exec("COMMIT;")
+        } catch {
+            try? exec("ROLLBACK;")
+            throw error
+        }
+    }
+
+    func exec(_ sql: String) throws {
         var err: UnsafeMutablePointer<CChar>?
         if sqlite3_exec(db, sql, nil, nil, &err) != SQLITE_OK {
             let msg = err.map { String(cString: $0) } ?? "unknown"
@@ -196,16 +217,16 @@ public final class LibraryStore: @unchecked Sendable {
     }
 
     /// Runs `sql` on the writing connection. `cache: false` for SQL that varies (`IN` lists of any length).
-    private func withStatement<T>(_ sql: String, cache: Bool = true, bind: (OpaquePointer?) -> Void = { _ in },
-                                  _ body: (OpaquePointer?) throws -> T) throws -> T {
+    func withStatement<T>(_ sql: String, cache: Bool = true, bind: (OpaquePointer?) -> Void = { _ in },
+                          _ body: (OpaquePointer?) throws -> T) throws -> T {
         lock.lock(); defer { lock.unlock() }
         return try Self.run(sql, on: db, cache: cache ? \.statements : nil, of: self, bind: bind, body)
     }
 
     /// Runs a read on the read-only connection (the writer when there is none, e.g. in memory). Reads that are part of a
     /// write (`update`, the id fix-up) stay on the writer, which sees its own uncommitted changes.
-    private func withReadStatement<T>(_ sql: String, cache: Bool = true, bind: (OpaquePointer?) -> Void = { _ in },
-                                      _ body: (OpaquePointer?) throws -> T) throws -> T {
+    func withReadStatement<T>(_ sql: String, cache: Bool = true, bind: (OpaquePointer?) -> Void = { _ in },
+                              _ body: (OpaquePointer?) throws -> T) throws -> T {
         guard let readDB else { return try withStatement(sql, cache: cache, bind: bind, body) }
         readLock.lock(); defer { readLock.unlock() }
         return try Self.run(sql, on: readDB, cache: cache ? \.readStatements : nil, of: self, bind: bind, body)
@@ -234,7 +255,7 @@ public final class LibraryStore: @unchecked Sendable {
         return try body(stmt)
     }
 
-    private func bindText(_ stmt: OpaquePointer?, _ idx: Int32, _ value: String?) {
+    func bindText(_ stmt: OpaquePointer?, _ idx: Int32, _ value: String?) {
         if let value { sqlite3_bind_text(stmt, idx, value, -1, SQLITE_TRANSIENT) } else { sqlite3_bind_null(stmt, idx) }
     }
 
@@ -410,7 +431,7 @@ public final class LibraryStore: @unchecked Sendable {
 
     public func deleteAll() throws {
         lock.lock(); defer { lock.unlock() }
-        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search; DELETE FROM trash_notes; DELETE FROM trash_outbox; DELETE FROM no_backup; DELETE FROM meta_notes; DELETE FROM meta_outbox; DELETE FROM photos_favorite;")
+        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search; DELETE FROM trash_notes; DELETE FROM trash_outbox; DELETE FROM no_backup; DELETE FROM meta_notes; DELETE FROM meta_outbox; DELETE FROM photos_favorite; DELETE FROM import_sources; DELETE FROM import_items;")
         notifyChanged(ids: nil)
     }
 

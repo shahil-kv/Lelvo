@@ -25,6 +25,8 @@ public struct BackupCounts: Equatable, Sendable {
     public static func compute(queued: [MediaItem], failed: [MediaItem], candidates: [String], known: Set<String>,
                                offBackup: Set<String>, autoBackup: Bool) -> BackupCounts {
         // Nothing can upload an incomplete item with no photo on this device: it belongs under Failed.
+        // A Takeout import in flight is the import screen's to show, not backup's.
+        let queued = queued.filter { !$0.isImportInFlight }
         let uploadable = queued.filter { !$0.isStrandedInCloud }
         let active = autoBackup ? uploadable.count : uploadable.filter { $0.chosen == true }.count
         var counts = BackupCounts()

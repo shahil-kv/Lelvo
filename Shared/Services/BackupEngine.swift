@@ -195,6 +195,27 @@ final class BackupEngine: @unchecked Sendable {
         }
     }
 
+    /// An upload from outside the backup (the Takeout importer) still takes one of the two lane slots, with the same
+    /// start spacing. A `FLOOD_WAIT` pauses the backup as well, then goes back to the caller to retry its own file.
+    func withUploadSlot<T>(isCancelled: @escaping () -> Bool, _ body: () async throws -> T) async throws -> T {
+        guard await acquireLaneSlot(isCancelled: isCancelled) else { throw CancellationError() }
+        defer { gate.withLock { uploadSlots.release() } }
+        while true {
+            if isCancelled() || Task.isCancelled { throw CancellationError() }
+            let wait = gate.withLock { pausedUntil }.timeIntervalSinceNow
+            if wait <= 0 { break }
+            try await Task.sleep(nanoseconds: UInt64(min(wait, 1) * 1_000_000_000))
+        }
+        await paceUploadStart()
+        do {
+            return try await body()
+        } catch {
+            guard case .floodWait(let s)? = (error as? TDServiceError)?.kind else { throw error }
+            gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+            throw error
+        }
+    }
+
     private func paceUploadStart() async {
         let wait: TimeInterval = gate.withLock {
             let slot = max(Date(), nextUploadStart)
@@ -510,8 +531,9 @@ final class BackupEngine: @unchecked Sendable {
             appLog(String(format: "Looked for new photos in %@: %d queued, %d edits to check, in %.1f s", how, queued, edited, Date().timeIntervalSince(started)))
         }
 
-        // Items left "uploading" by a killed process go back to pending.
-        if let stale = try? env.store.items(status: .uploading) {
+        // Items left "uploading" by a killed process go back to pending. A Takeout import's own uploads aren't ours:
+        // resetting one mid-upload made it look failed and offered to delete it.
+        if let stale = try? env.store.items(status: .uploading).filter({ !$0.isImportInFlight }) {
             try? env.store.upsert(stale.map { var i = $0; i.job = JobMachine.reduce(i.job, .interrupted); return i })
         }
 
@@ -660,7 +682,9 @@ final class BackupEngine: @unchecked Sendable {
 
     /// Moves every failed item back to pending (the "Retry failed" button).
     func retryFailed() {
-        guard let failed = try? env.store.items(status: .failed).filter({ !$0.isStrandedInCloud }) else { return }
+        // Without a photo on this device backup can't upload it (a failed Takeout import retries from the import
+        // screen), and a retried row would sit in the queue for ever.
+        guard let failed = try? env.store.items(status: .failed).filter({ !$0.isStrandedInCloud && $0.localIdentifier != nil }) else { return }
         // Retrying is an explicit choice: these upload even when the rest of the queue is left alone.
         try? env.store.upsert(failed.map { var i = $0; i.job = JobMachine.reduce(i.job, .retry); i.chosen = true; return i })
     }
@@ -1474,22 +1498,7 @@ final class BackupEngine: @unchecked Sendable {
     }
 
     private func captionMeta(_ item: MediaItem, role: CaptionMeta.Role, hash: String, name: String, size: Int64) -> CaptionMeta {
-        let kind: CaptionMeta.Kind = item.kind == .livePhoto ? .live : (item.kind == .video ? .video : .photo)
-        var m = CaptionMeta(id: item.id, role: role, kind: kind, sha256: hash, name: name, size: size)
-        m.m = name.mimeTypeForFilename
-        m.t = item.creationDate.map { Int64($0.timeIntervalSince1970) }
-        m.tz = item.tzOffsetMinutes
-        if let lat = item.latitude, let lon = item.longitude { m.g = CaptionMeta.roundedGPS(lat, lon) }
-        if item.pixelWidth > 0 { m.wh = [item.pixelWidth, item.pixelHeight] }
-        m.d = role == .thumbnail ? nil : item.duration
-        m.c = item.codec
-        m.hdr = item.hdr
-        m.a = item.albums
-        m.fav = item.favorite == true ? 1 : nil
-        m.l = item.localIdentifier
-        m.ed = (role == .original && item.hasEdit == true) ? 1 : nil
-        m.hid = item.hidden == true ? 1 : nil
-        return m
+        CaptionMeta.make(for: item, role: role, hash: hash, name: name, size: size)
     }
 }
 

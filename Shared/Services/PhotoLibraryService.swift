@@ -757,7 +757,13 @@ enum VideoInfo {
         let avAsset: AVAsset? = await withCheckedContinuation { cont in
             PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { a, _, _ in cont.resume(returning: a) }
         }
-        guard let avAsset, let track = try? await avAsset.loadTracks(withMediaType: .video).first,
+        guard let avAsset else { return nil }
+        return await inspect(asset: avAsset)
+    }
+
+    /// Same inspection for a file already open as an `AVAsset`. Takeout import has no `PHAsset`.
+    static func inspect(asset: AVAsset) async -> Result? {
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
               let formats = try? await track.load(.formatDescriptions), let desc = formats.first else { return nil }
         let subtype = CMFormatDescriptionGetMediaSubType(desc)
         let codec: String?

@@ -7,6 +7,7 @@ those pages in October 2026.
 - [How it works](#how-it-works)
 - [Signing in](#signing-in)
 - [Backing up](#backing-up)
+- [Switching from Google Photos](#switching-from-google-photos)
 - [When something goes wrong in Telegram](#when-something-goes-wrong-in-telegram)
 - [Privacy and encryption](#privacy-and-encryption)
 - [Storage on your device](#storage-on-your-device)
@@ -130,6 +131,44 @@ minutes; the bar at the top shows the progress and lets you cancel. Telegram Pre
 No. Each photo is checked by its Photos identifier and its SHA-256 checksum, so copies are recognised even after a
 reinstall or on another device. **Backup → Duplicates** finds anything that was already stored twice and removes only
 the extra copies.
+
+---
+
+## Switching from Google Photos
+
+**Can I move my Google Photos or Google Drive library to Lelvo?**
+Yes. Google doesn't let an app read a whole library, so the way out is Google Takeout. Backup → **Import from Google
+Photos** (or **Import from Google Drive**) explains each step. You download one zip at a time, and Lelvo uploads the
+photos and videos straight to your Telegram library. Nothing is added to the Photos app.
+
+**What should I choose in Google Takeout?**
+Deselect all, then select only Google Photos, or only Drive. Send the download link by email, export once, file type
+.zip, size 2 GB. A .tgz file won't open here. Request a new export and choose .zip.
+
+**My phone doesn't have room for the whole library.**
+Download the first zip and import it. When Lelvo says that zip is done, you can delete it and download the next one.
+Delete asks you to confirm, and it only appears once every photo and video in that zip is in your Telegram library.
+Lelvo never deletes a zip on its own. If the phone can't delete the file, delete it in Files.
+
+**Some photos are waiting.**
+A photo with no date from Google, and none in the file, waits in case its details are in a zip you haven't added yet.
+When every zip is here, tap **That's all my files**. Those photos are imported with the date stored in the zip, and
+listed under **Imported without a date from Google** so you can check them.
+
+**What doesn't get imported?**
+Only photos and videos. Everything else is listed under **Not imported (not a photo or video)** and is never uploaded.
+Photos that didn't go through are listed under **Failed**.
+
+**Will photos I already backed up from my phone be uploaded again?**
+No. The same file is recognised and counted as already in your library. Google's albums and favourites are added to
+it. Nothing is removed.
+
+**A few things to know.**
+Photos saved in Google's Storage saver quality are smaller copies, so they won't match the originals on your phone
+and can appear twice. The Duplicates tool only catches exact copies. Google's export of an edited photo is sometimes
+the edit only. Whatever Google gives is imported. Pixel motion photos import as one JPEG with the video inside, shown
+as a still for now. A Live Photo or edited copy split across two zips imports as two separate items, and the delete
+step names them.
 
 ---
 

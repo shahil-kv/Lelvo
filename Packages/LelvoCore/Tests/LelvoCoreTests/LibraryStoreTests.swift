@@ -86,7 +86,7 @@ import LelvoCore
         let url = tempURL()
         defer { remove(url) }
         let store = try LibraryStore(url: url)
-        #expect(store.schemaVersion == 6)
+        #expect(store.schemaVersion == 7)
         try store.setSearch(key: "A", stamp: "1", words: "beach sunset", things: ["beach", "sunset_sunrise"], score: 0.4)
         try store.setSearch(key: "C", stamp: "1", words: "receipt", utility: true)
         #expect(try store.photoFacts()["A"] == .init(things: ["beach", "sunset_sunrise"], score: 0.4, utility: false))

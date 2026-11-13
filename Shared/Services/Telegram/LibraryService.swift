@@ -885,8 +885,10 @@ final class LibraryService: @unchecked Sendable {
                     item.status = .trashed
                     item.trashedAt = local.trashedAt
                 }
-                if item.status != .backedUp, local.status == .uploading || local.status == .queued, !item.isStrandedInCloud {
-                    // Still being uploaded by this device: keep the queue state, update known parts.
+                if item.status != .backedUp, local.status == .uploading || local.status == .queued,
+                   !item.isStrandedInCloud || local.isImportInFlight {
+                    // Still being uploaded by this device: keep the queue state, update known parts. A Takeout import
+                    // has no photo here, so its first parts look stranded; it is still uploading them.
                     item.status = local.status
                     item.lastError = local.lastError
                 }

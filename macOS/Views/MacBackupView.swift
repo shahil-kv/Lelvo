@@ -63,6 +63,8 @@ struct MacBackupView: View {
             Section("Tools") {
                 NavigationLink { FreeUpSpaceView() } label: { iconLabel("Free Up Space", "internaldrive.fill", .accentColor) }
                 NavigationLink { SaveAllToPhotosView() } label: { iconLabel("Save All to Photos", "square.and.arrow.down.on.square.fill", .teal) }
+                NavigationLink { TakeoutGuideView(source: .photos) } label: { iconLabel("Import from Google Photos", "photo.stack", .orange) }
+                NavigationLink { TakeoutGuideView(source: .drive) } label: { iconLabel("Import from Google Drive", "folder", .accentColor) }
                 NavigationLink { DuplicatesView() } label: { iconLabel("Duplicates", "square.on.square.fill", .purple) }
                 Button { rescan() } label: {
                     HStack {
