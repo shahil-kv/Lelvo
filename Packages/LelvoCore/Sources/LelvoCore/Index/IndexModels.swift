@@ -273,6 +273,10 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     /// may still have the photo; here it can only be left as it is or deleted.
     public var isStrandedInCloud: Bool { localIdentifier == nil && hasCloudParts && status != .backedUp && status != .trashed }
 
+    /// Being uploaded by a Takeout import. Backup never marks an item without a photo on this device as uploading, so
+    /// backup leaves these alone: it doesn't reset them, retry them or count them.
+    public var isImportInFlight: Bool { localIdentifier == nil && status == .uploading }
+
     /// The photo left this device while the item waited in the queue. Complete in the channel, it's simply backed up (a
     /// re-check for an edit can end here); otherwise it's failed, where it can be seen and deleted.
     public mutating func photoLeftDevice() {

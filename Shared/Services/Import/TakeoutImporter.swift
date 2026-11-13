@@ -48,7 +48,8 @@ private enum TakeoutImportMemory {
 enum TakeoutImportLists {
     static func leftovers(sourceId: String) -> (notMedia: [String], separate: [String]) {
         let notes = TakeoutImportMemory.notes.filter { $0.sourceId == sourceId }
-        return (sorted(notes.filter { !$0.separate }.map(\.name)), sorted(notes.filter(\.separate).map(\.name)))
+        return (sorted(Array(Set(notes.filter { !$0.separate }.map(\.name)))),
+                sorted(Array(Set(notes.filter(\.separate).map(\.name)))))
     }
 
     static func results(in store: LibraryStore) -> (failed: [String], undated: [String], notMedia: [String], photos: Int, videos: Int) {
@@ -66,7 +67,8 @@ enum TakeoutImportLists {
                 if TakeoutDateChoice.importedWithoutGoogleDate(item.dateUsed) { undated.append(name) }
             }
         }
-        let notMedia = TakeoutImportMemory.notes.filter { !$0.separate }.map(\.name)
+        // A zip read twice notes its files twice; each name is listed once.
+        let notMedia = Array(Set(TakeoutImportMemory.notes.filter { !$0.separate }.map(\.name)))
         return (sorted(failed), sorted(undated), sorted(notMedia), photos, videos)
     }
 
@@ -125,9 +127,37 @@ private actor ImportClaims {
 
 private final class OpenSources: @unchecked Sendable {
     let byID: [String: any ImportSource]
+    private let lock = NSLock()
+    private var entriesByPath: [String: [String: [ZipEntry]]] = [:]
+
     init(_ sources: [any ImportSource]) {
         byID = Dictionary(uniqueKeysWithValues: sources.map { ($0.id, $0) })
     }
+
+    /// A zip's entries by path, built once per run. A Takeout zip can hold tens of thousands of entries, and a
+    /// linear search per photo made a large import quadratic.
+    func entries(at path: String, in source: any ImportSource) throws -> [ZipEntry] {
+        try lock.withLock {
+            if let index = entriesByPath[source.id] { return index[path] ?? [] }
+            let index = Dictionary(grouping: try source.entries(), by: \.path)
+            entriesByPath[source.id] = index
+            return index[path] ?? []
+        }
+    }
+}
+
+/// Which of the two progress rows each running upload uses. A finished upload frees its own row, so two running
+/// uploads never share one.
+private struct ImportLanes {
+    private var busy = Set<Int>()
+
+    mutating func take() -> Int {
+        let lane = busy.contains(0) ? 1 : 0
+        busy.insert(lane)
+        return lane
+    }
+
+    mutating func free(_ lane: Int) { busy.remove(lane) }
 }
 
 private struct CatalogOutcome: Sendable {
@@ -249,7 +279,8 @@ final class TakeoutImporter: ObservableObject {
         TakeoutImportMemory.allFilesAdded = false
         TakeoutImportMemory.notMedia = 0
         TakeoutImportMemory.notes = []
-        try? env.store.clearImport()
+        let store = env.store
+        await Task.detached { try? store.clearImport() }.value
         counts = [:]
         notMedia = 0
         allFilesAdded = false
@@ -302,8 +333,7 @@ final class TakeoutImporter: ObservableObject {
     /// Groups every open zip and folder into items. Reading the zips and writing the index happen off the main actor.
     /// A zip that can't be opened is left as it was, so a missing file doesn't drop a sidecar or a Live Photo half.
     private func rebuild(updateState: Bool) async throws {
-        let records = try env.store.importSources()
-        let outcome = try await Task.detached { try self.writeCatalog(records) }.value
+        let outcome = try await Task.detached { try self.writeCatalog(try self.env.store.importSources()) }.value
         TakeoutImportMemory.notMedia = outcome.skipped
         guard updateState, !control.isPaused else {
             counts = outcome.counts
@@ -345,14 +375,7 @@ final class TakeoutImporter: ObservableObject {
         }
         let previous = try env.store.importItems(status: nil)
         let previousByKey = Dictionary(previous.map { ($0.0.key, $0.0) }, uniquingKeysWith: { a, _ in a })
-        var imported = Set<String>()
-        for (item, status, itemId) in previous {
-            switch status {
-            case .done, .duplicate, .uploading: imported.insert(item.key)
-            case .failed where itemId != nil: imported.insert(item.key)
-            default: break
-            }
-        }
+        let imported = TakeoutPlanner.importedKeys(previous)
         let plan = TakeoutPlanner.plan(entries: entries, sidecars: sidecars, albumTitles: albums,
                                        allFilesAdded: TakeoutImportMemory.allFilesAdded, alreadyImportedKeys: imported)
         let saving = plan.items.compactMap { item -> TakeoutPlannedItem? in
@@ -468,42 +491,34 @@ final class TakeoutImporter: ObservableObject {
         let claims = ImportClaims()
         let pending = workKeys().count
         appLog("Import started: \(pending) to upload")
-        await withTaskGroup(of: Void.self) { group in
+        await withTaskGroup(of: Int.self) { group in
             var running = 0
+            var lanes = ImportLanes()
             while !Task.isCancelled && control.allows(epoch) {
                 let cap = control.blocked ? 0 : TakeoutImportStep.laneCount(backupRunning: env.engine.isRunning)
                 if running < cap, let key = await claims.claimNext(workKeys()) {
-                    let lane = running % 2
+                    let lane = lanes.take()
                     running += 1
                     group.addTask { [self] in
                         await self.process(key: key, lane: lane, epoch: epoch, sources: sources, records: records)
+                        return lane
                     }
                     continue
                 }
                 if running == 0 { break }
-                await group.next()
+                if let lane = await group.next() { lanes.free(lane) }
                 running -= 1
             }
         }
     }
 
     nonisolated private func workKeys() -> [String] {
-        let rows = (try? env.store.importItems(status: nil)) ?? []
-        return rows.compactMap { item, status, _ -> (Int, String)? in
-            switch status {
-            case .uploading: return (0, item.key)
-            case .pending: return (1, item.key)
-            case .failed: return (2, item.key)
-            default: return nil
-            }
-        }
-        .sorted { $0.0 == $1.0 ? $0.1 < $1.1 : $0.0 < $1.0 }
-        .map(\.1)
+        (try? env.store.importWorkKeys()) ?? []
     }
 
     nonisolated private func process(key: String, lane: Int, epoch: Int, sources: OpenSources, records: [ImportSourceRecord]) async {
         guard control.allows(epoch), !Task.isCancelled else { return }
-        guard let row = ((try? env.store.importItems(status: nil)) ?? []).first(where: { $0.0.key == key }) else { return }
+        guard let row = try? env.store.importItem(key: key) else { return }
         let (planned, status, _) = row
         if planned.dateSource == .waiting, status != .uploading {
             try? env.store.setImportStatus(key: key, status: .waitingForDetails, itemId: row.2, error: nil)
@@ -557,7 +572,7 @@ final class TakeoutImporter: ObservableObject {
                     floods += 1
                     continue
                 }
-                let itemId = ((try? env.store.importItems(status: nil)) ?? []).first { $0.0.key == key }?.2
+                let itemId = (try? env.store.importItem(key: key))?.2
                 try? env.store.setImportStatus(key: key, status: .failed, itemId: itemId, error: error.localizedDescription)
                 AppLog.shared.error("Import of \(filename) failed: \(error.localizedDescription)")
                 break
@@ -569,7 +584,7 @@ final class TakeoutImporter: ObservableObject {
     /// Extracts into `staging/import-<digest>/` and deletes that folder on every exit, including a throw.
     /// The digest stands in for the item key: the key contains `|` and the original file name.
     nonisolated private func send(key: String, laneKey: String, epoch: Int, sources: OpenSources) async throws {
-        guard let row = ((try? env.store.importItems(status: nil)) ?? []).first(where: { $0.0.key == key }) else { return }
+        guard let row = try? env.store.importItem(key: key) else { return }
         let (planned, status, storedId) = row
         let filename = ImportPaths.fileName(planned.primary.entry.path)
         let needed = await bytesNeeded(planned)
@@ -990,7 +1005,8 @@ final class TakeoutImporter: ObservableObject {
         }
         if source.kind == "folder" { return (source, stored.entry) }
         // A stored offset can point at a different file after the zip is rewritten. Match the entry again, or stop.
-        guard let fresh = try source.entries().first(where: { $0.path == stored.entry.path && $0.size == stored.entry.size && $0.crc32 == stored.entry.crc32 }) else {
+        guard let fresh = try sources.entries(at: stored.entry.path, in: source)
+            .first(where: { $0.size == stored.entry.size && $0.crc32 == stored.entry.crc32 }) else {
             throw ImportFailure("A file in the Takeout zip is no longer there. Choose the zip again to continue.")
         }
         return (source, fresh)
@@ -1064,7 +1080,7 @@ final class TakeoutImporter: ObservableObject {
     }
 
     nonisolated private func storedPlan(_ key: String) -> TakeoutPlannedItem? {
-        ((try? env.store.importItems(status: nil)) ?? []).first { $0.0.key == key }?.0
+        (try? env.store.importItem(key: key))?.0
     }
 
     /// Written on the stored plan before the upload, so a relaunch can still name the photos that used the zip date.

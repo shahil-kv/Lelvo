@@ -138,15 +138,65 @@ extension LibraryStore {
         }) { s in
             var rows: [(TakeoutPlannedItem, ImportStatus, String?)] = []
             while sqlite3_step(s) == SQLITE_ROW {
-                guard let json = sqlite3_column_text(s, 0).map({ String(cString: $0) }),
-                      let item = try? Self.importDecoder.decode(TakeoutPlannedItem.self, from: Data(json.utf8)),
-                      let raw = sqlite3_column_text(s, 1).map({ String(cString: $0) }),
-                      let status = ImportStatus(rawValue: raw)
-                else { continue }
-                rows.append((item, status, sqlite3_column_text(s, 2).map { String(cString: $0) }))
+                if let row = Self.importRow(s) { rows.append(row) }
             }
             return rows
         }
+    }
+
+    /// One row. The importer reads a row per photo, and decoding the whole table each time is quadratic.
+    public func importItem(key: String) throws -> (TakeoutPlannedItem, ImportStatus, String?)? {
+        try withReadStatement("SELECT json, status, item_id FROM import_items WHERE key = ?;",
+                              bind: { s in bindText(s, 1, key) }) { s in
+            sqlite3_step(s) == SQLITE_ROW ? Self.importRow(s) : nil
+        }
+    }
+
+    /// Keys still to upload: resumed uploads first, then pending, then failed, each by key. No JSON is decoded.
+    public func importWorkKeys() throws -> [String] {
+        let sql = """
+            SELECT key FROM import_items WHERE status IN (?, ?, ?)
+            ORDER BY CASE status WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END, key;
+            """
+        return try withReadStatement(sql, bind: { s in
+            bindText(s, 1, ImportStatus.uploading.rawValue)
+            bindText(s, 2, ImportStatus.pending.rawValue)
+            bindText(s, 3, ImportStatus.failed.rawValue)
+            bindText(s, 4, ImportStatus.uploading.rawValue)
+            bindText(s, 5, ImportStatus.pending.rawValue)
+        }) { s in
+            var keys: [String] = []
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let text = sqlite3_column_text(s, 0) { keys.append(String(cString: text)) }
+            }
+            return keys
+        }
+    }
+
+    /// Library item ids of the newest imports that finished here, newest first.
+    public func recentImportedItemIds(limit: Int) throws -> [String] {
+        try withReadStatement("""
+            SELECT item_id FROM import_items WHERE status = ? AND item_id IS NOT NULL
+            ORDER BY updated_at DESC, key DESC LIMIT ?;
+            """, bind: { s in
+                bindText(s, 1, ImportStatus.done.rawValue)
+                sqlite3_bind_int64(s, 2, Int64(limit))
+            }) { s in
+            var ids: [String] = []
+            while sqlite3_step(s) == SQLITE_ROW {
+                if let text = sqlite3_column_text(s, 0) { ids.append(String(cString: text)) }
+            }
+            return ids
+        }
+    }
+
+    private static func importRow(_ s: OpaquePointer?) -> (TakeoutPlannedItem, ImportStatus, String?)? {
+        guard let json = sqlite3_column_text(s, 0).map({ String(cString: $0) }),
+              let item = try? importDecoder.decode(TakeoutPlannedItem.self, from: Data(json.utf8)),
+              let raw = sqlite3_column_text(s, 1).map({ String(cString: $0) }),
+              let status = ImportStatus(rawValue: raw)
+        else { return nil }
+        return (item, status, sqlite3_column_text(s, 2).map { String(cString: $0) })
     }
 
     public func setImportStatus(key: String, status: ImportStatus, itemId: String?, error: String?) throws {
@@ -179,10 +229,17 @@ extension LibraryStore {
     /// True when every file from this zip or folder is done, a duplicate, or skipped — including album copies
     /// that belong to an item whose primary file is in another source.
     public func isSourceFinished(id: String) throws -> Bool {
+        try finishedSourceIds([id]).contains(id)
+    }
+
+    /// `isSourceFinished` for several sources, reading the table once instead of once per source.
+    public func finishedSourceIds(_ ids: [String]) throws -> Set<String> {
         let settled: Set<ImportStatus> = [.done, .duplicate, .skipped]
-        return try importItems(status: nil).allSatisfy { item, status, _ in
-            !item.belongs(toSource: id) || settled.contains(status)
+        var open = Set<String>()
+        for (item, status, _) in try importItems(status: nil) where !settled.contains(status) {
+            open.formUnion(item.sourceIds)
         }
+        return Set(ids).subtracting(open)
     }
 
     public func clearImport() throws {
@@ -194,10 +251,11 @@ extension LibraryStore {
 }
 
 extension TakeoutPlannedItem {
-    fileprivate func belongs(toSource id: String) -> Bool {
-        primary.sourceId == id
-            || pairedVideo?.sourceId == id
-            || edited?.sourceId == id
-            || copies.contains { $0.sourceId == id }
+    fileprivate var sourceIds: Set<String> {
+        var ids: Set<String> = [primary.sourceId]
+        if let id = pairedVideo?.sourceId { ids.insert(id) }
+        if let id = edited?.sourceId { ids.insert(id) }
+        for copy in copies { ids.insert(copy.sourceId) }
+        return ids
     }
 }

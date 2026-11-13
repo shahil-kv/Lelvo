@@ -134,6 +134,32 @@ import Foundation
         #expect(p.entryKeys[copy] == key)
     }
 
+    /// Reading the zips again (the next zip, reopening the screen) must not plan a Live Photo video or an edited copy
+    /// again once it went up inside its photo. On a phone this uploaded IMG_0049.MOV a second time, on its own.
+    @Test func filesInsideAnImportedItemStayImportedWhenReadAgain() {
+        let still = entry("Photos from 2019/IMG_49.jpg")
+        let movie = entry("Photos from 2019/IMG_49.MOV", crc: 49)
+        let original = entry("Photos from 2019/IMG_3.jpg", crc: 3)
+        let edited = entry("Photos from 2019/IMG_3-edited.jpg", crc: 33)
+        let first = plan([still, movie, original, edited])
+        #expect(first.items.count == 2)
+        let rows = first.items.map { ($0, ImportStatus.done, Optional("id-\($0.key)")) }
+        let imported = TakeoutPlanner.importedKeys(rows)
+        #expect(imported.contains(TakeoutPlanner.key(for: movie.entry)))
+        #expect(imported.contains(TakeoutPlanner.key(for: edited.entry)))
+        #expect(plan([still, movie, original, edited], imported: imported).items.isEmpty)
+    }
+
+    /// Only uploads that started count; a pending or waiting item is planned again with its files.
+    @Test func importedKeysFollowTheUploadState() {
+        let a = planned(entry("Photos from 2019/a.jpg", crc: 1))
+        let b = planned(entry("Photos from 2019/b.jpg", crc: 2))
+        let c = planned(entry("Photos from 2019/c.jpg", crc: 3))
+        let d = planned(entry("Photos from 2019/d.jpg", crc: 4))
+        let keys = TakeoutPlanner.importedKeys([(a, .uploading, nil), (b, .failed, "x"), (c, .failed, nil), (d, .pending, nil)])
+        #expect(keys == [a.key, b.key])
+    }
+
     @Test func livePhotoHalfInAnotherSourceIsSeparate() {
         let still = entry("Photos from 2019/IMG_10.HEIC", source: "A")
         let movie = entry("Photos from 2019/IMG_10.MOV", source: "B", crc: 10)

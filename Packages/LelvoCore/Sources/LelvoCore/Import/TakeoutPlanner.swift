@@ -170,6 +170,24 @@ public enum TakeoutPlanner {
         return plan
     }
 
+    /// Keys whose upload started or finished, for `plan(alreadyImportedKeys:)`. A Live Photo's video and an edited
+    /// copy went up inside their photo, so their own keys count too; otherwise reading the zips again planned them as
+    /// new items and uploaded them a second time.
+    public static func importedKeys(_ rows: [(TakeoutPlannedItem, ImportStatus, String?)]) -> Set<String> {
+        var keys = Set<String>()
+        for (item, status, itemId) in rows {
+            switch status {
+            case .done, .duplicate, .uploading: break
+            case .failed where itemId != nil: break
+            default: continue
+            }
+            keys.insert(item.key)
+            if let video = item.pairedVideo { keys.insert(key(for: video.entry)) }
+            if let edit = item.edited { keys.insert(key(for: edit.entry)) }
+        }
+        return keys
+    }
+
     /// A Live Photo video or an edited copy whose other half was already imported. It uploads as its own item.
     /// The zip it came from names it before that zip can be deleted, so the split isn't silent.
     public static func importedSeparately(_ items: [TakeoutPlannedItem], alreadyImported: [TakeoutPlannedItem]) -> [TakeoutSourceEntry] {

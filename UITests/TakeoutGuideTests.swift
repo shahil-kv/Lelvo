@@ -22,16 +22,15 @@ final class TakeoutGuideTests: XCTestCase {
 
     func testBothGuidesShowTheSteps() {
         let shared = [
-            "Open Google Takeout and sign in with the Google account that has your photos.",
+            "Ask Google for a copy",
             "Deselect all",
-            "Send download link via email",
-            "Export once",
-            "Wait for Google's email",
-            "Download the first zip into Files",
-            "Come back here and tap",
-            "When Lelvo says a zip is done",
-            "Wi-Fi recommended",
-            "expire after 7 days",
+            "Download the zips",
+            "The links last 7 days",
+            "Import here",
+            "When it's done, delete it",
+            "Open Google Takeout",
+            "Use Wi-Fi and keep Lelvo open",
+            "Good to know",
         ]
 
         openGuide("Import from Google Photos", title: "Google Photos")
@@ -56,12 +55,12 @@ final class TakeoutGuideTests: XCTestCase {
 
         openGuide("Import from Google Photos", title: "Google Photos")
         shot("guide-photos-dark")
-        requireTexts(["select only Google Photos", "Open Google Takeout and sign in"])
+        requireTexts(["select only Google Photos", "Ask Google for a copy"])
         pop(to: "Backup")
 
         openGuide("Import from Google Drive", title: "Google Drive")
         shot("guide-drive-dark")
-        requireTexts(["select only Drive", "Send download link via email"])
+        requireTexts(["select only Drive", "Download the zips"])
         openImport()
         shot("import-dark")
         app.swipeUp()
@@ -78,7 +77,8 @@ final class TakeoutGuideTests: XCTestCase {
     }
 
     private func openImport() {
-        let choose = app.buttons["Choose files"].firstMatch
+        // The guide's button says what it will do: a fresh import, the next zip, or back to the import under way.
+        let choose = app.buttons.matching(NSPredicate(format: "label IN %@", ["Choose files", "Add the next zip", "Continue import"])).firstMatch
         for _ in 0..<4 { app.swipeDown() }
         for _ in 0..<8 where !(choose.exists && choose.isHittable) { app.swipeUp() }
         XCTAssertTrue(choose.isHittable, "Choose files should be on the guide")

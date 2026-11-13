@@ -183,4 +183,51 @@ import Testing
         #expect(try store.importSources().isEmpty)
         #expect(try store.importItems(status: nil).isEmpty)
     }
+    /// One row by key, without decoding the whole table: the importer reads a row per photo.
+    @Test func testImportItemByKey() throws {
+        let store = try LibraryStore(url: nil)
+        try store.upsertPlanned([planned(key: "a"), planned(key: "b")])
+        try store.setImportStatus(key: "b", status: .uploading, itemId: "x", error: nil)
+        let row = try store.importItem(key: "b")
+        #expect(row?.0.key == "b")
+        #expect(row?.1 == .uploading)
+        #expect(row?.2 == "x")
+        #expect(try store.importItem(key: "missing") == nil)
+    }
+
+    /// Resumed uploads first, then pending, then failed; each by key. Nothing else is work.
+    @Test func testWorkKeysOrder() throws {
+        let store = try LibraryStore(url: nil)
+        try store.upsertPlanned(["a", "b", "c", "d", "e", "f"].map { planned(key: $0) })
+        try store.setImportStatus(key: "a", status: .failed, itemId: nil, error: "x")
+        try store.setImportStatus(key: "c", status: .uploading, itemId: "i", error: nil)
+        try store.setImportStatus(key: "d", status: .done, itemId: "i", error: nil)
+        try store.setImportStatus(key: "e", status: .waitingForDetails, itemId: nil, error: nil)
+        #expect(try store.importWorkKeys() == ["c", "b", "f", "a"])
+    }
+
+    /// Every finished source in one pass; an album copy in another zip keeps that zip open too.
+    @Test func testFinishedSourceIds() throws {
+        let store = try LibraryStore(url: nil)
+        let copy = TakeoutSourceEntry(sourceId: "C", entry: ZipEntry(path: "Takeout/Google Photos/Goa/a.jpg",
+                                      compressedSize: 100, size: 100, crc32: 1, method: 0, localHeaderOffset: 0, modified: nil))
+        try store.upsertPlanned([planned(key: "a", source: "A", copies: [copy]), planned(key: "b", source: "B")])
+        try store.setImportStatus(key: "b", status: .done, itemId: "x", error: nil)
+        #expect(try store.finishedSourceIds(["A", "B", "C", "D"]) == ["B", "D"])
+        try store.setImportStatus(key: "a", status: .duplicate, itemId: "y", error: nil)
+        #expect(try store.finishedSourceIds(["A", "B", "C", "D"]) == ["A", "B", "C", "D"])
+    }
+
+    /// The import screen's photo strip: the newest imported items first, only ones that are done.
+    @Test func testRecentImportedItemIds() throws {
+        let store = try LibraryStore(url: nil)
+        try store.upsertPlanned(["a", "b", "c", "d"].map { planned(key: $0) })
+        try store.setImportStatus(key: "a", status: .done, itemId: "ia", error: nil)
+        try store.setImportStatus(key: "b", status: .failed, itemId: "ib", error: "x")
+        Thread.sleep(forTimeInterval: 0.01)
+        try store.setImportStatus(key: "c", status: .done, itemId: "ic", error: nil)
+        try store.setImportStatus(key: "d", status: .duplicate, itemId: "id", error: nil)
+        #expect(try store.recentImportedItemIds(limit: 6) == ["ic", "ia"])
+        #expect(try store.recentImportedItemIds(limit: 1) == ["ic"])
+    }
 }
