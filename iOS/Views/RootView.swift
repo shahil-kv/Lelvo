@@ -48,7 +48,9 @@ struct RootView: View {
                     // `-ShowCommunityNote`: shows it now, also in the demo library, to check how it looks.
                     forced = ProcessInfo.processInfo.arguments.contains("-ShowCommunityNote")
                     #endif
-                    guard gallery.loaded, forced || (!communityNoteShown && !DemoMode.isActive), !model.needsSignIn else { return }
+                    // Not in UI tests either: the sheet would cover the screens they tap.
+                    guard gallery.loaded, forced || (!communityNoteShown && !DemoMode.isActive && !UITestSupport.isRunning),
+                          !model.needsSignIn else { return }
                     try? await Task.sleep(for: .seconds(3))
                     if !Task.isCancelled, !model.needsSignIn { showingCommunityNote = true }
                 }
