@@ -71,6 +71,42 @@ import Testing
         #expect(favourite == [.favorite: true])
     }
 
+    /// The queued note has to be the additions from before the write. Diffing afterwards is empty, which is how a
+    /// confirmed part loses a later zip: the caption already in the channel is the one a scan keeps.
+    @Test func confirmedPartQueuesAdditionsFromBeforeTheItemIsUpdated() {
+        var albums: [String]? = ["Home"]
+        var favorite: Bool? = false
+        let notes = TakeoutLateNotes.merge(albums: &albums, favorite: &favorite,
+                                           plannedAlbums: ["Home", "Goa"], plannedFavorite: true,
+                                           hasConfirmedPart: true)
+        #expect(notes == [.album("Goa"): true, .favorite: true])
+        #expect(albums == ["Goa", "Home"])
+        #expect(favorite == true)
+        let afterTheWrite = TakeoutLateNotes.additions(existingAlbums: albums ?? [], existingFavorite: favorite == true,
+                                                       albums: ["Home", "Goa"], favorite: true)
+        #expect(afterTheWrite.isEmpty)
+
+        var keptAlbums: [String]? = ["Home", "Goa"]
+        var keptFavorite: Bool? = true
+        let nothingRemoved = TakeoutLateNotes.merge(albums: &keptAlbums, favorite: &keptFavorite,
+                                                    plannedAlbums: ["Home"], plannedFavorite: false,
+                                                    hasConfirmedPart: true)
+        #expect(nothingRemoved.isEmpty)
+        #expect(keptAlbums == ["Goa", "Home"])
+        #expect(keptFavorite == true)
+    }
+
+    @Test func noConfirmedPartLeavesTheAlbumsForTheFirstCaption() {
+        var albums: [String]? = nil
+        var favorite: Bool? = nil
+        let notes = TakeoutLateNotes.merge(albums: &albums, favorite: &favorite,
+                                           plannedAlbums: ["Goa"], plannedFavorite: true,
+                                           hasConfirmedPart: false)
+        #expect(notes.isEmpty)
+        #expect(albums == ["Goa"])
+        #expect(favorite == true)
+    }
+
     private func plannedItem() -> TakeoutPlannedItem {
         TakeoutPlannedItem(
             key: "k", kind: .photo,

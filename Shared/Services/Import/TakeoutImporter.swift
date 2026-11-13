@@ -563,12 +563,21 @@ final class TakeoutImporter: ObservableObject {
         item.hdr = planned.kind == .video ? info.hdr : (videoInfo?.hdr ?? info.hdr)
         item.tzOffsetMinutes = zone
         // A zip added while this file was extracting is already on the stored plan. Union, so nothing already
-        // on the item is cleared.
+        // on the item is cleared. A confirmed part keeps the caption already in the channel (the lowest message
+        // id), so the note is the additions from before this write. Queued before the save: the note is what a
+        // later scan keeps.
         let recorded = storedPlan(key) ?? planned
-        var albumNames = Set(item.albums ?? [])
-        albumNames.formUnion(recorded.albums)
-        item.albums = albumNames.isEmpty ? nil : albumNames.sorted()
-        if recorded.sidecar?.favorite == true { item.favorite = true }
+        var mergedAlbums = item.albums
+        var mergedFavorite = item.favorite
+        let lateNotes = TakeoutLateNotes.merge(
+            albums: &mergedAlbums, favorite: &mergedFavorite, plannedAlbums: recorded.albums,
+            plannedFavorite: recorded.sidecar?.favorite == true, hasConfirmedPart: hasParts)
+        item.albums = mergedAlbums
+        item.favorite = mergedFavorite
+        if !lateNotes.isEmpty, let chatId = MetaSync.shared.noteChatId {
+            try? env.store.queueMetaChanges([item.id: lateNotes], chatId: chatId)
+            MetaSync.shared.schedule()
+        }
         item.hasEdit = planned.edited == nil ? nil : true
         item.pairedVideoFilename = planned.pairedVideo.map { ImportPaths.fileName($0.entry.path) }
         if let pairedURL { item.pairedVideoSize = try CloudUploader.size(of: pairedURL) }
@@ -673,8 +682,8 @@ final class TakeoutImporter: ObservableObject {
         item.lastError = nil
         try store.upsert(item)
         try store.setImportStatus(key: key, status: .done, itemId: item.id, error: nil)
-        // Albums that arrived after the caption was built are notes now: the item is backed up, and the caption
-        // already went out without them.
+        // A zip that landed after the plan was copied above. Albums already on that plan, with a part confirmed,
+        // were queued before the copy. This one is still missing from the item.
         if let recorded = storedPlan(key) {
             addNotes(itemId: item.id, albums: recorded.albums, favorite: recorded.sidecar?.favorite == true)
         }
@@ -741,7 +750,8 @@ final class TakeoutImporter: ObservableObject {
     }
 
     /// A later zip's albums. An item already backed up (or trashed) gets a note. One still uploading or failed,
-    /// and not backed up yet, keeps them on the stored plan so the upload that finishes later includes them.
+    /// and not backed up yet, keeps them on the stored plan. The next send writes them on the item, and queues
+    /// the additions when a part is already confirmed, because that caption is not replaced.
     nonisolated private func keepLateDetails(_ details: [TakeoutLateDetail], previous: [(TakeoutPlannedItem, ImportStatus, String?)]) throws {
         guard !details.isEmpty else { return }
         let rows = Dictionary(previous.map { ($0.0.key, $0) }, uniquingKeysWith: { a, _ in a })

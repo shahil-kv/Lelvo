@@ -69,7 +69,7 @@ extension TakeoutPlannedItem {
     }
 }
 
-/// What to queue for an item already backed up or trashed. Only additions: a Takeout that omits an album is not
+/// What to queue when a later zip adds an album or a favourite. Only additions: a Takeout that omits an album is not
 /// an instruction to remove it, and a favourite is never cleared.
 public enum TakeoutLateNotes {
     public static func additions(existingAlbums: [String], existingFavorite: Bool, albums: [String], favorite: Bool) -> [MetaLog.Key: Bool] {
@@ -87,5 +87,22 @@ public enum TakeoutLateNotes {
             result[.favorite] = true
         }
         return result
+    }
+
+    /// Writes a later zip's albums onto the library item and returns the note those additions need.
+    /// The note is taken from the albums and favourite before the write. A confirmed part keeps the caption
+    /// already in the channel, so a diff after the write is empty and a later scan drops the zip. With no
+    /// confirmed part the first caption carries them, and the note is empty.
+    public static func merge(albums: inout [String]?, favorite: inout Bool?, plannedAlbums: [String],
+                             plannedFavorite: Bool, hasConfirmedPart: Bool) -> [MetaLog.Key: Bool] {
+        let notes = hasConfirmedPart
+            ? additions(existingAlbums: albums ?? [], existingFavorite: favorite == true,
+                        albums: plannedAlbums, favorite: plannedFavorite)
+            : [:]
+        var names = Set(albums ?? [])
+        names.formUnion(plannedAlbums)
+        albums = names.isEmpty ? nil : names.sorted()
+        if plannedFavorite { favorite = true }
+        return notes
     }
 }
