@@ -195,6 +195,27 @@ final class BackupEngine: @unchecked Sendable {
         }
     }
 
+    /// An upload from outside the backup (the Takeout importer) still takes one of the two lane slots, with the same
+    /// start spacing. A `FLOOD_WAIT` pauses the backup as well, then goes back to the caller to retry its own file.
+    func withUploadSlot<T>(isCancelled: @escaping () -> Bool, _ body: () async throws -> T) async throws -> T {
+        guard await acquireLaneSlot(isCancelled: isCancelled) else { throw CancellationError() }
+        defer { gate.withLock { uploadSlots.release() } }
+        while true {
+            if isCancelled() || Task.isCancelled { throw CancellationError() }
+            let wait = gate.withLock { pausedUntil }.timeIntervalSinceNow
+            if wait <= 0 { break }
+            try await Task.sleep(nanoseconds: UInt64(min(wait, 1) * 1_000_000_000))
+        }
+        await paceUploadStart()
+        do {
+            return try await body()
+        } catch {
+            guard case .floodWait(let s)? = (error as? TDServiceError)?.kind else { throw error }
+            gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+            throw error
+        }
+    }
+
     private func paceUploadStart() async {
         let wait: TimeInterval = gate.withLock {
             let slot = max(Date(), nextUploadStart)

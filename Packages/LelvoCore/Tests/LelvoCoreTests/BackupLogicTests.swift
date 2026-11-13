@@ -879,3 +879,15 @@ import LelvoCore
         #expect(report.detail == "2 favorites updated.")
     }
 }
+
+@Suite struct UploadSlotTests {
+    /// Backup and another uploader share one pool of two lane slots.
+    @Test func testLanesFromTwoOwnersNeverExceedTwo() {
+        var slots = UploadSlots(limit: 2)
+        #expect(slots.acquireForLane() == true)
+        #expect(slots.acquireForLane() == true)
+        #expect(slots.acquireForLane() == false)
+        slots.release()
+        #expect(slots.acquireForLane() == true)
+    }
+}
