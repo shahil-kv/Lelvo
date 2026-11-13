@@ -117,6 +117,48 @@ import Testing
         #expect(again.first?.0.dateSource == .fileWillTell)
     }
 
+    /// A catalogue rebuild upserts the plan it read, which has no `dateUsed`. Send may already have stored one
+    /// while the row is still pending. That choice has to survive, including after the row is done: a later
+    /// catalogue does not write a finished row again. Only the zip's modified date is the undated list.
+    @Test func testCatalogueUpsertKeepsStoredDateUsed() throws {
+        let store = try LibraryStore(url: nil)
+        for source: TakeoutDateChoice.Source in [.google, .file, .zipModified] {
+            var stored = planned(key: source.rawValue)
+            stored.dateSource = .fileWillTell
+            stored.dateUsed = source
+            try store.upsertPlanned([stored])
+
+            var catalogue = planned(key: source.rawValue)
+            catalogue.dateSource = .fileWillTell
+            catalogue.albums = ["Trip"]
+            catalogue.dateUsed = nil
+            try store.upsertPlanned([catalogue])
+
+            let pending = try store.importItems(status: .pending).first { $0.0.key == source.rawValue }
+            #expect(pending?.0.dateUsed == source)
+            #expect(pending?.0.albums == ["Trip"])
+            #expect(pending?.1 == .pending)
+            #expect(TakeoutDateChoice.importedWithoutGoogleDate(pending?.0.dateUsed) == (source == .zipModified))
+
+            try store.setImportStatus(key: source.rawValue, status: .done, itemId: "item-\(source.rawValue)", error: nil)
+            var again = catalogue
+            again.albums = ["Later"]
+            try store.upsertPlanned([again])
+            let done = try store.importItems(status: .done).first { $0.0.key == source.rawValue }
+            #expect(done?.0.dateUsed == source)
+            #expect(done?.1 == .done)
+            #expect(TakeoutDateChoice.importedWithoutGoogleDate(done?.0.dateUsed) == (source == .zipModified))
+        }
+
+        var chosen = planned(key: "fresh")
+        chosen.dateUsed = nil
+        try store.upsertPlanned([chosen])
+        chosen.dateUsed = .zipModified
+        try store.upsertPlanned([chosen])
+        let fresh = try store.importItems(status: nil).first { $0.0.key == "fresh" }
+        #expect(fresh?.0.dateUsed == .zipModified)
+    }
+
     @Test func testCounts() throws {
         let store = try LibraryStore(url: nil)
         try store.upsertPlanned([planned(key: "a"), planned(key: "b"), planned(key: "c")])
