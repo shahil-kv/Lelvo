@@ -11,7 +11,20 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import app.lelvo.android.R
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -190,44 +203,88 @@ fun rememberPhoneActions(onFavorited: (Boolean) -> Unit = {}, onTrashed: (keepsP
 
 /**
  * Asks how to delete, like iOS: remove from this phone, delete from the backup only (keeps the phone copy), or
- * everywhere. Anything not backed up is named first, so "Remove" is never read as safe for it.
+ * everywhere. A sheet, as Google Photos asks, with one line under each choice saying what stays, so no two choices
+ * look alike. Choices that would do the same thing are left out: with nothing backed up, "everywhere" is just this
+ * phone; with nothing on the phone, it's just the backup. Anything not backed up is named first, so "Remove" is
+ * never read as safe for it.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeleteDialog(chosen: List<GalleryEntry>, actions: PhoneActions, onDismiss: () -> Unit) {
     val onPhone = chosen.count { it.asset != null }
     val backedUp = chosen.count { it.item?.status == ItemStatus.BackedUp }
     val notBacked = onPhone - chosen.count { it.asset != null && it.badge == BackupBadge.BackedUp }
-    val title = if (chosen.size == 1) "Delete this ${if (chosen[0].isVideo) "video" else "photo"}?" else "Delete ${chosen.size} items?"
-    val message = buildList {
-        if (notBacked > 0) add(
-            if (chosen.size == 1) "It isn't backed up yet and will be lost once the phone's trash is emptied."
-            else "$notBacked ${if (notBacked == 1) "isn't" else "aren't"} backed up yet and will be lost once the phone's trash is emptied.",
-        )
-        else if (onPhone > 0) add("Remove from this phone keeps your backup.")
-        if (backedUp > 0) add("Deleted backups stay in Recently Deleted for 30 days.")
-    }.joinToString(" ")
-    val red = Lelvo.colors.red
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column {
-                Text(message)
-                Spacer(Modifier.height(12.dp))
-                @Composable fun Choice(label: String, onClick: () -> Unit) = TextButton(
-                    onClick = { onDismiss(); onClick() }, modifier = Modifier.fillMaxWidth(),
-                ) { Text(label, color = red, modifier = Modifier.fillMaxWidth()) }
-                if (onPhone > 0) Choice(if (chosen.size == 1) "Remove from this phone" else "Remove $onPhone from this phone") { actions.removeFromPhone(chosen) }
-                // Keeps the copy on this phone: the only way to take something out of the backup but keep it here.
-                if (backedUp > 0 && onPhone > 0) Choice(if (chosen.size == 1) "Delete from backup only" else "Delete $backedUp from backup only") {
-                    actions.deleteFromBackup(chosen)
+    val one = chosen.size == 1
+    val what = if (one) "this ${if (chosen[0].isVideo) "video" else "photo"}" else "${"%,d".format(chosen.size)} items"
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    // Closes the sheet first, so the system prompt for phone copies doesn't open behind it.
+    fun choose(action: () -> Unit) {
+        scope.launch { sheet.hide() }.invokeOnCompletion { onDismiss(); action() }
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+            Text("Delete $what?", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(horizontal = 24.dp))
+            if (notBacked > 0) {
+                Row(Modifier.padding(start = 24.dp, end = 24.dp, top = 12.dp), verticalAlignment = Alignment.Top) {
+                    Icon(painterResource(R.drawable.ic_cloud_off), contentDescription = null, tint = Lelvo.colors.orange,
+                        modifier = Modifier.padding(top = 2.dp).size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (one) "It isn't backed up yet. Once it's gone from this phone's trash, it can't be brought back."
+                        else "${"%,d".format(notBacked)} ${if (notBacked == 1) "isn't" else "aren't"} backed up yet. Once they're gone from this phone's trash, they can't be brought back.",
+                        style = MaterialTheme.typography.bodyMedium, color = Lelvo.colors.orange,
+                    )
                 }
-                if (backedUp > 0 || onPhone > 0) Choice("Delete everywhere") { actions.deleteEverywhere(chosen) }
             }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text(if (onPhone > 0 || backedUp > 0) "Cancel" else "OK") } },
-    )
+            Spacer(Modifier.height(8.dp))
+            when {
+                onPhone == 0 && backedUp == 0 -> {
+                    Text(
+                        if (one) "It's still backing up. You can delete it once it's in your Telegram library."
+                        else "These are still backing up. You can delete them once they're in your Telegram library.",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    )
+                }
+                backedUp == 0 -> DeleteChoice(R.drawable.ic_delete, if (one) "Delete from this phone" else "Delete ${"%,d".format(onPhone)} from this phone",
+                    "Moves to this phone's trash. Nothing is in your Telegram library yet.", destructive = true) { choose { actions.removeFromPhone(chosen) } }
+                onPhone == 0 -> DeleteChoice(R.drawable.ic_delete, if (one) "Delete from backup" else "Delete ${"%,d".format(backedUp)} from backup",
+                    "Removed from your Telegram library. You can get ${if (one) "it" else "them"} back from Recently Deleted for 30 days.",
+                    destructive = true) { choose { actions.deleteEverywhere(chosen) } }
+                else -> {
+                    DeleteChoice(R.drawable.ic_phone, if (one) "Remove from this phone" else "Remove ${"%,d".format(onPhone)} from this phone",
+                        if (notBacked > 0) "Backed-up items stay in your Telegram library." else "Frees space here. Your backup stays in your Telegram library.",
+                    ) { choose { actions.removeFromPhone(chosen) } }
+                    DeleteChoice(R.drawable.ic_cloud_off, if (one) "Delete from backup only" else "Delete ${"%,d".format(backedUp)} from backup only",
+                        "Keeps the copy on this phone. The backup goes to Recently Deleted for 30 days.",
+                    ) { choose { actions.deleteFromBackup(chosen) } }
+                    DeleteChoice(R.drawable.ic_delete, "Delete everywhere",
+                        "From this phone and your Telegram library. Backups stay in Recently Deleted for 30 days.", destructive = true,
+                    ) { choose { actions.deleteEverywhere(chosen) } }
+                }
+            }
+            TextButton(onClick = { choose {} }, modifier = Modifier.align(Alignment.End).padding(end = 16.dp, top = 4.dp)) {
+                Text(if (onPhone == 0 && backedUp == 0) "OK" else "Cancel")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeleteChoice(icon: Int, title: String, detail: String, destructive: Boolean = false, onClick: () -> Unit) {
+    val tint = if (destructive) Lelvo.colors.red else MaterialTheme.colorScheme.onSurface
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick, role = Role.Button).padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(painterResource(icon), contentDescription = null, tint = tint, modifier = Modifier.padding(top = 2.dp).size(22.dp))
+        Spacer(Modifier.width(16.dp))
+        Column {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = tint)
+            Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }
 
 /**
