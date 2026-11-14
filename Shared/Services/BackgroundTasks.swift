@@ -228,23 +228,31 @@ final class ActiveFlag: @unchecked Sendable {
 /// stays quiet when nothing is new and doesn't repeat for short visits.
 enum AutoStart {
     @MainActor private static var lastStart = Date.distantPast
+    /// A look is already running. Opening twice in that moment must not start two backups.
+    @MainActor private static var looking = false
 
     @MainActor static func onOpen() {
         let activity = BackupActivity.shared
         let env = AppEnvironment.shared
         guard env.isConfigured, !activity.isRunning, !activity.isStarting, !env.engine.isRunning,
-              ContinuedBackup.foregroundTask == nil,
+              ContinuedBackup.foregroundTask == nil, !looking,
               Date().timeIntervalSince(lastStart) > 5 * 60,
               env.engine.blocker() == nil else { return }
+        looking = true
         Task.detached(priority: .utility) {
             // Photos' change history: cheap when nothing changed, unlike reading the whole library.
             let fresh = env.engine.queueNewPhotos()
             let waiting = env.engine.readyCount()
-            // Only a real start counts toward the 5 minutes: an open that found nothing used to block the next one, so a
-            // video the Camera shortcut left for later (short runs skip videos) waited for a manual Back up.
-            guard waiting > 0 else { appLog("Auto-start on open: nothing new"); return }
+            // Only a real start counts toward the 5 minutes. An open that finds nothing used to start the wait anyway,
+            // so a video a short Camera run left behind (those runs skip videos) waited for a manual Back up.
+            guard waiting > 0 else {
+                await MainActor.run { looking = false }
+                appLog("Auto-start on open: nothing new")
+                return
+            }
             appLog("Auto-start on open: \(fresh) new photos, \(waiting) waiting")
             await MainActor.run {
+                looking = false
                 lastStart = Date()
                 ContinuedBackup.start(everything: true)
             }
