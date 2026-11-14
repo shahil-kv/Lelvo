@@ -69,6 +69,20 @@ import Testing
         #expect(BackgroundRuns.summaryText(photos: 0, videos: 0, overnight: true) == nil)
     }
 
+    @Test func reminderIsNeverSoonerThanADay() {
+        #expect(BackgroundRuns.reminderFireDate(due: now.addingTimeInterval(-86_400 * 5), now: now) == now.addingTimeInterval(86_400))
+        #expect(BackgroundRuns.reminderFireDate(due: now.addingTimeInterval(86_400 * 3), now: now) == now.addingTimeInterval(86_400 * 3))
+    }
+
+    @Test func morningAfterTheNight() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        func at(_ d: Int, _ h: Int, _ m: Int = 0) -> Date { cal.date(from: DateComponents(year: 2026, month: 11, day: d, hour: h, minute: m))! }
+        #expect(BackgroundRuns.morning(after: at(14, 23), calendar: cal) == at(15, 7, 30))
+        #expect(BackgroundRuns.morning(after: at(15, 3), calendar: cal) == at(15, 7, 30))
+        #expect(BackgroundRuns.morning(after: at(14, 22), calendar: cal) == BackgroundRuns.morning(after: at(15, 6), calendar: cal))
+    }
+
     @Test func overnightHours() {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "UTC")!

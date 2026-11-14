@@ -68,6 +68,19 @@ public enum BackgroundRuns {
         return (lastUpload ?? now).addingTimeInterval(TimeInterval(offset) * 86_400)
     }
 
+    /// When the stuck reminder is booked: its due date, but never sooner than a day from now. It's rebooked each time
+    /// Lelvo goes to the background, so someone who opens Lelvo daily never gets it (opening backs up anyway).
+    public static func reminderFireDate(due: Date, now: Date) -> Date {
+        max(due, now.addingTimeInterval(86_400))
+    }
+
+    /// 07:30 on the morning that ends the night `date` belongs to. It also names the night, so totals from an
+    /// earlier night are never added to tonight's.
+    public static func morning(after date: Date, calendar: Calendar = .current) -> Date {
+        let day = calendar.component(.hour, from: date) >= 22 ? calendar.date(byAdding: .day, value: 1, to: date) ?? date : date
+        return calendar.date(bySettingHour: 7, minute: 30, second: 0, of: day) ?? date
+    }
+
     /// Runs between 22:00 and 07:00 local time count as overnight.
     public static func isOvernight(_ date: Date, calendar: Calendar = .current) -> Bool {
         let hour = calendar.component(.hour, from: date)

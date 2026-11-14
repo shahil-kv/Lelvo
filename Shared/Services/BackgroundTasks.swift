@@ -46,8 +46,7 @@ enum BackgroundTasks {
     static func scheduleProcessing() {
         // Counting reads SQLite, so it stays off the main thread (this is called when the app goes to the background).
         Task.detached(priority: .utility) {
-            let counts = (try? AppEnvironment.shared.store.counts()) ?? [:]
-            let waiting = (counts[.queued] ?? 0) + (counts[.uploading] ?? 0) > 0
+            let waiting = AppEnvironment.shared.engine.readyCount() > 0
             let request = BGProcessingTaskRequest(identifier: processingId)
             request.requiresExternalPower = Prefs.chargingOnly
             request.requiresNetworkConnectivity = true
@@ -65,6 +64,8 @@ enum BackgroundTasks {
     }
 
     private static func handleProcessing(_ task: BGProcessingTask) {
+        // Submitted now as well as after the run: if iOS ends the process at expiry, the next one is still booked.
+        scheduleProcessing()
         let flag = CancelFlag()
         task.expirationHandler = { flag.cancel() }
         Task {
@@ -81,6 +82,8 @@ enum BackgroundTasks {
         let started = Date()
         let summary = await AppEnvironment.shared.engine.run(isCancelled: isCancelled)
         recordRun(.processing, started: started, summary: summary)
+        // Awaited, so the notification is posted before the task tells iOS it's done and the app is suspended.
+        await BackupNotifications.afterRun(startedAt: started, summary: summary)
         // Reading photos for search is only worth the battery on the charger.
         if Device.isCharging { await AppEnvironment.shared.search.index(isCancelled: isCancelled) }
         return summary
@@ -106,6 +109,7 @@ enum BackgroundTasks {
             // The engine scans the channel itself before it uploads.
             let summary = await env.engine.run(deadline: deadline, shortRun: true, isCancelled: isCancelled)
             recordRun(.refresh, started: started, summary: summary)
+            await BackupNotifications.afterRun(startedAt: started, summary: summary)
         } else {
             _ = try? await env.library.scan(full: false)
         }
@@ -158,11 +162,11 @@ func recordRun(_ source: RunSource, started: Date, summary: BackupEngine.Summary
     Prefs.record(RunRecord(source: source, startedAt: started, seconds: seconds,
                            uploaded: summary.uploaded, remaining: summary.remaining))
     appLog(String(format: "Run (%@): %.0f s, uploaded %d, %d waiting", source.rawValue, seconds, summary.uploaded, summary.remaining))
-    #if os(iOS)
-    if source == .refresh || source == .processing {
-        Task { await BackupNotifications.afterRun(startedAt: started, summary: summary) }
+    // Any run that uploaded, in the app too, starts the stuck reminder's back-off again.
+    if summary.uploaded > 0 {
+        Prefs.defaults.set(0, forKey: Prefs.Key.remindersSent)
+        Prefs.defaults.removeObject(forKey: Prefs.Key.reminderDueAt)
     }
-    #endif
 }
 
 final class CancelFlag: @unchecked Sendable {
@@ -234,9 +238,9 @@ enum AutoStart {
               env.engine.blocker() == nil else { return }
         lastStart = Date()
         Task.detached(priority: .utility) {
-            let fresh = env.engine.enqueueNewAssets(force: false)
-            let counts = (try? env.store.counts()) ?? [:]
-            let waiting = (counts[.queued] ?? 0) + (counts[.uploading] ?? 0)
+            // Photos' change history: cheap when nothing changed, unlike reading the whole library.
+            let fresh = env.engine.queueNewPhotos()
+            let waiting = env.engine.readyCount()
             guard waiting > 0 else { appLog("Auto-start on open: nothing new"); return }
             appLog("Auto-start on open: \(fresh) new photos, \(waiting) waiting")
             await MainActor.run { ContinuedBackup.start(everything: true) }

@@ -1001,15 +1001,14 @@ struct FirstBackupView: View {
     @ViewBuilder private var buttons: some View {
         VStack(spacing: 10) {
             if returning || finished || phase == .nothing {
-                if returning || finished { autoBackupCard }
+                // Also with no photos yet: the switch is saved below, so it's always shown before it is.
+                autoBackupCard
                 PrimaryCapsuleButton(title: "Start using Lelvo") {
                     Prefs.defaults.set(autoBackup, forKey: Prefs.Key.autoBackup)
                     Prefs.defaults.set(true, forKey: Prefs.Key.autoBackupAsked)
                     done()
                 }
-                if returning || finished {
-                    Text("You can change this in Settings.").font(.footnote).foregroundStyle(.white.opacity(0.6))
-                }
+                Text("You can change this in Settings.").font(.footnote).foregroundStyle(.white.opacity(0.6))
             } else if phase == .choosing {
                 PrimaryCapsuleButton(title: "Back up this photo", enabled: selected != nil) {
                     if let selected { Task { await upload(selected) } }

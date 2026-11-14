@@ -695,6 +695,7 @@ struct BackupOptionsView: View {
                             notificationsDenied = !granted
                         }
                     } else {
+                        BackupNotifications.disable()
                         notifyBackups = false
                         notificationsDenied = false
                     }

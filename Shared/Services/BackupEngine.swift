@@ -350,6 +350,26 @@ final class BackupEngine: @unchecked Sendable {
          Prefs.albumIds.sorted().joined(separator: ",")].joined(separator: "|")
     }
 
+    /// Queues photos added or edited since the last search, using Photos' change history (a full library read only
+    /// when that history can't be used). Cheap when nothing changed, so the Camera action and app opens can call it.
+    @discardableResult
+    func queueNewPhotos() -> Int {
+        let started = Date()
+        let search = beginPhotoSearch()
+        let queued = enqueueNewAssets(force: true, among: search.changes.map { $0.inserted.union($0.updated) })
+        let edited = requeueEditedSinceBackup(among: search.changes?.updated)
+        finishPhotoSearch(search)
+        let how = search.changes.map { "\($0.inserted.count) new and \($0.updated.count) changed photos from Photos' history" } ?? "the whole library"
+        appLog(String(format: "Looked for new photos in %@: %d queued, %d edits to check, in %.1f s", how, queued, edited, Date().timeIntervalSince(started)))
+        return queued + edited
+    }
+
+    /// Items a run would upload now. Retries waiting for their time don't count, so they don't start empty runs.
+    func readyCount(shortRun: Bool = false) -> Int {
+        let ready = runnableItems(now: Date())
+        return shortRun ? UploadOrder.forShortRun(ready).count : ready.count
+    }
+
     /// The token is taken before reading anything, so a photo taken during the search is found by the next one.
     private func beginPhotoSearch() -> PhotoSearch {
         let token = env.photos.changeToken()
@@ -523,15 +543,7 @@ final class BackupEngine: @unchecked Sendable {
         _ = try? await env.library.scan(full: false)
         relinkRestoredItems()
         dropDeletedQueuedItems()
-        if includeNew || Prefs.autoBackup {
-            let started = Date()
-            let search = beginPhotoSearch()
-            let queued = enqueueNewAssets(force: true, among: search.changes.map { $0.inserted.union($0.updated) })
-            let edited = requeueEditedSinceBackup(among: search.changes?.updated)
-            finishPhotoSearch(search)
-            let how = search.changes.map { "\($0.inserted.count) new and \($0.updated.count) changed photos from Photos' history" } ?? "the whole library"
-            appLog(String(format: "Looked for new photos in %@: %d queued, %d edits to check, in %.1f s", how, queued, edited, Date().timeIntervalSince(started)))
-        }
+        if includeNew || Prefs.autoBackup { queueNewPhotos() }
 
         // Items left "uploading" by a killed process go back to pending. A Takeout import's own uploads aren't ours:
         // resetting one mid-upload made it look failed and offered to delete it.

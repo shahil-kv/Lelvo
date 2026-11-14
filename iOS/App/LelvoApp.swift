@@ -74,7 +74,6 @@ struct LelvoApp: App {
                 ContinuedBackup.resumeIfPending()
                 // Automatic backup: start on open so new photos go up without a tap.
                 if Prefs.autoBackup, !Prefs.backupPaused { AutoStart.onOpen() }
-                Task { await BackupNotifications.flushSummary() }
                 // Cheap no-op unless restored items are still unlinked (e.g. right after a reinstall).
                 Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
             case .background:
@@ -82,7 +81,16 @@ struct LelvoApp: App {
                 env.search.stopForeground()
                 env.originalsCache.flush()
                 env.thumbnailCache.flush()
-                if model.onboardingComplete { BackgroundTasks.scheduleAll() }
+                if model.onboardingComplete {
+                    BackgroundTasks.scheduleAll()
+                    // SQLite count off the main thread; books the stuck reminder from what is still waiting.
+                    if BackupNotifications.allowed {
+                        Task.detached(priority: .utility) {
+                            let counts = (try? env.store.counts()) ?? [:]
+                            await BackupNotifications.bookReminder(waiting: (counts[.queued] ?? 0) + (counts[.uploading] ?? 0))
+                        }
+                    }
+                }
             default: break
             }
         }

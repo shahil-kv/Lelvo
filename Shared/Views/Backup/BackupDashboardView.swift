@@ -98,6 +98,7 @@ struct BackupDashboardView: View {
     @AppStorage(Prefs.Key.autoBackupAsked) private var autoBackupAsked = false
     @AppStorage(Prefs.Key.firstFullBackupAt) private var firstFullBackupAt: Double = 0
     private var firstFullBackupDone: Bool { firstFullBackupAt > 0 }
+    @State private var showAutomationGuide = false
 
     /// The first time nothing is left to send, so the Camera automation is offered when they trust Lelvo.
     private func markFirstFullBackup() {
@@ -136,7 +137,7 @@ struct BackupDashboardView: View {
             List {
                 if !autoBackup, !autoBackupAsked { autoBackupCard }
                 #if os(iOS)
-                AutomationOfferCard(firstFullBackupDone: firstFullBackupDone)
+                AutomationOfferCard(firstFullBackupDone: firstFullBackupDone, showGuide: $showAutomationGuide)
                 #endif
                 Section {
                     statusHeader
@@ -295,6 +296,9 @@ struct BackupDashboardView: View {
             .settingsButton()
             #endif
             .navigationDestination(isPresented: $app.showFreeUpSpace) { FreeUpSpaceView() }
+            #if os(iOS)
+            .navigationDestination(isPresented: $showAutomationGuide) { AutomaticBackupExplainerView() }
+            #endif
             .refreshable { stats.refresh() }
             .onAppear { stats.refresh() }
             .onChange(of: stats.pending) { _, _ in markFirstFullBackup() }

@@ -30,6 +30,8 @@ enum Prefs {
         static let automationOfferDismissals = "automationOfferDismissals"
         static let notifyBackups = "notifyBackups"
         static let nightTotals = "nightTotals"
+        static let nightTotalsMorning = "nightTotalsMorning"
+        static let reminderDueAt = "reminderDueAt"
         static let remindersSent = "remindersSent"
         static let backupPaused = "backupPaused"
         static let autoBackup = "autoBackup"

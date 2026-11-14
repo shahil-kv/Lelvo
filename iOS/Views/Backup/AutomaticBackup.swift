@@ -64,7 +64,7 @@ struct AutomaticBackupExplainerView: View {
                 row("clock.arrow.circlepath", "Now and then", "iPhone gives Lelvo short moments in the background. New photos go up then.")
             }
             Section("Why iPhone needs your help") {
-                Text("Your photos are end-to-end encrypted before they leave this iPhone, so only your devices can see them. iPhone only lets apps upload in the background when the photo goes to the app maker's own server unencrypted. Google Photos can do that because Google can see your photos. Lelvo can't, and won't.")
+                Text("Your photos are end-to-end encrypted before they leave this iPhone, so only your devices can see them. A few seconds after you leave Lelvo, iPhone closes its connection to Telegram. iPhone's own background photo upload sends photos unencrypted to a company's server. Google Photos can use it because Google can see your photos. Lelvo won't.")
                 Text("So Lelvo uses a Shortcuts automation instead: when you close Camera, your iPhone wakes Lelvo for a moment to back up what you just took.")
             }
             Section {
@@ -247,13 +247,14 @@ struct AutomationCheckView: View {
 
 // MARK: - Card C: the offer on the Backup tab
 
+/// The guide opens through `showGuide`: a navigation destination can't live inside the List this card sits in.
 struct AutomationOfferCard: View {
     let firstFullBackupDone: Bool
+    @Binding var showGuide: Bool
     @StateObject private var status = AutomationStatus()
     @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
     @AppStorage(Prefs.Key.automationOfferSnoozedUntil) private var snoozedUntil: Double = 0
     @AppStorage(Prefs.Key.automationOfferDismissals) private var dismissals = 0
-    @State private var show = false
 
     private var visible: Bool {
         BackgroundRuns.shouldOfferAutomation(
@@ -271,7 +272,7 @@ struct AutomationOfferCard: View {
                         Text("Set up a Camera automation once. It takes about a minute.")
                             .font(.subheadline).foregroundStyle(.secondary)
                         HStack {
-                            Button("Show me how") { show = true }.buttonStyle(.borderedProminent)
+                            Button("Show me how") { showGuide = true }.buttonStyle(.borderedProminent)
                             Spacer()
                             Button("Not now") {
                                 dismissals += 1
@@ -285,6 +286,5 @@ struct AutomationOfferCard: View {
             }
         }
         .task { status.refresh() }
-        .navigationDestination(isPresented: $show) { AutomaticBackupExplainerView() }
     }
 }
