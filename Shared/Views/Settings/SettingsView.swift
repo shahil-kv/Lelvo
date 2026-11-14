@@ -676,19 +676,30 @@ struct BackupOptionsView: View {
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.mediaFilter) private var mediaFilter = Prefs.MediaFilter.all.rawValue
     @AppStorage(Prefs.Key.includeScreenshots) private var includeScreenshots = true
-    @AppStorage(Prefs.Key.includeHidden) private var includeHidden = false
-    @AppStorage(Prefs.Key.dateFromEnabled) private var dateFromEnabled = false
-    @AppStorage(Prefs.Key.dateFrom) private var dateFrom: Double = Date().addingTimeInterval(-365 * 86400).timeIntervalSince1970
-    @AppStorage(Prefs.Key.streamingCopies) private var streamingCopies = true
-    @AppStorage(Prefs.Key.videoQuality) private var videoQuality = VideoQualityPreference.automatic.rawValue
     @AppStorage(Prefs.Key.notifyBackups) private var notifyBackups = false
     @State private var notificationsDenied = false
 
+    // The few choices most people make sit on top; the rest is one tap away under More options, like Photos settings.
     var body: some View {
         Form {
+            Section {
+                Toggle("Wi-Fi only", isOn: $wifiOnly)
+                Toggle("Only while charging", isOn: $chargingOnly)
+            } header: { Text("When to upload") } footer: {
+                Text("Wi-Fi only also waits on personal hotspots and Low Data Mode.")
+            }
+
+            Section {
+                Picker("Back up", selection: $mediaFilter) {
+                    ForEach(Prefs.MediaFilter.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                NavigationLink("Albums") { AlbumPickerView() }
+                Toggle("Screenshots", isOn: $includeScreenshots)
+            } header: { Text("What to back up") }
+
             #if os(iOS)
             Section {
-                Toggle("Backup notifications", isOn: Binding(get: { notifyBackups }, set: { on in
+                Toggle("Notifications", isOn: Binding(get: { notifyBackups }, set: { on in
                     if on {
                         Task {
                             let granted = await BackupNotifications.enable()
@@ -702,37 +713,45 @@ struct BackupOptionsView: View {
                     }
                 }))
                 if notificationsDenied {
-                    Text("Turn on notifications for Lelvo in Settings.").font(.footnote).foregroundStyle(.secondary)
-                    Button("Open Settings") {
+                    Button("Allow notifications in Settings") {
                         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                     }
                 }
             } footer: {
-                Text("A short note after an overnight backup, and a reminder if photos have been waiting for days. Only counts, never photo names.")
+                Text("A short note after a backup overnight, and a reminder if photos wait for days. Counts only, never photo names.")
             }
             #endif
+
             Section {
-                Picker("Back up", selection: $mediaFilter) {
-                    ForEach(Prefs.MediaFilter.allCases) { Text($0.title).tag($0.rawValue) }
-                }
-                Toggle("Include screenshots", isOn: $includeScreenshots)
-                Toggle("Include hidden photos", isOn: $includeHidden)
-                NavigationLink("Albums") { AlbumPickerView() }
+                NavigationLink("More options") { MoreBackupOptionsView() }
+            } footer: {
+                Text("Hidden photos, a start date and video playback.")
+            }
+        }
+        .navigationTitle("Backup options")
+    }
+}
+
+/// Choices few people change, kept off the main Backup options screen.
+struct MoreBackupOptionsView: View {
+    @AppStorage(Prefs.Key.includeHidden) private var includeHidden = false
+    @AppStorage(Prefs.Key.dateFromEnabled) private var dateFromEnabled = false
+    @AppStorage(Prefs.Key.dateFrom) private var dateFrom: Double = Date().addingTimeInterval(-365 * 86400).timeIntervalSince1970
+    @AppStorage(Prefs.Key.streamingCopies) private var streamingCopies = true
+    @AppStorage(Prefs.Key.videoQuality) private var videoQuality = VideoQualityPreference.automatic.rawValue
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Hidden photos", isOn: $includeHidden)
                 Toggle("Only photos taken after a date", isOn: $dateFromEnabled)
                 if dateFromEnabled {
                     DatePicker("From", selection: Binding(get: { Date(timeIntervalSince1970: dateFrom) },
                                                           set: { dateFrom = $0.timeIntervalSince1970 }),
                                displayedComponents: .date)
                 }
-            } header: { Text("What Back up now includes") } footer: {
+            } header: { Text("What to back up") } footer: {
                 Text("Hidden photos are never shown in Lelvo. If you save them back to Photos, they stay hidden.")
-            }
-
-            Section {
-                Toggle("Wi-Fi only", isOn: $wifiOnly)
-                Toggle("Only while charging", isOn: $chargingOnly)
-            } header: { Text("When to upload") } footer: {
-                Text("Wi-Fi only also pauses on personal hotspots and Low Data Mode.")
             }
 
             Section {
@@ -742,10 +761,10 @@ struct BackupOptionsView: View {
                     Text("Original Quality").tag(VideoQualityPreference.original.rawValue)
                 }
             } header: { Text("Videos") } footer: {
-                Text("A fast version is a small copy (about a tenth of the size) made while a video is backed up, so it plays at once from your Telegram library. The original is always kept. Automatic plays the fast version when the connection is too slow for the original; you can switch in the video at any time.")
+                Text("A fast version is a small copy made while a video is backed up, so it plays at once from your Telegram library. The original is always kept. Automatic plays the fast version when the connection is slow.")
             }
         }
-        .navigationTitle("Backup options")
+        .navigationTitle("More options")
     }
 }
 
