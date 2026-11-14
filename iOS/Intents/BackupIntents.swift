@@ -22,9 +22,15 @@ struct BackUpNewPhotosIntent: AppIntent {
             return .result(value: text, dialog: IntentDialog(stringLiteral: text))
         }
         env.td.start()
-        // Shortcuts gives intents limited time: upload for ~25 s (photos and small videos), then the background runs and
-        // the next one continue where this stopped. The queue is persistent, so nothing is lost.
-        let summary = await env.engine.run(deadline: Date().addingTimeInterval(25), includeNew: true, shortRun: true)
+        // Shortcuts gives intents limited time: upload for ~25 s (photos only), then the background runs and the next
+        // one continue where this stopped. The queue is persistent, so nothing is lost.
+        let deadline = started.addingTimeInterval(25)
+        // The Camera-opened run may still be going when Camera closes. Its list was made before the new photos, so
+        // wait for it to end and run again rather than stop with "already running".
+        while env.engine.isRunning, Date() < deadline.addingTimeInterval(-10) {
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        let summary = await env.engine.run(deadline: deadline, includeNew: true, shortRun: true)
         recordRun(.shortcut, started: started, summary: summary)
         BackgroundTasks.scheduleAll()
         return .result(value: summary.text, dialog: IntentDialog(stringLiteral: summary.text))

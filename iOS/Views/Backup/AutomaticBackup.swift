@@ -224,7 +224,7 @@ struct AutomationSetupView: View {
     private let steps: [String] = [
         "Open **Shortcuts**, tap **Automation**, then **+** (or **New Automation**).",
         "Scroll down and tap **App**.",
-        "Choose **Camera**, tick **Is Closed** and **Run Immediately**, then tap **Next**.",
+        "Choose **Camera**, tick **Is Opened** and **Is Closed**, and choose **Run Immediately**. Tap **Next**.",
         "Search for **Lelvo** and tap **Back Up New Photos**. Turn off **Show When Run**, then tap **Done**."
     ]
 
@@ -316,9 +316,10 @@ private struct ShortcutsMock: View {
             case 2:
                 Text("App").font(.title2.bold())
                 row(("camera.fill", .gray), "Camera", trailing: "Chosen")
-                row(nil, "Is Opened", check: false)
-                row(nil, "Is Closed", check: true, ring: 0.6)
-                row(nil, "Run Immediately", check: true, ring: 1.6)
+                // Opened as well: photos a missed run left behind (Camera from the lock screen) go up next time.
+                row(nil, "Is Opened", check: true, ring: 0.6)
+                row(nil, "Is Closed", check: true, ring: 1.2)
+                row(nil, "Run Immediately", check: true, ring: 1.8)
             default:
                 Text("Do").font(.title2.bold())
                 row(("magnifyingglass", .gray), "Lelvo")
@@ -415,7 +416,7 @@ struct AutomationCheckView: View {
                 Button("Done", action: finish).buttonStyle(.borderedProminent)
             } else if gaveUp {
                 Image(systemName: "questionmark.circle").font(.system(size: 56)).foregroundStyle(.secondary)
-                Text("Nothing yet. Check that the automation says **Is Closed** and **Run Immediately**.")
+                Text("Nothing yet. Check that the automation says **Is Opened**, **Is Closed** and **Run Immediately**.")
                     .multilineTextAlignment(.center)
                 Button("Show the steps again", action: showSteps).buttonStyle(.borderedProminent)
             } else {
