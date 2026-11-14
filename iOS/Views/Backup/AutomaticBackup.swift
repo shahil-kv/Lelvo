@@ -32,13 +32,23 @@ struct FasterBackupRow: View {
                 case .notSetUp:
                     Text("Set up").foregroundStyle(.secondary)
                 case .working:
-                    Label("Working", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    status("Working", "checkmark.circle.fill", .green)
                 case .seemsOff:
-                    Label("Seems off", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    status("Seems off", "exclamationmark.triangle.fill", .orange)
                 }
             }
         }
+        // A Label in the row moved the separator under its text instead of under "Faster backup".
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
         .task { status.refresh() }
+    }
+
+    private func status(_ text: String, _ symbol: String, _ color: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol)
+            Text(text)
+        }
+        .foregroundStyle(color)
     }
 }
 
@@ -63,9 +73,14 @@ struct AutomaticBackupExplainerView: View {
                 row("moon.zzz", "Overnight", "Everything still waiting is backed up while your iPhone rests, videos included.")
                 row("clock.arrow.circlepath", "Now and then", "iPhone gives Lelvo short moments in the background. New photos go up then.")
             }
-            Section("Why iPhone needs your help") {
-                Text("Your photos are end-to-end encrypted before they leave this iPhone, so only your devices can see them. A few seconds after you leave Lelvo, iPhone closes its connection to Telegram. iPhone's own background photo upload sends photos unencrypted to a company's server. Google Photos can use it because Google can see your photos. Lelvo won't.")
-                Text("So Lelvo uses a Shortcuts automation instead: when you close Camera, your iPhone wakes Lelvo for a moment to back up what you just took.")
+            Section("Why it works this way") {
+                Text("Lelvo encrypts every photo on this iPhone before it leaves, so only your devices can open it. There is no Lelvo server: photos go straight to your Telegram library.")
+                Text("A few seconds after you leave an app, iPhone pauses it, and Lelvo's connection to Telegram closes with it. An upload can't carry on by itself.")
+                Text("iPhone has its own way to upload photos in the background, but it sends each photo as it is, unencrypted, to the app maker's server. Lelvo would have to give up encryption and run a server to use it, so it doesn't.")
+                Text("Instead Lelvo uses every moment iPhone gives it: when you open it, short moments in the background, and overnight. Photos that wait stay safe on your iPhone and go up at the next one.")
+            }
+            Section("The Camera automation") {
+                Text("The Shortcuts app can wake Lelvo for about 25 seconds each time you close Camera, so the photos you just took go up within a minute. Videos wait for the next time you open Lelvo, or overnight.")
             }
             Section {
                 Button { showSetup = true } label: {

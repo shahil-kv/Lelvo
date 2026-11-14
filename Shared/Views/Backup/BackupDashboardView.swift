@@ -95,7 +95,6 @@ struct BackupDashboardView: View {
     @AppStorage(Prefs.Key.backupPaused) private var paused = false
     @AppStorage(Prefs.Key.keepAwakeDuringBackup) private var keepAwake = true
     @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
-    @AppStorage(Prefs.Key.autoBackupAsked) private var autoBackupAsked = false
     @AppStorage(Prefs.Key.firstFullBackupAt) private var firstFullBackupAt: Double = 0
     private var firstFullBackupDone: Bool { firstFullBackupAt > 0 }
     @State private var showAutomationGuide = false
@@ -106,36 +105,27 @@ struct BackupDashboardView: View {
         firstFullBackupAt = Date().timeIntervalSince1970
     }
 
-    /// Asked once, for people who finished setup before automatic backup was offered there.
-    private var autoBackupCard: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 10) {
-                Label("Back up new photos automatically", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.headline)
-                Text("Lelvo can back up new photos when you open it, in the background and overnight.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                HStack {
-                    Button("Turn on") {
-                        autoBackup = true
-                        autoBackupAsked = true
-                        Haptics.success()
-                        ToastCenter.shared.show(.info, "Automatic backup is on")
-                        ContinuedBackup.start(everything: true)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    Spacer()
-                    Button("Not now") { autoBackupAsked = true }
-                        .buttonStyle(.bordered)
-                }
-            }
-            .padding(.vertical, 4)
-        }
+    #if os(iOS)
+    @AppStorage(Prefs.Key.autoBackupNudges) private var nudges = 0
+    @AppStorage(Prefs.Key.autoBackupNudgedAt) private var nudgedAt: Double = 0
+    @State private var showNudge = false
+
+    /// A backup they started just ended with everything safe: ask about automatic backup now, once they've seen it work.
+    private func nudgeAutoBackupIfDue() {
+        guard BackgroundRuns.shouldNudgeAutoBackup(autoBackup: autoBackup, timesShown: nudges,
+                                                   lastShown: nudgedAt > 0 ? Date(timeIntervalSince1970: nudgedAt) : nil,
+                                                   now: Date()) else { return }
+        // Counted when shown, so swiping it away counts as "Not now".
+        nudges += 1
+        nudgedAt = Date().timeIntervalSince1970
+        // After the success haptic and the header's change to "Backup complete".
+        Task { try? await Task.sleep(for: .seconds(0.6)); showNudge = true }
     }
+    #endif
 
     var body: some View {
         NavigationStack {
             List {
-                if !autoBackup, !autoBackupAsked { autoBackupCard }
                 #if os(iOS)
                 AutomationOfferCard(firstFullBackupDone: firstFullBackupDone, showGuide: $showAutomationGuide)
                 #endif
@@ -298,6 +288,7 @@ struct BackupDashboardView: View {
             .navigationDestination(isPresented: $app.showFreeUpSpace) { FreeUpSpaceView() }
             #if os(iOS)
             .navigationDestination(isPresented: $showAutomationGuide) { AutomaticBackupExplainerView() }
+            .sheet(isPresented: $showNudge) { AutoBackupNudgeSheet(backedUp: stats.backedUp) }
             #endif
             .refreshable { stats.refresh() }
             .onAppear { stats.refresh() }
@@ -309,7 +300,12 @@ struct BackupDashboardView: View {
             // The counts refresh just after the run ends, so .running → .pending → .complete is still one finished run.
             .onChange(of: headerState) { old, new in
                 if old == .running { runJustEnded = true }
-                if new == .complete && runJustEnded { Haptics.success() }
+                if new == .complete && runJustEnded {
+                    Haptics.success()
+                    #if os(iOS)
+                    nudgeAutoBackupIfDue()
+                    #endif
+                }
                 if new != .running && new != .pending { runJustEnded = false }
             }
         }

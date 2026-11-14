@@ -1005,7 +1005,6 @@ struct FirstBackupView: View {
                 autoBackupCard
                 PrimaryCapsuleButton(title: "Start using Lelvo") {
                     Prefs.defaults.set(autoBackup, forKey: Prefs.Key.autoBackup)
-                    Prefs.defaults.set(true, forKey: Prefs.Key.autoBackupAsked)
                     done()
                 }
                 Text("You can change this in Settings.").font(.footnote).foregroundStyle(.white.opacity(0.6))

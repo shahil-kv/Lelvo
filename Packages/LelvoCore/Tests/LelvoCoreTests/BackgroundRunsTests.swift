@@ -94,6 +94,18 @@ import Testing
         #expect(BackgroundRuns.isOvernight(at(22), calendar: cal))
     }
 
+    @Test func autoBackupNudgeShowsTwiceAtMost() {
+        func nudge(auto: Bool = false, shown: Int, daysAgo: Double? = nil) -> Bool {
+            BackgroundRuns.shouldNudgeAutoBackup(autoBackup: auto, timesShown: shown,
+                                                 lastShown: daysAgo.map { now.addingTimeInterval(-$0 * 86_400) }, now: now)
+        }
+        #expect(nudge(shown: 0))
+        #expect(!nudge(auto: true, shown: 0))
+        #expect(!nudge(shown: 1, daysAgo: 3))
+        #expect(nudge(shown: 1, daysAgo: 14))
+        #expect(!nudge(shown: 2, daysAgo: 60))
+    }
+
     @Test func offerRules() {
         func offer(auto: Bool = true, done: Bool = true, health: AutomationHealth = .notSetUp,
                    snooze: Date? = nil, dismissals: Int = 0) -> Bool {

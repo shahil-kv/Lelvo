@@ -35,7 +35,8 @@ enum Prefs {
         static let remindersSent = "remindersSent"
         static let backupPaused = "backupPaused"
         static let autoBackup = "autoBackup"
-        static let autoBackupAsked = "autoBackupAsked"
+        static let autoBackupNudges = "autoBackupNudges"
+        static let autoBackupNudgedAt = "autoBackupNudgedAt"
         static let streamingCopies = "streamingCopies"
         static let videoQuality = "videoQuality"
         static let keepAwakeDuringBackup = "keepAwakeDuringBackup"
@@ -87,7 +88,6 @@ enum Prefs {
             Key.allowFreeUpSpace: false,
             Key.gridColumns: 4,
             Key.autoBackup: false,
-            Key.autoBackupAsked: false,
             Key.notifyBackups: false,
             Key.streamingCopies: true,
             Key.keepAwakeDuringBackup: true,

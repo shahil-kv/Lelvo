@@ -55,7 +55,8 @@ struct SettingsView: View {
                 Section {
                     Toggle("Back up new photos automatically", isOn: $autoBackup)
                     #if os(iOS)
-                    FasterBackupRow()
+                    // Only with automatic backup on: "Working" next to a switch that's off read as a contradiction.
+                    if autoBackup { FasterBackupRow() }
                     #endif
                     NavigationLink { BackupOptionsView() } label: {
                         LabeledContent("Backup options", value: backupSummary)

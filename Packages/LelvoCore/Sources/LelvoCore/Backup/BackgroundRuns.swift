@@ -96,6 +96,17 @@ public enum BackgroundRuns {
         return parts.joined(separator: " and ") + " backed up" + (overnight ? " overnight." : ".")
     }
 
+    /// Sheet "Turn on automatic backup", after a backup the person started finished: the first time, then once more
+    /// 14 days after "Not now", then never (the Settings switch stays).
+    public static func shouldNudgeAutoBackup(autoBackup: Bool, timesShown: Int, lastShown: Date?, now: Date) -> Bool {
+        guard !autoBackup else { return false }
+        switch timesShown {
+        case 0: return true
+        case 1: return lastShown.map { now.timeIntervalSince($0) >= 14 * 86_400 } ?? true
+        default: return false
+        }
+    }
+
     /// Card "Back up new photos within a minute": only after the first full backup, never while set up or snoozed,
     /// and not again after three "Not now" answers.
     public static func shouldOfferAutomation(autoBackup: Bool, firstFullBackupDone: Bool, health: AutomationHealth,
