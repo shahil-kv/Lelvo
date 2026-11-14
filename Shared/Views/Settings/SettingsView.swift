@@ -54,16 +54,12 @@ struct SettingsView: View {
 
                 Section {
                     Toggle("Back up new photos automatically", isOn: $autoBackup)
-                    #if os(iOS)
-                    // Only with automatic backup on: "Working" next to a switch that's off read as a contradiction.
-                    if autoBackup { FasterBackupRow() }
-                    #endif
                     NavigationLink { BackupOptionsView() } label: {
                         LabeledContent("Backup options", value: backupSummary)
                     }
                 } header: { Text("Backup") } footer: {
                     Text(autoBackup
-                         ? "Lelvo backs up when you open it, in short background moments and overnight. Faster backup sends new photos within about a minute."
+                         ? "Lelvo backs up when you open it, in short background moments and overnight."
                          : "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.")
                 }
 
@@ -677,11 +673,16 @@ struct BackupOptionsView: View {
     @AppStorage(Prefs.Key.mediaFilter) private var mediaFilter = Prefs.MediaFilter.all.rawValue
     @AppStorage(Prefs.Key.includeScreenshots) private var includeScreenshots = true
     @AppStorage(Prefs.Key.notifyBackups) private var notifyBackups = false
+    @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
     @State private var notificationsDenied = false
 
     // The few choices most people make sit on top; the rest is one tap away under More options, like Photos settings.
     var body: some View {
         Form {
+            #if os(iOS)
+            // Only with automatic backup on: "Working" next to a switch that's off read as a contradiction.
+            if autoBackup { Section { MinuteBackupRow() } }
+            #endif
             Section {
                 Toggle("Wi-Fi only", isOn: $wifiOnly)
                 Toggle("Only while charging", isOn: $chargingOnly)

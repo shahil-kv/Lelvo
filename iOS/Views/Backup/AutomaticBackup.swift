@@ -17,33 +17,31 @@ final class AutomationStatus: ObservableObject {
     }
 }
 
-// MARK: - Settings row
+// MARK: - Backup options row
 
-/// "Faster backup" under the automatic backup switch.
-struct FasterBackupRow: View {
+/// "Back up within a minute" at the top of Backup options, with whether the Camera automation works.
+struct MinuteBackupRow: View {
     @StateObject private var status = AutomationStatus()
 
     var body: some View {
         NavigationLink { AutomaticBackupExplainerView() } label: {
             HStack {
-                Text("Faster backup")
+                Label("Back up within a minute", systemImage: "bolt.fill")
                 Spacer()
                 switch status.health {
                 case .notSetUp:
                     Text("Set up").foregroundStyle(.secondary)
                 case .working:
-                    status("Working", "checkmark.circle.fill", .green)
+                    state("Working", "checkmark.circle.fill", .green)
                 case .seemsOff:
-                    status("Seems off", "exclamationmark.triangle.fill", .orange)
+                    state("Seems off", "exclamationmark.triangle.fill", .orange)
                 }
             }
         }
-        // A Label in the row moved the separator under its text instead of under "Faster backup".
-        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
         .task { status.refresh() }
     }
 
-    private func status(_ text: String, _ symbol: String, _ color: Color) -> some View {
+    private func state(_ text: String, _ symbol: String, _ color: Color) -> some View {
         HStack(spacing: 4) {
             Image(systemName: symbol)
             Text(text)
@@ -52,52 +50,61 @@ struct FasterBackupRow: View {
     }
 }
 
-// MARK: - Screen D: how it works
+// MARK: - Screen D: automatic backup
 
 struct AutomaticBackupExplainerView: View {
     @StateObject private var status = AutomationStatus()
     @State private var showSetup = false
 
+    private var working: Bool { if case .working = status.health { return true } else { return false } }
+
     var body: some View {
         List {
+            Section {
+                if working {
+                    Label("New photos back up within a minute of closing Camera.", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .padding(.vertical, 4)
+                } else {
+                    BackupTimingComparison()
+                }
+            }
             if case .seemsOff = status.health {
                 Section {
-                    Label("Your automation hasn't run for a while. It may have been turned off.",
+                    Label("Your Camera automation hasn't run for a while. It may have been turned off.",
                           systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                     Button("Fix") { showSetup = true }.fontWeight(.semibold)
                 }
             }
-            Section("What Lelvo does on its own") {
-                row("iphone", "When you open Lelvo", "New photos start backing up at once and keep going after you leave.")
-                row("moon.zzz", "Overnight", "Everything still waiting is backed up while your iPhone rests, videos included.")
-                row("clock.arrow.circlepath", "Now and then", "iPhone gives Lelvo short moments in the background. New photos go up then.")
-            }
-            Section("Why it works this way") {
-                Text("Lelvo encrypts every photo on this iPhone before it leaves, so only your devices can open it. There is no Lelvo server: photos go straight to your Telegram library.")
-                Text("A few seconds after you leave an app, iPhone pauses it, and Lelvo's connection to Telegram closes with it. An upload can't carry on by itself.")
-                Text("iPhone has its own way to upload photos in the background, but it sends each photo as it is, unencrypted, to the app maker's server. Lelvo would have to give up encryption and run a server to use it, so it doesn't.")
-                Text("Instead Lelvo uses every moment iPhone gives it: when you open it, short moments in the background, and overnight. Photos that wait stay safe on your iPhone and go up at the next one.")
-            }
-            Section("The Camera automation") {
-                Text("The Shortcuts app can wake Lelvo for about 25 seconds each time you close Camera, so the photos you just took go up within a minute. Videos wait for the next time you open Lelvo, or overnight.")
+            Section("Lelvo backs up") {
+                row("iphone", "When you open Lelvo", "Starts at once and keeps going after you leave")
+                row("clock", "Now and then", "In short moments iPhone gives Lelvo")
+                row("moon.zzz", "Overnight", "Everything left, videos too")
             }
             Section {
-                Button { showSetup = true } label: {
-                    HStack {
-                        Text("Back up new photos within a minute")
-                        Spacer()
-                        if case .working = status.health {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                        }
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Back up within a minute", systemImage: "bolt.fill").font(.headline)
+                    Text("Add a Camera automation once. Every time you close Camera, the photos you took go up. Videos wait for the moments above.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    Button { showSetup = true } label: {
+                        Text(working ? "Show the steps again" : "Set up, about 1 minute").frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .padding(.top, 4)
                 }
-                .foregroundStyle(.primary)
-            } header: { Text("Faster backup (optional)") } footer: {
-                Text("About one minute, once. You can remove it any time in the Shortcuts app.")
+                .padding(.vertical, 6)
+            } footer: {
+                Text("You can remove it any time in the Shortcuts app.")
+            }
+            Section {
+                DisclosureGroup("Why does iPhone need this?") {
+                    Text("Your photos are encrypted on this iPhone and go straight to your Telegram library. There is no Lelvo server. iPhone pauses apps soon after you leave them, which closes the connection to Telegram, so Lelvo backs up at the moments above instead.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
             }
         }
-        .navigationTitle("Automatic backup on iPhone")
+        .navigationTitle("Automatic backup")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $showSetup) { AutomationSetupView(finish: { showSetup = false }) }
         .task { status.refresh() }
@@ -105,14 +112,105 @@ struct AutomaticBackupExplainerView: View {
 
     private func row(_ symbol: String, _ title: String, _ text: String) -> some View {
         Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
-                Text(text).font(.subheadline).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(text).font(.footnote).foregroundStyle(.secondary)
             }
         } icon: {
             Image(systemName: symbol).foregroundStyle(Color.accentColor)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// "You take a photo at 10:02": today it waits until Lelvo is opened; with the automation it's safe a minute later.
+/// Two clocks roll forward so the difference is felt, not read. Plays on appear; a tap plays it again.
+struct BackupTimingComparison: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var todayMinutes = start
+    @State private var fastMinutes = start
+    @State private var todayFill = 0.0
+    @State private var fastFill = 0.0
+    @State private var run = 0
+
+    private static let start = 10 * 60 + 2
+    private static let opened = 13 * 60 + 40
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("You take a photo at \(Self.clock(Self.start))").font(.headline)
+                Text("When is it safe in your Telegram library?").font(.subheadline).foregroundStyle(.secondary)
+            }
+            lane(title: "Today", minutes: todayMinutes, fill: todayFill, color: .orange,
+                 done: todayMinutes == Self.opened, when: "when you open Lelvo")
+            lane(title: "With Camera automation", minutes: fastMinutes, fill: fastFill, color: .accentColor,
+                 done: fastMinutes == Self.start + 1, when: "right after you close Camera", good: true)
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture { run += 1 }
+        .task(id: run) { await play() }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("You take a photo at \(Self.clock(Self.start)). Today it's backed up when you open Lelvo, which can be hours later. With the Camera automation it's backed up right after you close Camera, a minute later.")
+    }
+
+    private func lane(title: String, minutes: Int, fill: Double, color: Color, done: Bool, when: String, good: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(.caption2.weight(.bold)).tracking(0.5)
+                .foregroundStyle(good ? Color.accentColor : Color.secondary)
+            HStack(spacing: 10) {
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color(.tertiarySystemFill))
+                        Capsule().fill(color).frame(width: g.size.width * fill)
+                    }
+                }
+                .frame(height: 4)
+                VStack(alignment: .trailing, spacing: 0) {
+                    HStack(spacing: 4) {
+                        Text(Self.clock(minutes))
+                            .contentTransition(.numericText(countsDown: false))
+                        if done && good {
+                            Image(systemName: "checkmark.circle.fill").transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                    .font(.title3.weight(.bold)).monospacedDigit()
+                    .foregroundStyle(done ? (good ? Color.green : Color.orange) : Color.primary)
+                    Text(when).font(.caption2).foregroundStyle(.secondary)
+                }
+                .frame(minWidth: 120, alignment: .trailing)
+            }
+        }
+        .padding(10)
+        .background(Color(.tertiarySystemFill).opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func play() async {
+        todayMinutes = Self.start; fastMinutes = Self.start; todayFill = 0; fastFill = 0
+        if reduceMotion {
+            todayMinutes = Self.opened; fastMinutes = Self.start + 1; todayFill = 1; fastFill = 1
+            return
+        }
+        try? await Task.sleep(for: .seconds(0.5))
+        withAnimation(.easeInOut(duration: 0.6)) { fastFill = 1 }
+        withAnimation(.easeInOut(duration: 3.6)) { todayFill = 1 }
+        let steps = 36
+        for i in 1...steps {
+            try? await Task.sleep(for: .seconds(0.1))
+            if Task.isCancelled { return }
+            withAnimation(.snappy(duration: 0.2)) {
+                if i == 6 { fastMinutes = Self.start + 1 }
+                todayMinutes = Self.start + (Self.opened - Self.start) * i / steps
+            }
+        }
+    }
+
+    /// 10:02 shown the way this iPhone shows times (12 or 24 hours).
+    private static func clock(_ minutes: Int) -> String {
+        let date = Calendar.current.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: Date()) ?? Date()
+        return date.formatted(date: .omitted, time: .shortened)
     }
 }
 
@@ -123,16 +221,11 @@ struct AutomationSetupView: View {
     @State private var step = 0
     @State private var showCheck = false
 
-    private struct Step { let symbol: String; let text: String }
-    // Pictures of the real Shortcuts screens replace the symbols once they're recorded.
-    private let steps = [
-        Step(symbol: "square.grid.2x2", text: "Open the **Shortcuts** app and tap **Automation** at the bottom."),
-        Step(symbol: "plus.circle", text: "Tap **+** (or **New Automation**)."),
-        Step(symbol: "app", text: "Scroll down and tap **App**."),
-        Step(symbol: "camera", text: "Tap **Choose**, pick **Camera**, then tap **Done**."),
-        Step(symbol: "xmark.app", text: "Untick **Is Opened**, tick **Is Closed**."),
-        Step(symbol: "bolt", text: "Choose **Run Immediately**, and turn off **Notify When Run**. Tap **Next**."),
-        Step(symbol: "icloud.and.arrow.up", text: "Search for **Lelvo**, tap **Back Up New Photos**, then tap **Done**.")
+    private let steps: [String] = [
+        "Open **Shortcuts**, tap **Automation**, then **+** (or **New Automation**).",
+        "Scroll down and tap **App**.",
+        "Choose **Camera**, tick **Is Closed** and **Run Immediately**, then tap **Next**.",
+        "Search for **Lelvo**, tap **Back Up New Photos**, then tap **Done**."
     ]
 
     var body: some View {
@@ -140,18 +233,15 @@ struct AutomationSetupView: View {
             TabView(selection: $step) {
                 ForEach(steps.indices, id: \.self) { i in
                     ScrollView {
-                        VStack(spacing: 24) {
-                            Image(systemName: steps[i].symbol)
-                                .font(.system(size: 72, weight: .regular))
-                                .foregroundStyle(Color.accentColor)
-                                .frame(maxWidth: .infinity, minHeight: 180)
-                                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        VStack(spacing: 18) {
+                            ShortcutsMock(step: i, active: step == i)
+                                .frame(height: 280)
                                 .accessibilityHidden(true)
                             Text("Step \(i + 1) of \(steps.count)").font(.footnote).foregroundStyle(.secondary)
-                            Text(LocalizedStringKey(steps[i].text))
+                            Text(LocalizedStringKey(steps[i]))
                                 .font(.title3).multilineTextAlignment(.center)
                             if i == steps.count - 1 {
-                                Text("If you have Camera in another automation already, add Back Up New Photos to it instead.")
+                                Text("If Camera is already in another automation, add Back Up New Photos to that one instead.")
                                     .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                             }
                         }
@@ -159,16 +249,17 @@ struct AutomationSetupView: View {
                     }
                     .tag(i)
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Step \(i + 1) of \(steps.count). \(steps[i].text.replacingOccurrences(of: "**", with: ""))")
+                    .accessibilityLabel("Step \(i + 1) of \(steps.count). \(steps[i].replacingOccurrences(of: "**", with: ""))")
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
+            .indexViewStyle(.page(backgroundDisplayMode: .always))
 
             VStack(spacing: 10) {
                 Button {
                     UIApplication.shared.open(URL(string: "shortcuts://")!)
                 } label: { Label("Open Shortcuts", systemImage: "arrow.up.forward.app").frame(maxWidth: .infinity) }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.bordered).controlSize(.large)
                 HStack {
                     Button("Back") { withAnimation { step -= 1 } }
                         .buttonStyle(.bordered).disabled(step == 0)
@@ -183,11 +274,112 @@ struct AutomationSetupView: View {
             .padding(.horizontal, 24).padding(.bottom, 16)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle("Back up within a minute")
+        .navigationTitle("Set up in Shortcuts")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $showCheck) {
             AutomationCheckView(showSteps: { showCheck = false }, finish: finish)
         }
+    }
+}
+
+/// A drawing of the Shortcuts screen for each step, with a ring on what to tap. Drawn rather than screenshots so it
+/// follows light and dark mode and Dynamic Type.
+private struct ShortcutsMock: View {
+    let step: Int
+    let active: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            switch step {
+            case 0:
+                HStack {
+                    Text("Automation").font(.title2.bold())
+                    Spacer()
+                    Image(systemName: "plus").font(.headline).foregroundStyle(Color.accentColor)
+                        .frame(width: 32, height: 32).background(Color(.tertiarySystemFill), in: Circle())
+                        .overlay { TapRing(active: active, delay: 0.6) }
+                }
+                row(nil, "No automations yet").opacity(0.5)
+                Spacer()
+                HStack {
+                    Spacer(); Text("Shortcuts"); Spacer()
+                    Text("Automation").fontWeight(.bold).foregroundStyle(Color.accentColor); Spacer()
+                    Text("Gallery"); Spacer()
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            case 1:
+                Text("When").font(.title2.bold())
+                row(("clock.fill", .orange), "Time of Day")
+                row(("airplane", .indigo), "Airplane Mode")
+                row(("square.grid.2x2.fill", .blue), "App", ring: 0.6)
+                row(("battery.100", .green), "Battery Level")
+            case 2:
+                Text("App").font(.title2.bold())
+                row(("camera.fill", .gray), "Camera", trailing: "Chosen")
+                row(nil, "Is Opened", check: false)
+                row(nil, "Is Closed", check: true, ring: 0.6)
+                row(nil, "Run Immediately", check: true, ring: 1.6)
+            default:
+                Text("Do").font(.title2.bold())
+                row(("magnifyingglass", .gray), "Lelvo")
+                row(("icloud.and.arrow.up.fill", .accentColor), "Back Up New Photos", ring: 0.6)
+                row(("checkmark.icloud.fill", .accentColor), "Backup Status").opacity(0.5)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Color(.separator), lineWidth: 0.5))
+    }
+
+    private func row(_ icon: (String, Color)?, _ title: String, trailing: String? = nil, check: Bool? = nil,
+                     ring: Double? = nil) -> some View {
+        HStack(spacing: 10) {
+            if let icon {
+                Image(systemName: icon.0).font(.caption.weight(.semibold)).foregroundStyle(.white)
+                    .frame(width: 26, height: 26).background(icon.1, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            Text(title).font(.subheadline)
+            Spacer()
+            if let trailing { Text(trailing).font(.subheadline).foregroundStyle(Color.accentColor) }
+            if let check {
+                Image(systemName: check ? "checkmark" : "circle")
+                    .foregroundStyle(check ? Color.accentColor : Color(.tertiaryLabel))
+                    .fontWeight(.semibold)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 9)
+        .background(Color(.systemGroupedBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(alignment: .trailing) { if let ring { TapRing(active: active, delay: ring).padding(.trailing, 14) } }
+    }
+}
+
+/// A finger tap: the ring lands, presses in and fades. Plays when its step comes on screen.
+private struct TapRing: View {
+    let active: Bool
+    let delay: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phase = 0
+
+    var body: some View {
+        Circle()
+            .fill(Color.white.opacity(0.45))
+            .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 2))
+            .frame(width: 32, height: 32)
+            .scaleEffect(phase == 0 ? 1.6 : phase == 2 ? 0.8 : 1)
+            .opacity(phase == 1 || phase == 2 ? 1 : 0)
+            .allowsHitTesting(false)
+            .task(id: active) {
+                phase = 0
+                guard active, !reduceMotion else { return }
+                try? await Task.sleep(for: .seconds(delay))
+                withAnimation(.easeOut(duration: 0.25)) { phase = 1 }
+                try? await Task.sleep(for: .seconds(0.3))
+                withAnimation(.easeOut(duration: 0.15)) { phase = 2 }
+                try? await Task.sleep(for: .seconds(0.2))
+                withAnimation(.easeOut(duration: 0.4)) { phase = 3 }
+            }
     }
 }
 

@@ -271,7 +271,7 @@ struct BackupDashboardView: View {
                     NavigationLink { TakeoutGuideView(source: .photos) } label: { Label("Import from Google Photos", systemImage: "photo.stack") }
                     NavigationLink { TakeoutGuideView(source: .drive) } label: { Label("Import from Google Drive", systemImage: "folder") }
                     #if os(iOS)
-                    NavigationLink { AutomaticBackupExplainerView() } label: { Label("Automatic backup on iPhone", systemImage: "bolt.badge.clock") }
+                    NavigationLink { AutomaticBackupExplainerView() } label: { Label("Automatic backup", systemImage: "bolt.badge.clock") }
                     #endif
                     Button {
                         Task {
