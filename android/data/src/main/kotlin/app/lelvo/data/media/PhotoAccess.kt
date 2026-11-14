@@ -127,7 +127,11 @@ class PhotoAccess(context: Context) {
      * This phone's photos and videos for the timeline, newest first: by the capture date when the file has one, else
      * when it was added (`Gallery.merge` may use the backup's date for those). Empty without access.
      */
-    suspend fun assets(): List<PhoneAsset> = withContext(Dispatchers.IO) {
+    /**
+     * Every phone photo and video, newest first. [limit]: only the newest ones by capture date, so the first screen of
+     * a 30,000-photo phone draws at once while the rest is read.
+     */
+    suspend fun assets(limit: Int? = null): List<PhoneAsset> = withContext(Dispatchers.IO) {
         val status = status()
         if (status != Status.Full && status != Status.Partial) return@withContext emptyList()
         val out = ArrayList<PhoneAsset>()
@@ -141,7 +145,16 @@ class PhotoAccess(context: Context) {
         ).toTypedArray()
         val where = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
         runCatching {
-            app.contentResolver.query(uri, columns, where, null, null)?.use { c ->
+            val cursor = if (limit == null) app.contentResolver.query(uri, columns, where, null, null)
+            else if (Build.VERSION.SDK_INT >= 30) app.contentResolver.query(uri, columns, android.os.Bundle().apply {
+                putString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION, where)
+                putStringArray(android.content.ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(MediaStore.MediaColumns.DATE_TAKEN))
+                putInt(android.content.ContentResolver.QUERY_ARG_SORT_DIRECTION, android.content.ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
+                putInt(android.content.ContentResolver.QUERY_ARG_LIMIT, limit)
+            }, null)
+            // Android 10 takes the limit in the sort order.
+            else app.contentResolver.query(uri, columns, where, null, "${MediaStore.MediaColumns.DATE_TAKEN} DESC LIMIT $limit")
+            cursor?.use { c ->
                 while (c.moveToNext()) {
                     val video = c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
                     val taken = if (c.isNull(2)) null else c.getLong(2)

@@ -12,14 +12,29 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.shareIn
 
 /** The local index (iOS `LibraryStore`): every call runs off the main thread. */
 class LibraryStore(private val db: IndexDatabase) {
     private val dao = db.items()
     private val notes = db.notes()
 
-    /** Every item, updated on each change. Rows are decoded off the main thread. */
-    fun items(): Flow<List<LibraryItem>> = dao.all().map { rows -> rows.map(::toItem) }.flowOn(Dispatchers.Default)
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Every item, updated after changes. One read shared by every screen, at most twice a second: a backup changes
+     * the index several times a second, and each screen reading all 30,000 rows on every change froze the app.
+     */
+    private val shared: Flow<List<LibraryItem>> = db.invalidationTracker.createFlow("items")
+        .throttled(500)
+        .map { dao.allNow().map(::toItem) }
+        .flowOn(Dispatchers.Default)
+        .shareIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000), replay = 1)
+
+    fun items(): Flow<List<LibraryItem>> = shared
 
     suspend fun item(id: String): LibraryItem? = dao.item(id)?.let(::toItem)
     suspend fun upsert(items: List<LibraryItem>) = dao.upsert(items.map(::toRow))
@@ -215,5 +230,16 @@ class LibraryStore(private val db: IndexDatabase) {
             hidden = r.hidden, uploadedAt = r.uploadedAt, verifiedAt = r.verifiedAt,
         )
         return ItemExtras.apply(item, ItemExtras.decode(r.extras))
+    }
+}
+
+/** The first value at once, then at most one every [ms]; the latest wins. */
+private fun <T> Flow<T>.throttled(ms: Long): Flow<T> = flow {
+    var last = 0L
+    conflate().collect {
+        val wait = last + ms - System.currentTimeMillis()
+        if (wait > 0) kotlinx.coroutines.delay(wait)
+        last = System.currentTimeMillis()
+        emit(it)
     }
 }

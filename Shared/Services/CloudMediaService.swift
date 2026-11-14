@@ -213,6 +213,7 @@ final class CloudMediaService: @unchecked Sendable {
         env.originalsCache.clear()
         await env.td.clearAllFiles()
         env.reader.forgetCaches()
+        CopiedFiles.clear()
         let left = cacheUsage
         appLog("Cleared caches: \(Format.bytes(left.total)) left (thumbnails \(Format.bytes(left.thumbnails)), viewed \(Format.bytes(left.originals)), Telegram \(Format.bytes(left.telegram)))")
     }

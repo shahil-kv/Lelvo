@@ -1,5 +1,7 @@
 package app.lelvo.android.backup
 
+import app.lelvo.android.timeline.throttled
+
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
@@ -55,7 +57,6 @@ import app.lelvo.android.LelvoApp
 import app.lelvo.android.R
 import app.lelvo.android.shell.LelvoTopBar
 import app.lelvo.android.shell.Messages
-import app.lelvo.android.timeline.galleryEntries
 import app.lelvo.android.ui.theme.Lelvo
 import app.lelvo.core.backup.BackupCounts
 import app.lelvo.core.index.BackupBadge
@@ -101,7 +102,8 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
     val demoRun by app.demo.backup.collectAsState()
     val stats by produceState(Stats(), isDemo) {
         // Recounted when the index or the phone's photos change, and when a run moves on.
-        galleryEntries(app.store, app.photos, isDemo).collectLatest { entries ->
+        // At most every 2 s: counting reads every photo on the phone, and a backup changes the list all the time.
+        app.model.gallery(isDemo).throttled(2_000).collectLatest { entries ->
             value = withContext(Dispatchers.IO) {
                 // Demo: the sample items waiting for "Back up now" stand in for this phone's photos.
                 val counts = if (isDemo) BackupCounts(notQueued = app.demo.pendingItems().size) else engine.counts()

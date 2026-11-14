@@ -293,11 +293,52 @@ private fun DeleteChoice(icon: Int, title: String, detail: String, destructive: 
  * untouched original of an edited cloud photo (iOS "Share Original").
  */
 suspend fun shareEntries(context: Context, chosen: List<GalleryEntry>, original: Boolean = false) {
+    val uris = shareableUris(context, chosen, original, folder = "Share")
+    if (uris.isEmpty()) return
+    val videos = chosen.all { it.isVideo }
+    val photos = chosen.none { it.isVideo }
+    val intent = Intent(if (uris.size == 1) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
+        type = if (videos) "video/*" else if (photos) "image/*" else "*/*"
+        if (uris.size == 1) putExtra(Intent.EXTRA_STREAM, uris[0]) else putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList<Uri>(uris))
+        clipData = ClipData.newRawUri(null, uris[0]).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, null).apply {
+        // Lelvo's own "Back up" share target makes no sense for photos that are already in Lelvo.
+        putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(android.content.ComponentName(context, app.lelvo.android.ShareActivity::class.java)))
+    })
+}
+
+/**
+ * Copy (like Ctrl+C): puts the photos on the clipboard, so they paste into a chat, an email or an AI app. A cloud
+ * photo is downloaded first, like Share. Android 13 and later confirm the copy themselves.
+ */
+suspend fun copyEntries(context: Context, chosen: List<GalleryEntry>) {
+    // A cloud photo is written out to be copied; never fill the phone with those copies.
+    if (context.cacheDir.usableSpace < MIN_FREE_FOR_COPIES) {
+        Messages.show(Messages.Style.Failure, "Not enough space to copy", "Free up some space on this phone, then try again.")
+        return
+    }
+    val uris = shareableUris(context, chosen, original = false, folder = "Copy")
+    if (uris.isEmpty()) return
+    val resolver = context.contentResolver
+    val clip = ClipData.newUri(resolver, if (uris.size == 1) "Photo" else "Photos", uris[0])
+    uris.drop(1).forEach { clip.addItem(resolver, ClipData.Item(it)) }
+    context.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(clip)
+    if (android.os.Build.VERSION.SDK_INT < 33) {
+        Messages.show(Messages.Style.Success, if (uris.size == 1) "Copied" else "Copied ${uris.size} items")
+    }
+}
+
+private const val MIN_FREE_FOR_COPIES = 1L shl 30
+
+/** A phone photo's own uri, a cloud one downloaded into [folder] first (emptied each time) and named like the original. */
+private suspend fun shareableUris(context: Context, chosen: List<GalleryEntry>, original: Boolean, folder: String): List<Uri> {
     val app = context.applicationContext as LelvoApp
     val cloud = chosen.filter { it.asset == null && it.item != null }
     if (cloud.isNotEmpty()) Messages.progress(if (cloud.size == 1) "Getting it from Telegram…" else "Getting ${cloud.size} from Telegram…")
     val uris = withContext(Dispatchers.IO) {
-        val dir = File(context.cacheDir, "Share").apply { deleteRecursively(); mkdirs() }
+        val dir = File(context.cacheDir, folder).apply { deleteRecursively(); mkdirs() }
         chosen.mapNotNull { e ->
             e.asset?.let { return@mapNotNull app.photos.uri(it) }
             val item = e.item ?: return@mapNotNull null
@@ -310,16 +351,7 @@ suspend fun shareEntries(context: Context, chosen: List<GalleryEntry>, original:
         }
     }
     if (cloud.isNotEmpty()) Messages.dismiss()
-    if (uris.isEmpty()) return
-    val videos = chosen.all { it.isVideo }
-    val photos = chosen.none { it.isVideo }
-    val intent = Intent(if (uris.size == 1) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
-        type = if (videos) "video/*" else if (photos) "image/*" else "*/*"
-        if (uris.size == 1) putExtra(Intent.EXTRA_STREAM, uris[0]) else putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList<Uri>(uris))
-        clipData = ClipData.newRawUri(null, uris[0]).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    context.startActivity(Intent.createChooser(intent, null))
+    return uris
 }
 
 /** Two shared photos with the same name (IMG_0001.HEIC from two phones) both go: the second gets " 2". */

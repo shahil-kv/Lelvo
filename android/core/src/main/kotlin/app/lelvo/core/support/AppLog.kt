@@ -70,6 +70,11 @@ object AppLog {
     /** Writes the shareable copy to [target] (a cache file); null when it couldn't be written. */
     fun export(target: File): File? = runCatching { target.writeText(contents()); target }.getOrNull()
 
+    /** Waits (up to [ms]) for lines still being written: a crash handler calls it before the process dies. */
+    fun flush(ms: Long = 1_000) {
+        runCatching { writer.submit {}.get(ms, java.util.concurrent.TimeUnit.MILLISECONDS) }
+    }
+
     fun clear() {
         writer.submit { file?.delete(); oldFile?.delete() }.get()
     }

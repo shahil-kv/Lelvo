@@ -332,6 +332,9 @@ struct MacGalleryView: View {
             Button { Task { await MacActions.share(targets, toast: toast) } } label: { Label("Share", systemImage: "square.and.arrow.up") }
                 .disabled(targets.isEmpty)
                 .help("Share")
+            Button { Task { await MacActions.download(targets, toast: toast) } } label: { Label("Download", systemImage: "arrow.down.circle") }
+                .disabled(targets.isEmpty)
+                .help(targets.count > 1 ? "Download \(targets.count) items to your Downloads folder" : "Download to your Downloads folder")
             if viewerId != nil {
                 if !actions.downloadable.isEmpty {
                     Button { Task { await MacActions.saveToPhotos(actions.downloadable, toast: toast) } } label: {
@@ -391,6 +394,12 @@ struct MacGalleryView: View {
             items.append(.separator)
         }
         items.append(GridMenuItem(title: "Share…", symbol: "square.and.arrow.up") { Task { await MacActions.share(group, toast: toast) } })
+        items.append(GridMenuItem(title: group.count == 1 ? "Download" : "Download \(group.count) Items", symbol: "arrow.down.circle") {
+            Task { await MacActions.download(group, toast: toast) }
+        })
+        items.append(GridMenuItem(title: group.count == 1 ? "Copy" : "Copy \(group.count) Items", symbol: "doc.on.clipboard") {
+            Task { await MacActions.copy(group, toast: toast) }
+        })
         items.append(GridMenuItem(title: group.count == 1 ? "Export to Folder…" : "Export \(group.count) Items to Folder…",
                                   symbol: "square.and.arrow.down.on.square") { Task { await MacActions.export(group, toast: toast) } })
         items.append(GridMenuItem(title: "Export Unmodified Original…", symbol: "doc.on.doc") {
@@ -544,6 +553,7 @@ struct MacGalleryView: View {
             let actions = EntryActions(entries: targets)
             if !actions.inCloud.isEmpty || !actions.onMac.isEmpty { confirmDelete = targets }
         case .selectAll: selectAll()
+        case .copy: if !targets.isEmpty { Task { await MacActions.copy(targets, toast: toast) } }
         }
     }
 

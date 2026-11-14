@@ -15,7 +15,7 @@ struct GridMenuItem {
     static var separator: GridMenuItem { GridMenuItem(title: "", isSeparator: true) }
 }
 
-enum GridKey { case left, right, up, down, open, escape, delete, selectAll }
+enum GridKey { case left, right, up, down, open, escape, delete, selectAll, copy }
 
 /// The photo grid on NSCollectionView, like Photos itself: tiles are recycled views drawn with Core Animation,
 /// thumbnails load ahead of the scroll and off the main thread, and nothing runs per tile per frame.
@@ -84,7 +84,7 @@ struct MacPhotoGrid: NSViewRepresentable {
     // MARK: - Coordinator
 
     @MainActor
-    final class Coordinator: NSObject, NSCollectionViewPrefetching, NSDraggingSource, NSFilePromiseProviderDelegate {
+    final class Coordinator: NSObject, NSCollectionViewPrefetching {
         var parent: MacPhotoGrid
         private weak var collectionView: GridCollectionView?
         private weak var layout: GridLayout?
@@ -94,12 +94,6 @@ struct MacPhotoGrid: NSViewRepresentable {
         private var appliedVersion = -1
         private var appliedScrollToken = -1
         private var appliedState: (selecting: Bool, selection: Set<String>, cursor: String?) = (false, [], nil)
-        private nonisolated let promiseQueue: OperationQueue = {
-            let q = OperationQueue()
-            q.qualityOfService = .userInitiated
-            q.maxConcurrentOperationCount = 2
-            return q
-        }()
 
         init(_ parent: MacPhotoGrid) { self.parent = parent }
 
@@ -301,60 +295,18 @@ struct MacPhotoGrid: NSViewRepresentable {
             indexPaths.compactMap { dataSource?.itemIdentifier(for: $0) }.compactMap { entries[$0] }
         }
 
-        // MARK: Drag to Finder (file promises: cloud items download while the drop completes)
+        // MARK: Drag out (Finder, Mail, ChatGPT, browsers): PhotoDragSource
+
+        func pressed(_ id: String) {
+            guard let entry = entries[id] else { return }
+            PhotoDragSource.shared.pressed(parent.dragEntries(entry))
+        }
+
+        func released() { PhotoDragSource.shared.released() }
 
         func beginDrag(from view: ThumbnailView, id: String, event: NSEvent) {
             guard let entry = entries[id] else { return }
-            let group = parent.dragEntries(entry)
-            let image = view.dragImage()
-            var offset: CGFloat = 0
-            let items: [NSDraggingItem] = group.prefix(50).map { e in
-                let name = Self.filename(for: e)
-                let type = UTType(filenameExtension: (name as NSString).pathExtension) ?? (e.isVideo ? .movie : .image)
-                let provider = NSFilePromiseProvider(fileType: type.identifier, delegate: self)
-                provider.userInfo = e
-                let item = NSDraggingItem(pasteboardWriter: provider)
-                item.setDraggingFrame(view.bounds.offsetBy(dx: offset, dy: -offset), contents: image)
-                offset += 4
-                return item
-            }
-            view.beginDraggingSession(with: items, event: event, source: self)
-        }
-
-        nonisolated func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-            context == .outsideApplication ? .copy : []
-        }
-
-        nonisolated func filePromiseProvider(_ provider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
-            guard let entry = provider.userInfo as? GalleryEntry else { return "Photo" }
-            return Self.filename(for: entry)
-        }
-
-        nonisolated func filePromiseProvider(_ provider: NSFilePromiseProvider, writePromiseTo url: URL, completionHandler: @escaping (Error?) -> Void) {
-            guard let entry = provider.userInfo as? GalleryEntry else { completionHandler(nil); return }
-            Task {
-                do {
-                    let file = try await GalleryActions.shareableFile(for: entry)
-                    try? FileManager.default.removeItem(at: url)
-                    try FileManager.default.moveItem(at: file, to: url)
-                    try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
-                    completionHandler(nil)
-                } catch {
-                    completionHandler(error)
-                }
-            }
-        }
-
-        nonisolated func operationQueue(for provider: NSFilePromiseProvider) -> OperationQueue {
-            promiseQueue
-        }
-
-        nonisolated static func filename(for entry: GalleryEntry) -> String {
-            if let asset = entry.asset {
-                let resources = PHAssetResource.assetResources(for: asset)
-                return (resources.first { $0.type == .fullSizePhoto || $0.type == .fullSizeVideo } ?? resources.first)?.originalFilename ?? "Photo"
-            }
-            return entry.item.map(CloudMediaService.displayedFilename) ?? "Photo"
+            PhotoDragSource.shared.beginDrag(parent.dragEntries(entry), from: view, event: event, image: view.dragImage(), frame: view.bounds)
         }
     }
 }
@@ -453,6 +405,11 @@ final class GridCollectionView: NSCollectionView {
         default: key = mods.contains(.command) && event.charactersIgnoringModifiers == "a" ? .selectAll : nil
         }
         if let key, let coordinator { coordinator.key(key, mods) } else { super.keyDown(with: event) }
+    }
+
+    // Edit → Copy (⌘C) reaches the grid through the responder chain; a search field keeps its own Copy.
+    @objc func copy(_ sender: Any?) {
+        coordinator?.key(.copy, [])
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -666,6 +623,7 @@ final class ThumbnailView: NSView {
     override func mouseDown(with event: NSEvent) {
         mouseDownEvent = event
         dragging = false
+        if let id = entryId { coordinator?.pressed(id) }
         if let cv = superview as? NSCollectionView ?? enclosingCollectionView { window?.makeFirstResponder(cv) }
     }
 
@@ -680,6 +638,7 @@ final class ThumbnailView: NSView {
     override func mouseUp(with event: NSEvent) {
         defer { mouseDownEvent = nil }
         guard !dragging, let id = entryId else { return }
+        coordinator?.released()
         coordinator?.click(id, modifiers: event.modifierFlags.intersection(.deviceIndependentFlagsMask))
     }
 

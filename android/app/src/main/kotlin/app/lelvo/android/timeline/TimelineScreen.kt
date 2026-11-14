@@ -5,6 +5,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.draw.clip
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import app.lelvo.data.media.PhotoAccess
 import app.lelvo.core.index.GalleryFilter
 import app.lelvo.core.index.GalleryEntry
@@ -132,8 +133,9 @@ fun TimelineScreen(
     // the main thread, and a change to either side redraws only what moved.
     // A new filter (search results change with each letter) only filters again; the phone isn't listed again.
     val filterState = androidx.compose.runtime.rememberUpdatedState(filter)
+    val model = (LocalContext.current.applicationContext as app.lelvo.android.LelvoApp).model
     val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(null, store, grouping, isDemo) {
-        galleryEntries(store, photos, isDemo)
+        model.gallery(isDemo)
             .combine(snapshotFlow { filterState.value }) { all, f -> Timeline.groupEntries(f?.let { all.filter(it::matches) } ?: all, grouping, ZoneId.systemDefault(), LocalDate.now()) }
             .flowOn(Dispatchers.Default)
             .collect { value = it }
@@ -269,9 +271,46 @@ fun TimelineScreen(
  * The demo shows only its sample library.
  */
 fun galleryEntries(store: LibraryStore, photos: PhotoAccess, isDemo: Boolean): kotlinx.coroutines.flow.Flow<List<GalleryEntry>> {
-    val phone = if (isDemo) flowOf(emptyList()) else photos.changes().map { photos.assets() }
-    // Aliases are read with each change: a backup run adds them as it finds copies.
-    return combine(store.items(), phone) { items, assets -> Gallery.merge(assets, items, if (isDemo) emptyMap() else store.aliases()) }.flowOn(Dispatchers.Default)
+    // The first listing starts with the newest photos only, so the timeline draws at once on a big phone; the full
+    // list follows. Later changes always list everything.
+    val phone: kotlinx.coroutines.flow.Flow<PhonePage> = if (isDemo) flowOf(PhonePage(emptyList(), complete = true))
+    else kotlinx.coroutines.flow.flow {
+        var first = true
+        photos.changes().collect {
+            if (first) {
+                first = false
+                val newest = photos.assets(limit = FIRST_PAGE)
+                if (newest.size == FIRST_PAGE) emit(PhonePage(newest, complete = false))
+            }
+            emit(PhonePage(photos.assets(), complete = true))
+        }
+    }
+    // The index updates at most twice a second (LibraryStore.items), so a backup doesn't re-merge 30,000 photos per upload.
+    val items = store.items()
+    return combine(items, phone) { items, page ->
+        val merged = Gallery.merge(page.assets, items, if (isDemo) emptyMap() else store.aliases())
+        if (page.complete) merged
+        else {
+            // Only the part the newest photos cover is right yet: older cloud items would show as not on the phone.
+            val oldest = page.assets.minOf { it.takenAt ?: it.addedAt ?: Long.MAX_VALUE }
+            merged.filter { (it.date ?: Long.MIN_VALUE) >= oldest }
+        }
+    }.flowOn(Dispatchers.Default)
+}
+
+private class PhonePage(val assets: List<app.lelvo.core.index.PhoneAsset>, val complete: Boolean)
+
+private const val FIRST_PAGE = 600
+
+/** The first value at once, later ones at most every [ms] (the latest wins). */
+internal fun <T> kotlinx.coroutines.flow.Flow<T>.throttled(ms: Long): kotlinx.coroutines.flow.Flow<T> = kotlinx.coroutines.flow.flow {
+    var last = 0L
+    conflate().collect {
+        val wait = last + ms - System.currentTimeMillis()
+        if (wait > 0) kotlinx.coroutines.delay(wait)
+        last = System.currentTimeMillis()
+        emit(it)
+    }
 }
 
 @Composable

@@ -80,6 +80,9 @@ struct LelvoMacApp: App {
             guard model.onboardingComplete else { return }
             env.td.start()
             Task { await env.enforceCacheLimits() }
+            // Files from a Copy before Lelvo last quit stay while they're on the clipboard: a paste still needs them.
+            let onClipboard = Set((NSPasteboard.general.readObjects(forClasses: [NSURL.self]) as? [URL]) ?? [])
+            Task.detached(priority: .utility) { HandOffFiles.shared.clearLeftoversOnce(keeping: onClipboard) }
             Task.detached(priority: .utility) {
                 await TrashSync.shared.onOpen()
                 // Also when that stopped early (offline, a FLOOD_WAIT): changes waiting from last time still go.

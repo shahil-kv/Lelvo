@@ -193,4 +193,22 @@ import LelvoCore
         #expect(trips.count == 1)
         #expect(trips.first?.allIds.count == 60)
     }
+
+    /// A backup rewrites each photo's status every second or two. That is not a new photo, so memories stay as they are.
+    @Test func aBackupStatusChangeDoesNotRebuildMemories() {
+        let photos = [at("a", day(2024, 1, 1), home)]
+        #expect(!Memories.needsRebuild(previous: photos, next: photos, forced: false))
+    }
+
+    @Test func aNewPhotoRebuildsMemories() {
+        let before = [at("a", day(2024, 1, 1), home)]
+        let after = before + [at("b", day(2024, 6, 1), away)]
+        #expect(Memories.needsRebuild(previous: before, next: after, forced: false))
+    }
+
+    @Test func theFirstBuildAndASettingsChangeAlwaysRebuild() {
+        let photos = [at("a", day(2024, 1, 1), nil)]
+        #expect(Memories.needsRebuild(previous: nil, next: photos, forced: false))
+        #expect(Memories.needsRebuild(previous: photos, next: photos, forced: true))
+    }
 }
