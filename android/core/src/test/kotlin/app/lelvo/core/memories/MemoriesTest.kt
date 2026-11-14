@@ -1,9 +1,15 @@
 package app.lelvo.core.memories
 
+import app.lelvo.core.index.GalleryEntry
+import app.lelvo.core.index.ItemKind
+import app.lelvo.core.index.ItemStatus
+import app.lelvo.core.index.LibraryItem
+import app.lelvo.core.index.PhoneAsset
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -190,5 +196,37 @@ class MemoryCardsTest {
         assertEquals("November 2025 · 3 days", cards[3].subtitle)
         assertEquals("November 2025 – December 2025 · 41 days", cards[4].subtitle)
         assertEquals("2 photos · November 2025", cards[5].subtitle)
+    }
+}
+
+/** Memories ignore a backup's status updates. Those change every second or two and would rebuild a large library continuously. */
+class MemoryInputsTest {
+    private fun item(status: ItemStatus, lat: Double? = 9.93, lon: Double? = 76.26) = LibraryItem(
+        id = "i", localId = "1", sha256 = "h", filename = "a.jpg", kind = ItemKind.Photo, createdAt = 1_000L,
+        latitude = lat, longitude = lon, fileSize = 1, status = status,
+    )
+
+    private fun entry(status: ItemStatus, bucket: String = "Camera", video: Boolean = false, lat: Double? = 9.93, lon: Double? = 76.26) =
+        GalleryEntry("1", 1_000L, PhoneAsset("1", 1_000L, video, bucketName = bucket), item(status, lat, lon))
+
+    @Test fun uploadStatusDoesNotChangeWhatMemoriesSee() {
+        assertEquals(MemoryInputs.of(listOf(entry(ItemStatus.Queued))), MemoryInputs.of(listOf(entry(ItemStatus.BackedUp))))
+        assertFalse(MemoryInputs.changed(MemoryInputs.of(listOf(entry(ItemStatus.Uploading))), MemoryInputs.of(listOf(entry(ItemStatus.BackedUp))), forced = false))
+    }
+
+    @Test fun aNewPhotoAPlaceOrAScreenshotDoesChangeThem() {
+        val one = MemoryInputs.of(listOf(entry(ItemStatus.BackedUp)))
+        val two = MemoryInputs.of(listOf(entry(ItemStatus.BackedUp), GalleryEntry("2", 2_000L, PhoneAsset("2", 2_000L, false), item(ItemStatus.BackedUp))))
+        assertTrue(MemoryInputs.changed(one, two, forced = false))
+        assertTrue(MemoryInputs.changed(one, MemoryInputs.of(listOf(entry(ItemStatus.BackedUp, lat = 15.0, lon = 73.0))), forced = false))
+        assertTrue(MemoryInputs.changed(one, MemoryInputs.of(listOf(entry(ItemStatus.BackedUp, bucket = "Screenshots"))), forced = false))
+    }
+
+    @Test fun videosAreIgnoredAndTheFirstBuildAndAForcedChangeAlwaysRun() {
+        val photos = MemoryInputs.of(listOf(entry(ItemStatus.BackedUp)))
+        val withVideo = MemoryInputs.of(listOf(entry(ItemStatus.BackedUp), GalleryEntry("v", 3_000L, PhoneAsset("v", 3_000L, true), null)))
+        assertEquals(photos, withVideo)
+        assertTrue(MemoryInputs.changed(null, photos, forced = false))
+        assertTrue(MemoryInputs.changed(photos, photos, forced = true))
     }
 }

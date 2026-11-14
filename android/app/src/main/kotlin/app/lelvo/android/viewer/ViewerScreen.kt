@@ -63,6 +63,7 @@ import app.lelvo.android.R
 import app.lelvo.android.actions.DeleteDialog
 import app.lelvo.android.actions.rememberPhoneActions
 import app.lelvo.android.actions.shareEntries
+import app.lelvo.android.actions.copyEntries
 import app.lelvo.android.shell.Messages
 import app.lelvo.android.timeline.icon
 import app.lelvo.android.timeline.tint
@@ -148,7 +149,8 @@ fun ViewerScreen(items: List<GalleryEntry>, start: Int, onClose: () -> Unit) {
             } catch (e: Exception) {
                 AppLog.warn("Viewer: $label failed", e)
                 val text = (e as? MediaException)?.message ?: (e as? SaveException)?.message ?: "Check your connection and try again."
-                Messages.show(Messages.Style.Failure, if (label == "save") "Couldn't save" else "Couldn't share", text, seconds = 5.0)
+                val title = when (label) { "save" -> "Couldn't save"; "copy" -> "Couldn't copy"; else -> "Couldn't share" }
+                Messages.show(Messages.Style.Failure, title, text, seconds = 5.0)
             } finally {
                 busy = false
             }
@@ -156,6 +158,8 @@ fun ViewerScreen(items: List<GalleryEntry>, start: Int, onClose: () -> Unit) {
     }
 
     fun share(entry: GalleryEntry, original: Boolean = false) = runTransfer("share") { shareEntries(context, listOf(entry), original) }
+
+    fun copy(entry: GalleryEntry) = runTransfer("copy") { copyEntries(context, listOf(entry)) }
 
     fun save(entry: GalleryEntry) {
         val item = entry.item ?: return
@@ -195,6 +199,7 @@ fun ViewerScreen(items: List<GalleryEntry>, start: Int, onClose: () -> Unit) {
                 entry, favorite = favorites[entry.id] ?: entry.isFavorite, onClose = onClose,
                 onFavorite = { actions.favorite(listOf(entry), !(favorites[entry.id] ?: entry.isFavorite)) },
                 onInfo = { info = true },
+                onCopy = { copy(entry) },
                 onShareOriginal = if (canShareOriginal(entry)) ({ share(entry, original = true) }) else null,
                 quality = video?.takeIf { it.first == entry.id && (it.second.hasFast || it.second.canMakeFast) }?.second,
             )
@@ -256,8 +261,8 @@ private fun Modifier.verticalSwipes(enabled: () -> Boolean, onUp: () -> Unit, on
 
 @Composable
 private fun TopBar(
-    entry: GalleryEntry, favorite: Boolean, onClose: () -> Unit, onFavorite: () -> Unit, onInfo: () -> Unit, onShareOriginal: (() -> Unit)?,
-    quality: VideoSession?,
+    entry: GalleryEntry, favorite: Boolean, onClose: () -> Unit, onFavorite: () -> Unit, onInfo: () -> Unit, onCopy: () -> Unit,
+    onShareOriginal: (() -> Unit)?, quality: VideoSession?,
 ) {
     val locale = LocalContext.current.resources.configuration.locales[0]
     val day = remember(locale) { DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "dMMMyyyy"), locale) }
@@ -294,6 +299,7 @@ private fun TopBar(
         Box {
             IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.ic_more_vert), "More options", tint = Color.White) }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(text = { Text("Copy") }, onClick = { menu = false; onCopy() })
                 DropdownMenuItem(text = { Text("Details") }, onClick = { menu = false; onInfo() })
                 onShareOriginal?.let { DropdownMenuItem(text = { Text("Share original") }, onClick = { menu = false; it() }) }
             }

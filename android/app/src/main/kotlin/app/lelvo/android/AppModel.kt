@@ -11,6 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.shareIn
+import app.lelvo.android.timeline.galleryEntries
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -141,7 +143,23 @@ class AppModel(private val app: LelvoApp) {
      * Shows sign-in at once, then wipes in the background (iOS #70: waiting for the wipe first left Settings on screen
      * for seconds, because signing out waits for Telegram). Resets run one after another, never at the same time.
      */
+    private val galleries = HashMap<Boolean, kotlinx.coroutines.flow.SharedFlow<List<app.lelvo.core.index.GalleryEntry>>>()
+
+    /**
+     * Phone photos and cloud items in one list, shared by every screen (Photos, Collections, Search, Backup): listed
+     * and merged once, not once per screen, and kept a few minutes after the last screen closes, so going back to a
+     * tab shows it at once instead of reading 30,000 photos again.
+     */
+    fun gallery(isDemo: Boolean): kotlinx.coroutines.flow.Flow<List<app.lelvo.core.index.GalleryEntry>> = synchronized(galleries) {
+        galleries.getOrPut(isDemo) {
+            galleryEntries(app.store, app.photos, isDemo)
+                .shareIn(scope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(stopTimeoutMillis = 5 * 60_000), replay = 1)
+        }
+    }
+
     fun reset(keepingChoices: Boolean = false) {
+        // Nothing of the old account stays in memory.
+        synchronized(galleries) { galleries.clear() }
         tab.value = Tab.Photos
         librarySetup = LibrarySetup(app.library, scope, app.scanner, relink = { app.linker.relink() })
         pendingRecoveryKey.value = null

@@ -1,5 +1,9 @@
 package app.lelvo.android.collections
 
+import kotlinx.coroutines.flow.conflate
+
+import app.lelvo.android.timeline.throttled
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,7 +57,6 @@ import app.lelvo.android.R
 import app.lelvo.android.media.CloudThumbnail
 import app.lelvo.android.media.PhoneThumbnail
 import app.lelvo.android.shell.LelvoTopBar
-import app.lelvo.android.timeline.galleryEntries
 import app.lelvo.core.index.Collections
 import app.lelvo.core.index.GalleryEntry
 import app.lelvo.core.index.GalleryFilter
@@ -66,6 +69,8 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import app.lelvo.core.memories.MemoryCard
+import app.lelvo.core.memories.MemoryInputs
+import app.lelvo.core.memories.Memories
 import kotlinx.coroutines.flow.flowOn
 import java.time.LocalDate
 import java.time.ZoneId
@@ -90,6 +95,14 @@ sealed interface CollectionPage {
 /** Everything Collections shows, made together off the main thread. */
 private class CollectionsState(val content: Collections.Content, val memories: List<MemoryCard>, val byId: Map<String, GalleryEntry>)
 
+/** The last memories build. A backup changes upload status only, and that is not part of [inputs]. */
+private class MemoryCache(
+    val inputs: List<app.lelvo.core.memories.MemoryInput>,
+    val kinds: Set<Memories.KindFilter>,
+    val rev: Int,
+    val cards: List<MemoryCard>,
+)
+
 /** How many covers a section shows before "See all", like iOS. */
 private const val SHOWN = 4
 
@@ -106,14 +119,27 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
         val dayTitle = DateTimeFormatter.ofPattern("EEE, d MMM")
         // Memories are made again when a memory type is turned on or off.
         val memorySettings = app.prefs.changes().filter { it.startsWith("memories.") }.onStart { emit("") }
-        galleryEntries(app.store, app.photos, isDemo)
+        // Albums and folders read every photo: during a backup they're counted again at most every 10 s.
+        // Memories are not. A backup only changes upload status, which memories don't use.
+        var memories: MemoryCache? = null
+        app.model.gallery(isDemo).throttled(10_000)
             .combine(memorySettings) { entries, _ -> entries }
             // New places and place names (read for search) change memories and their titles.
-            .combine(app.search.revision) { entries, _ -> entries }
-            .map { entries ->
+            .combine(app.search.revision) { entries, rev -> entries to rev }
+            .conflate()
+            .map { (entries, rev) ->
+                val inputs = MemoryInputs.of(entries)
+                val kinds = app.prefs.memoryKinds
+                val previous = memories
+                val forced = previous != null && (previous.rev != rev || previous.kinds != kinds)
+                val cards = if (MemoryInputs.changed(previous?.inputs, inputs, forced)) {
+                    memoryCards(entries, app.prefs, app.search).also { memories = MemoryCache(inputs, kinds, rev, it) }
+                } else {
+                    previous!!.cards
+                }
                 CollectionsState(
                     Collections.build(entries, ZoneId.systemDefault(), LocalDate.now(), dayTitle::format),
-                    memoryCards(entries, app.prefs, app.search), entries.associateBy { it.id },
+                    cards, entries.associateBy { it.id },
                 )
             }
             .flowOn(Dispatchers.Default)

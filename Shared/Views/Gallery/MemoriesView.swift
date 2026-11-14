@@ -31,9 +31,7 @@ final class MemoriesModel: ObservableObject {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.loaded else { return }
-                    let r = self.revision
-                    self.revision = -1
-                    await self.refresh(entries: self.lastEntries, revision: r)
+                    await self.refresh(entries: self.lastEntries, revision: self.wanted, force: true)
                 }
             })
         }
@@ -41,10 +39,42 @@ final class MemoriesModel: ObservableObject {
 
     deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
 
-    func refresh(entries: [GalleryEntry], revision: Int) async {
-        guard revision != self.revision else { return }
-        self.revision = revision
+    /// The newest timeline asked for. One build at a time; a newer one runs when the current one ends.
+    private var wanted = -1
+    private var building = false
+    /// Place names or memory settings changed during a build: build again as soon as it ends.
+    private var forceAgain = false
+    /// Photos the last build was made from. Upload status is not in here, so a backup doesn't rebuild memories.
+    private var lastInputs: [Memories.Photo]?
+
+    /// `force`: the photos are unchanged but place names, things in them, or the memory settings changed.
+    func refresh(entries: [GalleryEntry], revision: Int, force: Bool = false) async {
+        guard force || revision != self.revision else { return }
         lastEntries = entries
+        wanted = revision
+        if force { forceAgain = true }
+        guard !building else { return }
+        building = true
+        defer { building = false }
+        while true {
+            let revision = wanted
+            let entries = lastEntries
+            let force = forceAgain
+            forceAgain = false
+            // Reading places for the comparison is the same work as a build's first step, and it stays off the main
+            // thread: a backup asks this every second or two.
+            let inputs = await Task.detached(priority: .utility) { Self.memoryInputs(entries) }.value
+            if Memories.needsRebuild(previous: lastInputs, next: inputs, forced: force) {
+                await build(entries: entries, revision: revision, inputs: inputs)
+            } else {
+                self.revision = revision
+            }
+            guard forceAgain || wanted != revision else { return }
+        }
+    }
+
+    private func build(entries: [GalleryEntry], revision: Int, inputs: [Memories.Photo]) async {
+        self.revision = revision
         generation += 1
         let mine = generation
         let search = AppEnvironment.shared.search!
@@ -58,9 +88,22 @@ final class MemoriesModel: ObservableObject {
         guard mine == generation else { return }
         self.entries = byId
         self.cards = cards
+        self.lastInputs = inputs
         loaded = true
         appLog(String(format: "Memories: %d (%@) from %d items in %.2f s", cards.count,
                       cards.map(\.title).joined(separator: ", "), entries.count, Date().timeIntervalSince(started)))
+    }
+
+    /// Photos only, without the things and scores search fills in later. Those arrive with `SearchService.didIndex`,
+    /// which rebuilds with `force`.
+    nonisolated private static func memoryInputs(_ entries: [GalleryEntry]) -> [Memories.Photo] {
+        entries.compactMap { e in
+            guard let date = e.date, !e.isVideo else { return nil }
+            let loc = e.asset?.location?.coordinate
+            let screenshot = e.asset?.mediaSubtypes.contains(.photoScreenshot) == true
+            return Memories.Photo(id: e.id, date: date, latitude: loc?.latitude ?? e.item?.latitude,
+                                  longitude: loc?.longitude ?? e.item?.longitude, isUtility: screenshot)
+        }
     }
 
     nonisolated private static func cards(_ entries: [GalleryEntry], facts: [String: LibraryStore.PhotoFacts],

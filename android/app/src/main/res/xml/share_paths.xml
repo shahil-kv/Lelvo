@@ -2,4 +2,5 @@
 <!-- Only the folder that holds copies made for sharing; nothing else in the app is reachable. -->
 <paths>
     <cache-path name="share" path="Share/" />
+    <cache-path name="copy" path="Copy/" />
 </paths>

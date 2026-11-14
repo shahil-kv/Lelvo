@@ -81,6 +81,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
                 }
             } else null,
         )
+        CrashReports.install(this)
         secrets = SecretStore(this)
         val config = BuildConfig.TELEGRAM_API_ID.takeIf { it != 0 && BuildConfig.TELEGRAM_API_HASH.isNotBlank() }?.let {
             TelegramConfig(
@@ -123,6 +124,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         scanner.choices = choices
         sync = app.lelvo.data.sync.NoteSync(this, store, library, scanner, files, uploads, backup, telegram, photos, isDemo = { demo.active.value })
         model = AppModel(this)
+        // Shared cloud photos from the last run (Copy's stay: the clipboard may still point at them).
+        Thread { java.io.File(cacheDir, "Share").deleteRecursively() }.start()
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 // Lelvo comes to the front (iOS scene `.active`): follow the other devices, send what's waiting.

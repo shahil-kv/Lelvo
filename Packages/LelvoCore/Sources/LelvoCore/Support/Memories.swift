@@ -138,6 +138,15 @@ public enum Memories {
         return out
     }
 
+    /// Whether to make memories again. `previous` nil is the first build. `forced` is a change memories read from
+    /// outside the photo list: place names, things in the photos, or which types are switched on.
+    /// A backup rewrites each photo's upload status every second or two. That status is not part of `Photo`, so an
+    /// equal list is the same library and the memories stay as they are.
+    public static func needsRebuild(previous: [Photo]?, next: [Photo], forced: Bool) -> Bool {
+        if forced || previous == nil { return true }
+        return previous != next
+    }
+
     /// The memory types a user can turn off, like Google Photos' settings.
     public enum KindFilter: String, CaseIterable, Sendable {
         case onThisDay, recent, trips, themes

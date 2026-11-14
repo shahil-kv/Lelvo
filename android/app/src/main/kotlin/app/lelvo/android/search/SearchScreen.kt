@@ -57,7 +57,6 @@ import app.lelvo.android.R
 import app.lelvo.android.collections.Cover
 import app.lelvo.android.shell.LelvoTopBar
 import app.lelvo.android.timeline.TimelineScreen
-import app.lelvo.android.timeline.galleryEntries
 import app.lelvo.android.ui.theme.Lelvo
 import app.lelvo.core.index.GalleryEntry
 import app.lelvo.core.index.GalleryFilter
@@ -100,7 +99,7 @@ private const val SHOWN = 4
 fun SearchScreen(app: LelvoApp, onOpen: (List<GalleryEntry>, Int) -> Unit, onSettings: () -> Unit, modifier: Modifier = Modifier) {
     val isDemo by app.demo.active.collectAsState()
     val data by produceState(lastData?.takeIf { it.first == isDemo }?.second, isDemo) {
-        galleryEntries(app.store, app.photos, isDemo)
+        app.model.gallery(isDemo)
             .combine(app.search.revision) { entries, _ -> entries }
             .flowOn(Dispatchers.Default)
             .collect { entries ->

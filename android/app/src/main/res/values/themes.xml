@@ -9,4 +9,13 @@
     <style name="Theme.Lelvo.Launch">
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
+
+    <!-- The share sheet: see-through, so the sharing app stays behind Lelvo's bottom sheet. -->
+    <style name="Theme.Lelvo.Share" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import AVKit
 import Photos
 import PhotosUI
@@ -133,6 +134,7 @@ struct ViewerView: View {
         HStack {
             // Tap shares what's shown (the edit, like Photos); touch and hold offers the untouched original.
             Menu {
+                Button("Copy", systemImage: "doc.on.clipboard") { transferTask = Task { await copyCurrent() } }
                 Button("Share Original", systemImage: "doc.on.doc") { transferTask = Task { await shareCurrent(original: true) } }
             } label: {
                 Image(systemName: "square.and.arrow.up")
@@ -253,6 +255,56 @@ struct ViewerView: View {
         transferTask = nil
     }
 
+    /// Copy, like Photos: the photo goes on the clipboard to paste into Messages, Mail or ChatGPT. A cloud item
+    /// downloads first. iOS shows its own "pasted from Lelvo" banner, so success is a tap of haptics only.
+    private func copyCurrent() async {
+        guard let current else { return }
+        guard HandOffFiles.hasRoom() else {
+            message = GalleryAlert(title: "Not enough space to copy", message: "Free up some space on this iPhone, then try again.")
+            return
+        }
+        let started = Transfer(verb: "Preparing to copy", total: current.isCloudOnly ? current.item?.fileSize ?? 0 : 0)
+        transfer = started
+        defer { finish(started) }
+        do {
+            let url = try await GalleryActions.shareableFile(for: current) { p in report(p, to: started) }
+            guard !Task.isCancelled else {
+                try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+                throw CancellationError()
+            }
+            try await Self.putOnClipboard(url)
+            Haptics.success()
+        } catch is CancellationError {
+            // The user cancelled.
+        } catch {
+            if Task.isCancelled { return }
+            Haptics.error()
+            message = GalleryAlert(title: "Couldn't copy", message: error.localizedDescription)
+        }
+    }
+
+    /// A photo goes on the clipboard as the picture itself (its own bytes, plus a JPEG for HEIC), like Photos: it
+    /// pastes anywhere and stays in clipboard history after Lelvo quits, and the temporary file goes at once. A video
+    /// or a very big file goes as a file kept in Lelvo's Copied folder (capped, see `CopiedFiles`).
+    private nonisolated static func putOnClipboard(_ url: URL) async throws {
+        let pictures = ClipboardImage.representations(of: url)
+        if !pictures.isEmpty {
+            var item: [String: Any] = [:]
+            for picture in pictures { item[picture.type.identifier] = picture.data }
+            let copy = item
+            await MainActor.run { UIPasteboard.general.setItems([copy]) }
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            return
+        }
+        guard let kept = CopiedFiles.keep([url]).first else { throw CocoaError(.fileReadUnknown) }
+        let made = await MainActor.run { () -> Bool in
+            guard let provider = NSItemProvider(contentsOf: kept) else { return false }
+            UIPasteboard.general.setItemProviders([provider], localOnly: false, expirationDate: nil)
+            return true
+        }
+        guard made else { throw CocoaError(.fileReadUnknown) }
+    }
+
     private func saveCurrent() async {
         guard let item = current?.item else { return }
         let started = Transfer(verb: "Saving original", total: item.fileSize)
@@ -365,7 +417,7 @@ struct ViewerPage: View {
                 if let placeholder { Image(uiImage: placeholder).resizable().scaledToFit() }
                 ProgressView().tint(.white).padding(14).background(.black.opacity(0.35), in: Circle())
             case .image(let image):
-                ZoomableImageView(image: image, zoomed: $zoomed)
+                ZoomableImageView(image: image, entry: entry, zoomed: $zoomed)
             case .live(let live):
                 LivePhotoView(livePhoto: live)
             case .video(let player):
@@ -646,6 +698,8 @@ struct ViewerPage: View {
 /// UIScrollView-backed zoom: pinch, and double-tap to zoom in/out.
 struct ZoomableImageView: UIViewRepresentable {
     let image: UIImage
+    /// What dragging the photo out carries: touch and hold, then move it into Messages, Mail, Files or another app.
+    let entry: GalleryEntry
     @Binding var zoomed: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(zoomed: $zoomed) }
@@ -674,6 +728,12 @@ struct ZoomableImageView: UIViewRepresentable {
             imageView.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor)
         ])
         context.coordinator.imageView = imageView
+        context.coordinator.entry = entry
+        // Off by default on iPhone; Photos lets a photo be dragged into another app, and so does Lelvo.
+        imageView.isUserInteractionEnabled = true
+        let drag = UIDragInteraction(delegate: context.coordinator)
+        drag.isEnabled = true
+        imageView.addInteraction(drag)
         let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped(_:)))
         doubleTap.numberOfTapsRequired = 2
         scroll.addGestureRecognizer(doubleTap)
@@ -682,14 +742,52 @@ struct ZoomableImageView: UIViewRepresentable {
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
         if context.coordinator.imageView?.image !== image { context.coordinator.imageView?.image = image }
+        context.coordinator.entry = entry
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIScrollView, context: Context) -> CGSize? {
         proposal.replacingUnspecifiedDimensions()
     }
 
-    final class Coordinator: NSObject, UIScrollViewDelegate {
+    final class Coordinator: NSObject, UIScrollViewDelegate, UIDragInteractionDelegate {
         var imageView: UIImageView?
+        var entry: GalleryEntry?
+
+        /// The file is made only when another app takes the drop (a cloud photo downloads then), not when the drag starts.
+        func dragInteraction(_ interaction: UIDragInteraction, itemsForBeginning session: UIDragSession) -> [UIDragItem] {
+            guard let entry else { return [] }
+            // Only the latest drag's file is kept; the one before was dropped already.
+            HandOffFiles.shared.replace(.drag, with: [])
+            let name = Self.filename(for: entry)
+            let type = UTType(filenameExtension: (name as NSString).pathExtension) ?? .image
+            let provider = NSItemProvider()
+            provider.suggestedName = (name as NSString).deletingPathExtension
+            provider.registerFileRepresentation(forTypeIdentifier: type.identifier, fileOptions: [], visibility: .all) { completion in
+                let progress = Progress(totalUnitCount: 1)
+                Task {
+                    do {
+                        let url = try await GalleryActions.shareableFile(for: entry)
+                        HandOffFiles.shared.add(.drag, url)
+                        completion(url, false, nil)
+                    } catch {
+                        completion(nil, false, error)
+                    }
+                    progress.completedUnitCount = 1
+                }
+                return progress
+            }
+            let item = UIDragItem(itemProvider: provider)
+            item.localObject = entry.id
+            return [item]
+        }
+
+        private static func filename(for entry: GalleryEntry) -> String {
+            if let asset = entry.asset {
+                let resources = PHAssetResource.assetResources(for: asset)
+                return (resources.first { $0.type == .fullSizePhoto } ?? resources.first)?.originalFilename ?? "Photo.jpg"
+            }
+            return entry.item.map(CloudMediaService.displayedFilename) ?? "Photo.jpg"
+        }
         let zoomed: Binding<Bool>
         init(zoomed: Binding<Bool>) { self.zoomed = zoomed }
 

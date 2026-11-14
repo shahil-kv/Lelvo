@@ -140,6 +140,11 @@ struct MacViewer: View {
             return .handled
         }
         .onKeyPress(.escape) { close(); return .handled }
+        // ⌘C copies the photo itself (downloaded first when it's only in the cloud), to paste into any app.
+        .onCopyCommand {
+            if let current { Task { await MacActions.copy([current], toast: ToastCenter.shared) } }
+            return []
+        }
         .onKeyPress(.space) {
             if current?.isVideo == true {
                 NotificationCenter.default.post(name: .macViewerTogglePlay, object: currentId)
@@ -340,7 +345,7 @@ struct MacViewerPage: View {
                 if let placeholder { Image(platformImage: placeholder).resizable().scaledToFit() }
                 if showSpinner { spinner.transition(.opacity) }
             case .image(let image):
-                ZoomableImage(image: image, zoomed: isCurrent ? $zoomed : .constant(false))
+                ZoomableImage(image: image, entry: entry, zoomed: isCurrent ? $zoomed : .constant(false))
             case .live(let live, _):
                 MacLivePhotoView(livePhoto: live, control: liveControl)
                     .overlay(alignment: .topLeading) { LiveBadge(control: liveControl).padding(16) }
@@ -559,6 +564,8 @@ struct MacViewerPage: View {
 /// NSScrollView magnification: trackpad pinch, ⌘-scroll, double-click to zoom in at the pointer and back.
 struct ZoomableImage: NSViewRepresentable {
     let image: NSImage
+    /// What a drag out of the photo carries (the original, or the edit when there is one).
+    let entry: GalleryEntry
     @Binding var zoomed: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(zoomed: $zoomed) }
@@ -576,7 +583,8 @@ struct ZoomableImage: NSViewRepresentable {
         scroll.contentInsets = NSEdgeInsetsZero
         scroll.contentView = CenteringClipView()
         scroll.contentView.drawsBackground = false
-        let imageView = NSImageView()
+        let imageView = DraggableImageView()
+        imageView.entry = entry
         imageView.image = image
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.animates = true
@@ -591,6 +599,7 @@ struct ZoomableImage: NSViewRepresentable {
 
     func updateNSView(_ scroll: ZoomScrollView, context: Context) {
         if let iv = scroll.documentView as? NSImageView, iv.image !== image { iv.image = image }
+        (scroll.documentView as? DraggableImageView)?.entry = entry
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ZoomScrollView, context: Context) -> CGSize? {
@@ -623,6 +632,45 @@ struct ZoomableImage: NSViewRepresentable {
 }
 
 /// Keeps the document the size of the visible area at 1×, and hands horizontal swipes to the pager when not zoomed.
+/// The viewer's photo: drag it into Finder, Mail, Messages, ChatGPT or a browser, like a photo in Preview.
+final class DraggableImageView: NSImageView {
+    var entry: GalleryEntry?
+    private var downEvent: NSEvent?
+    private var dragging = false
+
+    override func mouseDown(with event: NSEvent) {
+        downEvent = event
+        dragging = false
+        if let entry { PhotoDragSource.shared.pressed([entry]) }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard !dragging, let down = downEvent, let entry, let image else { return super.mouseDragged(with: event) }
+        let dx = event.locationInWindow.x - down.locationInWindow.x, dy = event.locationInWindow.y - down.locationInWindow.y
+        guard dx * dx + dy * dy > 16 else { return }
+        dragging = true
+        // The drag image is a small copy of the photo under the pointer, like dragging out of Preview.
+        let size = Self.dragSize(for: image.size)
+        let point = convert(down.locationInWindow, from: nil)
+        let frame = NSRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height)
+        PhotoDragSource.shared.beginDrag([entry], from: self, event: down, image: image, frame: frame)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if !dragging { PhotoDragSource.shared.released() }
+        downEvent = nil
+        super.mouseUp(with: event)
+    }
+
+    private static func dragSize(for size: NSSize) -> NSSize {
+        let side: CGFloat = 160
+        guard size.width > 0, size.height > 0 else { return NSSize(width: side, height: side) }
+        let scale = side / max(size.width, size.height)
+        return NSSize(width: size.width * scale, height: size.height * scale)
+    }
+}
+
 final class ZoomScrollView: NSScrollView {
     var onMagnify: (CGFloat) -> Void = { _ in }
 

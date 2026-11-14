@@ -8,3 +8,9 @@
 -keep class com.google.mlkit.** { *; }
 -keep class com.google.android.gms.internal.mlkit_vision_** { *; }
 -keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
+
+# Logs and crash reports name the error: shrinking renamed exceptions to "b85", which said nothing in a user's log.
+-keepnames class * extends java.lang.Throwable
+# Line numbers in crash reports (CrashReports); build/outputs/mapping/release/mapping.txt turns frames back into names.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile

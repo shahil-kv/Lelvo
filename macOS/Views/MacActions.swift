@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Photos
 import LelvoCore
+import UniformTypeIdentifiers
 
 /// Sharing, exporting and the other file-based actions for one or more gallery entries.
 @MainActor
@@ -28,20 +29,31 @@ enum MacActions {
     }
 
     /// Prepares originals (downloading cloud items) with progress in the toast; returns the files that worked, or
-    /// nothing if the user stopped it (run inside `ToastCenter.runStoppable`).
-    static func prepareFiles(_ entries: [GalleryEntry], toast: ToastCenter, verb: String, originals: Bool = false) async -> [URL] {
+    /// nothing if the user stopped it (run inside `ToastCenter.runStoppable`). Files made before a stop are deleted.
+    /// `needsRoom`: stops when the Mac gets low on space (temporary copies only; Export and Download fill the folder
+    /// the user chose).
+    static func prepareFiles(_ entries: [GalleryEntry], toast: ToastCenter, verb: String, originals: Bool = false,
+                             needsRoom: Bool = false) async -> [URL] {
         var urls: [URL] = []
         var failures = 0
         let count = max(entries.count, 1)
+        func discard() -> [URL] {
+            for url in urls { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+            return []
+        }
         for (i, entry) in entries.enumerated() {
-            if Task.isCancelled { return [] }
+            if Task.isCancelled { return discard() }
+            if needsRoom, !HandOffFiles.hasRoom() {
+                toast.show(.failure, "Not enough space", detail: "Free up some space on this Mac, then try again.")
+                return discard()
+            }
             toast.progress("\(verb) \(i + 1) of \(entries.count)…", fraction: Double(i) / Double(count))
             do {
                 urls.append(try await GalleryActions.shareableFile(for: entry, original: originals) { p in
                     Task { @MainActor in toast.update(fraction: (Double(i) + p) / Double(count)) }
                 })
             } catch {
-                if Task.isCancelled { return [] }
+                if Task.isCancelled { return discard() }
                 failures += 1
             }
         }
@@ -56,7 +68,11 @@ enum MacActions {
     static func share(_ entries: [GalleryEntry], toast: ToastCenter) async {
         await toast.runStoppable {
             let urls = await prepareFiles(entries, toast: toast, verb: "Preparing")
-            if !Task.isCancelled { share(urls) }
+            if Task.isCancelled {
+                for url in urls { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+            } else {
+                share(urls)
+            }
         }
     }
 
@@ -66,8 +82,61 @@ enum MacActions {
         guard !entries.isEmpty, let folder = chooseFolder(message: "Choose where to export \(entries.count) item\(entries.count == 1 ? "" : "s").") else { return }
         var files: [URL] = []
         await toast.runStoppable { files = await prepareFiles(entries, toast: toast, verb: "Exporting", originals: originals) }
+        let placed = place(files, in: folder)
+        if !placed.isEmpty {
+            toast.show(.success, "Exported \(placed.count) item\(placed.count == 1 ? "" : "s")", detail: folder.path)
+            NSWorkspace.shared.activateFileViewerSelecting([folder])
+        }
+    }
+
+    /// One click, no dialog, like Download in Google Photos: what Photos shows (the edit, if any) goes to Downloads.
+    static func download(_ entries: [GalleryEntry], toast: ToastCenter) async {
+        guard !entries.isEmpty, let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
+        var files: [URL] = []
+        await toast.runStoppable { files = await prepareFiles(entries, toast: toast, verb: "Downloading") }
+        let placed = place(files, in: folder)
+        guard let last = placed.last else { return }
+        toast.show(.success, placed.count == 1 ? "Downloaded \(last.lastPathComponent)" : "Downloaded \(placed.count) items",
+                   detail: "They're in your Downloads folder.")
+        // Bounces the Downloads stack in the Dock, like a download in Safari.
+        DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: last.path)
+    }
+
+    /// Copy (⌘C), like Photos and Preview: one photo goes on the clipboard as the picture itself (its own bytes, plus
+    /// a JPEG for HEIC), which pastes into ChatGPT, browsers and Messages and stays in a clipboard manager's history.
+    /// Every item also goes as a file, kept in Lelvo's Copied folder (capped, see `CopiedFiles`), so Finder and Mail
+    /// paste the real file. Cloud items download first.
+    static func copy(_ entries: [GalleryEntry], toast: ToastCenter) async {
+        guard !entries.isEmpty else { return }
+        guard HandOffFiles.hasRoom() else {
+            toast.show(.failure, "Not enough space to copy", detail: "Free up some space on this Mac, then try again.")
+            return
+        }
+        var prepared: [URL] = []
+        await toast.runStoppable { prepared = await prepareFiles(entries, toast: toast, verb: "Copying", needsRoom: true) }
+        guard !prepared.isEmpty, !Task.isCancelled else { return }
+        let single = prepared.count == 1
+        let (files, pictures) = await Task.detached(priority: .userInitiated) { () -> ([URL], [(type: UTType, data: Data)]) in
+            let files = CopiedFiles.keep(prepared)
+            return (files, single ? ClipboardImage.representations(of: files[0]) : [])
+        }.value
+        let items: [NSPasteboardItem] = files.map { url in
+            let item = NSPasteboardItem()
+            item.setString(url.absoluteString, forType: .fileURL)
+            return item
+        }
+        for picture in pictures { items[0].setData(picture.data, forType: NSPasteboard.PasteboardType(picture.type.identifier)) }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects(items)
+        appLog("Copied \(files.count) item(s)\(pictures.isEmpty ? "" : " with the picture itself")")
+        toast.show(.success, single ? "Copied" : "Copied \(files.count) items", detail: "Paste into any app with ⌘V.")
+    }
+
+    /// Moves prepared files into `folder` with their own names ("IMG_1 2.HEIC" when the name is taken).
+    private static func place(_ files: [URL], in folder: URL) -> [URL] {
         let fm = FileManager.default
-        var moved = 0
+        var placed: [URL] = []
         for file in files {
             var dest = folder.appendingPathComponent(file.lastPathComponent)
             var n = 1
@@ -75,13 +144,10 @@ enum MacActions {
                 n += 1
                 dest = folder.appendingPathComponent("\(file.deletingPathExtension().lastPathComponent) \(n).\(file.pathExtension)")
             }
-            if (try? fm.moveItem(at: file, to: dest)) != nil { moved += 1 }
+            if (try? fm.moveItem(at: file, to: dest)) != nil { placed.append(dest) }
             try? fm.removeItem(at: file.deletingLastPathComponent())
         }
-        if moved > 0 {
-            toast.show(.success, "Exported \(moved) item\(moved == 1 ? "" : "s")", detail: folder.path)
-            NSWorkspace.shared.activateFileViewerSelecting([folder])
-        }
+        return placed
     }
 
     static func saveToPhotos(_ entries: [GalleryEntry], toast: ToastCenter) async {
