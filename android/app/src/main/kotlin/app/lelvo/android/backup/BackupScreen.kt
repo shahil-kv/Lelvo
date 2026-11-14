@@ -1,6 +1,9 @@
 package app.lelvo.android.backup
 
 import app.lelvo.android.background.BackupScheduler
+import app.lelvo.android.settings.BackgroundIssueCard
+import app.lelvo.android.settings.BackgroundStatus
+import app.lelvo.core.backup.BackgroundIssue
 import app.lelvo.android.timeline.throttled
 
 import android.text.format.DateUtils
@@ -160,9 +163,22 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
         BackupActivity(isRunning = d.running, done = d.done, total = d.total, uploaded = d.done,
             lanes = d.current.withIndex().associate { (i, n) -> "$i" to BackupActivity.Lane(n, 0, 0) })
     } ?: activity
+    val waiting = stats.counts.pending(app.prefs.autoBackup)
+    val backgroundIssue by produceState(BackgroundIssue.None, waiting) {
+        value = withContext(Dispatchers.IO) { BackgroundStatus.issue(app, waiting) }
+    }
+    var hideForceStop by remember { mutableStateOf(app.prefs.forceStopNoteDismissed) }
     Scaffold(modifier, topBar = { LelvoTopBar("Backup", app.demo, onSettings) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item("header") { StatusHeader(shown, stats, app.prefs.lastBackupAt, photoUri = { app.photos.uris(listOf(it)).firstOrNull() }) }
+            if (backgroundIssue != BackgroundIssue.None &&
+                !(backgroundIssue == BackgroundIssue.ForceStopped && hideForceStop)
+            ) item("blocked") {
+                BackgroundIssueCard(backgroundIssue, onDismissForceStop = {
+                    app.prefs.forceStopNoteDismissed = true
+                    hideForceStop = true
+                })
+            }
             if (offerAuto) item("auto") {
                 AutomaticBackupOffer(onTurnOn = {
                     app.prefs.autoBackup = true

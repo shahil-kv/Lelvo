@@ -42,6 +42,8 @@ class Prefs(context: Context) {
     var autoBackup by flag("autoBackup", false)
     /** The onboarding switch or the Backup tab card has been answered. The card is not shown again. */
     var autoBackupAsked by flag("autoBackupAsked", false)
+    /** The force-stop note was dismissed. Cleared once the last exit is no longer a force stop. */
+    var forceStopNoteDismissed by flag("forceStopNoteDismissed", false)
     var streamingCopies by flag("streamingCopies", true)
     var keepAwakeDuringBackup by flag("keepAwakeDuringBackup", true)
     var backupPaused by flag("backupPaused", false)

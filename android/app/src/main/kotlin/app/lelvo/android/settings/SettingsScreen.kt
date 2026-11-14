@@ -21,6 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import app.lelvo.android.LelvoApp
+import app.lelvo.core.backup.BackgroundIssue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.lelvo.android.R
 import app.lelvo.android.backup.SecondCopyScreen
 import app.lelvo.android.collections.MemoriesSettingsScreen
@@ -37,6 +40,7 @@ data class SettingsInfo(val account: String, val library: String)
 /** The pages under Settings, newest last; Back closes the top one. */
 private sealed interface Page {
     data object BackupOptions : Page
+    data object Background : Page
     data object Albums : Page
     data object Memories : Page
     data object Storage : Page
@@ -71,6 +75,7 @@ fun SettingsScreen(
             Surface(Modifier.fillMaxSize()) {
                 when (page) {
                     Page.BackupOptions -> BackupOptionsScreen(app.prefs, onAlbums = { open(Page.Albums) }, onRulesChanged = onBackupRulesChanged, onBack = back)
+                    Page.Background -> BackgroundBackupScreen(app, onBack = back)
                     Page.Albums -> AlbumPickerScreen(app, onChanged = { onBackupRulesChanged(false) }, onBack = back)
                     Page.Memories -> MemoriesSettingsScreen(app.prefs, onBack = back)
                     Page.Storage -> StorageScreen(app, onBack = back)
@@ -115,6 +120,11 @@ private fun Main(
         if (real) {
             SectionDivider()
             SectionHeader("Backup")
+            val backgroundIssue by androidx.compose.runtime.produceState(BackgroundIssue.None, real) {
+                value = if (!real) BackgroundIssue.None
+                else withContext(Dispatchers.IO) { BackgroundStatus.issue(app, app.backup.readyCount()) }
+            }
+            SettingRow("Background backup", BackgroundStatus.label(backgroundIssue), icon = R.drawable.ic_tune) { open(Page.Background) }
             ToggleRow("Back up new photos automatically",
                 if (auto) "Lelvo backs up soon after you take photos, and when you open it."
                 else "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.",
