@@ -6,6 +6,7 @@ enum Prefs {
     enum Key {
         static let onboardingComplete = "onboardingComplete"
         static let wifiOnly = "wifiOnly"
+        static let photosOnMobile = "photosOnMobile"
         static let backupVideos = "backupVideos"
         static let includeScreenshots = "includeScreenshots"
         static let includeHidden = "includeHidden"
@@ -75,6 +76,7 @@ enum Prefs {
     static func registerDefaults() {
         defaults.register(defaults: [
             Key.wifiOnly: true,
+            Key.photosOnMobile: true,
             Key.backupVideos: true,
             Key.includeScreenshots: true,
             Key.includeHidden: false,
@@ -98,6 +100,7 @@ enum Prefs {
 
     static var onboardingComplete: Bool { defaults.bool(forKey: Key.onboardingComplete) }
     static var wifiOnly: Bool { defaults.bool(forKey: Key.wifiOnly) }
+    static var photosOnMobile: Bool { defaults.bool(forKey: Key.photosOnMobile) }
     static var backupVideos: Bool { defaults.bool(forKey: Key.backupVideos) }
     static var includeScreenshots: Bool { defaults.bool(forKey: Key.includeScreenshots) }
     /// Back up photos hidden in Photos too. They're never shown in Lelvo and come back hidden.

@@ -91,6 +91,7 @@ struct BackupDashboardView: View {
     @StateObject private var stats = BackupStatsModel()
     @State private var runJustEnded = false
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
+    @AppStorage(Prefs.Key.photosOnMobile) private var photosOnMobile = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.backupPaused) private var paused = false
     @AppStorage(Prefs.Key.keepAwakeDuringBackup) private var keepAwake = true
@@ -222,7 +223,7 @@ struct BackupDashboardView: View {
                             Text(message).font(.footnote).foregroundStyle(.secondary)
                         }
                         if wifiOnly || chargingOnly {
-                            Label([wifiOnly ? "Wi-Fi only" : nil, chargingOnly ? "charging only" : nil].compactMap { $0 }.joined(separator: ", ") + ". Change in Settings.",
+                            Label([wifiOnly ? (photosOnMobile ? "Videos on Wi-Fi only" : "Wi-Fi only") : nil, chargingOnly ? "charging only" : nil].compactMap { $0 }.joined(separator: ", ") + ". Change in Settings.",
                                   systemImage: "slider.horizontal.3")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }

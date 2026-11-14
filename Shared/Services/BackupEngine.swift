@@ -99,6 +99,8 @@ final class NetworkStatus: @unchecked Sendable {
     var isOnline: Bool { lock.withLock { path.map { $0.status == .satisfied } ?? true } }
     /// Cellular, personal hotspot or Low Data Mode.
     var isExpensive: Bool { lock.withLock { (path?.isExpensive ?? false) || (path?.isConstrained ?? false) } }
+    /// Low Data Mode only: the person asked iPhone to save data.
+    var isLowDataMode: Bool { lock.withLock { path?.isConstrained ?? false } }
 
     /// Why the network counts as expensive, for the log ("Wi-Fi only" waits while on Wi-Fi need explaining).
     var expenseDetail: String {
@@ -281,9 +283,16 @@ final class BackupEngine: @unchecked Sendable {
         if !env.isConfigured { return .notConfigured }
         if !PhotoLibraryService.hasAccess { return .noPhotoAccess }
         if !NetworkStatus.shared.isOnline { return .offline }
-        if Prefs.wifiOnly && NetworkStatus.shared.isExpensive { return .waitingForWiFi }
+        if networkAllowance() == .nothing { return .waitingForWiFi }
         if Prefs.chargingOnly && !Device.isCharging { return .waitingForPower }
         return nil
+    }
+
+    /// What this connection may send: on mobile data with "Photos on mobile data" on, photos go and videos wait.
+    func networkAllowance() -> NetworkRule.Allowance {
+        let net = NetworkStatus.shared
+        return NetworkRule.allowance(wifiOnly: Prefs.wifiOnly, photosOnMobile: Prefs.photosOnMobile,
+                                     expensive: net.isExpensive, lowDataMode: net.isLowDataMode)
     }
 
     // MARK: - Queue
@@ -545,7 +554,10 @@ final class BackupEngine: @unchecked Sendable {
 
         let onlyChosen = !includeNew && !Prefs.autoBackup
         let runnable = runnableItems(now: Date(), onlyChosen: onlyChosen)
-        let queue = JobQueue(items: shortRun ? UploadOrder.forShortRun(runnable) : runnable)
+        // Videos wait for Wi-Fi when only photos may use mobile data. Same filter as a short run (photos only).
+        let photosOnly = shortRun || networkAllowance() == .photosOnly
+        if photosOnly, !shortRun { appLog("On mobile data: photos only, videos wait for Wi-Fi") }
+        let queue = JobQueue(items: photosOnly ? UploadOrder.forShortRun(runnable) : runnable)
         let total = await queue.count
         await publish { a in
             a.done = 0
@@ -578,6 +590,12 @@ final class BackupEngine: @unchecked Sendable {
                             if await queue.drain() { appLog("Backup stopped: \(reason.localizedDescription) (for over 2 minutes)") }
                             break
                         }
+                        // Left Wi-Fi for mobile data during the run: the video stays queued for later.
+                        if item.kind == .video, networkAllowance() == .photosOnly {
+                            let done = await counter.record(.skipped)
+                            await publish { $0.done = done }
+                            continue
+                        }
                         await waitForFloodPause(isCancelled: isCancelled)
                         // The check at the top of the loop stops the run and logs why.
                         guard await acquireLaneSlot(isCancelled: isCancelled) else { continue }
@@ -603,7 +621,8 @@ final class BackupEngine: @unchecked Sendable {
         gate.withLock { laneTask = lanes }
         if isPauseRequested { lanes.cancel() }
         await lanes.value
-        if !shortRun, !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
+        // Finishing earlier backups and making video copies can be large: Wi-Fi (or Wi-Fi only off) only.
+        if !shortRun, networkAllowance() == .everything, !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
             await completeEarlierBackups(deadline: deadline, isCancelled: isCancelled)
             await makeEarlierScreenCopies(deadline: deadline, isCancelled: isCancelled)
             await waitForFloodPause(isCancelled: isCancelled)
@@ -1277,7 +1296,7 @@ final class BackupEngine: @unchecked Sendable {
         var completed = 0
         for item in candidates {
             if isCancelled() || deadline.map({ Date() > $0 }) == true { break }
-            if await blocker() != nil { break }
+            if await blocker() != nil || networkAllowance() != .everything { break }
             guard let id = item.localIdentifier, let asset = assets[id] else {
                 _ = try? env.store.update(id: item.id) { $0.extrasChecked = true }
                 continue
@@ -1346,7 +1365,7 @@ final class BackupEngine: @unchecked Sendable {
         var made = 0
         for item in candidates where made < limit {
             if isCancelled() || deadline.map({ Date() > $0 }) == true { break }
-            if await blocker() != nil { break }
+            if await blocker() != nil || networkAllowance() != .everything { break }
             await waitForFloodPause(isCancelled: isCancelled)
             var exported: URL?
             defer { if let exported { try? FileManager.default.removeItem(at: exported) } }

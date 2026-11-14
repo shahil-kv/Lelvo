@@ -130,7 +130,7 @@ struct SettingsView: View {
 
     private var backupSummary: String {
         var parts: [String] = [Prefs.MediaFilter(rawValue: mediaFilter)?.title ?? "Photos and videos"]
-        if wifiOnly { parts.append("Wi-Fi") }
+        if wifiOnly { parts.append(Prefs.photosOnMobile ? "videos on Wi-Fi" : "Wi-Fi") }
         if chargingOnly { parts.append("charging") }
         return parts.joined(separator: ", ")
     }
@@ -669,6 +669,7 @@ private struct FolderPicker: UIViewControllerRepresentable {
 /// What gets backed up, and when (moved off the main Settings page).
 struct BackupOptionsView: View {
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
+    @AppStorage(Prefs.Key.photosOnMobile) private var photosOnMobile = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.mediaFilter) private var mediaFilter = Prefs.MediaFilter.all.rawValue
     @AppStorage(Prefs.Key.includeScreenshots) private var includeScreenshots = true
@@ -685,9 +686,12 @@ struct BackupOptionsView: View {
             #endif
             Section {
                 Toggle("Wi-Fi only", isOn: $wifiOnly)
+                if wifiOnly { Toggle("Photos on mobile data", isOn: $photosOnMobile) }
                 Toggle("Only while charging", isOn: $chargingOnly)
             } header: { Text("When to upload") } footer: {
-                Text("Wi-Fi only also waits on personal hotspots and Low Data Mode.")
+                Text(wifiOnly && photosOnMobile
+                     ? "Photos also go up on mobile data, a few MB each. Videos wait for Wi-Fi. Nothing uploads in Low Data Mode."
+                     : wifiOnly ? "Photos and videos wait for Wi-Fi. Nothing uploads in Low Data Mode." : "Photos and videos go up on Wi-Fi and mobile data.")
             }
 
             Section {
