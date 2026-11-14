@@ -7,6 +7,7 @@ run-name: "android ${{ github.event_name == 'push' && 'beta (automatic)' || inpu
 #   version      = versionName in android/app/build.gradle.kts (0.1.0), or the one typed in
 #   beta version = <version>-beta.<run number>, published as a pre-release
 #   tag          = android-v<version> (with the beta suffix for betas)
+#   front page   = stays on v<version> from the Apple release. This APK is added there, and is not marked Latest.
 #   versionCode  = run number + 1 (always increases, so each APK installs over the last)
 # Secrets: ANDROID_KEYSTORE_B64 (base64 .jks), ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD,
 # TD_API_ID and TD_API_HASH. Without the key the run fails rather than publish an APK that can't be updated.
@@ -104,6 +105,24 @@ jobs:
           PRE=""; [ "${{ steps.meta.outputs.prerelease }}" = true ] && PRE="--prerelease"
           LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[].tagName | select(startswith("android-v"))][0] // empty')
           START=""; [ -n "$LAST" ] && START="--notes-start-tag $LAST"
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" $PRE $START \
+          # --latest=false: the repository front page stays on the combined v<version> release.
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" $PRE $START --latest=false \
             --title "Lelvo for Android $VERSION" --generate-notes \
             --notes "Signed APK for Android 10 or later. Download, open, and allow installing from this source. Beta: backs up only to a library named \"Android Test\"; other libraries can be viewed."
+
+      - name: Add the APK to the front-page release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          FRONT=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 --json tagName,isPrerelease \
+            --jq '[.[] | select(.isPrerelease==false and (.tagName|test("^v[0-9]")))][0].tagName // empty')
+          [ -n "$FRONT" ] || { echo "No front-page release yet."; exit 0; }
+          gh release view "$FRONT" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name | select(endswith(".apk"))' \
+            | while read -r old; do
+              [ -n "$old" ] || continue
+              gh release delete-asset "$FRONT" "$old" --repo "$GITHUB_REPOSITORY" --yes
+            done
+          gh release upload "$FRONT" "dist/Lelvo-$VERSION.apk" --repo "$GITHUB_REPOSITORY" --clobber

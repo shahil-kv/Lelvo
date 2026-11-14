@@ -6,6 +6,7 @@ run-name: "${{ inputs.app }} ${{ inputs.version }} (${{ inputs.channel }}) #${{ 
 #   build number   = this workflow's run number (always increases, never collides)
 #   beta version   = <version>-beta.<run number>, published as a pre-release
 #   tag            = ios-v<version> / macos-v<version> (with the beta suffix for betas)
+#   front page     = v<version>, the release the repository shows, with the installers people download
 #   release notes  = merged pull requests since the last release, grouped by label (.github/release.yml)
 on:
   workflow_dispatch:
@@ -93,6 +94,11 @@ jobs:
           rm -rf build/Payload && mkdir -p build/Payload && cp -R "$APP" build/Payload/
           (cd build && zip -qry Lelvo.ipa Payload)
           shasum -a 256 build/Lelvo.ipa | tee build/Lelvo.ipa.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lelvo-ios
+          path: build/Lelvo.ipa
+          if-no-files-found: error
       - name: Upload to TestFlight
         if: inputs.testflight && env.ASC_KEY_ID != '' && env.APPLE_TEAM_ID != ''
         run: |
@@ -229,6 +235,13 @@ jobs:
             spctl -a -vv -t open --context context:primary-signature build/Lelvo.dmg
           fi
           shasum -a 256 build/Lelvo.dmg | tee build/Lelvo.dmg.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lelvo-mac
+          path: |
+            build/Lelvo.dmg
+            build/Lelvo-mac.zip
+          if-no-files-found: error
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -250,3 +263,117 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/devid.p12"
+
+  # The repository front page only lists a release that is not a pre-release. The per-app tags stay
+  # pre-releases so automatic betas can still find the last ios-v / macos-v tag. This job is the one
+  # people download. A beta fills that spot until the first stable vX.Y.Z; after that, betas stay
+  # pre-releases and the stable page stays Latest.
+  showcase:
+    needs: [plan, ios, macos]
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      (needs.ios.result == 'success' || needs.macos.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          pattern: lelvo-*
+          if-no-files-found: ignore
+      - name: Publish the repository release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          PRE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p out
+          # This run's own files keep this run's version, even if a newer release lands while we publish.
+          BUILT_IOS=false
+          BUILT_MAC=false
+          [ -d dist/lelvo-ios ] && BUILT_IOS=true
+          [ -d dist/lelvo-mac ] && BUILT_MAC=true
+          cp dist/lelvo-ios/* out/ 2>/dev/null || true
+          cp dist/lelvo-mac/* out/ 2>/dev/null || true
+          latest_tag() {
+            gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName \
+              --jq "[.[].tagName | select(startswith(\"$1\"))][0] // empty"
+          }
+          IOS_TAG=$(latest_tag ios-v)
+          MAC_TAG=$(latest_tag macos-v)
+          AND_TAG=$(latest_tag android-v)
+          # A run that built only one app still shows the other app's newest installer.
+          if [ ! -f out/Lelvo.ipa ] && [ -n "$IOS_TAG" ]; then
+            gh release download "$IOS_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'Lelvo.ipa' --dir out
+          fi
+          if [ ! -f out/Lelvo.dmg ] && [ -n "$MAC_TAG" ]; then
+            gh release download "$MAC_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'Lelvo.dmg' --pattern 'Lelvo-mac.zip' --dir out
+          fi
+          if [ -n "$AND_TAG" ]; then
+            gh release download "$AND_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir out
+          fi
+          FILES=()
+          for f in out/Lelvo.ipa out/Lelvo.dmg out/Lelvo-mac.zip out/*.apk; do
+            [ -f "$f" ] && FILES+=("$f")
+          done
+          [ ${#FILES[@]} -gt 0 ] || { echo "::error::No installers to publish."; exit 1; }
+          TAG="v$VERSION"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$TAG already exists."; exit 1
+          fi
+          OPEN="macOS 15 or later."
+          if [ -n "$MAC_TAG" ]; then
+            MAC_BODY=$(gh release view "$MAC_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+            if [[ "$MAC_BODY" == *"isn't notarized"* ]]; then
+              OPEN="This build isn't notarized: the first time, macOS blocks it. System Settings → Privacy & Security → Open Anyway."
+            else
+              OPEN="Signed and notarized by Apple, so it opens like any other app. macOS 15 or later."
+            fi
+          fi
+          {
+            echo "Download the current builds from this page."
+            echo
+            if [ -f out/Lelvo.ipa ] && { [ "$BUILT_IOS" = true ] || [ -n "$IOS_TAG" ]; }; then
+              if [ "$BUILT_IOS" = true ]; then IOS_VER=$VERSION; else IOS_VER=${IOS_TAG#ios-v}; fi
+              echo "iPhone $IOS_VER: Lelvo.ipa. Unsigned, for sideloading (README → Install). iOS 17 or later."
+              echo
+            fi
+            if [ -f out/Lelvo.dmg ] && { [ "$BUILT_MAC" = true ] || [ -n "$MAC_TAG" ]; }; then
+              if [ "$BUILT_MAC" = true ]; then MAC_VER=$VERSION; else MAC_VER=${MAC_TAG#macos-v}; fi
+              echo "Mac $MAC_VER: open Lelvo.dmg and drag Lelvo to Applications, or unzip Lelvo-mac.zip. $OPEN"
+              echo
+            fi
+            if [ -n "$AND_TAG" ]; then
+              APK_NAME=$(basename out/*.apk)
+              AND_VER=${AND_TAG#android-v}
+              LINE="Android $AND_VER: $APK_NAME. Android 10 or later."
+              if [[ "$AND_VER" == *beta* ]]; then
+                LINE="$LINE This beta only backs up a library named \"Android Test\". Other libraries can be viewed."
+              fi
+              echo "$LINE"
+              echo
+            fi
+            echo "Checksums are on each app's own release."
+          } > "$RUNNER_TEMP/notes.txt"
+          LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName \
+            --jq '[.[].tagName | select(test("^v[0-9]"))][0] // empty')
+          FLAGS=(--target "$GITHUB_SHA" --title "Lelvo $VERSION" --generate-notes --notes "$(cat "$RUNNER_TEMP/notes.txt")")
+          [ -n "$LAST" ] && FLAGS+=(--notes-start-tag "$LAST")
+          if [ "$PRE" = true ]; then
+            HAS_STABLE=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease \
+              --jq '[.[] | select(.isPrerelease==false) | .tagName | select(test("^v[0-9]+\.[0-9]+\.[0-9]+$"))] | length')
+            if [ "$HAS_STABLE" != "0" ]; then
+              FLAGS+=(--prerelease)
+            else
+              # Two releases can finish out of order. The older one must not take the front page.
+              MAX=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease \
+                --jq '[.[] | select(.isPrerelease==false) | .tagName | capture("-beta\.(?<n>[0-9]+)$") | .n | tonumber] | max // 0')
+              OUR=${VERSION##*.}
+              if [ "$OUR" -ge "$MAX" ]; then FLAGS+=(--latest); else FLAGS+=(--latest=false); fi
+            fi
+          else
+            FLAGS+=(--latest)
+          fi
+          gh release create "$TAG" "${FILES[@]}" --repo "$GITHUB_REPOSITORY" "${FLAGS[@]}"
+          echo "Front page: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
