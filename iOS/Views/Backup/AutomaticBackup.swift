@@ -225,7 +225,7 @@ struct AutomationSetupView: View {
         "Open **Shortcuts**, tap **Automation**, then **+** (or **New Automation**).",
         "Scroll down and tap **App**.",
         "Choose **Camera**, tick **Is Closed** and **Run Immediately**, then tap **Next**.",
-        "Search for **Lelvo**, tap **Back Up New Photos**, then tap **Done**."
+        "Search for **Lelvo** and tap **Back Up New Photos**. Turn off **Show When Run**, then tap **Done**."
     ]
 
     var body: some View {
@@ -323,7 +323,8 @@ private struct ShortcutsMock: View {
                 Text("Do").font(.title2.bold())
                 row(("magnifyingglass", .gray), "Lelvo")
                 row(("icloud.and.arrow.up.fill", .accentColor), "Back Up New Photos", ring: 0.6)
-                row(("checkmark.icloud.fill", .accentColor), "Backup Status").opacity(0.5)
+                // On by default, it shows a box every time Camera closes.
+                row(nil, "Show When Run", switchOff: true, ring: 1.6)
             }
             Spacer(minLength: 0)
         }
@@ -334,7 +335,7 @@ private struct ShortcutsMock: View {
     }
 
     private func row(_ icon: (String, Color)?, _ title: String, trailing: String? = nil, check: Bool? = nil,
-                     ring: Double? = nil) -> some View {
+                     switchOff: Bool = false, ring: Double? = nil) -> some View {
         HStack(spacing: 10) {
             if let icon {
                 Image(systemName: icon.0).font(.caption.weight(.semibold)).foregroundStyle(.white)
@@ -347,6 +348,10 @@ private struct ShortcutsMock: View {
                 Image(systemName: check ? "checkmark" : "circle")
                     .foregroundStyle(check ? Color.accentColor : Color(.tertiaryLabel))
                     .fontWeight(.semibold)
+            }
+            if switchOff {
+                Capsule().fill(Color(.systemFill)).frame(width: 40, height: 24)
+                    .overlay(alignment: .leading) { Circle().fill(.white).padding(2).shadow(radius: 1) }
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 9)

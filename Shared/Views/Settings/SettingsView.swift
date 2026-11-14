@@ -67,10 +67,6 @@ struct SettingsView: View {
                     NavigationLink("Memories") { MemoriesSettingsView() }
                 }
 
-                #if DEBUG && os(iOS)
-                Section { NavigationLink("Background lab") { BackgroundLabView() } }
-                #endif
-
                 Section {
                     NavigationLink { StorageSettingsView() } label: {
                         LabeledContent("Storage", value: usage.map { Format.bytes($0.thumbnails + $0.originals + $0.telegram) } ?? "…")
@@ -241,6 +237,10 @@ struct AboutView: View {
                 LabeledContent("Version", value: Bundle.main.displayVersion)
                 Text("Lelvo backs up your photos to a private channel in your own Telegram account. No servers, no analytics, no ads.")
             }
+            #if DEBUG && os(iOS)
+            // Developer builds only, kept out of the main Settings list.
+            Section("Developer") { NavigationLink("Background lab") { BackgroundLabView() } }
+            #endif
             Section {
                 Link(destination: AppLinks.faq) { Label("Questions and answers", systemImage: "questionmark.circle") }
                 Link(destination: AppLinks.community) { Label("Lelvo group on Telegram", systemImage: "bubble.left.and.bubble.right") }
