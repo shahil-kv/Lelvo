@@ -12,13 +12,13 @@ struct BackUpNewPhotosIntent: AppIntent {
         let env = AppEnvironment.shared
         let started = Date()
         // Runs every time Camera closes, so it has to cost almost nothing when there is nothing to send: Photos' change
-        // history instead of the whole library, and big videos don't count (a short run skips them; overnight sends them).
+        // history instead of the whole library, and videos don't count (a short run skips them; overnight sends them).
         env.engine.queueNewPhotos()
         if env.engine.readyCount(shortRun: true) == 0 {
             recordRun(.shortcut, started: started, summary: BackupEngine.Summary())
             let text = env.engine.readyCount() == 0
                 ? "Everything is backed up."
-                : "New photos are backed up. Big videos go up when you open Lelvo or overnight."
+                : "New photos are backed up. Videos go up when you open Lelvo or overnight."
             return .result(value: text, dialog: IntentDialog(stringLiteral: text))
         }
         env.td.start()

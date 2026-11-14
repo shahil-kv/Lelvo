@@ -12,10 +12,11 @@ public enum UploadOrder {
         }
     }
 
-    /// A background run has about 25 seconds. Photos and small videos only: a big video can't finish, and a half-sent
-    /// one only wastes the time. A video of unknown size (0) counts as big. Ente does the same (photos only).
-    public static func forShortRun(_ items: [MediaItem], maxBytes: Int64 = 50 * 1_048_576) -> [MediaItem] {
-        sorted(items).filter { $0.kind != .video || ($0.fileSize > 0 && $0.fileSize <= maxBytes) }
+    /// A background run has about 25 seconds. Photos only, like Ente: on the iPhone a 12 MB video took 26 s on an
+    /// account Telegram slows down (no Premium), so even small videos ran past the time iOS gives. They go up when
+    /// Lelvo is open or overnight.
+    public static func forShortRun(_ items: [MediaItem]) -> [MediaItem] {
+        sorted(items).filter { $0.kind != .video }
     }
 
     private static func group(_ item: MediaItem) -> Int {

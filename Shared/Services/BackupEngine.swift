@@ -565,14 +565,17 @@ final class BackupEngine: @unchecked Sendable {
         }
         appLog("Backup run: \(total) items queued")
 
+        // A short run stops starting uploads 8 s early: one already sent keeps going until Telegram confirms it, and iOS
+        // ends the run soon after the deadline. Seen on the iPhone: a run meant for 25 s lasted 54 s.
+        let startBy = shortRun ? deadline?.addingTimeInterval(-8) : deadline
         let counter = Counter()
         let lanes = Task { await withTaskGroup(of: Void.self) { group in
             for lane in 0..<Self.maxConcurrentUploads {
                 group.addTask { [self] in
                     while let item = await queue.next() {
-                        if isCancelled() || deadline.map({ Date() > $0 }) == true {
+                        if isCancelled() || startBy.map({ Date() > $0 }) == true {
                             if await queue.drain() {
-                                appLog("Backup stopped: \(isPauseRequested ? "paused" : (deadline.map { Date() > $0 } == true ? "out of time for this run" : "ended by iOS"))")
+                                appLog("Backup stopped: \(isPauseRequested ? "paused" : (startBy.map { Date() > $0 } == true ? "out of time for this run" : "ended by iOS"))")
                             }
                             break
                         }
