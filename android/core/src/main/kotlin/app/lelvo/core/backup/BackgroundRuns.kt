@@ -29,6 +29,15 @@ data class RunRecord(
     val stop: String? = null,
 )
 
+/** What the automatic upload job may ask WorkManager for. Built in core so a bad mix is caught without a device. */
+data class AutoRunPlan(
+    val expedited: Boolean,
+    val delayMs: Long,
+    val unmetered: Boolean,
+    val batteryNotLow: Boolean,
+    val requiresCharging: Boolean,
+)
+
 /** Why background backup cannot run on this phone. First match wins. Phase 6 shows one card. */
 enum class BackgroundIssue { PartialPhotoAccess, BackgroundRestricted, BatteryOptimized, RareBucket, ForceStopped, None }
 
@@ -63,6 +72,22 @@ object BackgroundRuns {
 
     /** A user run has no deadline. A background run stops taking new items once [now] reaches it. */
     fun mayTakeNextItem(deadline: Long?, now: Long): Boolean = deadline == null || now < deadline
+
+    /**
+     * The automatic upload request. Expedited work accepts only network and storage constraints;
+     * battery-not-low or charging makes WorkManager's `build()` throw. A run that must wait for
+     * the charger is delayed instead, so it can keep those constraints.
+     */
+    fun autoRunPlan(wifiOnly: Boolean, chargingOnly: Boolean, delayMs: Long): AutoRunPlan {
+        val expedited = delayMs == 0L && !chargingOnly
+        return AutoRunPlan(
+            expedited = expedited,
+            delayMs = if (expedited) 0L else delayMs,
+            unmetered = wifiOnly,
+            batteryNotLow = !expedited,
+            requiresCharging = chargingOnly,
+        )
+    }
 
     /**
      * Phase 3's empty-run counter. A saved part counts as progress: a large video takes several

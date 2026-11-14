@@ -120,4 +120,26 @@ class BackgroundRunsTest {
         assertEquals(BackgroundIssue.RareBucket, issue(bucket = BackgroundRuns.STANDBY_RARE, optimized = true, waiting = 5, last = now - 2 * day))
         assertEquals(BackgroundIssue.None, issue(bucket = BackgroundRuns.STANDBY_RARE, waiting = 0))
     }
+
+    @Test fun immediateRunIsExpeditedWithoutBatteryConstraints() {
+        val plan = BackgroundRuns.autoRunPlan(wifiOnly = true, chargingOnly = false, delayMs = 0)
+        assertTrue(plan.expedited)
+        assertEquals(0L, plan.delayMs)
+        assertTrue(plan.unmetered)
+        assertFalse(plan.batteryNotLow)
+        assertFalse(plan.requiresCharging)
+    }
+
+    @Test fun aDelayedOrChargingRunKeepsBatteryConstraints() {
+        val delayed = BackgroundRuns.autoRunPlan(wifiOnly = false, chargingOnly = false, delayMs = 15 * 60_000L)
+        assertFalse(delayed.expedited)
+        assertTrue(delayed.batteryNotLow)
+        assertFalse(delayed.requiresCharging)
+        assertEquals(15 * 60_000L, delayed.delayMs)
+
+        val charging = BackgroundRuns.autoRunPlan(wifiOnly = true, chargingOnly = true, delayMs = 0)
+        assertFalse(charging.expedited)
+        assertTrue(charging.batteryNotLow)
+        assertTrue(charging.requiresCharging)
+    }
 }

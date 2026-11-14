@@ -40,9 +40,10 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             ran = true
             when (kind) {
                 BackupScheduler.USER -> summary = userRun()
-                BackupScheduler.NEW_PHOTOS -> {
+                BackupScheduler.NEW_PHOTOS -> newPhotos()
+                BackupScheduler.AUTO_RUN -> {
                     summary = app.backup.run(userStarted = false, includeNew = false)
-                    AppLog.info("New photos backup: ${summary.text}")
+                    AppLog.info("Automatic backup: ${summary.text}")
                 }
                 BackupScheduler.OVERNIGHT -> {
                     summary = app.backup.run(userStarted = false, includeNew = false)
@@ -62,11 +63,6 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 if (isStopped) " (WorkManager stop reason $stopReason)" else ""))
         } finally {
             if (ran) record(started, summary, cancelled != null)
-            // A content trigger fires once: wait for the next photos (queued behind this run, never cancelling it).
-            // Phase 2 moves this to the start of the listener. Until then it stays here.
-            if (kind == BackupScheduler.NEW_PHOTOS && app.prefs.autoBackup) {
-                BackupScheduler.armNewPhotos(applicationContext, app.prefs, ExistingWorkPolicy.APPEND_OR_REPLACE)
-            }
         }
         cancelled?.let { if (isStopped) throw it }
         return result
@@ -99,8 +95,23 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     private fun sourceOf(kind: String): RunSource = when (kind) {
         BackupScheduler.USER -> RunSource.User
         BackupScheduler.NEW_PHOTOS -> RunSource.NewPhotos
+        BackupScheduler.AUTO_RUN -> RunSource.AutoRun
         BackupScheduler.OVERNIGHT -> RunSource.Overnight
         else -> RunSource.Refresh
+    }
+
+    /**
+     * The content trigger is only a signal. Arm the next one first (this one already fired), then queue photos
+     * even when the URI list is empty. The upload is a separate job, so Wi-Fi only and charging only never
+     * hold the trigger.
+     */
+    private suspend fun newPhotos() {
+        BackupScheduler.armNewPhotos(applicationContext, app.prefs, ExistingWorkPolicy.APPEND_OR_REPLACE)
+        if (!app.prefs.autoBackup || app.prefs.backupPaused) return
+        val queued = app.backup.enqueueNew()
+        val waiting = app.backup.readyCount()
+        AppLog.info("Looked for new photos: $queued queued, $waiting waiting")
+        if (waiting > 0) BackupScheduler.startAutoRun(applicationContext, app.prefs, delayMs = 0)
     }
 
     /** Signed in, Telegram connected (up to 25 s after a cold start, like iOS `waitUntilReady`), and a library unlocked. */

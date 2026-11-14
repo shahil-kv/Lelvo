@@ -232,6 +232,12 @@ class BackupEngine(
     private fun isScreenshot(f: PhoneFile) =
         f.bucketName.equals("Screenshots", ignoreCase = true) || f.relativePath?.contains("Screenshots", ignoreCase = true) == true
 
+    /** Queued items an automatic run would upload, including ones left "uploading" by a killed process. */
+    suspend fun readyCount(): Int = withContext(Dispatchers.IO) {
+        val items = store.items(ItemStatus.Queued) + store.items(ItemStatus.Uploading)
+        runnable(System.currentTimeMillis(), onlyChosen = !prefs.autoBackup, items).size
+    }
+
     /** Adds phone photos the selection covers and the index doesn't know as queued items. */
     suspend fun enqueueNew(): Int {
         val known = store.knownLocalIds() + store.offBackupLocalIds()

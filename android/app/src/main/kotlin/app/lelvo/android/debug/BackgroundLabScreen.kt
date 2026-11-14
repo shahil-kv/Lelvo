@@ -56,7 +56,7 @@ fun BackgroundLabScreen(app: LelvoApp, onClose: () -> Unit) {
     LaunchedEffect(tick) {
         jobs = withContext(Dispatchers.IO) {
             val wm = WorkManager.getInstance(context)
-            listOf(BackupScheduler.USER, BackupScheduler.NEW_PHOTOS, BackupScheduler.OVERNIGHT, BackupScheduler.REFRESH).map { name ->
+            listOf(BackupScheduler.USER, BackupScheduler.NEW_PHOTOS, BackupScheduler.AUTO_RUN, BackupScheduler.OVERNIGHT, BackupScheduler.REFRESH).map { name ->
                 val info = wm.getWorkInfosForUniqueWork(name).get().firstOrNull { !it.state.isFinished }
                 val whenNext = info?.nextScheduleTimeMillis?.takeIf { it > 0 }?.let { DateUtils.getRelativeTimeSpanString(it) }
                 "$name  ${info?.state ?: "none"}${whenNext?.let { "  next $it" } ?: ""}"
@@ -85,6 +85,7 @@ fun BackgroundLabScreen(app: LelvoApp, onClose: () -> Unit) {
             Text("Telegram wait until: ${app.prefs.floodUntil.takeIf { it > 0 } ?: "none"}")
             listOf(
                 "Run new-photos job now" to BackupScheduler.NEW_PHOTOS,
+                "Run automatic run now" to BackupScheduler.AUTO_RUN,
                 "Run overnight now" to BackupScheduler.OVERNIGHT,
                 "Run refresh now" to BackupScheduler.REFRESH,
             ).forEach { (label, kind) ->
