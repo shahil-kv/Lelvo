@@ -2,6 +2,8 @@ package app.lelvo.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import app.lelvo.core.backup.BackgroundRuns
+import app.lelvo.core.backup.RunRecord
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -66,6 +68,20 @@ class Prefs(context: Context) {
     var lastBackupAt: Long?
         get() = p.getLong("lastBackupAt", 0).takeIf { it > 0 }
         set(v) = p.edit().apply { if (v == null) remove("lastBackupAt") else putLong("lastBackupAt", v) }.apply()
+
+    /** Telegram's FLOOD_WAIT, epoch ms. Written so a new process does not send before the wait is over. */
+    var floodUntil: Long
+        get() = p.getLong("floodUntil", 0)
+        set(v) = p.edit().putLong("floodUntil", v).apply()
+
+    /** The newest backup runs, counts only. Not library data, so it stays out of the index. */
+    var runRecords: List<RunRecord>
+        get() = BackgroundRuns.decode(p.getString("runRecords", null))
+        set(v) = p.edit().putString("runRecords", BackgroundRuns.encode(v)).apply()
+
+    fun record(r: RunRecord) {
+        runRecords = BackgroundRuns.appending(r, runRecords)
+    }
 
     /** Settings → Storage limits in MB, iOS keys and defaults. */
     var cacheCapMB: Int

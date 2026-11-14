@@ -58,13 +58,13 @@ private const val MAX_TTL_DAYS = 730
 @Composable
 fun SettingsScreen(
     app: LelvoApp, real: Boolean, info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit,
-    onCoreCheck: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
+    onCoreCheck: (() -> Unit)?, onBackgroundLab: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
 ) {
     var pages by remember { mutableStateOf(emptyList<Page>()) }
     val open = { p: Page -> pages = pages + p }
     val back = { pages = pages.dropLast(1) }
 
-    Main(app, real, info, onClose, onSignOut, onCoreCheck, onLibrary, onBackupRulesChanged, open, visible = pages.isEmpty())
+    Main(app, real, info, onClose, onSignOut, onCoreCheck, onBackgroundLab, onLibrary, onBackupRulesChanged, open, visible = pages.isEmpty())
     pages.forEachIndexed { i, page ->
         // Each page stays composed under the next, so Back returns to the same place.
         key(i, page) {
@@ -89,7 +89,7 @@ fun SettingsScreen(
 @Composable
 private fun Main(
     app: LelvoApp, real: Boolean, info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit,
-    onCoreCheck: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
+    onCoreCheck: (() -> Unit)?, onBackgroundLab: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
     open: (Page) -> Unit, visible: Boolean,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -148,6 +148,7 @@ private fun Main(
             SectionDivider()
             SectionHeader("Developer")
             SettingRow("Core check", "Proves Android reads your library like the iPhone", onClick = onCoreCheck)
+            if (onBackgroundLab != null) SettingRow("Background lab", "Run each backup job and see why it stopped", onClick = onBackgroundLab)
         }
 
         SectionDivider()

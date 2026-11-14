@@ -7,6 +7,8 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import app.lelvo.android.LelvoApp
+import app.lelvo.core.backup.RunRecord
+import app.lelvo.core.backup.RunSource
 import app.lelvo.core.support.AppLog
 import app.lelvo.data.backup.BackupEngine
 import app.lelvo.telegram.AuthStep
@@ -24,21 +26,27 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
     override suspend fun doWork(): Result {
         val started = System.currentTimeMillis()
+        var summary: BackupEngine.Summary? = null
+        var cancelled: CancellationException? = null
+        var ran = false
+        var result = Result.success()
         try {
             if (app.demo.active.value) return Result.success()
             if (!ready()) {
                 AppLog.info("Background $kind: Telegram or the library isn't ready; trying later")
-                return if (kind == BackupScheduler.USER) Result.success() else Result.retry()
+                result = if (kind == BackupScheduler.USER) Result.success() else Result.retry()
+                return result
             }
+            ran = true
             when (kind) {
-                BackupScheduler.USER -> userRun()
+                BackupScheduler.USER -> summary = userRun()
                 BackupScheduler.NEW_PHOTOS -> {
-                    val s = app.backup.run(userStarted = false, includeNew = false)
-                    AppLog.info("New photos backup: ${s.text}")
+                    summary = app.backup.run(userStarted = false, includeNew = false)
+                    AppLog.info("New photos backup: ${summary.text}")
                 }
                 BackupScheduler.OVERNIGHT -> {
-                    val s = app.backup.run(userStarted = false, includeNew = false)
-                    AppLog.info("Overnight backup: ${s.text}")
+                    summary = app.backup.run(userStarted = false, includeNew = false)
+                    AppLog.info("Overnight backup: ${summary.text}")
                     // Then, still on the charger, read new photos for search.
                     if (!isStopped) runCatching { app.search.index() }.onFailure { if (it is CancellationException) throw it }
                 }
@@ -48,17 +56,51 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 }
             }
         } catch (e: CancellationException) {
+            cancelled = e
             // Stopped by Android (its time limit, a constraint lost) or paused: the queue keeps what's left.
             AppLog.info(String.format("Background %s stopped after %.0f s%s", kind, (System.currentTimeMillis() - started) / 1000.0,
                 if (isStopped) " (WorkManager stop reason $stopReason)" else ""))
-            if (isStopped) throw e
         } finally {
+            if (ran) record(started, summary, cancelled != null)
             // A content trigger fires once: wait for the next photos (queued behind this run, never cancelling it).
+            // Phase 2 moves this to the start of the listener. Until then it stays here.
             if (kind == BackupScheduler.NEW_PHOTOS && app.prefs.autoBackup) {
                 BackupScheduler.armNewPhotos(applicationContext, app.prefs, ExistingWorkPolicy.APPEND_OR_REPLACE)
             }
         }
-        return Result.success()
+        cancelled?.let { if (isStopped) throw it }
+        return result
+    }
+
+    /** One line in the log and one record, so a phone can be checked without reading a whole log. */
+    private fun record(started: Long, summary: BackupEngine.Summary?, cancelled: Boolean) {
+        val seconds = (System.currentTimeMillis() - started) / 1000.0
+        val stop = when {
+            isStopped -> "stopped by Android (reason $stopReason)"
+            summary?.stoppedByTime == true -> "out of time"
+            summary?.blockedByRule == true && summary.error?.startsWith("Paused") == true -> "paused"
+            summary?.error != null -> summary.error
+            cancelled && summary == null -> "paused"
+            else -> "finished"
+        }
+        val record = RunRecord(
+            source = sourceOf(kind),
+            startedAt = started,
+            seconds = seconds,
+            uploaded = summary?.uploaded ?: 0,
+            remaining = summary?.remaining ?: 0,
+            stop = stop,
+        )
+        app.prefs.record(record)
+        AppLog.info(String.format("Run (%s): %.0f s, uploaded %d, %,d waiting, %s",
+            record.source, record.seconds, record.uploaded, record.remaining, record.stop ?: "finished"))
+    }
+
+    private fun sourceOf(kind: String): RunSource = when (kind) {
+        BackupScheduler.USER -> RunSource.User
+        BackupScheduler.NEW_PHOTOS -> RunSource.NewPhotos
+        BackupScheduler.OVERNIGHT -> RunSource.Overnight
+        else -> RunSource.Refresh
     }
 
     /** Signed in, Telegram connected (up to 25 s after a cold start, like iOS `waitUntilReady`), and a library unlocked. */
@@ -68,7 +110,7 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         return withTimeoutOrNull(25_000) { app.telegram.auth.first { it == AuthStep.Ready } } != null
     }
 
-    private suspend fun userRun() = coroutineScope {
+    private suspend fun userRun(): BackupEngine.Summary = coroutineScope {
         val includeNew = inputData.getBoolean(INCLUDE_NEW, false)
         val notes = BackupNotifications(applicationContext)
         // Long runs keep going with Lelvo in the background. Android refuses a foreground service started while the
@@ -102,6 +144,7 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         }
         // Lelvo on screen shows the summary itself; otherwise say how it went, as iOS's system task does.
         if (!app.isOnScreen && summary.error != BackupEngine.StopReason.AlreadyRunning.text) notes.finished(summary)
+        summary
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo =
