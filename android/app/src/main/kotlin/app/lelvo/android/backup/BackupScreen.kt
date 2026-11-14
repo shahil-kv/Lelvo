@@ -1,5 +1,6 @@
 package app.lelvo.android.backup
 
+import app.lelvo.android.background.BackupScheduler
 import app.lelvo.android.timeline.throttled
 
 import android.text.format.DateUtils
@@ -20,7 +21,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.Surface
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -150,6 +153,7 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
         onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
     val access = remember(stats) { app.photos.status() }
+    var offerAuto by remember { mutableStateOf(!isDemo && !app.prefs.autoBackup && !app.prefs.autoBackupAsked) }
 
     // The App Review demo "uploads" its sample items with real progress and no network.
     val shown = demoRun?.takeIf { isDemo }?.let { d ->
@@ -159,6 +163,20 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
     Scaffold(modifier, topBar = { LelvoTopBar("Backup", app.demo, onSettings) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item("header") { StatusHeader(shown, stats, app.prefs.lastBackupAt, photoUri = { app.photos.uris(listOf(it)).firstOrNull() }) }
+            if (offerAuto) item("auto") {
+                AutomaticBackupOffer(onTurnOn = {
+                    app.prefs.autoBackup = true
+                    app.prefs.autoBackupAsked = true
+                    offerAuto = false
+                    BackupScheduler.schedule(app, app.prefs)
+                    askNotifications()
+                    app.startBackup(includeNew = true)
+                    Messages.show(Messages.Style.Success, "Automatic backup is on")
+                }, onNotNow = {
+                    app.prefs.autoBackupAsked = true
+                    offerAuto = false
+                })
+            }
             item("buttons") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (activity.isRunning) {
@@ -439,6 +457,22 @@ private fun FailedScreen(app: LelvoApp, items: List<LibraryItem>, onBack: () -> 
                         }
                     },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutomaticBackupOffer(onTurnOn: () -> Unit, onNotNow: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Back up new photos automatically", style = MaterialTheme.typography.titleMedium)
+                Text("Lelvo can back up new photos soon after you take them.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onTurnOn) { Text("Turn on") }
+                    TextButton(onClick = onNotNow) { Text("Not now") }
+                }
             }
         }
     }

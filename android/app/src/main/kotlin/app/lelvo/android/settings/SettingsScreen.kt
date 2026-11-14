@@ -116,7 +116,7 @@ private fun Main(
             SectionDivider()
             SectionHeader("Backup")
             ToggleRow("Back up new photos automatically",
-                if (auto) "New photos are backed up on their own, including overnight while charging."
+                if (auto) "Lelvo backs up soon after you take photos, and when you open it."
                 else "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.",
                 auto, icon = R.drawable.ic_cloud_upload) { auto = it; app.prefs.autoBackup = it; onBackupRulesChanged(false) }
             SettingRow("Backup options", summary, icon = R.drawable.ic_tune) { open(Page.BackupOptions) }

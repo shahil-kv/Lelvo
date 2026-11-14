@@ -40,6 +40,8 @@ class Prefs(context: Context) {
     var chargingOnly by flag("chargingOnly", false)
     var allowFreeUpSpace by flag("allowFreeUpSpace", false)
     var autoBackup by flag("autoBackup", false)
+    /** The onboarding switch or the Backup tab card has been answered. The card is not shown again. */
+    var autoBackupAsked by flag("autoBackupAsked", false)
     var streamingCopies by flag("streamingCopies", true)
     var keepAwakeDuringBackup by flag("keepAwakeDuringBackup", true)
     var backupPaused by flag("backupPaused", false)
