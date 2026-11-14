@@ -236,14 +236,18 @@ enum AutoStart {
               ContinuedBackup.foregroundTask == nil,
               Date().timeIntervalSince(lastStart) > 5 * 60,
               env.engine.blocker() == nil else { return }
-        lastStart = Date()
         Task.detached(priority: .utility) {
             // Photos' change history: cheap when nothing changed, unlike reading the whole library.
             let fresh = env.engine.queueNewPhotos()
             let waiting = env.engine.readyCount()
+            // Only a real start counts toward the 5 minutes: an open that found nothing used to block the next one, so a
+            // video the Camera shortcut left for later (short runs skip videos) waited for a manual Back up.
             guard waiting > 0 else { appLog("Auto-start on open: nothing new"); return }
             appLog("Auto-start on open: \(fresh) new photos, \(waiting) waiting")
-            await MainActor.run { ContinuedBackup.start(everything: true) }
+            await MainActor.run {
+                lastStart = Date()
+                ContinuedBackup.start(everything: true)
+            }
         }
     }
 }
