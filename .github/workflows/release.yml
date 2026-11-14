@@ -278,12 +278,19 @@ jobs:
           cp dist/lelvo-ios/* out/ 2>/dev/null || true
           cp dist/lelvo-mac/* out/ 2>/dev/null || true
           TAG="v$BASE"
-          # A device this run did not build keeps the file already on this page.
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            [ -f out/Lelvo.ipa ] || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'Lelvo.ipa' --dir out || true
-            [ -f out/Lelvo.dmg ] || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'Lelvo.dmg' --pattern 'Lelvo-mac.zip' --dir out || true
-            compgen -G 'out/*.apk' >/dev/null || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir out || true
-          fi
+          # A device this run did not build keeps its newest file: this version's page, or the
+          # previous version when this number is new. An iPhone and Mac release still shows Android.
+          keep_latest() {
+            local from="$1"
+            [ -n "$from" ] || return 0
+            gh release view "$from" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || return 0
+            [ -f out/Lelvo.ipa ] || gh release download "$from" --repo "$GITHUB_REPOSITORY" --pattern 'Lelvo.ipa' --dir out || true
+            [ -f out/Lelvo.dmg ] || gh release download "$from" --repo "$GITHUB_REPOSITORY" --pattern 'Lelvo.dmg' --pattern 'Lelvo-mac.zip' --dir out || true
+            compgen -G 'out/*.apk' >/dev/null || gh release download "$from" --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir out || true
+          }
+          keep_latest "$TAG"
+          PREV_PAGE=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -v "^$TAG$" | head -1 || true)
+          keep_latest "$PREV_PAGE"
           FILES=()
           for f in out/Lelvo.ipa out/Lelvo.dmg out/Lelvo-mac.zip out/*.apk; do
             [ -f "$f" ] && FILES+=("$f")
