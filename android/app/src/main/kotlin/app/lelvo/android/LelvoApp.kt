@@ -1,6 +1,7 @@
 package app.lelvo.android
 
 import android.app.Application
+import app.lelvo.android.background.AutoStart
 import app.lelvo.android.background.BackupScheduler
 import app.lelvo.android.background.BackupTileService
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -129,7 +130,10 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 // Lelvo comes to the front (iOS scene `.active`): follow the other devices, send what's waiting.
-                if (startedActivities++ == 0 && library.setupFinished) sync.onOpen { linker.relink() }
+                if (startedActivities++ == 0 && library.setupFinished) {
+                    sync.onOpen { linker.relink() }
+                    AutoStart.onForeground(this@LelvoApp)
+                }
             }
             override fun onActivityStopped(activity: android.app.Activity) {
                 startedActivities = maxOf(0, startedActivities - 1)

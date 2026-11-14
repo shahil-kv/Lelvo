@@ -107,7 +107,7 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             else -> "finished"
         }
         val record = RunRecord(
-            source = sourceOf(kind),
+            source = sourceOf(),
             startedAt = started,
             seconds = seconds,
             uploaded = summary?.uploaded ?: 0,
@@ -119,8 +119,8 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             record.source, record.seconds, record.uploaded, record.remaining, record.stop ?: "finished"))
     }
 
-    private fun sourceOf(kind: String): RunSource = when (kind) {
-        BackupScheduler.USER -> RunSource.User
+    private fun sourceOf(): RunSource = when (kind) {
+        BackupScheduler.USER -> if (inputData.getBoolean(FROM_APP, false)) RunSource.App else RunSource.User
         BackupScheduler.NEW_PHOTOS -> RunSource.NewPhotos
         BackupScheduler.AUTO_RUN -> RunSource.AutoRun
         BackupScheduler.SAFETY_NET -> RunSource.SafetyNet
@@ -223,6 +223,8 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     companion object {
         const val KIND = "kind"
         const val INCLUDE_NEW = "includeNew"
+        /** Set when opening Lelvo started the run, so the log says App rather than User. */
+        const val FROM_APP = "fromApp"
         private val HANDOFF = setOf(BackupScheduler.AUTO_RUN, BackupScheduler.SAFETY_NET, BackupScheduler.OVERNIGHT)
     }
 }

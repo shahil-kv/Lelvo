@@ -40,9 +40,13 @@ object BackupScheduler {
     const val REFRESH = "index.refresh"
 
     /** Starts a user run, or queues it right after the one running (chosen photos added meanwhile then go too). */
-    fun startNow(context: Context, includeNew: Boolean) {
+    fun startNow(context: Context, includeNew: Boolean, fromApp: Boolean = false) {
         val request = OneTimeWorkRequestBuilder<BackupWorker>()
-            .setInputData(Data.Builder().putString(BackupWorker.KIND, USER).putBoolean(BackupWorker.INCLUDE_NEW, includeNew).build())
+            .setInputData(Data.Builder()
+                .putString(BackupWorker.KIND, USER)
+                .putBoolean(BackupWorker.INCLUDE_NEW, includeNew)
+                .putBoolean(BackupWorker.FROM_APP, fromApp)
+                .build())
             // Expedited where the quota allows, so it starts at once even in Doze; a normal job otherwise.
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
