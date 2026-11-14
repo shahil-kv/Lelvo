@@ -26,6 +26,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     private val app = context.applicationContext as LelvoApp
     private val kind = params.inputData.getString(KIND) ?: BackupScheduler.REFRESH
+    private var foregroundRefused = false
 
     override suspend fun doWork(): Result {
         val started = System.currentTimeMillis()
@@ -89,6 +90,14 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 record(started, summary, cancelled != null)
                 // Android got there first. Book the next run before this process is torn down. No network.
                 if (!handedOff && isStopped && kind in HANDOFF) bookNextAfterStop()
+                if (kind == BackupScheduler.USER && isStopped &&
+                    (stopReason == WorkInfo.STOP_REASON_FOREGROUND_SERVICE_TIMEOUT || foregroundRefused)
+                ) {
+                    if (stopReason == WorkInfo.STOP_REASON_FOREGROUND_SERVICE_TIMEOUT) {
+                        BackupNotifications(applicationContext).limited()
+                    }
+                    bookNextAfterStop()
+                }
             }
         }
         cancelled?.let { if (isStopped) throw it }
@@ -189,6 +198,7 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             AppLog.warn("Backup runs without its notification (${e.javaClass.simpleName})")
+            foregroundRefused = true
             false
         }
         val ticker = if (foreground) launch {

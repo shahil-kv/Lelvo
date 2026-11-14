@@ -60,6 +60,19 @@ class BackupNotifications(private val context: Context) {
             .build()
     }
 
+    /** Android stopped a long user run. The short background runs carry on. */
+    fun limited() {
+        val text = "Backup paused. Android limits long backups to 6 hours a day. It continues in the background."
+        show(DONE_ID, NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_pause)
+            .setContentTitle("Backup paused")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .setContentIntent(openApp())
+            .build())
+    }
+
     fun finished(s: BackupEngine.Summary) {
         val paused = s.error != null
         show(DONE_ID, NotificationCompat.Builder(context, CHANNEL)
