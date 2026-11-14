@@ -166,24 +166,38 @@ struct AutoBackupIllustration: View {
 
     private func flyingPhoto(t: Double) -> some View {
         // Appear, lift, fly to the cloud while shrinking, fade into it.
+        // The numbers are worked out first. One long chain of modifiers made CI's Swift give up type-checking
+        // this view, while a local build still finished it.
         let appear = ramp(t, 0.12, 0.20)
         let travel = ease(ramp(t, 0.34, 0.62))
-        let scale = (0.6 + 0.4 * appear) * (1 - 0.45 * travel) + 0.08 * bump(t, 0.20, 0.34, 0.40)
-        return RoundedRectangle(cornerRadius: 5)
+        let lift = bump(t, 0.20, 0.34, 0.40)
+        let scale = (0.6 + 0.4 * appear) * (1 - 0.45 * travel) + 0.08 * lift
+        let x = 40 + 128 * travel
+        let y = 76 - 62 * travel - 4 * lift
+        let fade = appear * (1 - ramp(t, 0.62, 0.68))
+        return photoCard
+            .scaleEffect(scale)
+            .offset(x: x, y: y)
+            .opacity(fade)
+    }
+
+    private var photoCard: some View {
+        RoundedRectangle(cornerRadius: 5)
             .fill(Color.accentColor.opacity(0.3))
-            .overlay {
-                if let image = recent.photos.first?.image { Image(platformImage: image).resizable().scaledToFill() }
-            }
+            .overlay { flyingImage }
             .frame(width: 32, height: 32)
             .clipShape(RoundedRectangle(cornerRadius: 5))
-            .shadow(color: .black.opacity(0.25), radius: 6, y: 4)
-            .scaleEffect(scale)
-            .offset(x: 40 + 128 * travel, y: 76 - 62 * travel - 4 * bump(t, 0.20, 0.34, 0.40))
-            .opacity(appear * (1 - ramp(t, 0.62, 0.68)))
+            .shadow(color: Color.black.opacity(0.25), radius: 6, y: 4)
+    }
+
+    @ViewBuilder private var flyingImage: some View {
+        if let image = recent.photos.first?.image {
+            Image(platformImage: image).resizable().scaledToFill()
+        }
     }
 
     private func cloud(t: Double) -> some View {
-        let pop = t < 0.62 ? 0 : t < 0.70 ? 1.18 * ramp(t, 0.62, 0.70) : t < 0.76 ? 1.18 - 0.18 * ramp(t, 0.70, 0.76) : t < 0.92 ? 1 : 1 - ramp(t, 0.92, 1)
+        let pop = cloudPop(t)
         return Image(systemName: "icloud.and.arrow.up.fill")
             .font(.system(size: 64))
             .foregroundStyle(Color.accentColor)
@@ -196,6 +210,15 @@ struct AutoBackupIllustration: View {
                     .scaleEffect(pop)
                     .offset(x: 4, y: -6)
             }
+    }
+
+    /// The check growing as the photo lands, then settling, then fading before the next pass.
+    private func cloudPop(_ t: Double) -> Double {
+        if t < 0.62 { return 0 }
+        if t < 0.70 { return 1.18 * ramp(t, 0.62, 0.70) }
+        if t < 0.76 { return 1.18 - 0.18 * ramp(t, 0.70, 0.76) }
+        if t < 0.92 { return 1 }
+        return 1 - ramp(t, 0.92, 1)
     }
 
     private func ramp(_ t: Double, _ a: Double, _ b: Double) -> Double { min(max((t - a) / (b - a), 0), 1) }
