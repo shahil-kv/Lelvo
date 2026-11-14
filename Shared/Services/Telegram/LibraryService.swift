@@ -121,7 +121,7 @@ final class LibraryService: @unchecked Sendable {
     /// The library channel's current name in Telegram.
     func title() async -> String {
         guard let chatId, let chat = try? await td.chat(chatId) else { return Self.titleDefault }
-        return chat.title
+        return LibraryNames.plain(chat.title)
     }
 
     /// Renames the channel. Libraries are recognised by their header, never by name, so this is safe.
@@ -133,7 +133,7 @@ final class LibraryService: @unchecked Sendable {
     func rename(chatId: Int64, to title: String) async throws {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
-        do { _ = try await td.api().setChatTitle(chatId: chatId, title: String(clean.prefix(128))) } catch { throw error.asTD }
+        do { _ = try await td.api().setChatTitle(chatId: chatId, title: LibraryNames.channelTitle(clean)) } catch { throw error.asTD }
         appLog("Renamed library channel")
     }
 
@@ -152,7 +152,7 @@ final class LibraryService: @unchecked Sendable {
             default: continue
             }
             let header = await readHeader(chatId: id)
-            out.append(ChannelChoice(id: id, title: chat.title, isLibrary: header != nil, encrypted: header?.encrypted == true))
+            out.append(ChannelChoice(id: id, title: LibraryNames.plain(chat.title), isLibrary: header != nil, encrypted: header?.encrypted == true))
         }
         return out.sorted { ($0.isLibrary ? 0 : 1, $0.title) < ($1.isLibrary ? 0 : 1, $1.title) }
     }
@@ -174,7 +174,7 @@ final class LibraryService: @unchecked Sendable {
         do {
             chat = try await api.createNewSupergroupChat(description: "Lelvo Library · do not edit\n" + header.line,
                                                          forImport: false, isChannel: true, isForum: false, location: nil,
-                                                         messageAutoDeleteTime: 0, title: title)
+                                                         messageAutoDeleteTime: 0, title: LibraryNames.channelTitle(title))
         } catch { throw error.asTD }
         let headerMessage = try await td.sendText(chatId: chat.id, text: header.messageText)
         do {
@@ -182,10 +182,28 @@ final class LibraryService: @unchecked Sendable {
         } catch {
             AppLog.shared.warn("Pinning the library header failed: \(error.asTD.localizedDescription)")
         }
+        await decorate(chatId: chat.id)
         save(chatId: chat.id, header: header)
         if let keys { storeKeys(keys) }
         appLog("Created library channel (\(header.encrypted ? "E2E, header format \(header.version)" : "plain"))")
         return (chat.id, recovery)
+    }
+
+    /// Gives a new library the Lelvo logo and pins it to the top of the Telegram chat list, so it's easy to find and
+    /// hard to mistake for a chat to clear out. Both are extras: the library works without them.
+    private func decorate(chatId: Int64) async {
+        guard let api = try? td.api() else { return }
+        if let path = Bundle.main.path(forResource: "library_photo", ofType: "jpg") {
+            let photo = InputChatPhoto.inputChatPhotoStatic(InputChatPhotoStatic(photo: .inputFileLocal(InputFileLocal(path: path))))
+            do { _ = try await api.setChatPhoto(chatId: chatId, photo: photo) } catch {
+                AppLog.shared.warn("Setting the library photo failed: \(error.asTD.localizedDescription)")
+            }
+        }
+        // Telegram refuses when the user's pinned chats are full; it never unpins another chat, so a refusal just
+        // leaves the library unpinned.
+        do { _ = try await api.toggleChatIsPinned(chatId: chatId, chatList: .chatListMain, isPinned: true) } catch {
+            appLog("Library not pinned in the chat list: \(error.asTD.localizedDescription)")
+        }
     }
 
     /// Reads the header of an existing channel (pinned header message first, then the description).
