@@ -29,6 +29,18 @@ public enum AutomationHealth: Equatable, Sendable {
     case seemsOff(lastRun: Date)
 }
 
+/// What overnight runs uploaded, added up so one morning notification covers the whole night.
+public struct NightTotals: Codable, Equatable, Sendable {
+    public var photos = 0
+    public var videos = 0
+    public init(photos: Int = 0, videos: Int = 0) { self.photos = photos; self.videos = videos }
+    public var isEmpty: Bool { photos + videos == 0 }
+    public mutating func add(uploaded: Int, videos v: Int) {
+        videos += v
+        photos += max(uploaded - v, 0)
+    }
+}
+
 public enum BackgroundRuns {
     /// Keeps the newest `limit` records.
     public static func appending(_ r: RunRecord, to list: [RunRecord], limit: Int = 200) -> [RunRecord] {
@@ -69,5 +81,14 @@ public enum BackgroundRuns {
         if videos > 0 { parts.append("\(videos) video\(videos == 1 ? "" : "s")") }
         guard !parts.isEmpty else { return nil }
         return parts.joined(separator: " and ") + " backed up" + (overnight ? " overnight." : ".")
+    }
+
+    /// Card "Back up new photos within a minute": only after the first full backup, never while set up or snoozed,
+    /// and not again after three "Not now" answers.
+    public static func shouldOfferAutomation(autoBackup: Bool, firstFullBackupDone: Bool, health: AutomationHealth,
+                                             snoozedUntil: Date?, dismissals: Int, now: Date) -> Bool {
+        guard autoBackup, firstFullBackupDone, health == .notSetUp, dismissals < 3 else { return false }
+        if let snoozedUntil, snoozedUntil > now { return false }
+        return true
     }
 }

@@ -84,6 +84,8 @@ the place, map and ML Kit requests above, we don't share data with anyone, so no
 - **Photos:** to read the photos you choose to back up and to save downloaded ones back. You can allow limited access,
   or none, and still browse your cloud library.
 - **Network:** to talk to Telegram.
+- **iPhone, if you turn it on:** notifications, to tell you when a backup finished or is waiting. They are made on
+  your iPhone and show only counts.
 - **Android only:** location in photos (to read where a photo was taken, for Places), notifications (to show a long
   backup's progress), and running in the background (for automatic backups you turn on).
 

@@ -123,9 +123,14 @@ viewer's quality pill switches either way at the same moment; the user's choice 
 |---|---|---|
 | Grid | `NativePhotoGrid` (UICollectionView, pinch between column counts, swipe to select) | `MacPhotoGrid` (NSCollectionView, zoom slider, keyboard, drag to Finder) |
 | Viewer | `ViewerView`: paging, zoom, Live Photos, custom video controls, AirPlay | `MacViewer`: hero zoom from the tile, arrow keys, trackpad swipe, AVPlayerView |
-| Background | `BGContinuedProcessingTask` (iOS 26+, user-started), `BGProcessingTask` (charging, overnight), App Intents | `NSBackgroundActivityScheduler` hourly while the app runs; App Nap held off during a backup |
+| Background | `BGContinuedProcessingTask` (iOS 26+, user-started or started on open), `BGAppRefreshTask` (short upload runs), `BGProcessingTask` (overnight), App Intents (Camera automation) | `NSBackgroundActivityScheduler` hourly while the app runs; App Nap held off during a backup |
 | Files | App container | `~/Library/Application Support/<bundle id>`, `~/Library/Caches/<bundle id>` (not sandboxed) |
 
-Background reality on iOS: MTProto uploads can't use background `URLSession`, so long backups run while the app is
-open, during a continued-processing task (iOS 26+) with system progress UI, or during overnight processing tasks while
-charging. The App Intent uploads for the time iOS allows, then the next run continues.
+Background reality on iOS: MTProto uploads can't use background `URLSession`, and Apple's photo backup extension
+would send photos unencrypted, so Lelvo works with what iOS allows. With automatic backup on: opening the app starts a
+backup (continued-processing task on iOS 26+, at most every 5 minutes, only when something is new); the app-refresh
+task, requested every 15 minutes, uploads for about 22 s (photos and small videos only, `UploadOrder.forShortRun`);
+the processing task runs off the charger unless "Only while charging" is on and is requested again at once while
+photos wait; and a Shortcuts "Camera closed" automation runs the App Intent for about 25 s. Every run goes through
+`BackupEngine.run` (two uploads at most, FLOOD_WAIT honoured) and is recorded as a `RunRecord` (counts only). Local
+notifications (opt-in) carry a morning summary and a reminder after 2, 6, 14 days of waiting. No server is involved.

@@ -54,12 +54,15 @@ struct SettingsView: View {
 
                 Section {
                     Toggle("Back up new photos automatically", isOn: $autoBackup)
+                    #if os(iOS)
+                    FasterBackupRow()
+                    #endif
                     NavigationLink { BackupOptionsView() } label: {
                         LabeledContent("Backup options", value: backupSummary)
                     }
                 } header: { Text("Backup") } footer: {
                     Text(autoBackup
-                         ? "Lelvo backs up when you open it, in short background moments and overnight."
+                         ? "Lelvo backs up when you open it, in short background moments and overnight. Faster backup sends new photos within about a minute."
                          : "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.")
                 }
 
@@ -88,9 +91,6 @@ struct SettingsView: View {
                 }
 
                 Section("Help") {
-                    #if os(iOS)
-                    NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
-                    #endif
                     Link(destination: AppLinks.community) {
                         Label {
                             Text("Lelvo group on Telegram")
@@ -680,9 +680,35 @@ struct BackupOptionsView: View {
     @AppStorage(Prefs.Key.dateFrom) private var dateFrom: Double = Date().addingTimeInterval(-365 * 86400).timeIntervalSince1970
     @AppStorage(Prefs.Key.streamingCopies) private var streamingCopies = true
     @AppStorage(Prefs.Key.videoQuality) private var videoQuality = VideoQualityPreference.automatic.rawValue
+    @AppStorage(Prefs.Key.notifyBackups) private var notifyBackups = false
+    @State private var notificationsDenied = false
 
     var body: some View {
         Form {
+            #if os(iOS)
+            Section {
+                Toggle("Backup notifications", isOn: Binding(get: { notifyBackups }, set: { on in
+                    if on {
+                        Task {
+                            let granted = await BackupNotifications.enable()
+                            notifyBackups = granted
+                            notificationsDenied = !granted
+                        }
+                    } else {
+                        notifyBackups = false
+                        notificationsDenied = false
+                    }
+                }))
+                if notificationsDenied {
+                    Text("Turn on notifications for Lelvo in Settings.").font(.footnote).foregroundStyle(.secondary)
+                    Button("Open Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    }
+                }
+            } footer: {
+                Text("A short note after an overnight backup, and a reminder if photos have been waiting for days. Only counts, never photo names.")
+            }
+            #endif
             Section {
                 Picker("Back up", selection: $mediaFilter) {
                     ForEach(Prefs.MediaFilter.allCases) { Text($0.title).tag($0.rawValue) }

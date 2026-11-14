@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 import LelvoCore
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
@@ -7,6 +8,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let env = AppEnvironment.shared
         BackgroundTasks.register()
+        UNUserNotificationCenter.current().delegate = NotificationRouter.shared
         env.td.start()
         return true
     }
@@ -72,6 +74,7 @@ struct LelvoApp: App {
                 ContinuedBackup.resumeIfPending()
                 // Automatic backup: start on open so new photos go up without a tap.
                 if Prefs.autoBackup, !Prefs.backupPaused { AutoStart.onOpen() }
+                Task { await BackupNotifications.flushSummary() }
                 // Cheap no-op unless restored items are still unlinked (e.g. right after a reinstall).
                 Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
             case .background:

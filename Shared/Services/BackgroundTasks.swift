@@ -158,6 +158,11 @@ func recordRun(_ source: RunSource, started: Date, summary: BackupEngine.Summary
     Prefs.record(RunRecord(source: source, startedAt: started, seconds: seconds,
                            uploaded: summary.uploaded, remaining: summary.remaining))
     appLog(String(format: "Run (%@): %.0f s, uploaded %d, %d waiting", source.rawValue, seconds, summary.uploaded, summary.remaining))
+    #if os(iOS)
+    if source == .refresh || source == .processing {
+        Task { await BackupNotifications.afterRun(startedAt: started, summary: summary) }
+    }
+    #endif
 }
 
 final class CancelFlag: @unchecked Sendable {

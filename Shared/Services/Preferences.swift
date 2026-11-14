@@ -25,6 +25,12 @@ enum Prefs {
         static let botUsername = "botUsername"
         static let lastBackupAt = "lastBackupAt"
         static let backgroundRuns = "backgroundRuns"
+        static let firstFullBackupAt = "firstFullBackupAt"
+        static let automationOfferSnoozedUntil = "automationOfferSnoozedUntil"
+        static let automationOfferDismissals = "automationOfferDismissals"
+        static let notifyBackups = "notifyBackups"
+        static let nightTotals = "nightTotals"
+        static let remindersSent = "remindersSent"
         static let backupPaused = "backupPaused"
         static let autoBackup = "autoBackup"
         static let autoBackupAsked = "autoBackupAsked"
@@ -80,6 +86,7 @@ enum Prefs {
             Key.gridColumns: 4,
             Key.autoBackup: false,
             Key.autoBackupAsked: false,
+            Key.notifyBackups: false,
             Key.streamingCopies: true,
             Key.keepAwakeDuringBackup: true,
             Key.videoQuality: VideoQualityPreference.automatic.rawValue,

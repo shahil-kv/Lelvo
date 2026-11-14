@@ -79,4 +79,28 @@ import Testing
         #expect(!BackgroundRuns.isOvernight(at(15), calendar: cal))
         #expect(BackgroundRuns.isOvernight(at(22), calendar: cal))
     }
+
+    @Test func offerRules() {
+        func offer(auto: Bool = true, done: Bool = true, health: AutomationHealth = .notSetUp,
+                   snooze: Date? = nil, dismissals: Int = 0) -> Bool {
+            BackgroundRuns.shouldOfferAutomation(autoBackup: auto, firstFullBackupDone: done, health: health,
+                                                 snoozedUntil: snooze, dismissals: dismissals, now: now)
+        }
+        #expect(offer())
+        #expect(!offer(auto: false))
+        #expect(!offer(done: false))
+        #expect(!offer(health: .working(lastRun: now)))
+        #expect(!offer(snooze: now.addingTimeInterval(60)))
+        #expect(offer(snooze: now.addingTimeInterval(-60)))
+        #expect(!offer(dismissals: 3))
+        #expect(offer(dismissals: 2))
+    }
+
+    @Test func nightTotalsAddUp() {
+        var t = NightTotals()
+        #expect(t.isEmpty)
+        t.add(uploaded: 10, videos: 2)
+        t.add(uploaded: 5, videos: 0)
+        #expect(t == NightTotals(photos: 13, videos: 2))
+    }
 }

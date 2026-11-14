@@ -96,6 +96,14 @@ struct BackupDashboardView: View {
     @AppStorage(Prefs.Key.keepAwakeDuringBackup) private var keepAwake = true
     @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
     @AppStorage(Prefs.Key.autoBackupAsked) private var autoBackupAsked = false
+    @AppStorage(Prefs.Key.firstFullBackupAt) private var firstFullBackupAt: Double = 0
+    private var firstFullBackupDone: Bool { firstFullBackupAt > 0 }
+
+    /// The first time nothing is left to send, so the Camera automation is offered when they trust Lelvo.
+    private func markFirstFullBackup() {
+        guard firstFullBackupAt == 0, stats.backedUp > 0, stats.pending == 0, stats.notQueued == 0 else { return }
+        firstFullBackupAt = Date().timeIntervalSince1970
+    }
 
     /// Asked once, for people who finished setup before automatic backup was offered there.
     private var autoBackupCard: some View {
@@ -127,6 +135,9 @@ struct BackupDashboardView: View {
         NavigationStack {
             List {
                 if !autoBackup, !autoBackupAsked { autoBackupCard }
+                #if os(iOS)
+                AutomationOfferCard(firstFullBackupDone: firstFullBackupDone)
+                #endif
                 Section {
                     statusHeader
                     if activity.isRunning {
@@ -269,7 +280,7 @@ struct BackupDashboardView: View {
                     NavigationLink { TakeoutGuideView(source: .photos) } label: { Label("Import from Google Photos", systemImage: "photo.stack") }
                     NavigationLink { TakeoutGuideView(source: .drive) } label: { Label("Import from Google Drive", systemImage: "folder") }
                     #if os(iOS)
-                    NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
+                    NavigationLink { AutomaticBackupExplainerView() } label: { Label("Automatic backup on iPhone", systemImage: "bolt.badge.clock") }
                     #endif
                     Button {
                         Task {
@@ -286,6 +297,9 @@ struct BackupDashboardView: View {
             .navigationDestination(isPresented: $app.showFreeUpSpace) { FreeUpSpaceView() }
             .refreshable { stats.refresh() }
             .onAppear { stats.refresh() }
+            .onChange(of: stats.pending) { _, _ in markFirstFullBackup() }
+            .onChange(of: stats.notQueued) { _, _ in markFirstFullBackup() }
+            .onChange(of: stats.backedUp) { _, _ in markFirstFullBackup() }
             .onChange(of: activity.isRunning) { _, _ in stats.refresh() }
             // One success haptic when a run ends with everything safe, not for each photo.
             // The counts refresh just after the run ends, so .running → .pending → .complete is still one finished run.
