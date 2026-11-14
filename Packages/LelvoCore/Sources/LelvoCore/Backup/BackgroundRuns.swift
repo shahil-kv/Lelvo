@@ -56,6 +56,12 @@ public enum BackgroundRuns {
         return (lastUpload ?? now).addingTimeInterval(TimeInterval(offset) * 86_400)
     }
 
+    /// Runs between 22:00 and 07:00 local time count as overnight.
+    public static func isOvernight(_ date: Date, calendar: Calendar = .current) -> Bool {
+        let hour = calendar.component(.hour, from: date)
+        return hour >= 22 || hour < 7
+    }
+
     /// "312 photos and 4 videos backed up overnight." Nil when nothing was uploaded.
     public static func summaryText(photos: Int, videos: Int, overnight: Bool) -> String? {
         var parts: [String] = []

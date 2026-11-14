@@ -70,6 +70,8 @@ struct LelvoApp: App {
                 #endif
                 // A backup iOS paused in the background goes on now that Lelvo is open again.
                 ContinuedBackup.resumeIfPending()
+                // Automatic backup: start on open so new photos go up without a tap.
+                if Prefs.autoBackup, !Prefs.backupPaused { AutoStart.onOpen() }
                 // Cheap no-op unless restored items are still unlinked (e.g. right after a reinstall).
                 Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
             case .background:

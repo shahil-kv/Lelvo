@@ -10,6 +10,24 @@ struct BackgroundLabView: View {
     var body: some View {
         List {
             Section {
+                Button("Run background refresh now") {
+                    busy = true
+                    Task {
+                        await BackgroundTasks.refreshWork(deadline: Date().addingTimeInterval(22), isCancelled: { false })
+                        records = Prefs.runRecords
+                        busy = false
+                    }
+                }
+                .disabled(busy)
+                Button("Run overnight backup now") {
+                    busy = true
+                    Task {
+                        await BackgroundTasks.processingWork(isCancelled: { false })
+                        records = Prefs.runRecords
+                        busy = false
+                    }
+                }
+                .disabled(busy)
                 Button("Pretend the automation ran") {
                     busy = true
                     Task {

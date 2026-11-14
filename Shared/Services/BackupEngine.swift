@@ -473,6 +473,7 @@ final class BackupEngine: @unchecked Sendable {
     /// `includeNew`: also queue every photo not yet in the cloud ("Back up now"). Otherwise only items already
     /// queued (photos the user chose, retries) are uploaded, unless automatic backup is on.
     func run(deadline: Date? = nil, userStarted: Bool = false, includeNew: Bool = false,
+             shortRun: Bool = false,
              isCancelled callerCancelled: @escaping @Sendable () -> Bool = { false },
              progress: (@Sendable (Int, Int) -> Void)? = nil) async -> Summary {
         var summary = Summary()
@@ -539,7 +540,8 @@ final class BackupEngine: @unchecked Sendable {
         }
 
         let onlyChosen = !includeNew && !Prefs.autoBackup
-        let queue = JobQueue(items: runnableItems(now: Date(), onlyChosen: onlyChosen))
+        let runnable = runnableItems(now: Date(), onlyChosen: onlyChosen)
+        let queue = JobQueue(items: shortRun ? UploadOrder.forShortRun(runnable) : runnable)
         let total = await queue.count
         await publish { a in
             a.done = 0
@@ -594,7 +596,7 @@ final class BackupEngine: @unchecked Sendable {
         gate.withLock { laneTask = lanes }
         if isPauseRequested { lanes.cancel() }
         await lanes.value
-        if !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
+        if !shortRun, !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
             await completeEarlierBackups(deadline: deadline, isCancelled: isCancelled)
             await makeEarlierScreenCopies(deadline: deadline, isCancelled: isCancelled)
             await waitForFloodPause(isCancelled: isCancelled)

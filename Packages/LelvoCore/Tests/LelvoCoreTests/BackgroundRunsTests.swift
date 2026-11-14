@@ -68,4 +68,15 @@ import Testing
         #expect(BackgroundRuns.summaryText(photos: 0, videos: 3, overnight: true) == "3 videos backed up overnight.")
         #expect(BackgroundRuns.summaryText(photos: 0, videos: 0, overnight: true) == nil)
     }
+
+    @Test func overnightHours() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        func at(_ h: Int) -> Date { cal.date(from: DateComponents(year: 2026, month: 11, day: 14, hour: h))! }
+        #expect(BackgroundRuns.isOvernight(at(23), calendar: cal))
+        #expect(BackgroundRuns.isOvernight(at(3), calendar: cal))
+        #expect(!BackgroundRuns.isOvernight(at(7), calendar: cal))
+        #expect(!BackgroundRuns.isOvernight(at(15), calendar: cal))
+        #expect(BackgroundRuns.isOvernight(at(22), calendar: cal))
+    }
 }
