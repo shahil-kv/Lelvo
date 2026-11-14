@@ -30,12 +30,6 @@ struct AutoBackupNudgeSheet: View {
                             .font(.subheadline).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
-                        HStack(spacing: 16) {
-                            Label("When you open Lelvo", systemImage: "iphone")
-                            Label("Overnight", systemImage: "moon.zzz")
-                        }
-                        .font(.footnote).foregroundStyle(.secondary)
-                        .labelStyle(TintedIconLabel())
                     }
                 }
                 .padding(.horizontal, 24)
@@ -44,6 +38,8 @@ struct AutoBackupNudgeSheet: View {
             }
             .scrollBounceBehavior(.basedOnSize)
             .safeAreaInset(edge: .bottom) { buttons }
+            // No bar band above the picture: the info button floats like the close button in Apple's own sheets.
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showInfo = true } label: { Image(systemName: "info.circle") }
@@ -92,7 +88,6 @@ struct AutoBackupNudgeSheet: View {
             }
         }
         .padding(.horizontal, 24).padding(.bottom, 8).padding(.top, 6)
-        .background(.bar)
     }
 }
 
@@ -122,7 +117,7 @@ struct AutoBackupIllustration: View {
             let pass = reduceMotion ? 0 : Int(time / cycle) % whens.count
             scene(t: t, pass: pass)
         }
-        .onAppear { recent.load(limit: 10) }
+        .onAppear { recent.load(limit: 10, checkLibrary: false, skipScreenshots: true) }
     }
 
     private func scene(t: Double, pass: Int) -> some View {

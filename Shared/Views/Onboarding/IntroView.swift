@@ -1160,7 +1160,8 @@ final class RecentPhotos: ObservableObject {
     private var started = false
 
     /// `checkLibrary`: false before sign-in, when there's no library yet; only the device's photos are read.
-    func load(limit: Int, checkLibrary: Bool = true) {
+    /// `skipScreenshots`: for pictures that should look like someone's photos, not their screens.
+    func load(limit: Int, checkLibrary: Bool = true, skipScreenshots: Bool = false) {
         guard !started else { return }
         started = true
         let env = AppEnvironment.shared
@@ -1169,6 +1170,9 @@ final class RecentPhotos: ObservableObject {
                 let options = PHFetchOptions()
                 options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
                 options.fetchLimit = limit
+                if skipScreenshots {
+                    options.predicate = NSPredicate(format: "(mediaSubtypes & %d) == 0", PHAssetMediaSubtype.photoScreenshot.rawValue)
+                }
                 let assets = PHAsset.fetchAssets(with: .image, options: options)
                 return (0..<assets.count).map { i in
                     let asset = assets.object(at: i)
