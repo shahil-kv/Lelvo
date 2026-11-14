@@ -24,8 +24,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import app.lelvo.android.LelvoApp
+import app.lelvo.android.background.BackupScheduler
+import app.lelvo.android.shell.Messages
 import app.lelvo.data.Prefs
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -84,6 +95,7 @@ internal fun BackupOptionsScreen(prefs: Prefs, onAlbums: () -> Unit, onRulesChan
             wifi = it; prefs.wifiOnly = it; onRulesChanged(true)
         }
         ToggleRow("Only while charging", null, charging) { charging = it; prefs.chargingOnly = it; onRulesChanged(true) }
+        BackupNotificationsSwitch(prefs)
 
         SectionDivider()
         SectionHeader("Videos")
@@ -186,5 +198,28 @@ internal fun AlbumPickerScreen(app: LelvoApp, onChanged: () -> Unit, onBack: () 
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BackupNotificationsSwitch(prefs: Prefs) {
+    val context = LocalContext.current
+    var on by remember { mutableStateOf(prefs.backupNotifications) }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) return@rememberLauncherForActivityResult
+        on = false
+        prefs.backupNotifications = false
+        BackupScheduler.cancelQuiet(context)
+        Messages.show(Messages.Style.Info, "Turn on notifications for Lelvo in Settings.", action = Messages.Action("Settings") {
+            context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+        })
+    }
+    ToggleRow("Backup notifications", "A morning summary, and a reminder if backup is stuck.", on) { want ->
+        if (want && Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) ask.launch(Manifest.permission.POST_NOTIFICATIONS)
+        on = want
+        prefs.backupNotifications = want
+        if (!want) BackupScheduler.cancelQuiet(context)
     }
 }

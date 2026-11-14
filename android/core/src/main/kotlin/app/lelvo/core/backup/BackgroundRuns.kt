@@ -113,6 +113,16 @@ object BackgroundRuns {
         return (lastUpload ?: now) + offset * DAY_MS
     }
 
+    /**
+     * 07:30 on the morning that ends the night [after] belongs to. A run at 22:00 belongs to the next morning;
+     * a run at 06:00 belongs to this morning.
+     */
+    fun morning(after: Long, zone: ZoneId): Long {
+        val zoned = Instant.ofEpochMilli(after).atZone(zone)
+        val day = if (zoned.hour >= 22) zoned.plusDays(1) else zoned
+        return day.withHour(7).withMinute(30).withSecond(0).withNano(0).toInstant().toEpochMilli()
+    }
+
     /** Runs between 22:00 and 07:00 local time count as overnight. */
     fun isOvernight(epochMs: Long, zone: ZoneId): Boolean {
         val hour = Instant.ofEpochMilli(epochMs).atZone(zone).hour

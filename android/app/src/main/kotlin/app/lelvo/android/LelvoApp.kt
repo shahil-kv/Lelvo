@@ -34,6 +34,7 @@ import kotlinx.coroutines.withContext
 
 /** Creates the services once per process; screens and background work share them (like iOS AppEnvironment). */
 class LelvoApp : Application(), SingletonImageLoader.Factory {
+    private val io = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     lateinit var secrets: SecretStore private set
     lateinit var telegram: TdClient private set
     lateinit var library: LibraryService private set
@@ -138,7 +139,10 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
             override fun onActivityStopped(activity: android.app.Activity) {
                 startedActivities = maxOf(0, startedActivities - 1)
                 // To the background (iOS `.background`): changes go now, not after the pacing.
-                if (startedActivities == 0) sync.onBackground()
+                if (startedActivities == 0) {
+                    sync.onBackground()
+                    io.launch { BackupScheduler.bookReminder(this@LelvoApp, prefs, backup.readyCount()) }
+                }
             }
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
             override fun onActivityResumed(activity: android.app.Activity) {}

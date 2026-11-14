@@ -51,6 +51,21 @@ class Prefs(context: Context) {
     var communityNoteShown by flag("communityNoteShown", false)
     /** Android 13+: the notification permission was asked for once (the first Back up now). */
     var askedNotifications by flag("askedNotifications", false)
+    /** Morning summary and the stuck reminder. Off until the person turns it on. */
+    var backupNotifications by flag("backupNotifications", false)
+    var nightPhotos: Int
+        get() = p.getInt("nightPhotos", 0)
+        set(v) = p.edit().putInt("nightPhotos", v).apply()
+    var nightVideos: Int
+        get() = p.getInt("nightVideos", 0)
+        set(v) = p.edit().putInt("nightVideos", v).apply()
+    /** The 07:30 the current night totals belong to, so an earlier night is not added to tonight. */
+    var nightKey: Long
+        get() = p.getLong("nightKey", 0)
+        set(v) = p.edit().putLong("nightKey", v).apply()
+    var remindersSent: Int
+        get() = p.getInt("remindersSent", 0)
+        set(v) = p.edit().putInt("remindersSent", v).apply()
 
     var albumMode: AlbumMode
         get() = AlbumMode.of(p.getString("albumMode", null))

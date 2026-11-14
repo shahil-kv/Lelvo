@@ -97,6 +97,15 @@ class BackgroundRunsTest {
         assertNull(BackgroundRuns.summaryText(0, 0, overnight = true))
     }
 
+    @Test fun morningIs0730AfterTheNight() {
+        val zone = ZoneOffset.UTC
+        fun at(hour: Int, minute: Int) = ZonedDateTime.of(2026, 11, 14, hour, minute, 0, 0, zone).toInstant().toEpochMilli()
+        val today = ZonedDateTime.of(2026, 11, 14, 7, 30, 0, 0, zone).toInstant().toEpochMilli()
+        val tomorrow = ZonedDateTime.of(2026, 11, 15, 7, 30, 0, 0, zone).toInstant().toEpochMilli()
+        assertEquals(today, BackgroundRuns.morning(at(6, 0), zone))
+        assertEquals(tomorrow, BackgroundRuns.morning(at(22, 0), zone))
+    }
+
     @Test fun recordsRoundTripAndDropADamagedOne() {
         val list = listOf(RunRecord(RunSource.AutoRun, now, 9.5, 3, 10, "out of time"))
         assertEquals(list, BackgroundRuns.decode(BackgroundRuns.encode(list)))

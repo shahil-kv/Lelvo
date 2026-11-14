@@ -38,6 +38,8 @@ object BackupScheduler {
     const val SAFETY_NET = "backup.safetyNet"
     const val OVERNIGHT = "backup.overnight"
     const val REFRESH = "index.refresh"
+    const val SUMMARY = "backup.summary"
+    const val REMINDER = "backup.reminder"
 
     /** Starts a user run, or queues it right after the one running (chosen photos added meanwhile then go too). */
     fun startNow(context: Context, includeNew: Boolean, fromApp: Boolean = false) {
@@ -141,10 +143,42 @@ object BackupScheduler {
     /** Sign out: nothing runs for the old account. */
     fun cancelAll(context: Context) {
         val wm = WorkManager.getInstance(context)
-        listOf(USER, NEW_PHOTOS, AUTO_RUN, SAFETY_NET, OVERNIGHT, REFRESH).forEach(wm::cancelUniqueWork)
+        listOf(USER, NEW_PHOTOS, AUTO_RUN, SAFETY_NET, OVERNIGHT, REFRESH, SUMMARY, REMINDER).forEach(wm::cancelUniqueWork)
         AppLog.info("Background backups cancelled")
     }
 
     /** Pause from the notification or the tile: the run stops and the queued user runs go too. */
     fun cancelUserRuns(context: Context) = WorkManager.getInstance(context).cancelUniqueWork(USER)
+
+    /** One morning summary. A later night replaces it, so only the latest totals are posted. */
+    fun bookSummary(context: Context, delayMs: Long) = bookQuiet(context, SUMMARY, delayMs)
+
+    /** One stuck reminder. Nothing waiting cancels it. */
+    fun bookReminder(context: Context, prefs: Prefs, waiting: Int) {
+        val wm = WorkManager.getInstance(context)
+        if (!prefs.backupNotifications || waiting <= 0) {
+            wm.cancelUniqueWork(REMINDER)
+            return
+        }
+        val now = System.currentTimeMillis()
+        val due = BackgroundRuns.nextReminder(prefs.lastBackupAt, waiting, prefs.remindersSent, now) ?: run {
+            wm.cancelUniqueWork(REMINDER)
+            return
+        }
+        bookQuiet(context, REMINDER, (due - now).coerceAtLeast(0))
+    }
+
+    fun cancelQuiet(context: Context) {
+        val wm = WorkManager.getInstance(context)
+        wm.cancelUniqueWork(SUMMARY)
+        wm.cancelUniqueWork(REMINDER)
+    }
+
+    private fun bookQuiet(context: Context, name: String, delayMs: Long) {
+        val request = OneTimeWorkRequestBuilder<BackupWorker>()
+            .setInputData(Data.Builder().putString(BackupWorker.KIND, name).build())
+            .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(name, ExistingWorkPolicy.REPLACE, request)
+    }
 }

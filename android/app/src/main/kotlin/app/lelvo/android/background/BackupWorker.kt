@@ -38,6 +38,14 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val deadline = started + BackupEngine.BACKGROUND_BUDGET_MS
         try {
             if (app.demo.active.value) return Result.success()
+            if (kind == BackupScheduler.SUMMARY) {
+                postSummary()
+                return Result.success()
+            }
+            if (kind == BackupScheduler.REMINDER) {
+                postReminder()
+                return Result.success()
+            }
             if (!ready()) {
                 AppLog.info("Background $kind: Telegram or the library isn't ready; trying later")
                 result = if (kind == BackupScheduler.USER) Result.success() else Result.retry()
@@ -50,18 +58,21 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 BackupScheduler.AUTO_RUN -> {
                     summary = app.backup.run(userStarted = false, includeNew = false, deadlineMs = deadline)
                     AppLog.info("Automatic backup: ${summary.text}")
+                    noteNight(summary)
                     bookNext(summary)
                     handedOff = true
                 }
                 BackupScheduler.SAFETY_NET -> if (app.prefs.autoBackup && !workActive(BackupScheduler.AUTO_RUN) && app.backup.readyCount() > 0) {
                     summary = app.backup.run(userStarted = false, includeNew = false, deadlineMs = deadline)
                     AppLog.info("Safety net: ${summary.text}")
+                    noteNight(summary)
                     bookNext(summary)
                     handedOff = true
                 }
                 BackupScheduler.OVERNIGHT -> {
                     summary = app.backup.run(userStarted = false, includeNew = false, deadlineMs = deadline)
                     AppLog.info("Overnight backup: ${summary.text}")
+                    noteNight(summary)
                     if (summary.stoppedByTime) {
                         bookNext(summary)
                         handedOff = true
@@ -83,9 +94,11 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         } finally {
             if (ran) {
                 if (kind == BackupScheduler.USER && summary != null) {
+                    if (summary.uploaded > 0) app.prefs.remindersSent = 0
                     app.prefs.emptyChainedRuns = BackgroundRuns.emptyRunsAfter(
                         app.prefs.emptyChainedRuns, summary.uploaded, summary.partsSaved, userRun = true,
                     )
+                    refreshReminder()
                 }
                 record(started, summary, cancelled != null)
                 // Android got there first. Book the next run before this process is torn down. No network.
@@ -141,9 +154,11 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
      * Another automatic run, 15 minutes out (or later, if Telegram asked us to wait). Not while Lelvo is open
      * or a user run is queued: that run continues without the 9-minute cap.
      */
-    private fun bookNext(summary: BackupEngine.Summary) {
+    private suspend fun bookNext(summary: BackupEngine.Summary) {
+        if (summary.uploaded > 0) app.prefs.remindersSent = 0
         val empty = BackgroundRuns.emptyRunsAfter(app.prefs.emptyChainedRuns, summary.uploaded, summary.partsSaved, userRun = false)
         app.prefs.emptyChainedRuns = empty
+        refreshReminder()
         if (app.isOnScreen || workActive(BackupScheduler.USER) || empty >= 3) return
         val now = System.currentTimeMillis()
         val next = BackgroundRuns.nextAutoRun(
@@ -159,6 +174,46 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val now = System.currentTimeMillis()
         val next = BackgroundRuns.nextAutoRun(waiting, stoppedByTime = true, blocked = false, floodUntil = app.prefs.floodUntil, now = now) ?: return
         BackupScheduler.startAutoRun(applicationContext, app.prefs, delayMs = (next - now).coerceAtLeast(0), ExistingWorkPolicy.APPEND_OR_REPLACE)
+    }
+
+    /** Overnight uploads add up to one 07:30 summary. Counts only. */
+    private fun noteNight(summary: BackupEngine.Summary) {
+        if (!app.prefs.backupNotifications || summary.uploaded <= 0) return
+        val zone = java.time.ZoneId.systemDefault()
+        val now = System.currentTimeMillis()
+        if (!BackgroundRuns.isOvernight(now, zone)) return
+        val morning = BackgroundRuns.morning(now, zone)
+        if (app.prefs.nightKey != morning) {
+            app.prefs.nightKey = morning
+            app.prefs.nightPhotos = 0
+            app.prefs.nightVideos = 0
+        }
+        val videos = summary.uploadedVideos.coerceAtMost(summary.uploaded)
+        app.prefs.nightPhotos += summary.uploaded - videos
+        app.prefs.nightVideos += videos
+        BackupScheduler.bookSummary(applicationContext, (morning - now).coerceAtLeast(0))
+    }
+
+    private suspend fun postSummary() {
+        if (!app.prefs.backupNotifications) return
+        val text = BackgroundRuns.summaryText(app.prefs.nightPhotos, app.prefs.nightVideos, overnight = true) ?: return
+        BackupNotifications(applicationContext).summary(text)
+        app.prefs.nightPhotos = 0
+        app.prefs.nightVideos = 0
+    }
+
+    private suspend fun postReminder() {
+        if (!app.prefs.backupNotifications) return
+        val waiting = runCatching { app.backup.readyCount() }.getOrDefault(0)
+        if (waiting <= 0) return
+        BackupNotifications(applicationContext).reminder(waiting)
+        app.prefs.remindersSent += 1
+        BackupScheduler.bookReminder(applicationContext, app.prefs, waiting)
+    }
+
+    private suspend fun refreshReminder() {
+        val waiting = runCatching { app.backup.readyCount() }.getOrDefault(0)
+        BackupScheduler.bookReminder(applicationContext, app.prefs, waiting)
     }
 
     private fun workActive(name: String): Boolean =
