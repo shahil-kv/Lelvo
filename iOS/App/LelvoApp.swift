@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 import LelvoCore
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
@@ -7,6 +8,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let env = AppEnvironment.shared
         BackgroundTasks.register()
+        UNUserNotificationCenter.current().delegate = NotificationRouter.shared
         env.td.start()
         return true
     }
@@ -70,6 +72,8 @@ struct LelvoApp: App {
                 #endif
                 // A backup iOS paused in the background goes on now that Lelvo is open again.
                 ContinuedBackup.resumeIfPending()
+                // Automatic backup: start on open so new photos go up without a tap.
+                if Prefs.autoBackup, !Prefs.backupPaused { AutoStart.onOpen() }
                 // Cheap no-op unless restored items are still unlinked (e.g. right after a reinstall).
                 Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
             case .background:
@@ -77,7 +81,16 @@ struct LelvoApp: App {
                 env.search.stopForeground()
                 env.originalsCache.flush()
                 env.thumbnailCache.flush()
-                if model.onboardingComplete { BackgroundTasks.scheduleAll() }
+                if model.onboardingComplete {
+                    BackgroundTasks.scheduleAll()
+                    // SQLite count off the main thread; books the stuck reminder from what is still waiting.
+                    if BackupNotifications.allowed {
+                        Task.detached(priority: .utility) {
+                            let counts = (try? env.store.counts()) ?? [:]
+                            await BackupNotifications.bookReminder(waiting: (counts[.queued] ?? 0) + (counts[.uploading] ?? 0))
+                        }
+                    }
+                }
             default: break
             }
         }

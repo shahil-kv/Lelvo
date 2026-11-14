@@ -59,7 +59,7 @@ struct SettingsView: View {
                     }
                 } header: { Text("Backup") } footer: {
                     Text(autoBackup
-                         ? "New photos are backed up on their own, including overnight while charging."
+                         ? "Lelvo backs up when you open it, in short background moments and overnight."
                          : "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.")
                 }
 
@@ -84,9 +84,6 @@ struct SettingsView: View {
                 }
 
                 Section("Help") {
-                    #if os(iOS)
-                    NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
-                    #endif
                     Link(destination: AppLinks.community) {
                         Label {
                             Text("Lelvo group on Telegram")
@@ -133,7 +130,7 @@ struct SettingsView: View {
 
     private var backupSummary: String {
         var parts: [String] = [Prefs.MediaFilter(rawValue: mediaFilter)?.title ?? "Photos and videos"]
-        if wifiOnly { parts.append("Wi-Fi") }
+        if wifiOnly { parts.append(Prefs.photosOnMobile ? "videos on Wi-Fi" : "Wi-Fi") }
         if chargingOnly { parts.append("charging") }
         return parts.joined(separator: ", ")
     }
@@ -240,6 +237,10 @@ struct AboutView: View {
                 LabeledContent("Version", value: Bundle.main.displayVersion)
                 Text("Lelvo backs up your photos to a private channel in your own Telegram account. No servers, no analytics, no ads.")
             }
+            #if DEBUG && os(iOS)
+            // Developer builds only, kept out of the main Settings list.
+            Section("Developer") { NavigationLink("Background lab") { BackgroundLabView() } }
+            #endif
             Section {
                 Link(destination: AppLinks.faq) { Label("Questions and answers", systemImage: "questionmark.circle") }
                 Link(destination: AppLinks.community) { Label("Lelvo group on Telegram", systemImage: "bubble.left.and.bubble.right") }
@@ -668,9 +669,76 @@ private struct FolderPicker: UIViewControllerRepresentable {
 /// What gets backed up, and when (moved off the main Settings page).
 struct BackupOptionsView: View {
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
+    @AppStorage(Prefs.Key.photosOnMobile) private var photosOnMobile = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.mediaFilter) private var mediaFilter = Prefs.MediaFilter.all.rawValue
     @AppStorage(Prefs.Key.includeScreenshots) private var includeScreenshots = true
+    @AppStorage(Prefs.Key.notifyBackups) private var notifyBackups = false
+    @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
+    @State private var notificationsDenied = false
+
+    // The few choices most people make sit on top; the rest is one tap away under More options, like Photos settings.
+    var body: some View {
+        Form {
+            #if os(iOS)
+            // Only with automatic backup on: "Working" next to a switch that's off read as a contradiction.
+            if autoBackup { Section { MinuteBackupRow() } }
+            #endif
+            Section {
+                Toggle("Wi-Fi only", isOn: $wifiOnly)
+                if wifiOnly { Toggle("Photos on mobile data", isOn: $photosOnMobile) }
+                Toggle("Only while charging", isOn: $chargingOnly)
+            } header: { Text("When to upload") } footer: {
+                Text(wifiOnly && photosOnMobile
+                     ? "Photos also go up on mobile data, a few MB each. Videos wait for Wi-Fi. Nothing uploads in Low Data Mode."
+                     : wifiOnly ? "Photos and videos wait for Wi-Fi. Nothing uploads in Low Data Mode." : "Photos and videos go up on Wi-Fi and mobile data.")
+            }
+
+            Section {
+                Picker("Back up", selection: $mediaFilter) {
+                    ForEach(Prefs.MediaFilter.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                NavigationLink("Albums") { AlbumPickerView() }
+                Toggle("Screenshots", isOn: $includeScreenshots)
+            } header: { Text("What to back up") }
+
+            #if os(iOS)
+            Section {
+                Toggle("Notifications", isOn: Binding(get: { notifyBackups }, set: { on in
+                    if on {
+                        Task {
+                            let granted = await BackupNotifications.enable()
+                            notifyBackups = granted
+                            notificationsDenied = !granted
+                        }
+                    } else {
+                        BackupNotifications.disable()
+                        notifyBackups = false
+                        notificationsDenied = false
+                    }
+                }))
+                if notificationsDenied {
+                    Button("Allow notifications in Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    }
+                }
+            } footer: {
+                Text("A short note after a backup overnight, and a reminder if photos wait for days. Counts only, never photo names.")
+            }
+            #endif
+
+            Section {
+                NavigationLink("More options") { MoreBackupOptionsView() }
+            } footer: {
+                Text("Hidden photos, a start date and video playback.")
+            }
+        }
+        .navigationTitle("Backup options")
+    }
+}
+
+/// Choices few people change, kept off the main Backup options screen.
+struct MoreBackupOptionsView: View {
     @AppStorage(Prefs.Key.includeHidden) private var includeHidden = false
     @AppStorage(Prefs.Key.dateFromEnabled) private var dateFromEnabled = false
     @AppStorage(Prefs.Key.dateFrom) private var dateFrom: Double = Date().addingTimeInterval(-365 * 86400).timeIntervalSince1970
@@ -680,27 +748,15 @@ struct BackupOptionsView: View {
     var body: some View {
         Form {
             Section {
-                Picker("Back up", selection: $mediaFilter) {
-                    ForEach(Prefs.MediaFilter.allCases) { Text($0.title).tag($0.rawValue) }
-                }
-                Toggle("Include screenshots", isOn: $includeScreenshots)
-                Toggle("Include hidden photos", isOn: $includeHidden)
-                NavigationLink("Albums") { AlbumPickerView() }
+                Toggle("Hidden photos", isOn: $includeHidden)
                 Toggle("Only photos taken after a date", isOn: $dateFromEnabled)
                 if dateFromEnabled {
                     DatePicker("From", selection: Binding(get: { Date(timeIntervalSince1970: dateFrom) },
                                                           set: { dateFrom = $0.timeIntervalSince1970 }),
                                displayedComponents: .date)
                 }
-            } header: { Text("What Back up now includes") } footer: {
+            } header: { Text("What to back up") } footer: {
                 Text("Hidden photos are never shown in Lelvo. If you save them back to Photos, they stay hidden.")
-            }
-
-            Section {
-                Toggle("Wi-Fi only", isOn: $wifiOnly)
-                Toggle("Only while charging", isOn: $chargingOnly)
-            } header: { Text("When to upload") } footer: {
-                Text("Wi-Fi only also pauses on personal hotspots and Low Data Mode.")
             }
 
             Section {
@@ -710,10 +766,10 @@ struct BackupOptionsView: View {
                     Text("Original Quality").tag(VideoQualityPreference.original.rawValue)
                 }
             } header: { Text("Videos") } footer: {
-                Text("A fast version is a small copy (about a tenth of the size) made while a video is backed up, so it plays at once from your Telegram library. The original is always kept. Automatic plays the fast version when the connection is too slow for the original; you can switch in the video at any time.")
+                Text("A fast version is a small copy made while a video is backed up, so it plays at once from your Telegram library. The original is always kept. Automatic plays the fast version when the connection is slow.")
             }
         }
-        .navigationTitle("Backup options")
+        .navigationTitle("More options")
     }
 }
 

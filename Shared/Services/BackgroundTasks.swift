@@ -1,4 +1,5 @@
 import Foundation
+import LelvoCore
 #if os(iOS)
 import BackgroundTasks
 import UIKit
@@ -43,43 +44,76 @@ enum BackgroundTasks {
     }
 
     static func scheduleProcessing() {
-        let request = BGProcessingTaskRequest(identifier: processingId)
-        request.requiresExternalPower = true
-        request.requiresNetworkConnectivity = true
-        request.earliestBeginDate = Date().addingTimeInterval(60 * 60)
-        do { try BGTaskScheduler.shared.submit(request) } catch { AppLog.shared.warn("Scheduling processing task failed: \(error)") }
+        // Counting reads SQLite, so it stays off the main thread (this is called when the app goes to the background).
+        Task.detached(priority: .utility) {
+            let waiting = AppEnvironment.shared.engine.readyCount() > 0
+            let request = BGProcessingTaskRequest(identifier: processingId)
+            request.requiresExternalPower = Prefs.chargingOnly
+            request.requiresNetworkConnectivity = true
+            // As soon as iOS likes while photos wait, otherwise once an hour.
+            request.earliestBeginDate = waiting ? nil : Date().addingTimeInterval(60 * 60)
+            do { try BGTaskScheduler.shared.submit(request) } catch { AppLog.shared.warn("Scheduling processing task failed: \(error)") }
+        }
     }
 
     static func scheduleRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: refreshId)
-        request.earliestBeginDate = Date().addingTimeInterval(4 * 60 * 60)
+        // iOS decides when it really runs; asking often costs nothing and it favours apps people open.
+        request.earliestBeginDate = Date().addingTimeInterval(15 * 60)
         do { try BGTaskScheduler.shared.submit(request) } catch { AppLog.shared.warn("Scheduling refresh task failed: \(error)") }
     }
 
     private static func handleProcessing(_ task: BGProcessingTask) {
+        // Submitted now as well as after the run: if iOS ends the process at expiry, the next one is still booked.
         scheduleProcessing()
         let flag = CancelFlag()
         task.expirationHandler = { flag.cancel() }
         Task {
-            let summary = await AppEnvironment.shared.engine.run(isCancelled: { flag.isCancelled })
-            appLog("Overnight backup: \(summary.text)")
-            // Then, still on the charger, read new photos for search.
-            await AppEnvironment.shared.search.index(isCancelled: { flag.isCancelled })
+            let summary = await processingWork(isCancelled: { flag.isCancelled })
+            // After the run, so the schedule knows whether photos are still waiting.
+            scheduleProcessing()
             task.setTaskCompleted(success: summary.error == nil)
         }
     }
 
+    /// The long overnight run. Also used by the Background lab (Debug).
+    @discardableResult
+    static func processingWork(isCancelled: @escaping @Sendable () -> Bool) async -> BackupEngine.Summary {
+        let started = Date()
+        let summary = await AppEnvironment.shared.engine.run(isCancelled: isCancelled)
+        recordRun(.processing, started: started, summary: summary)
+        // Awaited, so the notification is posted before the task tells iOS it's done and the app is suspended.
+        await BackupNotifications.afterRun(startedAt: started, summary: summary)
+        // Reading photos for search is only worth the battery on the charger.
+        if Device.isCharging { await AppEnvironment.shared.search.index(isCancelled: isCancelled) }
+        return summary
+    }
+
     private static func handleRefresh(_ task: BGAppRefreshTask) {
         scheduleRefresh()
-        let work = Task {
-            let env = AppEnvironment.shared
-            if env.isConfigured, (try? await env.td.waitUntilReady(timeout: 20)) != nil {
-                _ = try? await env.library.scan(full: false)
-            }
-            await env.enforceCacheLimits()
+        let flag = CancelFlag()
+        task.expirationHandler = { flag.cancel() }
+        Task {
+            // iOS gives a refresh task about 30 s: stop uploading at 22 s so the bookkeeping finishes first.
+            await refreshWork(deadline: Date().addingTimeInterval(22), isCancelled: { flag.isCancelled })
             task.setTaskCompleted(success: true)
         }
-        task.expirationHandler = { work.cancel() }
+    }
+
+    /// The short background run: photos and small videos. Also used by the Background lab (Debug).
+    static func refreshWork(deadline: Date, isCancelled: @escaping @Sendable () -> Bool) async {
+        let env = AppEnvironment.shared
+        guard env.isConfigured, (try? await env.td.waitUntilReady(timeout: 10)) != nil else { return }
+        if Prefs.autoBackup, !Prefs.backupPaused {
+            let started = Date()
+            // The engine scans the channel itself before it uploads.
+            let summary = await env.engine.run(deadline: deadline, shortRun: true, isCancelled: isCancelled)
+            recordRun(.refresh, started: started, summary: summary)
+            await BackupNotifications.afterRun(startedAt: started, summary: summary)
+        } else {
+            _ = try? await env.library.scan(full: false)
+        }
+        await env.enforceCacheLimits()
     }
 }
 
@@ -121,6 +155,19 @@ enum BackgroundTasks {
     }
 }
 #endif
+
+/// Remembers a finished run (counts only) and writes one log line for it.
+func recordRun(_ source: RunSource, started: Date, summary: BackupEngine.Summary) {
+    let seconds = Date().timeIntervalSince(started)
+    Prefs.record(RunRecord(source: source, startedAt: started, seconds: seconds,
+                           uploaded: summary.uploaded, remaining: summary.remaining))
+    appLog(String(format: "Run (%@): %.0f s, uploaded %d, %d waiting", source.rawValue, seconds, summary.uploaded, summary.remaining))
+    // Any run that uploaded, in the app too, starts the stuck reminder's back-off again.
+    if summary.uploaded > 0 {
+        Prefs.defaults.set(0, forKey: Prefs.Key.remindersSent)
+        Prefs.defaults.removeObject(forKey: Prefs.Key.reminderDueAt)
+    }
+}
 
 final class CancelFlag: @unchecked Sendable {
     private let lock = NSLock()
@@ -174,6 +221,44 @@ final class ActiveFlag: @unchecked Sendable {
     private func set(_ v: Bool) { lock.withLock { active = v } }
 }
 
+#endif
+
+#if os(iOS)
+/// Starts a backup when Lelvo opens and there is something to send. Each start shows an iOS progress indicator, so it
+/// stays quiet when nothing is new and doesn't repeat for short visits.
+enum AutoStart {
+    @MainActor private static var lastStart = Date.distantPast
+    /// A look is already running. Opening twice in that moment must not start two backups.
+    @MainActor private static var looking = false
+
+    @MainActor static func onOpen() {
+        let activity = BackupActivity.shared
+        let env = AppEnvironment.shared
+        guard env.isConfigured, !activity.isRunning, !activity.isStarting, !env.engine.isRunning,
+              ContinuedBackup.foregroundTask == nil, !looking,
+              Date().timeIntervalSince(lastStart) > 5 * 60,
+              env.engine.blocker() == nil else { return }
+        looking = true
+        Task.detached(priority: .utility) {
+            // Photos' change history: cheap when nothing changed, unlike reading the whole library.
+            let fresh = env.engine.queueNewPhotos()
+            let waiting = env.engine.readyCount()
+            // Only a real start counts toward the 5 minutes. An open that finds nothing used to start the wait anyway,
+            // so a video a short Camera run left behind (those runs skip videos) waited for a manual Back up.
+            guard waiting > 0 else {
+                await MainActor.run { looking = false }
+                appLog("Auto-start on open: nothing new")
+                return
+            }
+            appLog("Auto-start on open: \(fresh) new photos, \(waiting) waiting")
+            await MainActor.run {
+                looking = false
+                lastStart = Date()
+                ContinuedBackup.start(everything: true)
+            }
+        }
+    }
+}
 #endif
 
 enum ContinuedBackup {
@@ -253,13 +338,17 @@ enum ContinuedBackup {
             let flag = CancelFlag()
             #if os(iOS)
             let bg = UIApplication.shared.beginBackgroundTask(withName: "Backup") { flag.cancel() }
-            _ = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            let started = Date()
+            let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            recordRun(.app, started: started, summary: summary)
             UIApplication.shared.endBackgroundTask(bg)
             #else
             // Keeps App Nap and idle sleep from throttling a long upload while the window is in the background.
             let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
                                                                  reason: "Backing up to Telegram")
-            _ = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            let started = Date()
+            let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            recordRun(.app, started: started, summary: summary)
             ProcessInfo.processInfo.endActivity(activity)
             #endif
             foregroundTask = nil
@@ -301,6 +390,7 @@ enum ContinuedBackup {
         }
         Task {
             let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            recordRun(.continued, started: started, summary: summary)
             ticker.cancel()
             task.updateTitle(flag.isCancelled ? "Backup paused" : "Backup finished",
                              subtitle: flag.isCancelled ? "Open Lelvo to continue" : summary.text)

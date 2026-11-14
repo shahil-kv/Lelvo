@@ -99,6 +99,8 @@ final class NetworkStatus: @unchecked Sendable {
     var isOnline: Bool { lock.withLock { path.map { $0.status == .satisfied } ?? true } }
     /// Cellular, personal hotspot or Low Data Mode.
     var isExpensive: Bool { lock.withLock { (path?.isExpensive ?? false) || (path?.isConstrained ?? false) } }
+    /// Low Data Mode only: the person asked iPhone to save data.
+    var isLowDataMode: Bool { lock.withLock { path?.isConstrained ?? false } }
 
     /// Why the network counts as expensive, for the log ("Wi-Fi only" waits while on Wi-Fi need explaining).
     var expenseDetail: String {
@@ -117,6 +119,7 @@ final class NetworkStatus: @unchecked Sendable {
 final class BackupEngine: @unchecked Sendable {
     struct Summary: Equatable {
         var uploaded = 0
+        var uploadedVideos = 0
         var alreadyBackedUp = 0
         var failed = 0
         var remaining = 0
@@ -252,14 +255,6 @@ final class BackupEngine: @unchecked Sendable {
 
     init(environment: AppEnvironment) {
         self.env = environment
-        // Only logged before, so a throttled upload looked stuck in the app.
-        NotificationCenter.default.addObserver(forName: TDService.uploadSpeedLimited, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                let a = BackupActivity.shared
-                guard a.isRunning, a.notice == nil else { return }
-                a.notice = "Telegram limits upload speed for accounts without Premium. The backup continues, just slower."
-            }
-        }
     }
 
     private var rawDirectory: URL {
@@ -288,9 +283,16 @@ final class BackupEngine: @unchecked Sendable {
         if !env.isConfigured { return .notConfigured }
         if !PhotoLibraryService.hasAccess { return .noPhotoAccess }
         if !NetworkStatus.shared.isOnline { return .offline }
-        if Prefs.wifiOnly && NetworkStatus.shared.isExpensive { return .waitingForWiFi }
+        if networkAllowance() == .nothing { return .waitingForWiFi }
         if Prefs.chargingOnly && !Device.isCharging { return .waitingForPower }
         return nil
+    }
+
+    /// What this connection may send: on mobile data with "Photos on mobile data" on, photos go and videos wait.
+    func networkAllowance() -> NetworkRule.Allowance {
+        let net = NetworkStatus.shared
+        return NetworkRule.allowance(wifiOnly: Prefs.wifiOnly, photosOnMobile: Prefs.photosOnMobile,
+                                     expensive: net.isExpensive, lowDataMode: net.isLowDataMode)
     }
 
     // MARK: - Queue
@@ -347,6 +349,26 @@ final class BackupEngine: @unchecked Sendable {
         [Prefs.mediaFilter.rawValue, Prefs.dateFrom.map { String(Int64($0.timeIntervalSince1970)) } ?? "-",
          String(Prefs.includeScreenshots), String(Prefs.includeHidden), Prefs.albumMode.rawValue,
          Prefs.albumIds.sorted().joined(separator: ",")].joined(separator: "|")
+    }
+
+    /// Queues photos added or edited since the last search, using Photos' change history (a full library read only
+    /// when that history can't be used). Cheap when nothing changed, so the Camera action and app opens can call it.
+    @discardableResult
+    func queueNewPhotos() -> Int {
+        let started = Date()
+        let search = beginPhotoSearch()
+        let queued = enqueueNewAssets(force: true, among: search.changes.map { $0.inserted.union($0.updated) })
+        let edited = requeueEditedSinceBackup(among: search.changes?.updated)
+        finishPhotoSearch(search)
+        let how = search.changes.map { "\($0.inserted.count) new and \($0.updated.count) changed photos from Photos' history" } ?? "the whole library"
+        appLog(String(format: "Looked for new photos in %@: %d queued, %d edits to check, in %.1f s", how, queued, edited, Date().timeIntervalSince(started)))
+        return queued + edited
+    }
+
+    /// Items a run would upload now. Retries waiting for their time don't count, so they don't start empty runs.
+    func readyCount(shortRun: Bool = false) -> Int {
+        let ready = runnableItems(now: Date())
+        return shortRun ? UploadOrder.forShortRun(ready).count : ready.count
     }
 
     /// The token is taken before reading anything, so a photo taken during the search is found by the next one.
@@ -472,6 +494,7 @@ final class BackupEngine: @unchecked Sendable {
     /// `includeNew`: also queue every photo not yet in the cloud ("Back up now"). Otherwise only items already
     /// queued (photos the user chose, retries) are uploaded, unless automatic backup is on.
     func run(deadline: Date? = nil, userStarted: Bool = false, includeNew: Bool = false,
+             shortRun: Bool = false,
              isCancelled callerCancelled: @escaping @Sendable () -> Bool = { false },
              progress: (@Sendable (Int, Int) -> Void)? = nil) async -> Summary {
         var summary = Summary()
@@ -521,15 +544,7 @@ final class BackupEngine: @unchecked Sendable {
         _ = try? await env.library.scan(full: false)
         relinkRestoredItems()
         dropDeletedQueuedItems()
-        if includeNew || Prefs.autoBackup {
-            let started = Date()
-            let search = beginPhotoSearch()
-            let queued = enqueueNewAssets(force: true, among: search.changes.map { $0.inserted.union($0.updated) })
-            let edited = requeueEditedSinceBackup(among: search.changes?.updated)
-            finishPhotoSearch(search)
-            let how = search.changes.map { "\($0.inserted.count) new and \($0.updated.count) changed photos from Photos' history" } ?? "the whole library"
-            appLog(String(format: "Looked for new photos in %@: %d queued, %d edits to check, in %.1f s", how, queued, edited, Date().timeIntervalSince(started)))
-        }
+        if includeNew || Prefs.autoBackup { queueNewPhotos() }
 
         // Items left "uploading" by a killed process go back to pending. A Takeout import's own uploads aren't ours:
         // resetting one mid-upload made it look failed and offered to delete it.
@@ -538,7 +553,11 @@ final class BackupEngine: @unchecked Sendable {
         }
 
         let onlyChosen = !includeNew && !Prefs.autoBackup
-        let queue = JobQueue(items: runnableItems(now: Date(), onlyChosen: onlyChosen))
+        let runnable = runnableItems(now: Date(), onlyChosen: onlyChosen)
+        // Videos wait for Wi-Fi when only photos may use mobile data. Same filter as a short run (photos only).
+        let photosOnly = shortRun || networkAllowance() == .photosOnly
+        if photosOnly, !shortRun { appLog("On mobile data: photos only, videos wait for Wi-Fi") }
+        let queue = JobQueue(items: photosOnly ? UploadOrder.forShortRun(runnable) : runnable)
         let total = await queue.count
         await publish { a in
             a.done = 0
@@ -550,14 +569,17 @@ final class BackupEngine: @unchecked Sendable {
         }
         appLog("Backup run: \(total) items queued")
 
+        // A short run stops starting uploads 8 s early: one already sent keeps going until Telegram confirms it, and iOS
+        // ends the run soon after the deadline. Seen on the iPhone: a run meant for 25 s lasted 54 s.
+        let startBy = shortRun ? deadline?.addingTimeInterval(-8) : deadline
         let counter = Counter()
         let lanes = Task { await withTaskGroup(of: Void.self) { group in
             for lane in 0..<Self.maxConcurrentUploads {
                 group.addTask { [self] in
                     while let item = await queue.next() {
-                        if isCancelled() || deadline.map({ Date() > $0 }) == true {
+                        if isCancelled() || startBy.map({ Date() > $0 }) == true {
                             if await queue.drain() {
-                                appLog("Backup stopped: \(isPauseRequested ? "paused" : (deadline.map { Date() > $0 } == true ? "out of time for this run" : "ended by iOS"))")
+                                appLog("Backup stopped: \(isPauseRequested ? "paused" : (startBy.map { Date() > $0 } == true ? "out of time for this run" : "ended by iOS"))")
                             }
                             break
                         }
@@ -567,6 +589,12 @@ final class BackupEngine: @unchecked Sendable {
                             await publish { $0.message = reason.localizedDescription }
                             if await queue.drain() { appLog("Backup stopped: \(reason.localizedDescription) (for over 2 minutes)") }
                             break
+                        }
+                        // Left Wi-Fi for mobile data during the run: the video stays queued for later.
+                        if item.kind == .video, networkAllowance() == .photosOnly {
+                            let done = await counter.record(.skipped)
+                            await publish { $0.done = done }
+                            continue
                         }
                         await waitForFloodPause(isCancelled: isCancelled)
                         // The check at the top of the loop stops the run and logs why.
@@ -578,7 +606,7 @@ final class BackupEngine: @unchecked Sendable {
                             // Slowed down or a temporary network error: try again later in this same run.
                             continue
                         }
-                        let done = await counter.record(outcome)
+                        let done = await counter.record(outcome, isVideo: item.kind == .video)
                         let snap = await counter.snapshot()
                         progress?(done, total)
                         let landed = outcome == .uploaded ? item.localIdentifier : nil
@@ -593,7 +621,8 @@ final class BackupEngine: @unchecked Sendable {
         gate.withLock { laneTask = lanes }
         if isPauseRequested { lanes.cancel() }
         await lanes.value
-        if !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
+        // Finishing earlier backups and making video copies can be large: Wi-Fi (or Wi-Fi only off) only.
+        if !shortRun, networkAllowance() == .everything, !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
             await completeEarlierBackups(deadline: deadline, isCancelled: isCancelled)
             await makeEarlierScreenCopies(deadline: deadline, isCancelled: isCancelled)
             await waitForFloodPause(isCancelled: isCancelled)
@@ -602,6 +631,7 @@ final class BackupEngine: @unchecked Sendable {
 
         let counts = await counter.snapshot()
         summary.uploaded = counts.uploaded
+        summary.uploadedVideos = counts.videos
         summary.alreadyBackedUp = counts.duplicate
         summary.failed = counts.failed
         summary.remaining = runnableItems(now: .distantFuture, onlyChosen: onlyChosen).count
@@ -1266,7 +1296,7 @@ final class BackupEngine: @unchecked Sendable {
         var completed = 0
         for item in candidates {
             if isCancelled() || deadline.map({ Date() > $0 }) == true { break }
-            if await blocker() != nil { break }
+            if await blocker() != nil || networkAllowance() != .everything { break }
             guard let id = item.localIdentifier, let asset = assets[id] else {
                 _ = try? env.store.update(id: item.id) { $0.extrasChecked = true }
                 continue
@@ -1335,7 +1365,7 @@ final class BackupEngine: @unchecked Sendable {
         var made = 0
         for item in candidates where made < limit {
             if isCancelled() || deadline.map({ Date() > $0 }) == true { break }
-            if await blocker() != nil { break }
+            if await blocker() != nil || networkAllowance() != .everything { break }
             await waitForFloodPause(isCancelled: isCancelled)
             var exported: URL?
             defer { if let exported { try? FileManager.default.removeItem(at: exported) } }
@@ -1527,10 +1557,12 @@ actor JobQueue {
 }
 
 actor Counter {
-    private var uploaded = 0, duplicate = 0, failed = 0, done = 0
-    func record(_ o: BackupEngine.Outcome) -> Int {
+    private var uploaded = 0, videos = 0, duplicate = 0, failed = 0, done = 0
+    func record(_ o: BackupEngine.Outcome, isVideo: Bool = false) -> Int {
         switch o {
-        case .uploaded: uploaded += 1
+        case .uploaded:
+            uploaded += 1
+            if isVideo { videos += 1 }
         case .duplicate: duplicate += 1
         case .failed: failed += 1
         case .skipped, .retryLater: break
@@ -1538,5 +1570,5 @@ actor Counter {
         done += 1
         return done
     }
-    func snapshot() -> (uploaded: Int, duplicate: Int, failed: Int) { (uploaded, duplicate, failed) }
+    func snapshot() -> (uploaded: Int, videos: Int, duplicate: Int, failed: Int) { (uploaded, videos, duplicate, failed) }
 }

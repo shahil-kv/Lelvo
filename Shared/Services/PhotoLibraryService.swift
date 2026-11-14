@@ -171,6 +171,14 @@ final class PhotoLibraryService: @unchecked Sendable {
         return PHAsset.fetchAssets(with: options)
     }
 
+    /// Creation date of the newest photo or video; call off the main thread.
+    func newestAssetDate() -> Date? {
+        let options = PHFetchOptions()
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        options.fetchLimit = 1
+        return PHAsset.fetchAssets(with: options).firstObject?.creationDate
+    }
+
     func asset(localIdentifier: String) -> PHAsset? {
         PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil).firstObject
     }

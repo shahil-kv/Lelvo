@@ -6,6 +6,7 @@ enum Prefs {
     enum Key {
         static let onboardingComplete = "onboardingComplete"
         static let wifiOnly = "wifiOnly"
+        static let photosOnMobile = "photosOnMobile"
         static let backupVideos = "backupVideos"
         static let includeScreenshots = "includeScreenshots"
         static let includeHidden = "includeHidden"
@@ -24,8 +25,19 @@ enum Prefs {
         static let chatTitle = "chatTitle"
         static let botUsername = "botUsername"
         static let lastBackupAt = "lastBackupAt"
+        static let backgroundRuns = "backgroundRuns"
+        static let firstFullBackupAt = "firstFullBackupAt"
+        static let automationOfferSnoozedUntil = "automationOfferSnoozedUntil"
+        static let automationOfferDismissals = "automationOfferDismissals"
+        static let notifyBackups = "notifyBackups"
+        static let nightTotals = "nightTotals"
+        static let nightTotalsMorning = "nightTotalsMorning"
+        static let reminderDueAt = "reminderDueAt"
+        static let remindersSent = "remindersSent"
         static let backupPaused = "backupPaused"
         static let autoBackup = "autoBackup"
+        static let autoBackupNudges = "autoBackupNudges"
+        static let autoBackupNudgedAt = "autoBackupNudgedAt"
         static let streamingCopies = "streamingCopies"
         static let videoQuality = "videoQuality"
         static let keepAwakeDuringBackup = "keepAwakeDuringBackup"
@@ -64,6 +76,7 @@ enum Prefs {
     static func registerDefaults() {
         defaults.register(defaults: [
             Key.wifiOnly: true,
+            Key.photosOnMobile: true,
             Key.backupVideos: true,
             Key.includeScreenshots: true,
             Key.includeHidden: false,
@@ -77,6 +90,7 @@ enum Prefs {
             Key.allowFreeUpSpace: false,
             Key.gridColumns: 4,
             Key.autoBackup: false,
+            Key.notifyBackups: false,
             Key.streamingCopies: true,
             Key.keepAwakeDuringBackup: true,
             Key.videoQuality: VideoQualityPreference.automatic.rawValue,
@@ -86,6 +100,7 @@ enum Prefs {
 
     static var onboardingComplete: Bool { defaults.bool(forKey: Key.onboardingComplete) }
     static var wifiOnly: Bool { defaults.bool(forKey: Key.wifiOnly) }
+    static var photosOnMobile: Bool { defaults.bool(forKey: Key.photosOnMobile) }
     static var backupVideos: Bool { defaults.bool(forKey: Key.backupVideos) }
     static var includeScreenshots: Bool { defaults.bool(forKey: Key.includeScreenshots) }
     /// Back up photos hidden in Photos too. They're never shown in Lelvo and come back hidden.
@@ -122,6 +137,17 @@ enum Prefs {
         get { defaults.string(forKey: Key.secondCopyVolume) }
         set { defaults.set(newValue, forKey: Key.secondCopyVolume) }
     }
+    /// Recent backup runs (newest last), kept for "Working" checks and the Background lab. Counts only.
+    static var runRecords: [RunRecord] {
+        guard let data = defaults.data(forKey: Key.backgroundRuns) else { return [] }
+        return (try? JSONDecoder().decode([RunRecord].self, from: data)) ?? []
+    }
+
+    static func record(_ r: RunRecord) {
+        let list = BackgroundRuns.appending(r, to: runRecords)
+        if let data = try? JSONEncoder().encode(list) { defaults.set(data, forKey: Key.backgroundRuns) }
+    }
+
     static var backupPaused: Bool {
         get { defaults.bool(forKey: Key.backupPaused) }
         set { defaults.set(newValue, forKey: Key.backupPaused) }

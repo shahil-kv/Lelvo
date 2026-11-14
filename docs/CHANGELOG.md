@@ -5,6 +5,16 @@ What's new in Lelvo for iPhone and Mac, newest first. Downloads for each version
 
 ## Unreleased
 
+- **Backup runs without opening Lelvo:** opening Lelvo starts backing up new photos at once, and iPhone's short
+  background moments upload new photos and small videos. Overnight, Lelvo backs up everything still waiting, also
+  when the iPhone isn't charging (unless Only while charging is on).
+- **Faster backup (optional):** a Camera automation in Shortcuts backs up new photos within about a minute. Lelvo
+  shows each step, checks that it works, and tells you in Settings if it stops. Back Up New Photos is also quicker
+  when there's nothing new.
+- **Backup notifications (optional):** a short note after an overnight backup, and a reminder when photos have been
+  waiting for days. They show only counts.
+- **Automatic backup is offered at setup:** the last setup screen now asks whether Lelvo should back up new photos
+  automatically, and it starts switched on. If you finished setup before this, the Backup tab asks once.
 - **Import from Google Photos or Google Drive:** Backup → Tools walks through Google Takeout. Lelvo reads each zip and
   uploads the photos and videos to your Telegram library, with the date, place, albums and favourite Google kept.
   When a zip is done, you can delete it and add the next one. Nothing is deleted unless you confirm. The import

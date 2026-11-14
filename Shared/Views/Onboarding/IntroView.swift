@@ -847,6 +847,8 @@ struct FirstBackupView: View {
     @State private var selected: String?
     @State private var progress: Double = 0
     @State private var shownCount = 0
+    /// On by default: this is the moment they've just seen a photo arrive. Saved when they tap "Start using Lelvo".
+    @State private var autoBackup = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var returning: Bool { (restored ?? 0) > 0 }
@@ -893,7 +895,7 @@ struct FirstBackupView: View {
                 Text("photos and videos are in your Telegram library").foregroundStyle(.secondary)
             }
             photoGrid(selectable: false)
-            Label("A green cloud means that photo on this \(Device.name) is already in your library. Back up now sends the rest.",
+            Label("A green cloud means that photo on this \(Device.name) is already in your library.\(autoBackup ? "" : " Back up now sends the rest.")",
                   systemImage: "info.circle")
                 .font(.footnote).foregroundStyle(.white.opacity(0.75))
                 .fixedSize(horizontal: false, vertical: true)
@@ -999,7 +1001,13 @@ struct FirstBackupView: View {
     @ViewBuilder private var buttons: some View {
         VStack(spacing: 10) {
             if returning || finished || phase == .nothing {
-                PrimaryCapsuleButton(title: "Start using Lelvo", action: done)
+                // Also with no photos yet: the switch is saved below, so it's always shown before it is.
+                autoBackupCard
+                PrimaryCapsuleButton(title: "Start using Lelvo") {
+                    Prefs.defaults.set(autoBackup, forKey: Prefs.Key.autoBackup)
+                    done()
+                }
+                Text("You can change this in Settings.").font(.footnote).foregroundStyle(.white.opacity(0.6))
             } else if phase == .choosing {
                 PrimaryCapsuleButton(title: "Back up this photo", enabled: selected != nil) {
                     if let selected { Task { await upload(selected) } }
@@ -1010,6 +1018,20 @@ struct FirstBackupView: View {
             }
         }
         .padding(.horizontal, 24).padding(.vertical, 12)
+    }
+
+    private var autoBackupCard: some View {
+        Toggle(isOn: $autoBackup) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Back up new photos automatically").font(.headline).foregroundStyle(.white)
+                Text("When you open Lelvo, in the background, and overnight.")
+                    .font(.footnote).foregroundStyle(.white.opacity(0.7))
+            }
+        }
+        .tint(.accentColor)
+        .padding(14)
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: Upload
@@ -1027,8 +1049,8 @@ struct FirstBackupView: View {
     private var detail: String {
         switch phase {
         case .choosing, .uploading: return "Uploading the original to your library."
-        case .safe: return "Backed up and checked, at full quality. Back up now sends the rest."
-        case .alreadySafe: return "It's in your library. Back up now sends the rest."
+        case .safe: return "Backed up and checked, at full quality.\(autoBackup ? "" : " Back up now sends the rest.")"
+        case .alreadySafe: return "It's in your library.\(autoBackup ? "" : " Back up now sends the rest.")"
         case .nothing: return "There are no photos on this \(Device.name) yet. New ones can be backed up any time."
         case .stuck(let reason): return "\(reason) It carries on by itself once that's sorted."
         }
@@ -1138,7 +1160,8 @@ final class RecentPhotos: ObservableObject {
     private var started = false
 
     /// `checkLibrary`: false before sign-in, when there's no library yet; only the device's photos are read.
-    func load(limit: Int, checkLibrary: Bool = true) {
+    /// `skipScreenshots`: for pictures that should look like someone's photos, not their screens.
+    func load(limit: Int, checkLibrary: Bool = true, skipScreenshots: Bool = false) {
         guard !started else { return }
         started = true
         let env = AppEnvironment.shared
@@ -1147,6 +1170,9 @@ final class RecentPhotos: ObservableObject {
                 let options = PHFetchOptions()
                 options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
                 options.fetchLimit = limit
+                if skipScreenshots {
+                    options.predicate = NSPredicate(format: "(mediaSubtypes & %d) == 0", PHAssetMediaSubtype.photoScreenshot.rawValue)
+                }
                 let assets = PHAsset.fetchAssets(with: .image, options: options)
                 return (0..<assets.count).map { i in
                     let asset = assets.object(at: i)

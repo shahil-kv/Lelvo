@@ -5,16 +5,33 @@ import LelvoCore
 /// Runs without opening the app: queues new photos as background uploads and reports what it did.
 struct BackUpNewPhotosIntent: AppIntent {
     static var title: LocalizedStringResource = "Back Up New Photos"
-    static var description = IntentDescription("Uploads new photos and videos to your Telegram library for about 25 seconds without opening the app; the rest continues later.")
+    static var description = IntentDescription("Backs up new photos to your Telegram library for about 25 seconds without opening Lelvo. Use it in a Camera automation so new photos go up within a minute.")
     static var openAppWhenRun: Bool = false
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
         let env = AppEnvironment.shared
+        let started = Date()
+        // Runs every time Camera closes, so it has to cost almost nothing when there is nothing to send: Photos' change
+        // history instead of the whole library, and videos don't count (a short run skips them; overnight sends them).
+        env.engine.queueNewPhotos()
+        if env.engine.readyCount(shortRun: true) == 0 {
+            recordRun(.shortcut, started: started, summary: BackupEngine.Summary())
+            let text = env.engine.readyCount() == 0
+                ? "Everything is backed up."
+                : "New photos are backed up. Videos go up when you open Lelvo or overnight."
+            return .result(value: text, dialog: IntentDialog(stringLiteral: text))
+        }
         env.td.start()
-        // Shortcuts gives intents limited time: upload for ~25 s, then the overnight task and the
-        // next run continue where this one stopped (nothing is lost; the queue is persistent).
-        // A Shortcut the user set up is a deliberate "Back up now".
-        let summary = await env.engine.run(deadline: Date().addingTimeInterval(25), includeNew: true)
+        // Shortcuts gives intents limited time: upload for ~25 s (photos only), then the background runs and the next
+        // one continue where this stopped. The queue is persistent, so nothing is lost.
+        let deadline = started.addingTimeInterval(25)
+        // The Camera-opened run may still be going when Camera closes. Its list was made before the new photos, so
+        // wait for it to end and run again rather than stop with "already running".
+        while env.engine.isRunning, Date() < deadline.addingTimeInterval(-10) {
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        let summary = await env.engine.run(deadline: deadline, includeNew: true, shortRun: true)
+        recordRun(.shortcut, started: started, summary: summary)
         BackgroundTasks.scheduleAll()
         return .result(value: summary.text, dialog: IntentDialog(stringLiteral: summary.text))
     }

@@ -81,8 +81,23 @@ Photos. You can limit it to photos or videos, skip screenshots, include or exclu
 (Settings → Backup options).
 
 **Does it back up on its own?**
-Only if you switch on **Back up new photos automatically**. Otherwise nothing uploads until you tap **Back up now**
-(everything not yet backed up) or **Back up** on photos you picked.
+Yes, if **Back up new photos automatically** is on. It's offered at the end of setup and starts switched on. Lelvo backs
+up when you open it, in short background moments, and overnight. If you switch it off, nothing uploads until you tap
+**Back up now** (everything not yet backed up) or **Back up** on photos you picked.
+
+**Why doesn't Lelvo back up in the background like Google Photos?**
+Your photos are end-to-end encrypted before they leave your iPhone. iPhone only lets apps upload in the background
+when the photo goes to the app maker's own server unencrypted. Google Photos can do that because Google can see your
+photos. Lelvo can't, and won't.
+
+So Lelvo backs up when you open it, in the short moments iPhone gives it now and then, and overnight. For faster
+backup, a Shortcuts automation wakes Lelvo when you close Camera.
+
+**How do I set up faster backup?**
+Settings → Backup → **Faster backup** shows each step. In short: 1. Open **Shortcuts** and tap **Automation**.
+2. Tap **+**. 3. Tap **App**. 4. Choose **Camera**, then **Done**. 5. Untick **Is Opened**, tick **Is Closed**.
+6. Choose **Run Immediately** and turn off **Notify When Run**, then tap **Next**. 7. Search for **Lelvo**, tap
+**Back Up New Photos**, then **Done**. Lelvo then shows **Working** in Settings.
 
 **Why does a big backup need the app open?**
 iOS lets apps run in the background only in short, system-controlled windows, and Telegram's connection can't use

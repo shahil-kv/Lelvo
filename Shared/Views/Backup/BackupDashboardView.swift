@@ -91,13 +91,45 @@ struct BackupDashboardView: View {
     @StateObject private var stats = BackupStatsModel()
     @State private var runJustEnded = false
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
+    @AppStorage(Prefs.Key.photosOnMobile) private var photosOnMobile = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.backupPaused) private var paused = false
     @AppStorage(Prefs.Key.keepAwakeDuringBackup) private var keepAwake = true
+    @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
+    @AppStorage(Prefs.Key.firstFullBackupAt) private var firstFullBackupAt: Double = 0
+    private var firstFullBackupDone: Bool { firstFullBackupAt > 0 }
+    @State private var showAutomationGuide = false
+
+    /// The first time nothing is left to send, so the Camera automation is offered when they trust Lelvo.
+    private func markFirstFullBackup() {
+        guard firstFullBackupAt == 0, stats.backedUp > 0, stats.pending == 0, stats.notQueued == 0 else { return }
+        firstFullBackupAt = Date().timeIntervalSince1970
+    }
+
+    #if os(iOS)
+    @AppStorage(Prefs.Key.autoBackupNudges) private var nudges = 0
+    @AppStorage(Prefs.Key.autoBackupNudgedAt) private var nudgedAt: Double = 0
+    @State private var showNudge = false
+
+    /// A backup they started just ended with everything safe: ask about automatic backup now, once they've seen it work.
+    private func nudgeAutoBackupIfDue() {
+        guard BackgroundRuns.shouldNudgeAutoBackup(autoBackup: autoBackup, timesShown: nudges,
+                                                   lastShown: nudgedAt > 0 ? Date(timeIntervalSince1970: nudgedAt) : nil,
+                                                   now: Date()) else { return }
+        // Counted when shown, so swiping it away counts as "Not now".
+        nudges += 1
+        nudgedAt = Date().timeIntervalSince1970
+        // After the success haptic and the header's change to "Backup complete".
+        Task { try? await Task.sleep(for: .seconds(0.6)); showNudge = true }
+    }
+    #endif
 
     var body: some View {
         NavigationStack {
             List {
+                #if os(iOS)
+                AutomationOfferCard(firstFullBackupDone: firstFullBackupDone, showGuide: $showAutomationGuide)
+                #endif
                 Section {
                     statusHeader
                     if activity.isRunning {
@@ -191,7 +223,7 @@ struct BackupDashboardView: View {
                             Text(message).font(.footnote).foregroundStyle(.secondary)
                         }
                         if wifiOnly || chargingOnly {
-                            Label([wifiOnly ? "Wi-Fi only" : nil, chargingOnly ? "charging only" : nil].compactMap { $0 }.joined(separator: ", ") + ". Change in Settings.",
+                            Label([wifiOnly ? (photosOnMobile ? "Videos on Wi-Fi only" : "Wi-Fi only") : nil, chargingOnly ? "charging only" : nil].compactMap { $0 }.joined(separator: ", ") + ". Change in Settings.",
                                   systemImage: "slider.horizontal.3")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
@@ -240,7 +272,7 @@ struct BackupDashboardView: View {
                     NavigationLink { TakeoutGuideView(source: .photos) } label: { Label("Import from Google Photos", systemImage: "photo.stack") }
                     NavigationLink { TakeoutGuideView(source: .drive) } label: { Label("Import from Google Drive", systemImage: "folder") }
                     #if os(iOS)
-                    NavigationLink { AutomationGuideView() } label: { Label("Shortcuts automations", systemImage: "bolt.badge.clock") }
+                    NavigationLink { AutomaticBackupExplainerView() } label: { Label("Automatic backup", systemImage: "bolt.badge.clock") }
                     #endif
                     Button {
                         Task {
@@ -255,14 +287,26 @@ struct BackupDashboardView: View {
             .settingsButton()
             #endif
             .navigationDestination(isPresented: $app.showFreeUpSpace) { FreeUpSpaceView() }
+            #if os(iOS)
+            .navigationDestination(isPresented: $showAutomationGuide) { AutomaticBackupExplainerView() }
+            .sheet(isPresented: $showNudge) { AutoBackupNudgeSheet(backedUp: stats.backedUp) }
+            #endif
             .refreshable { stats.refresh() }
             .onAppear { stats.refresh() }
+            .onChange(of: stats.pending) { _, _ in markFirstFullBackup() }
+            .onChange(of: stats.notQueued) { _, _ in markFirstFullBackup() }
+            .onChange(of: stats.backedUp) { _, _ in markFirstFullBackup() }
             .onChange(of: activity.isRunning) { _, _ in stats.refresh() }
             // One success haptic when a run ends with everything safe, not for each photo.
             // The counts refresh just after the run ends, so .running → .pending → .complete is still one finished run.
             .onChange(of: headerState) { old, new in
                 if old == .running { runJustEnded = true }
-                if new == .complete && runJustEnded { Haptics.success() }
+                if new == .complete && runJustEnded {
+                    Haptics.success()
+                    #if os(iOS)
+                    nudgeAutoBackupIfDue()
+                    #endif
+                }
                 if new != .running && new != .pending { runJustEnded = false }
             }
         }
