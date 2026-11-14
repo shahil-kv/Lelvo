@@ -5,6 +5,8 @@ What's new in Lelvo for iPhone and Mac, newest first. Downloads for each version
 
 ## Unreleased
 
+- **Automatic backup is offered at setup:** the last setup screen now asks whether Lelvo should back up new photos
+  automatically, and it starts switched on. If you finished setup before this, the Backup tab asks once.
 - **Import from Google Photos or Google Drive:** Backup → Tools walks through Google Takeout. Lelvo reads each zip and
   uploads the photos and videos to your Telegram library, with the date, place, albums and favourite Google kept.
   When a zip is done, you can delete it and add the next one. Nothing is deleted unless you confirm. The import

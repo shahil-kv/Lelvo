@@ -94,10 +94,39 @@ struct BackupDashboardView: View {
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.backupPaused) private var paused = false
     @AppStorage(Prefs.Key.keepAwakeDuringBackup) private var keepAwake = true
+    @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
+    @AppStorage(Prefs.Key.autoBackupAsked) private var autoBackupAsked = false
+
+    /// Asked once, for people who finished setup before automatic backup was offered there.
+    private var autoBackupCard: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Back up new photos automatically", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.headline)
+                Text("Lelvo can back up new photos when you open it, in the background and overnight.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                HStack {
+                    Button("Turn on") {
+                        autoBackup = true
+                        autoBackupAsked = true
+                        Haptics.success()
+                        ToastCenter.shared.show(.info, "Automatic backup is on")
+                        ContinuedBackup.start(everything: true)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Spacer()
+                    Button("Not now") { autoBackupAsked = true }
+                        .buttonStyle(.bordered)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
 
     var body: some View {
         NavigationStack {
             List {
+                if !autoBackup, !autoBackupAsked { autoBackupCard }
                 Section {
                     statusHeader
                     if activity.isRunning {

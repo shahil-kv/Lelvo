@@ -59,7 +59,7 @@ struct SettingsView: View {
                     }
                 } header: { Text("Backup") } footer: {
                     Text(autoBackup
-                         ? "New photos are backed up on their own, including overnight while charging."
+                         ? "Lelvo backs up when you open it, in short background moments and overnight."
                          : "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.")
                 }
 

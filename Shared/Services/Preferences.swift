@@ -27,6 +27,7 @@ enum Prefs {
         static let backgroundRuns = "backgroundRuns"
         static let backupPaused = "backupPaused"
         static let autoBackup = "autoBackup"
+        static let autoBackupAsked = "autoBackupAsked"
         static let streamingCopies = "streamingCopies"
         static let videoQuality = "videoQuality"
         static let keepAwakeDuringBackup = "keepAwakeDuringBackup"
@@ -78,6 +79,7 @@ enum Prefs {
             Key.allowFreeUpSpace: false,
             Key.gridColumns: 4,
             Key.autoBackup: false,
+            Key.autoBackupAsked: false,
             Key.streamingCopies: true,
             Key.keepAwakeDuringBackup: true,
             Key.videoQuality: VideoQualityPreference.automatic.rawValue,
