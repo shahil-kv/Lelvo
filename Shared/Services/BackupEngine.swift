@@ -117,6 +117,7 @@ final class NetworkStatus: @unchecked Sendable {
 final class BackupEngine: @unchecked Sendable {
     struct Summary: Equatable {
         var uploaded = 0
+        var uploadedVideos = 0
         var alreadyBackedUp = 0
         var failed = 0
         var remaining = 0
@@ -578,7 +579,7 @@ final class BackupEngine: @unchecked Sendable {
                             // Slowed down or a temporary network error: try again later in this same run.
                             continue
                         }
-                        let done = await counter.record(outcome)
+                        let done = await counter.record(outcome, isVideo: item.kind == .video)
                         let snap = await counter.snapshot()
                         progress?(done, total)
                         let landed = outcome == .uploaded ? item.localIdentifier : nil
@@ -602,6 +603,7 @@ final class BackupEngine: @unchecked Sendable {
 
         let counts = await counter.snapshot()
         summary.uploaded = counts.uploaded
+        summary.uploadedVideos = counts.videos
         summary.alreadyBackedUp = counts.duplicate
         summary.failed = counts.failed
         summary.remaining = runnableItems(now: .distantFuture, onlyChosen: onlyChosen).count
@@ -1527,10 +1529,12 @@ actor JobQueue {
 }
 
 actor Counter {
-    private var uploaded = 0, duplicate = 0, failed = 0, done = 0
-    func record(_ o: BackupEngine.Outcome) -> Int {
+    private var uploaded = 0, videos = 0, duplicate = 0, failed = 0, done = 0
+    func record(_ o: BackupEngine.Outcome, isVideo: Bool = false) -> Int {
         switch o {
-        case .uploaded: uploaded += 1
+        case .uploaded:
+            uploaded += 1
+            if isVideo { videos += 1 }
         case .duplicate: duplicate += 1
         case .failed: failed += 1
         case .skipped, .retryLater: break
@@ -1538,5 +1542,5 @@ actor Counter {
         done += 1
         return done
     }
-    func snapshot() -> (uploaded: Int, duplicate: Int, failed: Int) { (uploaded, duplicate, failed) }
+    func snapshot() -> (uploaded: Int, videos: Int, duplicate: Int, failed: Int) { (uploaded, videos, duplicate, failed) }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import LelvoCore
 #if os(iOS)
 import BackgroundTasks
 import UIKit
@@ -61,8 +62,9 @@ enum BackgroundTasks {
         let flag = CancelFlag()
         task.expirationHandler = { flag.cancel() }
         Task {
+            let started = Date()
             let summary = await AppEnvironment.shared.engine.run(isCancelled: { flag.isCancelled })
-            appLog("Overnight backup: \(summary.text)")
+            recordRun(.processing, started: started, summary: summary)
             // Then, still on the charger, read new photos for search.
             await AppEnvironment.shared.search.index(isCancelled: { flag.isCancelled })
             task.setTaskCompleted(success: summary.error == nil)
@@ -121,6 +123,14 @@ enum BackgroundTasks {
     }
 }
 #endif
+
+/// Remembers a finished run (counts only) and writes one log line for it.
+func recordRun(_ source: RunSource, started: Date, summary: BackupEngine.Summary) {
+    let seconds = Date().timeIntervalSince(started)
+    Prefs.record(RunRecord(source: source, startedAt: started, seconds: seconds,
+                           uploaded: summary.uploaded, remaining: summary.remaining))
+    appLog(String(format: "Run (%@): %.0f s, uploaded %d, %d waiting", source.rawValue, seconds, summary.uploaded, summary.remaining))
+}
 
 final class CancelFlag: @unchecked Sendable {
     private let lock = NSLock()
@@ -253,13 +263,17 @@ enum ContinuedBackup {
             let flag = CancelFlag()
             #if os(iOS)
             let bg = UIApplication.shared.beginBackgroundTask(withName: "Backup") { flag.cancel() }
-            _ = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            let started = Date()
+            let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            recordRun(.app, started: started, summary: summary)
             UIApplication.shared.endBackgroundTask(bg)
             #else
             // Keeps App Nap and idle sleep from throttling a long upload while the window is in the background.
             let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
                                                                  reason: "Backing up to Telegram")
-            _ = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            let started = Date()
+            let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            recordRun(.app, started: started, summary: summary)
             ProcessInfo.processInfo.endActivity(activity)
             #endif
             foregroundTask = nil
@@ -301,6 +315,7 @@ enum ContinuedBackup {
         }
         Task {
             let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
+            recordRun(.continued, started: started, summary: summary)
             ticker.cancel()
             task.updateTitle(flag.isCancelled ? "Backup paused" : "Backup finished",
                              subtitle: flag.isCancelled ? "Open Lelvo to continue" : summary.text)

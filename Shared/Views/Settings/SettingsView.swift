@@ -67,6 +67,10 @@ struct SettingsView: View {
                     NavigationLink("Memories") { MemoriesSettingsView() }
                 }
 
+                #if DEBUG && os(iOS)
+                Section { NavigationLink("Background lab") { BackgroundLabView() } }
+                #endif
+
                 Section {
                     NavigationLink { StorageSettingsView() } label: {
                         LabeledContent("Storage", value: usage.map { Format.bytes($0.thumbnails + $0.originals + $0.telegram) } ?? "…")

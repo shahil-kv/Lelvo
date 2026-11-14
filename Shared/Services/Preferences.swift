@@ -24,6 +24,7 @@ enum Prefs {
         static let chatTitle = "chatTitle"
         static let botUsername = "botUsername"
         static let lastBackupAt = "lastBackupAt"
+        static let backgroundRuns = "backgroundRuns"
         static let backupPaused = "backupPaused"
         static let autoBackup = "autoBackup"
         static let streamingCopies = "streamingCopies"
@@ -122,6 +123,17 @@ enum Prefs {
         get { defaults.string(forKey: Key.secondCopyVolume) }
         set { defaults.set(newValue, forKey: Key.secondCopyVolume) }
     }
+    /// Recent backup runs (newest last), kept for "Working" checks and the Background lab. Counts only.
+    static var runRecords: [RunRecord] {
+        guard let data = defaults.data(forKey: Key.backgroundRuns) else { return [] }
+        return (try? JSONDecoder().decode([RunRecord].self, from: data)) ?? []
+    }
+
+    static func record(_ r: RunRecord) {
+        let list = BackgroundRuns.appending(r, to: runRecords)
+        if let data = try? JSONEncoder().encode(list) { defaults.set(data, forKey: Key.backgroundRuns) }
+    }
+
     static var backupPaused: Bool {
         get { defaults.bool(forKey: Key.backupPaused) }
         set { defaults.set(newValue, forKey: Key.backupPaused) }
