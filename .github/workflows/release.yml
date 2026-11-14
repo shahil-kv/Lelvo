@@ -4,9 +4,9 @@ run-name: "${{ inputs.app }} ${{ inputs.version }} (${{ inputs.channel }}) #${{ 
 
 # Actions → Release → Run workflow. Pick the app, the channel and the version; everything else is automatic:
 #   build number   = this workflow's run number (always increases, never collides)
-#   beta version   = <version>-beta.<run number>, published as a pre-release
-#   tag            = ios-v<version> / macos-v<version> (with the beta suffix for betas)
-#   release notes  = merged pull requests since the last release, grouped by label (.github/release.yml)
+#   beta version   = <version>-beta.<run number>, kept as a git tag so the next build can find it
+#   public release = one page, v<version>, titled "Lelvo <version>", with the iPhone, Mac and Android files
+#   release notes  = merged pull requests since the previous version, grouped by label (.github/release.yml)
 on:
   workflow_dispatch:
     inputs:
@@ -38,6 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
+      base: ${{ steps.meta.outputs.base }}
       build: ${{ steps.meta.outputs.build }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
@@ -50,7 +51,7 @@ jobs:
           [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "::error::Release from main only (this run is on $GITHUB_REF)."; exit 1; }
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Version must look like 0.2.0, got '$VERSION'."; exit 1; }
           if [ "$CHANNEL" = beta ]; then FULL="$VERSION-beta.$GITHUB_RUN_NUMBER"; PRE=true; else FULL="$VERSION"; PRE=false; fi
-          { echo "version=$FULL"; echo "build=$GITHUB_RUN_NUMBER"; echo "prerelease=$PRE"; } >> "$GITHUB_OUTPUT"
+          { echo "version=$FULL"; echo "base=$VERSION"; echo "build=$GITHUB_RUN_NUMBER"; echo "prerelease=$PRE"; } >> "$GITHUB_OUTPUT"
           echo "Releasing $FULL (build $GITHUB_RUN_NUMBER)" >> "$GITHUB_STEP_SUMMARY"
 
   ios:
@@ -70,7 +71,10 @@ jobs:
       - name: Refuse an existing tag
         env:
           GH_TOKEN: ${{ github.token }}
-        run: "! gh release view \"$TAG\" --repo \"$GITHUB_REPOSITORY\" >/dev/null 2>&1 || { echo \"::error::$TAG already exists.\"; exit 1; }"
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::$TAG already exists."; exit 1
+          fi
       - uses: ./.github/actions/setup
         with:
           td-api-id: ${{ secrets.TD_API_ID }}
@@ -93,6 +97,11 @@ jobs:
           rm -rf build/Payload && mkdir -p build/Payload && cp -R "$APP" build/Payload/
           (cd build && zip -qry Lelvo.ipa Payload)
           shasum -a 256 build/Lelvo.ipa | tee build/Lelvo.ipa.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lelvo-ios
+          path: build/Lelvo.ipa
+          if-no-files-found: error
       - name: Upload to TestFlight
         if: inputs.testflight && env.ASC_KEY_ID != '' && env.APPLE_TEAM_ID != ''
         run: |
@@ -123,17 +132,11 @@ jobs:
             -exportPath build/export "${AUTH[@]}" \
             > build/upload.log 2>&1 || { grep -E "error:|Error" build/upload.log | head -50; tail -60 build/upload.log; exit 1; }
           echo "Uploaded build ${{ needs.plan.outputs.build }} to App Store Connect. It appears in TestFlight after Apple's processing (10-30 minutes)." >> "$GITHUB_STEP_SUMMARY"
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.plan.outputs.version }}
+      - name: Tag this build
         run: |
-          PRE=""; [ "${{ needs.plan.outputs.prerelease }}" = true ] && PRE="--prerelease"
-          LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[].tagName | select(startswith("ios-v"))][0] // empty')
-          START=""; [ -n "$LAST" ] && START="--notes-start-tag $LAST"
-          gh release create "$TAG" build/Lelvo.ipa build/Lelvo.ipa.sha256 --target "$GITHUB_SHA" $PRE $START \
-            --title "Lelvo for iPhone $VERSION" --generate-notes \
-            --notes "Unsigned iOS build for sideloading (README → Install). iOS 17 or later. Build ${{ needs.plan.outputs.build }}."
+          # A git tag, not a GitHub release. The download page is one "Lelvo <version>" for every device.
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
 
   macos:
     needs: plan
@@ -154,7 +157,10 @@ jobs:
       - name: Refuse an existing tag
         env:
           GH_TOKEN: ${{ github.token }}
-        run: "! gh release view \"$TAG\" --repo \"$GITHUB_REPOSITORY\" >/dev/null 2>&1 || { echo \"::error::$TAG already exists.\"; exit 1; }"
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::$TAG already exists."; exit 1
+          fi
       - uses: ./.github/actions/setup
         with:
           td-api-id: ${{ secrets.TD_API_ID }}
@@ -229,24 +235,99 @@ jobs:
             spctl -a -vv -t open --context context:primary-signature build/Lelvo.dmg
           fi
           shasum -a 256 build/Lelvo.dmg | tee build/Lelvo.dmg.sha256
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.plan.outputs.version }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lelvo-mac
+          path: |
+            build/Lelvo.dmg
+            build/Lelvo-mac.zip
+          if-no-files-found: error
+      - name: Tag this build
         run: |
-          PRE=""; [ "${{ needs.plan.outputs.prerelease }}" = true ] && PRE="--prerelease"
-          LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[].tagName | select(startswith("macos-v"))][0] // empty')
-          START=""; [ -n "$LAST" ] && START="--notes-start-tag $LAST"
-          if [ -n "${MAC_SIGN_ID:-}" ]; then
-            OPEN="Signed and notarized by Apple, so it opens like any other app."
-          else
-            OPEN="This build isn't notarized: the first time, macOS blocks it. System Settings → Privacy & Security → Open Anyway."
-          fi
-          gh release create "$TAG" build/Lelvo.dmg build/Lelvo.dmg.sha256 build/Lelvo-mac.zip build/Lelvo-mac.zip.sha256 \
-            --target "$GITHUB_SHA" $PRE $START --title "Lelvo for Mac $VERSION" --generate-notes \
-            --notes "macOS 15 or later, Apple silicon and Intel. Open Lelvo.dmg and drag Lelvo to Applications (or unzip Lelvo-mac.zip). $OPEN Build ${{ needs.plan.outputs.build }}."
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
       - name: Remove signing keychain and key
         if: always()
         run: |
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/devid.p12"
+
+  # One page for the version: "Lelvo 0.3.0", with the iPhone, Mac and Android files on it.
+  # A newer build of the same version updates that page. The ios-v and macos-v tags are git tags only.
+  showcase:
+    needs: [plan, ios, macos]
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      (needs.ios.result == 'success' || needs.macos.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          pattern: lelvo-*
+          if-no-files-found: ignore
+      - name: Publish Lelvo
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ needs.plan.outputs.base }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p out
+          cp dist/lelvo-ios/* out/ 2>/dev/null || true
+          cp dist/lelvo-mac/* out/ 2>/dev/null || true
+          TAG="v$BASE"
+          # A device this run did not build keeps the file already on this page.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            [ -f out/Lelvo.ipa ] || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'Lelvo.ipa' --dir out || true
+            [ -f out/Lelvo.dmg ] || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'Lelvo.dmg' --pattern 'Lelvo-mac.zip' --dir out || true
+            compgen -G 'out/*.apk' >/dev/null || gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir out || true
+          fi
+          FILES=()
+          for f in out/Lelvo.ipa out/Lelvo.dmg out/Lelvo-mac.zip out/*.apk; do
+            [ -f "$f" ] && FILES+=("$f")
+          done
+          [ ${#FILES[@]} -gt 0 ] || { echo "::error::No installers to publish."; exit 1; }
+          APK_NAME=""
+          if compgen -G 'out/*.apk' >/dev/null; then APK_NAME=$(basename out/*.apk); fi
+          PREV=$(git ls-remote --tags origin | awk '{print $2}' | sed 's#refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -v "^$TAG$" | sort -V | tail -1 || true)
+          if [ -z "$PREV" ]; then
+            PREV=$(git ls-remote --tags origin | awk '{print $2}' | sed 's#refs/tags/##' | grep -E '^(ios|macos)-v' | grep -v "$BASE" | sort -V | tail -1 || true)
+          fi
+          : > "$RUNNER_TEMP/changes.md"
+          if [ -n "$PREV" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" -f previous_tag_name="$PREV" --jq .body > "$RUNNER_TEMP/changes.md" || true
+          fi
+          {
+            echo "Download the current builds from this page."
+            echo
+            if [ -f out/Lelvo.ipa ]; then
+              echo "iPhone: Lelvo.ipa. Unsigned, for sideloading (README → Install). iOS 17 or later."
+              echo
+            fi
+            if [ -f out/Lelvo.dmg ]; then
+              echo "Mac: open Lelvo.dmg and drag Lelvo to Applications, or unzip Lelvo-mac.zip. macOS 15 or later. Signed and notarized by Apple."
+              echo
+            fi
+            if [ -n "$APK_NAME" ]; then
+              echo "Android: $APK_NAME. Android 10 or later. This build only backs up a library named \"Android Test\". Other libraries can be viewed."
+              echo
+            fi
+            if [ -s "$RUNNER_TEMP/changes.md" ]; then cat "$RUNNER_TEMP/changes.md"; fi
+          } > "$RUNNER_TEMP/notes.txt"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ -n "$APK_NAME" ]; then
+              gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name | select(endswith(".apk"))' \
+                | while read -r old; do
+                    if [ -n "$old" ] && [ "$old" != "$APK_NAME" ]; then
+                      gh release delete-asset "$TAG" "$old" --repo "$GITHUB_REPOSITORY" --yes
+                    fi
+                  done
+            fi
+            gh release upload "$TAG" "${FILES[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "Lelvo $BASE" --notes-file "$RUNNER_TEMP/notes.txt" --latest
+          else
+            gh release create "$TAG" "${FILES[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Lelvo $BASE" --notes-file "$RUNNER_TEMP/notes.txt" --latest
+          fi
+          echo "Download page: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"

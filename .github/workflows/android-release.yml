@@ -6,7 +6,8 @@ run-name: "android ${{ github.event_name == 'push' && 'beta (automatic)' || inpu
 # Actions → Android release → Run workflow. Docs, website and iPhone/Mac changes never start it.
 #   version      = versionName in android/app/build.gradle.kts (0.1.0), or the one typed in
 #   beta version = <version>-beta.<run number>, published as a pre-release
-#   tag          = android-v<version> (with the beta suffix for betas)
+#   tag          = android-v<version> (a git tag, not its own release page)
+#   download     = the APK is added to the one Lelvo <version> page. An unchanged APK stays there.
 #   versionCode  = run number + 1 (always increases, so each APK installs over the last)
 # Secrets: ANDROID_KEYSTORE_B64 (base64 .jks), ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD,
 # TD_API_ID and TD_API_HASH. Without the key the run fails rather than publish an APK that can't be updated.
@@ -64,7 +65,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
-        run: "! gh release view \"$TAG\" --repo \"$GITHUB_REPOSITORY\" >/dev/null 2>&1 || { echo \"::error::$TAG already exists.\"; exit 1; }"
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::$TAG already exists."; exit 1
+          fi
 
       - uses: ./.github/actions/android
         with:
@@ -94,16 +98,29 @@ jobs:
           "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner" verify "dist/Lelvo-$VERSION.apk"
           (cd dist && sha256sum "Lelvo-$VERSION.apk" > "Lelvo-$VERSION.apk.sha256")
 
-      - name: Publish release
+      - name: Tag this build
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          PRE=""; [ "${{ steps.meta.outputs.prerelease }}" = true ] && PRE="--prerelease"
-          LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '[.[].tagName | select(startswith("android-v"))][0] // empty')
-          START=""; [ -n "$LAST" ] && START="--notes-start-tag $LAST"
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" $PRE $START \
-            --title "Lelvo for Android $VERSION" --generate-notes \
-            --notes "Signed APK for Android 10 or later. Download, open, and allow installing from this source. Beta: backs up only to a library named \"Android Test\"; other libraries can be viewed."
+          # A git tag for the next build number. The download page stays the one Lelvo version.
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+
+      - name: Add the APK to the Lelvo release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          FRONT=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 --json tagName \
+            --jq '[.[].tagName | select(test("^v[0-9]+\.[0-9]+\.[0-9]+$"))][0] // empty')
+          [ -n "$FRONT" ] || { echo "::warning::No Lelvo release to attach the APK to."; exit 0; }
+          gh release view "$FRONT" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name | select(endswith(".apk"))' \
+            | while read -r old; do
+                [ -n "$old" ] || continue
+                gh release delete-asset "$FRONT" "$old" --repo "$GITHUB_REPOSITORY" --yes
+              done
+          gh release upload "$FRONT" "dist/Lelvo-$VERSION.apk" --repo "$GITHUB_REPOSITORY" --clobber

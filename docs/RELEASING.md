@@ -26,10 +26,14 @@ Store launch makes it 1.0.0. MINOR for new features, PATCH for fixes only.
 |---|---|---|
 | Version in the app | `0.2.0` | `0.2.0` |
 | Build number | the workflow run number (always increases) | same |
-| Tag | `ios-v0.2.0-beta.<run>`, `macos-v0.2.0-beta.<run>` | `ios-v0.2.0`, `macos-v0.2.0` |
-| Release page | pre-release | latest release |
-| Files | `Lelvo.ipa` / `Lelvo.dmg` and `Lelvo-mac.zip`, each with `.sha256` | same |
-| Notes | merged pull requests since the last release of that app, grouped by label (`.github/release.yml`) | same |
+| Tag | `ios-v0.2.0-beta.<run>`, `macos-v0.2.0-beta.<run>` (git tags, not release pages) | `ios-v0.2.0`, `macos-v0.2.0` |
+| Release page | one page, `v0.2.0`, titled Lelvo 0.2.0 | the same page, marked Latest |
+| Files | `Lelvo.ipa`, `Lelvo.dmg`, `Lelvo-mac.zip`, and the Android APK, including the previous APK when Android did not change | same |
+| Notes | merged pull requests since the previous version, grouped by label (`.github/release.yml`) | same |
+
+People see one release for the version, with a file for each device. A new build of the same version replaces the
+files on that page. It does not add "Lelvo for iPhone", "Lelvo for Mac" or "Lelvo for Android". The `ios-v`,
+`macos-v` and `android-v` tags stay as git tags, because an automatic beta picks its next version from them.
 
 It refuses to run off `main`, refuses a malformed version, and refuses a tag that already exists. Ship as many betas
 of `0.2.0` as you like, then run it once as `stable`.
