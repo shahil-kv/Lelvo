@@ -56,7 +56,10 @@ fun BackgroundLabScreen(app: LelvoApp, onClose: () -> Unit) {
     LaunchedEffect(tick) {
         jobs = withContext(Dispatchers.IO) {
             val wm = WorkManager.getInstance(context)
-            listOf(BackupScheduler.USER, BackupScheduler.NEW_PHOTOS, BackupScheduler.AUTO_RUN, BackupScheduler.OVERNIGHT, BackupScheduler.REFRESH).map { name ->
+            listOf(
+                BackupScheduler.USER, BackupScheduler.NEW_PHOTOS, BackupScheduler.AUTO_RUN, BackupScheduler.SAFETY_NET,
+                BackupScheduler.OVERNIGHT, BackupScheduler.REFRESH,
+            ).map { name ->
                 val info = wm.getWorkInfosForUniqueWork(name).get().firstOrNull { !it.state.isFinished }
                 val whenNext = info?.nextScheduleTimeMillis?.takeIf { it > 0 }?.let { DateUtils.getRelativeTimeSpanString(it) }
                 "$name  ${info?.state ?: "none"}${whenNext?.let { "  next $it" } ?: ""}"
@@ -86,11 +89,16 @@ fun BackgroundLabScreen(app: LelvoApp, onClose: () -> Unit) {
             listOf(
                 "Run new-photos job now" to BackupScheduler.NEW_PHOTOS,
                 "Run automatic run now" to BackupScheduler.AUTO_RUN,
+                "Run safety net now" to BackupScheduler.SAFETY_NET,
                 "Run overnight now" to BackupScheduler.OVERNIGHT,
                 "Run refresh now" to BackupScheduler.REFRESH,
             ).forEach { (label, kind) ->
                 Button(onClick = { enqueue(context, kind); tick++ }, modifier = Modifier.fillMaxWidth()) { Text(label) }
             }
+            Button(
+                onClick = { app.prefs.floodUntil = System.currentTimeMillis() + 20 * 60_000L; tick++ },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Set Telegram wait to 20 minutes") }
             Button(onClick = { tick++ }, modifier = Modifier.fillMaxWidth()) { Text("Refresh") }
             Text("Scheduled")
             jobs.forEach { Text(it) }

@@ -35,6 +35,7 @@ object BackupScheduler {
     const val USER = "backup.user"
     const val NEW_PHOTOS = "backup.newPhotos"
     const val AUTO_RUN = "backup.auto"
+    const val SAFETY_NET = "backup.safetyNet"
     const val OVERNIGHT = "backup.overnight"
     const val REFRESH = "index.refresh"
 
@@ -55,14 +56,23 @@ object BackupScheduler {
     fun schedule(context: Context, prefs: Prefs, rulesChanged: Boolean = false) {
         val wm = WorkManager.getInstance(context)
         val network = if (prefs.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
-        val periodicPolicy = if (rulesChanged) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP
-
+        // UPDATE keeps the next run time and replaces constraints. KEEP left a Wi-Fi or charging rule that had since changed.
         val overnight = PeriodicWorkRequestBuilder<BackupWorker>(4, TimeUnit.HOURS, 1, TimeUnit.HOURS)
             .setInputData(Data.Builder().putString(BackupWorker.KIND, OVERNIGHT).build())
             .setConstraints(Constraints.Builder().setRequiredNetworkType(network).setRequiresCharging(true).build())
             .setInitialDelay(1, TimeUnit.HOURS)
             .build()
-        wm.enqueueUniquePeriodicWork(OVERNIGHT, periodicPolicy, overnight)
+        wm.enqueueUniquePeriodicWork(OVERNIGHT, if (rulesChanged) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP, overnight)
+
+        val safety = PeriodicWorkRequestBuilder<BackupWorker>(60, TimeUnit.MINUTES, 15, TimeUnit.MINUTES)
+            .setInputData(Data.Builder().putString(BackupWorker.KIND, SAFETY_NET).build())
+            .setConstraints(Constraints.Builder()
+                .setRequiredNetworkType(network)
+                .setRequiresBatteryNotLow(true)
+                .apply { if (prefs.chargingOnly) setRequiresCharging(true) }
+                .build())
+            .build()
+        wm.enqueueUniquePeriodicWork(SAFETY_NET, ExistingPeriodicWorkPolicy.UPDATE, safety)
 
         val refresh = PeriodicWorkRequestBuilder<BackupWorker>(4, TimeUnit.HOURS, 1, TimeUnit.HOURS)
             .setInputData(Data.Builder().putString(BackupWorker.KIND, REFRESH).build())
@@ -127,7 +137,7 @@ object BackupScheduler {
     /** Sign out: nothing runs for the old account. */
     fun cancelAll(context: Context) {
         val wm = WorkManager.getInstance(context)
-        listOf(USER, NEW_PHOTOS, AUTO_RUN, OVERNIGHT, REFRESH).forEach(wm::cancelUniqueWork)
+        listOf(USER, NEW_PHOTOS, AUTO_RUN, SAFETY_NET, OVERNIGHT, REFRESH).forEach(wm::cancelUniqueWork)
         AppLog.info("Background backups cancelled")
     }
 

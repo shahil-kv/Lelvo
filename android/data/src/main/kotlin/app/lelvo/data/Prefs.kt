@@ -70,6 +70,11 @@ class Prefs(context: Context) {
         set(v) = p.edit().apply { if (v == null) remove("lastBackupAt") else putLong("lastBackupAt", v) }.apply()
 
     /** Telegram's FLOOD_WAIT, epoch ms. Written so a new process does not send before the wait is over. */
+    /** Automatic runs in a row that uploaded nothing and saved no part. Three stops the chain. */
+    var emptyChainedRuns: Int
+        get() = p.getInt("emptyChainedRuns", 0)
+        set(v) = p.edit().putInt("emptyChainedRuns", v).apply()
+
     var floodUntil: Long
         get() = p.getLong("floodUntil", 0)
         set(v) = p.edit().putLong("floodUntil", v).apply()

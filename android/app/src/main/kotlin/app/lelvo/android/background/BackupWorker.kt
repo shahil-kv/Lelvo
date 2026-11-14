@@ -5,8 +5,11 @@ import android.content.pm.ServiceInfo
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.lelvo.android.LelvoApp
+import app.lelvo.core.backup.BackgroundRuns
 import app.lelvo.core.backup.RunRecord
 import app.lelvo.core.backup.RunSource
 import app.lelvo.core.support.AppLog
@@ -29,7 +32,9 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         var summary: BackupEngine.Summary? = null
         var cancelled: CancellationException? = null
         var ran = false
+        var handedOff = false
         var result = Result.success()
+        val deadline = started + BackupEngine.BACKGROUND_BUDGET_MS
         try {
             if (app.demo.active.value) return Result.success()
             if (!ready()) {
@@ -42,14 +47,27 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 BackupScheduler.USER -> summary = userRun()
                 BackupScheduler.NEW_PHOTOS -> newPhotos()
                 BackupScheduler.AUTO_RUN -> {
-                    summary = app.backup.run(userStarted = false, includeNew = false)
+                    summary = app.backup.run(userStarted = false, includeNew = false, deadlineMs = deadline)
                     AppLog.info("Automatic backup: ${summary.text}")
+                    bookNext(summary)
+                    handedOff = true
+                }
+                BackupScheduler.SAFETY_NET -> if (app.prefs.autoBackup && !workActive(BackupScheduler.AUTO_RUN) && app.backup.readyCount() > 0) {
+                    summary = app.backup.run(userStarted = false, includeNew = false, deadlineMs = deadline)
+                    AppLog.info("Safety net: ${summary.text}")
+                    bookNext(summary)
+                    handedOff = true
                 }
                 BackupScheduler.OVERNIGHT -> {
-                    summary = app.backup.run(userStarted = false, includeNew = false)
+                    summary = app.backup.run(userStarted = false, includeNew = false, deadlineMs = deadline)
                     AppLog.info("Overnight backup: ${summary.text}")
-                    // Then, still on the charger, read new photos for search.
-                    if (!isStopped) runCatching { app.search.index() }.onFailure { if (it is CancellationException) throw it }
+                    if (summary.stoppedByTime) {
+                        bookNext(summary)
+                        handedOff = true
+                    } else if (!isStopped) {
+                        // The queue finished inside the budget, and the phone is on the charger: read new photos for search.
+                        runCatching { app.search.index() }.onFailure { if (it is CancellationException) throw it }
+                    }
                 }
                 BackupScheduler.REFRESH -> {
                     runCatching { app.scanner.catchUp(); app.linker.relink() }
@@ -62,7 +80,16 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             AppLog.info(String.format("Background %s stopped after %.0f s%s", kind, (System.currentTimeMillis() - started) / 1000.0,
                 if (isStopped) " (WorkManager stop reason $stopReason)" else ""))
         } finally {
-            if (ran) record(started, summary, cancelled != null)
+            if (ran) {
+                if (kind == BackupScheduler.USER && summary != null) {
+                    app.prefs.emptyChainedRuns = BackgroundRuns.emptyRunsAfter(
+                        app.prefs.emptyChainedRuns, summary.uploaded, summary.partsSaved, userRun = true,
+                    )
+                }
+                record(started, summary, cancelled != null)
+                // Android got there first. Book the next run before this process is torn down. No network.
+                if (!handedOff && isStopped && kind in HANDOFF) bookNextAfterStop()
+            }
         }
         cancelled?.let { if (isStopped) throw it }
         return result
@@ -73,9 +100,9 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val seconds = (System.currentTimeMillis() - started) / 1000.0
         val stop = when {
             isStopped -> "stopped by Android (reason $stopReason)"
-            summary?.stoppedByTime == true -> "out of time"
             summary?.blockedByRule == true && summary.error?.startsWith("Paused") == true -> "paused"
             summary?.error != null -> summary.error
+            summary?.stoppedByTime == true -> "out of time"
             cancelled && summary == null -> "paused"
             else -> "finished"
         }
@@ -96,9 +123,38 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         BackupScheduler.USER -> RunSource.User
         BackupScheduler.NEW_PHOTOS -> RunSource.NewPhotos
         BackupScheduler.AUTO_RUN -> RunSource.AutoRun
+        BackupScheduler.SAFETY_NET -> RunSource.SafetyNet
         BackupScheduler.OVERNIGHT -> RunSource.Overnight
         else -> RunSource.Refresh
     }
+
+    /**
+     * Another automatic run, 15 minutes out (or later, if Telegram asked us to wait). Not while Lelvo is open
+     * or a user run is queued: that run continues without the 9-minute cap.
+     */
+    private fun bookNext(summary: BackupEngine.Summary) {
+        val empty = BackgroundRuns.emptyRunsAfter(app.prefs.emptyChainedRuns, summary.uploaded, summary.partsSaved, userRun = false)
+        app.prefs.emptyChainedRuns = empty
+        if (app.isOnScreen || workActive(BackupScheduler.USER) || empty >= 3) return
+        val now = System.currentTimeMillis()
+        val next = BackgroundRuns.nextAutoRun(
+            summary.remaining, summary.stoppedByTime, summary.blockedByRule, app.prefs.floodUntil, now,
+        ) ?: return
+        BackupScheduler.startAutoRun(applicationContext, app.prefs, delayMs = (next - now).coerceAtLeast(0), ExistingWorkPolicy.APPEND_OR_REPLACE)
+    }
+
+    /** The fallback when Android cancels the worker before the 9-minute return. No network. */
+    private suspend fun bookNextAfterStop() {
+        if (app.isOnScreen || workActive(BackupScheduler.USER) || app.prefs.emptyChainedRuns >= 3) return
+        val waiting = runCatching { app.backup.readyCount() }.getOrDefault(0)
+        val now = System.currentTimeMillis()
+        val next = BackgroundRuns.nextAutoRun(waiting, stoppedByTime = true, blocked = false, floodUntil = app.prefs.floodUntil, now = now) ?: return
+        BackupScheduler.startAutoRun(applicationContext, app.prefs, delayMs = (next - now).coerceAtLeast(0), ExistingWorkPolicy.APPEND_OR_REPLACE)
+    }
+
+    private fun workActive(name: String): Boolean =
+        WorkManager.getInstance(applicationContext).getWorkInfosForUniqueWork(name).get()
+            .any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
 
     /**
      * The content trigger is only a signal. Arm the next one first (this one already fired), then queue photos
@@ -167,5 +223,6 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     companion object {
         const val KIND = "kind"
         const val INCLUDE_NEW = "includeNew"
+        private val HANDOFF = setOf(BackupScheduler.AUTO_RUN, BackupScheduler.SAFETY_NET, BackupScheduler.OVERNIGHT)
     }
 }
