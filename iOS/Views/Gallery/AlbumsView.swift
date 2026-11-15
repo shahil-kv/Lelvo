@@ -67,7 +67,7 @@ struct AlbumsView: View {
                             LockedFolderView()
                         }
                         Divider().padding(.leading, 52)
-                        linkRow("Duplicates and Similar", symbol: "square.on.square") { DuplicatesView() }
+                        linkRow("Cleanup", symbol: "wand.and.stars") { DuplicatesView() }
                         if let docs = content.documents {
                             Divider().padding(.leading, 52)
                             linkRow(docs.filter.title, symbol: docs.symbol, count: docs.count) { GalleryView(filter: docs.filter, embedInNavigation: false) }

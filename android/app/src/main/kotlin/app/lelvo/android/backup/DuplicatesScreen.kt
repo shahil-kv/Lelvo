@@ -40,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +56,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import app.lelvo.android.BuildConfig
 import app.lelvo.android.LelvoApp
 import app.lelvo.android.R
 import app.lelvo.android.media.CloudThumbnail
@@ -97,9 +99,16 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
     var similarPass by remember { mutableIntStateOf(0) }
     var chosenSimilar by remember { mutableStateOf(setOf<String>()) }
     var confirmSimilar by remember { mutableStateOf(false) }
+    val isPro by app.pro.isPro.collectAsState()
+    var openPro by remember { mutableStateOf(false) }
 
-    // Runs while the page is open: leaving Duplicates stops the comparing.
-    LaunchedEffect(similarPass) {
+    // Similar photos need Lelvo Pro (exact duplicates above stay free).
+    LaunchedEffect(similarPass, isPro) {
+        if (!isPro) {
+            similar = emptyList()
+            similarProgress = null
+            return@LaunchedEffect
+        }
         similarProgress = 0 to 0
         val found = app.similar.find { done, total -> similarProgress = done to total }
         similar = found
@@ -147,7 +156,7 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
     }
 
     Scaffold(modifier, topBar = {
-        TopAppBar(title = { Text("Extra copies and duplicates") },
+        TopAppBar(title = { Text("Cleanup") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), "Back") } })
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
@@ -155,9 +164,22 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
                 Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             } else if (messages.isEmpty() && cloud.isEmpty() && phone.isEmpty() && similar.isEmpty() && similarProgress == null) item("empty") {
                 Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("No duplicates", style = MaterialTheme.typography.titleMedium)
-                    Text("Nothing is stored twice in your library or on this phone.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Nothing to clean", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (isPro) "Nothing is stored twice in your library or on this phone."
+                        else "No exact copies. Similar photos need Lelvo Pro.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
+            }
+            if (!isPro) item("proSimilar") {
+                HorizontalDivider()
+                Header("Similar photos")
+                ListItem(
+                    headlineContent = { Text("Find similar photos with Pro") },
+                    supportingContent = { Text("Bursts and near-duplicates. Exact copies above stay free.") },
+                    modifier = Modifier.clickable { openPro = true },
+                )
             }
             if (messages.isNotEmpty() || cloud.isNotEmpty()) {
                 item("cloudHeader") { Header("In your Telegram library") }
@@ -251,6 +273,20 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
                 }
             }
         }
+    }
+    if (openPro) {
+        AlertDialog(
+            onDismissRequest = { openPro = false },
+            title = { Text("Lelvo Pro") },
+            text = { Text("Similar photos are included with Pro. Turn on Debug unlock in Settings → Lelvo Pro while building, or subscribe when purchases are live.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    openPro = false
+                    if (BuildConfig.DEBUG) app.pro.debugUnlocked = true
+                }) { Text(if (BuildConfig.DEBUG) "Unlock for debug" else "OK") }
+            },
+            dismissButton = { TextButton(onClick = { openPro = false }) { Text("Not now") } },
+        )
     }
     if (confirmSimilar) {
         val chosen = similar.flatMap { it.entries }.filter { it.id in chosenSimilar }

@@ -190,7 +190,7 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
             item("utilities") {
                 Section("Utilities") {
                     LinkRow("Locked folder", R.drawable.ic_lock, app.lockedFolder.count()) { onOpen(CollectionPage.Locked) }
-                    LinkRow("Duplicates and similar", R.drawable.ic_content_copy, null) { onOpen(CollectionPage.Duplicates) }
+                    LinkRow("Cleanup", R.drawable.ic_auto_awesome, null) { onOpen(CollectionPage.Duplicates) }
                     LinkRow("Recently Deleted", R.drawable.ic_delete, trashed) { onOpen(CollectionPage.RecentlyDeleted) }
                 }
             }

@@ -494,7 +494,9 @@ struct FailedThumbnail: View {
 
 /// Review duplicates: extra copies in Telegram (same upload twice, or the same content as two items)
 /// and identical photos on this iPhone. Nothing is removed without a tap; the first copy always stays.
+/// Exact duplicates (free) and similar / near-duplicate cleanup (Lelvo Pro). Free Up Space stays a separate free tool.
 struct DuplicatesView: View {
+    @ObservedObject private var pro = ProStore.shared
     @State private var messageDuplicates: [Int64] = []
     @State private var cloudGroups: [BackupEngine.CloudDuplicateGroup] = []
     @State private var phoneGroups: [BackupEngine.PhoneDuplicateGroup] = []
@@ -507,10 +509,33 @@ struct DuplicatesView: View {
     @State private var similarProgress: (done: Int, total: Int)?
     @State private var selectedSimilar = Set<String>()
     @State private var confirmSimilar = false
+    @State private var showProPaywall = false
     private var env: AppEnvironment { AppEnvironment.shared }
+
+    /// Rough space sitting in exact Telegram extras (what we can count without opening every similar group).
+    private var telegramExtraBytes: Int64 {
+        cloudGroups.reduce(0) { $0 + $1.wastedBytes }
+    }
 
     var body: some View {
         Form {
+            if telegramExtraBytes > 0 || !phoneGroups.isEmpty || (pro.isPro && !similar.isEmpty) {
+                Section {
+                    if telegramExtraBytes > 0 {
+                        LabeledContent("Extra copies in Telegram", value: Format.bytes(telegramExtraBytes))
+                    }
+                    if !phoneGroups.isEmpty {
+                        LabeledContent("Identical copies on this \(Device.name)", value: "\(phoneGroups.flatMap(\.copies).count)")
+                    }
+                    if pro.isPro, !similar.isEmpty {
+                        LabeledContent("Similar groups", value: "\(similar.count)")
+                    }
+                } header: { Text("Cleanup") } footer: {
+                    Text(pro.isPro
+                         ? "Exact copies are free to clean. Similar photos (bursts) are included with Lelvo Pro."
+                         : "Exact copies are free. Similar photos (bursts that look almost the same) need Lelvo Pro.")
+                }
+            }
 
             if !messageDuplicates.isEmpty || !cloudGroups.isEmpty {
                 Section {
@@ -588,14 +613,21 @@ struct DuplicatesView: View {
                                message: "Nothing is stored twice in your library or on this \(Device.name).")
             }
         }
-        .navigationTitle("Duplicates")
+        .navigationTitle("Cleanup")
         .disabled(busy != nil)
         .overlay {
             if let busy { ProgressView(busy).padding(20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) }
         }
+        .sheet(isPresented: $showProPaywall) { ProPaywallView() }
         .task { await load() }
-        .task { await findSimilar() }
-        .refreshable { await load(); await findSimilar() }
+        .task(id: pro.isPro) { if pro.isPro { await findSimilar() } else { similar = []; similarProgress = nil } }
+        .refreshable {
+            await load()
+            if pro.isPro { await findSimilar() }
+        }
+        .onChange(of: pro.isPro) { _, on in
+            if on { Task { await findSimilar() } }
+        }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
         .alert("Delete \(selectedSimilar.count) similar photos?", isPresented: $confirmSimilar) {
             Button("Cancel", role: .cancel) {}
@@ -628,10 +660,18 @@ struct DuplicatesView: View {
         loading = false
     }
 
-    // MARK: - Similar photos (#15)
+    // MARK: - Similar photos (#15) — Lelvo Pro
 
     @ViewBuilder private var similarSection: some View {
-        if let p = similarProgress {
+        if !pro.isPro {
+            Section {
+                Button { showProPaywall = true } label: {
+                    Label("Find similar photos with Pro", systemImage: "sparkles")
+                }
+            } header: { Text("Similar Photos") } footer: {
+                Text("Bursts and near-duplicates, with a Best pick to keep. Exact copies above stay free.")
+            }
+        } else if let p = similarProgress {
             Section("Similar Photos") {
                 ProgressView(value: Double(p.done), total: Double(max(p.total, 1))) {
                     Text("Comparing photos taken close together…")
