@@ -8,7 +8,7 @@ enum SidebarItem: Hashable {
     case notBackedUp, cloudOnly
     case smart(String)
     case album(String)
-    case backup, recentlyDeleted
+    case backup, recentlyDeleted, locked
     case search, map, memories
 
     var title: String {
@@ -22,6 +22,7 @@ enum SidebarItem: Hashable {
         case .smart(let t), .album(let t): return t
         case .backup: return "Backup"
         case .recentlyDeleted: return "Recently Deleted"
+        case .locked: return "Locked"
         case .search: return "Search"
         case .map: return "Map"
         case .memories: return "Memories"
@@ -40,6 +41,7 @@ enum SidebarItem: Hashable {
         case .album: return "rectangle.stack"
         case .backup: return "arrow.triangle.2.circlepath.icloud"
         case .recentlyDeleted: return "trash"
+        case .locked: return "lock.fill"
         case .search: return "magnifyingglass"
         case .map: return "map"
         case .memories: return "sparkles"
@@ -97,6 +99,7 @@ final class MacLibraryIndex: ObservableObject {
     func filter(for item: SidebarItem) -> GalleryFilter? {
         switch item {
         case .library, .backup, .recentlyDeleted, .search, .map, .memories: return nil
+        case .locked: return .locked
         case .favorites: return .favorites
         case .videos: return .videos
         case .livePhotos: return .livePhotos
@@ -183,6 +186,12 @@ struct MainWindowView: View {
                 .toastHost()
         case .recentlyDeleted:
             NavigationStack { RecentlyDeletedView() }
+        case .locked:
+            NavigationStack {
+                LockedFolderGate {
+                    MacGalleryView(item: .locked, filter: .locked)
+                }
+            }
         case .search:
             MacSearchView()
         case .map:
@@ -220,6 +229,7 @@ struct MacSidebar: View {
                 row(.notBackedUp)
                 row(.cloudOnly)
                 row(.backup)
+                row(.locked)
                 row(.recentlyDeleted)
             }
             if !index.smartTypes.isEmpty {
@@ -260,6 +270,7 @@ struct MacSidebar: View {
         switch item {
         case .backup: return activity.isRunning ? activity.remaining : 0
         case .notBackedUp, .cloudOnly, .favorites: return index.counts[item] ?? 0
+        case .locked: return LockedFolderStore.shared.count
         default: return 0
         }
     }

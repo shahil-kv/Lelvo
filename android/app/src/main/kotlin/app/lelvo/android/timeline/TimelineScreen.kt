@@ -134,9 +134,18 @@ fun TimelineScreen(
     // A new filter (search results change with each letter) only filters again; the phone isn't listed again.
     val filterState = androidx.compose.runtime.rememberUpdatedState(filter)
     val model = (LocalContext.current.applicationContext as app.lelvo.android.LelvoApp).model
-    val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(null, store, grouping, isDemo) {
+    val app = LocalContext.current.applicationContext as app.lelvo.android.LelvoApp
+    val lockedIds by app.lockedFolder.ids.collectAsState()
+    val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(null, store, grouping, isDemo, lockedIds) {
         model.gallery(isDemo)
-            .combine(snapshotFlow { filterState.value }) { all, f -> Timeline.groupEntries(f?.let { all.filter(it::matches) } ?: all, grouping, ZoneId.systemDefault(), LocalDate.now()) }
+            .combine(snapshotFlow { filterState.value to lockedIds }) { all, (f, locked) ->
+                val list = when (f) {
+                    is GalleryFilter.Locked -> all.filter { it.id in locked }
+                    null -> all.filter { it.id !in locked }
+                    else -> all.filter { it.id !in locked }.filter(f::matches)
+                }
+                Timeline.groupEntries(list, grouping, ZoneId.systemDefault(), LocalDate.now())
+            }
             .flowOn(Dispatchers.Default)
             .collect { value = it }
     }

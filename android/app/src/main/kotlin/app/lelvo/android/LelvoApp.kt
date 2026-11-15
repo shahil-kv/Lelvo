@@ -39,6 +39,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var store: LibraryStore private set
     lateinit var demo: DemoMode private set
     lateinit var prefs: Prefs private set
+    lateinit var pro: app.lelvo.data.ProStore private set
+    lateinit var lockedFolder: app.lelvo.data.LockedFolderStore private set
     lateinit var files: TdFiles private set
     lateinit var scanner: LibraryScanner private set
     lateinit var coreCheck: CoreCheck private set
@@ -102,6 +104,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         store = LibraryStore(IndexDatabase.open(this))
         demo = DemoMode(this, store)
         prefs = Prefs(this)
+        pro = app.lelvo.data.ProStore(this)
+        lockedFolder = app.lelvo.data.LockedFolderStore(this)
         files = TdFiles(telegram)
         scanner = LibraryScanner(files, library, store, telegram).also { it.follow() }
         coreCheck = CoreCheck(files, library, scanner, store)
@@ -134,7 +138,10 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
             override fun onActivityStopped(activity: android.app.Activity) {
                 startedActivities = maxOf(0, startedActivities - 1)
                 // To the background (iOS `.background`): changes go now, not after the pacing.
-                if (startedActivities == 0) sync.onBackground()
+                if (startedActivities == 0) {
+                    lockedFolder.lockSession()
+                    sync.onBackground()
+                }
             }
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
             override fun onActivityResumed(activity: android.app.Activity) {}

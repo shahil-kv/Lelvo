@@ -63,6 +63,10 @@ struct AlbumsView: View {
                     }
                     if !content.media.isEmpty { mediaSection }
                     groupedSection("Utilities") {
+                        linkRow("Locked Folder", symbol: "lock.fill", count: LockedFolderStore.shared.count) {
+                            LockedFolderView()
+                        }
+                        Divider().padding(.leading, 52)
                         linkRow("Duplicates and Similar", symbol: "square.on.square") { DuplicatesView() }
                         if let docs = content.documents {
                             Divider().padding(.leading, 52)
@@ -78,10 +82,15 @@ struct AlbumsView: View {
             .navigationTitle("Collections")
             .settingsButton()
             .fullScreenCover(item: $playing) { card in
-                MemoryStoryView(card: card, entries: card.memory.ids.compactMap { memories.entries[$0] }) {
-                    playing = nil
-                    showingAll = card
-                }
+                MemoryStoryView(
+                    card: card,
+                    entries: card.memory.ids.compactMap { memories.entries[$0] },
+                    onClose: { playing = nil },
+                    showAll: {
+                        playing = nil
+                        showingAll = card
+                    }
+                )
             }
             .navigationDestination(item: $showingAll) { card in
                 GalleryView(filter: .matching(title: card.title, ids: Set(card.memory.allIds)), embedInNavigation: false)

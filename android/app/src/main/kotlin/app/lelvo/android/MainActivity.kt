@@ -59,6 +59,7 @@ import app.lelvo.android.collections.MemoriesScreen
 import app.lelvo.android.collections.MemoriesSettingsScreen
 import app.lelvo.android.collections.MemoryStoryScreen
 import app.lelvo.android.collections.RecentlyDeletedScreen
+import app.lelvo.android.collections.LockedFolderScreen
 import app.lelvo.android.shell.AppShell
 import app.lelvo.android.shell.CommunityNote
 import app.lelvo.android.shell.MessageHost
@@ -339,6 +340,10 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                         CollectionPage.MemorySettings -> MemoriesSettingsScreen(app.prefs, onBack = closePage)
                         is CollectionPage.Places -> PhotoMapScreen(app, page.entries, onOpen = openPage, onBack = closePage)
                         CollectionPage.Duplicates -> DuplicatesScreen(app, onBack = closePage)
+                        CollectionPage.Locked -> LockedFolderScreen(
+                            app, onBack = closePage,
+                            onOpenPro = { /* Settings → Pro; open settings for now */ settings = true; pages = emptyList() },
+                        )
                         is CollectionPage.Story -> MemoryStoryScreen(
                             app, page,
                             onShowAll = { pages = pages.dropLast(1) + CollectionPage.Grid(GalleryFilter.Matching(page.card.title, page.allIds)) },

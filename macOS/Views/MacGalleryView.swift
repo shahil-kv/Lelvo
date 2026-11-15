@@ -419,6 +419,19 @@ struct MacGalleryView: View {
         items.append(GridMenuItem(title: allFavorite ? "Unfavorite" : "Favorite", symbol: allFavorite ? "heart.slash" : "heart") {
             Task { await MacActions.setFavorite(group, !allFavorite, toast: toast) }
         })
+        if item == .locked {
+            items.append(GridMenuItem(title: "Remove from Locked Folder", symbol: "lock.open") {
+                LockedFolderStore.shared.unlockItems(group.map(\.id))
+            })
+        } else {
+            items.append(GridMenuItem(title: "Move to Locked Folder", symbol: "lock.fill") {
+                guard ProStore.shared.isPro else {
+                    toast.show(.info, "Lelvo Pro", detail: "Locked folder is included with Pro. Open Settings → Lelvo Pro.")
+                    return
+                }
+                LockedFolderStore.shared.lock(group.map(\.id))
+            })
+        }
         items.append(.separator)
         items.append(GridMenuItem(title: "Delete…", symbol: "trash", enabled: !actions.inCloud.isEmpty || !actions.onMac.isEmpty) {
             confirmDelete = group
@@ -429,11 +442,22 @@ struct MacGalleryView: View {
     // MARK: - Data
 
     private func recompute() async {
-        let entries = model.entries
+        let lockedIds = LockedFolderStore.shared.ids
+        let entries: [GalleryEntry] = {
+            if filter?.needsAllEntries == true {
+                return model.allEntries.filter { lockedIds.contains($0.id) }
+            }
+            return model.entries
+        }()
         let filter = self.filter
         let grouping = self.grouping
         let (flat, sections) = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection]) in
-            let flat = filter.map { f in entries.filter(f.matches) } ?? entries
+            let flat: [GalleryEntry]
+            if case .locked = filter {
+                flat = entries
+            } else {
+                flat = filter.map { f in entries.filter(f.matches) } ?? entries
+            }
             return (flat, GalleryModel.group(flat, grouping: grouping))
         }.value
         guard !Task.isCancelled else { return }

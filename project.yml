@@ -83,6 +83,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSPhotoLibraryUsageDescription: Lelvo backs up your photos and videos to your own private Telegram channel and shows them in one timeline.
         NSPhotoLibraryAddUsageDescription: Lelvo saves photos you download from your Telegram backup back into your library.
+        NSFaceIDUsageDescription: Lelvo uses Face ID to unlock Locked folder.
         PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
         UIBackgroundModes:
           - fetch
@@ -239,6 +240,7 @@ schemes:
         LelvoUITests: [test]
     run:
       config: Debug
+      storeKitConfiguration: Config/Lelvo.storekit
     test:
       config: Debug
       gatherCoverageData: false

@@ -4,6 +4,7 @@ import LelvoCore
 
 struct SettingsView: View {
     @EnvironmentObject private var app: AppModel
+    @ObservedObject private var pro = ProStore.shared
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.mediaFilter) private var mediaFilter = Prefs.MediaFilter.all.rawValue
@@ -65,6 +66,11 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink("Memories") { MemoriesSettingsView() }
+                    NavigationLink {
+                        ProPaywallView()
+                    } label: {
+                        LabeledContent("Lelvo Pro", value: pro.isPro ? "On" : "Off")
+                    }
                 }
 
                 Section {

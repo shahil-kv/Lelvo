@@ -274,6 +274,7 @@ final class LibraryService: @unchecked Sendable {
         forget()
         save(chatId: verified.chatId, header: verified.header)
         if let keys = verified.keys { storeKeys(keys) }
+        Task { @MainActor in LockedFolderStore.shared.reloadForLibrary() }
     }
 
     // MARK: - Passphrase and recovery key (header format 2, docs/CLOUD_FORMAT.md §6.1)

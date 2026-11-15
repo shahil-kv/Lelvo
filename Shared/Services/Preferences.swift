@@ -45,6 +45,8 @@ enum Prefs {
         static let communityNoteShown = "communityNoteShown"
         static let secondCopyBookmark = "secondCopyBookmark"
         static let secondCopyVolume = "secondCopyVolume"
+        /// Debug-only Pro unlock (also used from the paywall Toggle in DEBUG builds).
+        static let proDebugUnlocked = "proDebugUnlocked"
     }
 
     enum AlbumMode: String, CaseIterable, Identifiable {

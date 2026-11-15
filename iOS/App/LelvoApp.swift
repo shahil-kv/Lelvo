@@ -77,7 +77,10 @@ struct LelvoApp: App {
                 if Prefs.autoBackup, !Prefs.backupPaused { AutoStart.onOpen() }
                 // Cheap no-op unless restored items are still unlinked (e.g. right after a reinstall).
                 Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
+            case .inactive:
+                LockedFolderStore.shared.lockSession()
             case .background:
+                LockedFolderStore.shared.lockSession()
                 Task.detached(priority: .userInitiated) { await TrashSync.shared.send(); await MetaSync.shared.send() }
                 env.search.stopForeground()
                 env.originalsCache.flush()

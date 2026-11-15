@@ -195,10 +195,17 @@ struct MemoriesView<Destination: View>: View {
     }
 
     private func story(_ card: MemoriesModel.Card) -> some View {
-        MemoryStoryView(card: card, entries: card.memory.ids.compactMap { model.entries[$0] }) {
-            playing = nil
-            showingAll = card
-        }
+        // Clear `playing` ourselves: Environment dismiss often fails for a fullScreenCover inside NavigationStack,
+        // so the only way out was to finish every photo (end of story calls close).
+        MemoryStoryView(
+            card: card,
+            entries: card.memory.ids.compactMap { model.entries[$0] },
+            onClose: { playing = nil },
+            showAll: {
+                playing = nil
+                showingAll = card
+            }
+        )
     }
 }
 
@@ -261,12 +268,15 @@ private struct MemoryCard: View {
 }
 
 /// A memory played like Apple's and Google's: each photo for a few seconds with a slow zoom, cross-fading to the next,
-/// which is already loaded. Tap the sides to move, hold to pause, swipe down to close.
+/// which is already loaded. Tap the sides to move, hold to pause, swipe down or tap Close (X) to leave — same idea as
+/// dismissing a photo in Photos.
 struct MemoryStoryView: View {
     let card: MemoriesModel.Card
     let entries: [GalleryEntry]
+    /// Clears the fullScreenCover / sheet binding. Prefer this over Environment dismiss (unreliable in NavigationStack).
+    let onClose: () -> Void
     let showAll: () -> Void
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var index = 0
     @State private var images: [Int: PlatformImage] = [:]
     /// Photos that wouldn't load (no connection, say). The story says so and moves on instead of spinning forever.
@@ -286,7 +296,7 @@ struct MemoryStoryView: View {
                     Image(platformImage: image)
                         .resizable()
                         .scaledToFit()
-                        .scaleEffect(1 + 0.06 * elapsed / Self.seconds)
+                        .scaleEffect(reduceMotion ? 1 : (1 + 0.06 * elapsed / Self.seconds))
                         .id(index)
                         .transition(.opacity)
                 } else if failed.contains(index) {
@@ -296,7 +306,7 @@ struct MemoryStoryView: View {
                     ProgressView().tint(.white)
                 }
             }
-            .animation(.easeInOut(duration: 0.5), value: index)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: index)
             .offset(y: dragY)
             .scaleEffect(1 - min(0.25, dragY / 1600))
             HStack(spacing: 0) {
@@ -307,7 +317,8 @@ struct MemoryStoryView: View {
             }
             .simultaneousGesture(holdToPause)
             .gesture(swipeDownToClose)
-            chrome.opacity(dragY > 0 ? 0 : 1)
+            chrome
+                .opacity(dragY > 12 ? max(0, 1 - Double(dragY / 180)) : 1)
         }
         .task(id: index) { await preload() }
         .task { await play() }
@@ -333,26 +344,38 @@ struct MemoryStoryView: View {
                 }
             }
             .accessibilityHidden(true)
-            HStack(spacing: 18) {
+            HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(card.title).font(.headline)
                     Text(card.subtitle).font(.caption)
                 }
-                Spacer()
-                Button { paused.toggle() } label: { Image(systemName: paused ? "play.fill" : "pause.fill").frame(width: 44, height: 44).contentShape(Rectangle()) }
-                    .accessibilityLabel(paused ? "Play" : "Pause")
+                Spacer(minLength: 8)
+                Button { paused.toggle() } label: {
+                    Image(systemName: paused ? "play.fill" : "pause.fill")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel(paused ? "Play" : "Pause")
                 Button("Show All", action: showAll)
-                Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle()) }
-                    .accessibilityLabel("Close")
-                    .keyboardShortcut(.cancelAction)
+                Button { close() } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 32, height: 32)
+                        .background(.white.opacity(0.22), in: Circle())
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Close")
+                .keyboardShortcut(.cancelAction)
             }
             .foregroundStyle(.white)
             .buttonStyle(.plain)
             .font(.body.weight(.semibold))
             .shadow(radius: 3)
-            Spacer()
         }
         .padding(16)
+        // Top bar only — no full-screen Spacer, so swipe-down and side taps still reach the photo.
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 
     /// Paused while a finger is down. A drag gesture always ends when the finger lifts, so a quick tap pauses only for
@@ -363,17 +386,33 @@ struct MemoryStoryView: View {
             .onEnded { _ in holding = false }
     }
 
+    /// Follow-the-finger dismiss like Photos: pull down, release past the threshold or with enough speed.
     private var swipeDownToClose: some Gesture {
         DragGesture(minimumDistance: 20)
-            .onChanged { v in if v.translation.height > 0 { dragY = v.translation.height; holding = true } }
+            .onChanged { v in
+                guard v.translation.height > 0 else { return }
+                dragY = v.translation.height
+                holding = true
+            }
             .onEnded { v in
                 holding = false
-                if v.translation.height > 140 || v.predictedEndTranslation.height > 400 {
-                    dismiss()
+                let far = v.translation.height > 120
+                let fling = v.predictedEndTranslation.height > 320 || v.velocity.height > 900
+                if far || fling {
+                    close(animated: true)
+                } else if reduceMotion {
+                    dragY = 0
                 } else {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 }
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { dragY = 0 }
                 }
             }
+    }
+
+    private func close(animated: Bool = false) {
+        if animated && !reduceMotion {
+            withAnimation(.easeOut(duration: 0.2)) { dragY = 900 }
+        }
+        onClose()
     }
 
     /// One clock for the whole story: it stops while paused, held, or waiting for a photo that hasn't loaded yet.
@@ -388,7 +427,7 @@ struct MemoryStoryView: View {
 
     private func move(_ delta: Int) {
         let next = index + delta
-        if next >= entries.count { dismiss(); return }
+        if next >= entries.count { close(); return }
         elapsed = 0
         index = max(0, next)
     }

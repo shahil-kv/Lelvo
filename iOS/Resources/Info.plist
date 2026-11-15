@@ -34,6 +34,8 @@
 	<false/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Lelvo saves photos you download from your Telegram backup back into your library.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Lelvo uses Face ID to unlock Locked folder.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Lelvo backs up your photos and videos to your own private Telegram channel and shows them in one timeline.</string>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>

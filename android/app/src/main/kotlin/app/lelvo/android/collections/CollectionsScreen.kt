@@ -90,6 +90,7 @@ sealed interface CollectionPage {
     data class Places(val entries: List<GalleryEntry>) : CollectionPage
     /** Extra copies and similar photos, also on the Backup tab (iOS lists it under Utilities in Albums). */
     data object Duplicates : CollectionPage
+    data object Locked : CollectionPage
 }
 
 /** Everything Collections shows, made together off the main thread. */
@@ -188,6 +189,7 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
             }
             item("utilities") {
                 Section("Utilities") {
+                    LinkRow("Locked folder", R.drawable.ic_lock, app.lockedFolder.count()) { onOpen(CollectionPage.Locked) }
                     LinkRow("Duplicates and similar", R.drawable.ic_content_copy, null) { onOpen(CollectionPage.Duplicates) }
                     LinkRow("Recently Deleted", R.drawable.ic_delete, trashed) { onOpen(CollectionPage.RecentlyDeleted) }
                 }
@@ -205,6 +207,7 @@ private fun iconFor(f: GalleryFilter): Int = when (f) {
     is GalleryFilter.Folder -> R.drawable.ic_folder
     is GalleryFilter.Matching -> R.drawable.ic_calendar
     is GalleryFilter.Album -> R.drawable.ic_photo_library
+    GalleryFilter.Locked -> R.drawable.ic_lock
 }
 
 private val countFormat: NumberFormat = NumberFormat.getIntegerInstance()

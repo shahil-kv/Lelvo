@@ -65,6 +65,7 @@ struct GalleryView: View {
         // Like Photos: once something is picked, the tabs make way for the selection buttons.
         .toolbar(hasSelection ? .hidden : .visible, for: .tabBar)
         .sheet(isPresented: $showLegend) { BadgeLegendView() }
+        .sheet(isPresented: $showProPaywall) { ProPaywallView() }
         .safeAreaInset(edge: .bottom) {
             if hasSelection { selectionBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
@@ -79,11 +80,22 @@ struct GalleryView: View {
         }
         .task { if !model.loaded { await model.reload() } }
         .task(id: FilterKey(revision: model.revision, grouping: grouping, size: filterSize)) {
-            let source = model.entries
             let filter = self.filter
+            let lockedIds = LockedFolderStore.shared.ids
+            let source: [GalleryEntry] = {
+                if filter?.needsAllEntries == true {
+                    return model.allEntries.filter { lockedIds.contains($0.id) }
+                }
+                return model.entries
+            }()
             let grouping = self.grouping
             let result = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection], [String: Int]) in
-                let list = filter.map { f in source.filter(f.matches) } ?? source
+                let list: [GalleryEntry]
+                if case .locked = filter {
+                    list = source
+                } else {
+                    list = filter.map { f in source.filter(f.matches) } ?? source
+                }
                 var positions: [String: Int] = [:]
                 positions.reserveCapacity(list.count)
                 for (i, e) in list.enumerated() { positions[e.id] = i }
@@ -355,6 +367,15 @@ struct GalleryView: View {
                     Text("Beta")
                     Image(systemName: allFavorite ? "heart.slash" : "heart")
                 }
+                if filter == .locked {
+                    Button { removeFromLocked(chosen) } label: {
+                        Label("Remove from Locked Folder", systemImage: "lock.open")
+                    }
+                } else {
+                    Button { moveToLocked(chosen) } label: {
+                        Label("Move to Locked Folder", systemImage: "lock.fill")
+                    }
+                }
             }
             Divider()
             Button(role: .destructive) { confirmDelete = true } label: { Label("Delete…", systemImage: "trash") }
@@ -363,6 +384,22 @@ struct GalleryView: View {
             Image(systemName: "ellipsis")
         }
         .accessibilityLabel("More")
+    }
+
+    @State private var showProPaywall = false
+
+    private func moveToLocked(_ entries: [GalleryEntry]) {
+        guard ProStore.shared.isPro else { showProPaywall = true; return }
+        LockedFolderStore.shared.lock(entries.map(\.id))
+        selection.removeAll()
+        selecting = false
+        Haptics.success()
+    }
+
+    private func removeFromLocked(_ entries: [GalleryEntry]) {
+        LockedFolderStore.shared.unlockItems(entries.map(\.id))
+        selection.removeAll()
+        Haptics.success()
     }
 
     /// Grouping the picked items can take a moment with thousands selected, so it runs off the main actor.

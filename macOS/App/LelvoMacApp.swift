@@ -94,7 +94,10 @@ struct LelvoMacApp: App {
                 _ = try? await env.library.scan(full: true)
             }
             Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
+        case .inactive:
+            LockedFolderStore.shared.lockSession()
         case .background:
+            LockedFolderStore.shared.lockSession()
             Task.detached(priority: .userInitiated) { await TrashSync.shared.send(); await MetaSync.shared.send() }
             env.originalsCache.flush()
             env.thumbnailCache.flush()
