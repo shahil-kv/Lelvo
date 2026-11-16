@@ -21,6 +21,7 @@ import app.lelvo.core.backup.ScreenCopyPolicy
 import app.lelvo.core.index.ItemKind
 import app.lelvo.core.search.SearchMatcher
 import app.lelvo.core.support.AppLog
+import app.lelvo.data.media.text
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
@@ -76,6 +77,44 @@ class PhoneFiles(context: Context) {
     /** Every photo and video MediaStore lists, newest first. Empty without access. */
     fun all(): List<PhoneFile> = query(null, null)
 
+    /** How many photos and videos MediaStore lists. A count, not the files. */
+    fun count(): Int {
+        var n = 0
+        forEachLight { _, _, _, _, _, _ -> n++ }
+        return n
+    }
+
+    /**
+     * Every photo and video, one at a time, without keeping the list. [createdAt] is the same date [PhoneFile] uses.
+     * A row the cursor can't read is skipped.
+     */
+    fun forEachLight(block: (localId: String, isVideo: Boolean, createdAt: Long?, bucketId: String?, bucketName: String?, relativePath: String?) -> Unit) {
+        val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val columns = arrayOf(
+            MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.MEDIA_TYPE, MediaStore.MediaColumns.DATE_TAKEN,
+            MediaStore.MediaColumns.DATE_ADDED, MediaStore.MediaColumns.DATE_MODIFIED, MediaStore.MediaColumns.BUCKET_ID,
+            MediaStore.MediaColumns.BUCKET_DISPLAY_NAME, MediaStore.MediaColumns.RELATIVE_PATH,
+        )
+        val where = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+        runCatching {
+            resolver.query(uri, columns, where, null, null)?.use { c ->
+                while (c.moveToNext()) {
+                    runCatching {
+                        val taken = if (c.isNull(2)) null else c.getLong(2)
+                        val added = if (c.isNull(3)) null else c.getLong(3) * 1000
+                        val modified = if (c.isNull(4)) null else c.getLong(4)
+                        block(
+                            c.getLong(0).toString(),
+                            c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO,
+                            captureDate(taken, modified, added),
+                            c.text(5), c.text(6), c.text(7),
+                        )
+                    }
+                }
+            }
+        }.onFailure { AppLog.error("Backup: listing phone photos failed: ${it::class.simpleName}") }
+    }
+
     /** The files for these ids; ids missing from the result are gone from the phone. */
     fun files(localIds: Collection<String>): Map<String, PhoneFile> =
         localIds.chunked(500).flatMap { ids ->
@@ -91,26 +130,30 @@ class PhoneFiles(context: Context) {
         runCatching {
             resolver.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), columns, where, args, null)?.use { c ->
                 while (c.moveToNext()) {
-                    val video = c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
-                    val id = c.getLong(0)
-                    val w = c.getInt(8); val h = c.getInt(9)
-                    val sideways = !video && c.getInt(14).let { it == 90 || it == 270 }
-                    out += PhoneFile(
-                        localId = id.toString(),
-                        uri = ContentUris.withAppendedId(
-                            if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id,
-                        ),
-                        isVideo = video, filename = c.getString(2).orEmpty(), mimeType = c.getString(3), size = c.getLong(4),
-                        modifiedAt = if (c.isNull(5)) null else c.getLong(5) * 1000,
-                        createdAt = captureDate(
-                            if (c.isNull(6)) null else c.getLong(6), if (c.isNull(5)) null else c.getLong(5),
-                            if (c.isNull(7)) null else c.getLong(7) * 1000,
-                        ),
-                        width = if (sideways) h else w, height = if (sideways) w else h,
-                        duration = if (video && !c.isNull(10)) c.getLong(10) / 1000.0 else null,
-                        bucketId = c.getString(11), bucketName = c.getString(12), relativePath = c.getString(13),
-                        isFavorite = columns.size > 15 && c.getInt(15) == 1,
-                    )
+                    // One photo the cursor can't read must not drop the rest of the library.
+                    val row = runCatching {
+                        val video = c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                        val id = c.getLong(0)
+                        val w = c.getInt(8); val h = c.getInt(9)
+                        val sideways = !video && c.getInt(14).let { it == 90 || it == 270 }
+                        PhoneFile(
+                            localId = id.toString(),
+                            uri = ContentUris.withAppendedId(
+                                if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id,
+                            ),
+                            isVideo = video, filename = c.text(2).orEmpty(), mimeType = c.text(3), size = c.getLong(4),
+                            modifiedAt = if (c.isNull(5)) null else c.getLong(5) * 1000,
+                            createdAt = captureDate(
+                                if (c.isNull(6)) null else c.getLong(6), if (c.isNull(5)) null else c.getLong(5),
+                                if (c.isNull(7)) null else c.getLong(7) * 1000,
+                            ),
+                            width = if (sideways) h else w, height = if (sideways) w else h,
+                            duration = if (video && !c.isNull(10)) c.getLong(10) / 1000.0 else null,
+                            bucketId = c.text(11), bucketName = c.text(12), relativePath = c.text(13),
+                            isFavorite = columns.size > 15 && c.getInt(15) == 1,
+                        )
+                    }.getOrNull()
+                    if (row != null) out += row
                 }
             }
         }.onFailure { AppLog.error("Backup: listing phone photos failed: ${it::class.simpleName}") }

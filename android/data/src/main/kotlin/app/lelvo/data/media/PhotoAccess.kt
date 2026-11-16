@@ -109,13 +109,16 @@ class PhotoAccess(context: Context) {
             runCatching {
                 app.contentResolver.query(uri, columns, null, null, null)?.use { c ->
                     while (c.moveToNext()) {
-                        val w = c.getInt(3); val h = c.getInt(4)
-                        val sideways = turned != null && c.getInt(5).let { it == 90 || it == 270 }
-                        out += AssetKey(
-                            localId = c.getLong(0).toString(), filename = c.getString(1).orEmpty(),
-                            takenAt = if (c.isNull(2)) null else c.getLong(2),
-                            width = if (sideways) h else w, height = if (sideways) w else h,
-                        )
+                        val row = runCatching {
+                            val w = c.getInt(3); val h = c.getInt(4)
+                            val sideways = turned != null && c.getInt(5).let { it == 90 || it == 270 }
+                            AssetKey(
+                                localId = c.getLong(0).toString(), filename = c.text(1).orEmpty(),
+                                takenAt = if (c.isNull(2)) null else c.getLong(2),
+                                width = if (sideways) h else w, height = if (sideways) w else h,
+                            )
+                        }.getOrNull()
+                        if (row != null) out += row
                     }
                 }
             }.onFailure { AppLog.error("Photos: listing failed: ${it::class.simpleName}") }
@@ -156,19 +159,63 @@ class PhotoAccess(context: Context) {
             else app.contentResolver.query(uri, columns, where, null, "${MediaStore.MediaColumns.DATE_TAKEN} DESC LIMIT $limit")
             cursor?.use { c ->
                 while (c.moveToNext()) {
-                    val video = c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
-                    val taken = if (c.isNull(2)) null else c.getLong(2)
-                    out += PhoneAsset(
-                        localId = c.getLong(0).toString(), takenAt = taken, isVideo = video,
-                        duration = if (video && !c.isNull(4)) c.getLong(4) / 1000.0 else null,
-                        width = c.getInt(5), height = c.getInt(6), filename = c.getString(7).orEmpty(),
-                        isFavorite = favorite != null && c.getInt(11) == 1, addedAt = c.getLong(3) * 1000,
-                        bucketId = c.getString(8), bucketName = c.getString(9), modifiedAt = c.getLong(10),
-                    )
+                    val row = runCatching {
+                        val video = c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                        val taken = if (c.isNull(2)) null else c.getLong(2)
+                        PhoneAsset(
+                            localId = c.getLong(0).toString(), takenAt = taken, isVideo = video,
+                            duration = if (video && !c.isNull(4)) c.getLong(4) / 1000.0 else null,
+                            width = c.getInt(5), height = c.getInt(6), filename = c.text(7).orEmpty(),
+                            isFavorite = favorite != null && c.getInt(11) == 1, addedAt = c.getLong(3) * 1000,
+                            bucketId = c.text(8), bucketName = c.text(9), modifiedAt = c.getLong(10),
+                        )
+                    }.getOrNull()
+                    if (row != null) out += row
                 }
             }
         }.onFailure { AppLog.error("Photos: timeline listing failed: ${it::class.simpleName}") }
         out.sortByDescending { it.date ?: Long.MIN_VALUE }
+        out
+    }
+
+    /** MediaStore ids of every photo and video. Ids only, so a large library stays a set of strings. */
+    suspend fun localIds(): Set<String> = withContext(Dispatchers.IO) {
+        val status = status()
+        if (status != Status.Full && status != Status.Partial) return@withContext emptySet()
+        val out = HashSet<String>()
+        val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val where = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+        runCatching {
+            app.contentResolver.query(uri, arrayOf(MediaStore.Files.FileColumns._ID), where, null, null)?.use { c ->
+                while (c.moveToNext()) out += c.getLong(0).toString()
+            }
+        }.onFailure { AppLog.error("Photos: id listing failed: ${it::class.simpleName}") }
+        out
+    }
+
+    /** Capture dates of the newest [limit] photos, newest first. Dates only, for Search's month list. */
+    suspend fun newestDates(limit: Int): List<Long> = withContext(Dispatchers.IO) {
+        val status = status()
+        if (status != Status.Full && status != Status.Partial) return@withContext emptyList()
+        val out = ArrayList<Long>()
+        val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val where = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+        runCatching {
+            val cursor = if (Build.VERSION.SDK_INT >= 30) app.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATE_TAKEN, MediaStore.MediaColumns.DATE_ADDED), android.os.Bundle().apply {
+                putString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION, where)
+                putStringArray(android.content.ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(MediaStore.MediaColumns.DATE_TAKEN))
+                putInt(android.content.ContentResolver.QUERY_ARG_SORT_DIRECTION, android.content.ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
+                putInt(android.content.ContentResolver.QUERY_ARG_LIMIT, limit)
+            }, null)
+            else app.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATE_TAKEN, MediaStore.MediaColumns.DATE_ADDED), where, null, "${MediaStore.MediaColumns.DATE_TAKEN} DESC LIMIT $limit")
+            cursor?.use { c ->
+                while (c.moveToNext()) {
+                    val taken = if (c.isNull(0)) null else c.getLong(0)
+                    val added = if (c.isNull(1)) null else c.getLong(1) * 1000
+                    (taken ?: added)?.let { out += it }
+                }
+            }
+        }.onFailure { AppLog.error("Photos: date listing failed: ${it::class.simpleName}") }
         out
     }
 

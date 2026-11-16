@@ -9,13 +9,16 @@ import app.lelvo.core.format.MetaLog
 import app.lelvo.core.format.NoteIds
 import app.lelvo.core.format.TrashLog
 import kotlinx.coroutines.Dispatchers
+import app.lelvo.core.support.AppLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.transform
 
 /** The local index (iOS `LibraryStore`): every call runs off the main thread. */
 class LibraryStore(private val db: IndexDatabase) {
@@ -30,11 +33,32 @@ class LibraryStore(private val db: IndexDatabase) {
      */
     private val shared: Flow<List<LibraryItem>> = db.invalidationTracker.createFlow("items")
         .throttled(500)
-        .map { dao.allNow().map(::toItem) }
+        .transform {
+            // A failed read used to kill the app: Android throws from the cursor while a backup is also holding
+            // every queued row, and that exception reached the screen. Keep the last good list instead.
+            try {
+                emit(dao.allNow().map(::toItem))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.error("Library index read failed: ${e.javaClass.simpleName}")
+            }
+        }
         .flowOn(Dispatchers.Default)
         .shareIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000), replay = 1)
 
     fun items(): Flow<List<LibraryItem>> = shared
+
+    /** The index changed. Emits at once, then at most twice a second, and never reads a row. */
+    fun changes(): Flow<Unit> = flow {
+        emit(Unit)
+        db.invalidationTracker.createFlow("items").collect { emit(Unit) }
+    }.throttled(500).flowOn(Dispatchers.IO)
+
+    /** How many rows the index holds, without loading them. */
+    fun countFlow(): Flow<Int> = changes().map { dao.countAll() }.flowOn(Dispatchers.IO)
+
+    fun trashedCountFlow(): Flow<Int> = changes().map { dao.trashedCount() }.flowOn(Dispatchers.IO)
 
     suspend fun item(id: String): LibraryItem? = dao.item(id)?.let(::toItem)
     suspend fun upsert(items: List<LibraryItem>) = dao.upsert(items.map(::toRow))
@@ -47,6 +71,31 @@ class LibraryStore(private val db: IndexDatabase) {
     suspend fun delete(id: String) = dao.delete(id)
 
     suspend fun items(status: ItemStatus): List<LibraryItem> = dao.withStatus(status.code).map(::toItem)
+
+    /** What the Backup tab counts, without loading the queue. */
+    data class QueueTotals(
+        val uploadable: Int, val chosenUploadable: Int, val stranded: Int, val failed: Int, val retryableFailed: Int,
+    )
+
+    suspend fun queueTotals() = QueueTotals(
+        dao.uploadableCount(), dao.chosenUploadableCount(), dao.strandedCount(), dao.failedCount(), dao.retryableFailedCount(),
+    )
+
+    /** Queued ids in upload order. The run holds these ids, and loads one full item when that item's turn comes. */
+    suspend fun queuedIdsInOrder(onlyChosen: Boolean = false): List<String> =
+        if (onlyChosen) dao.chosenQueuedIdsInOrder() else dao.queuedIdsInOrder()
+
+    suspend fun queuedOnPhone(): List<Pair<String, String>> = dao.queuedLocalIds().map { it.id to it.localId }
+
+    suspend fun queuedWithoutPhone(): List<LibraryItem> = dao.queuedWithoutPhone().map(::toItem)
+
+    suspend fun remainingQueued(onlyChosen: Boolean): Int = if (onlyChosen) dao.chosenQueuedCount() else dao.queuedWithPhoneCount()
+
+    suspend fun trashedLocalIds(): List<String> = dao.trashedLocalIds()
+
+    suspend fun backedUpRefs(): List<BackedUpRef> = dao.backedUpRefs()
+
+    suspend fun coordinates(): List<LatLon> = dao.coordinates()
     suspend fun items(sha256: String): List<LibraryItem> = if (sha256.isEmpty()) emptyList() else dao.withHash(sha256).map(::toItem)
     suspend fun itemForPhone(localId: String): LibraryItem? = dao.withLocalId(localId)?.let(::toItem)
 
@@ -170,9 +219,13 @@ class LibraryStore(private val db: IndexDatabase) {
         db.withTransaction {
             val changed = ArrayList<LibraryItem>()
             for (item in items(ids)) {
-                val applied = MetaLog.apply(mapOf(key to value), item.favorite, item.albums.ifEmpty { null })
+                val applied = MetaLog.apply(mapOf(key to value), item.favorite, item.locked, item.albums.ifEmpty { null })
                 if (applied.changed) {
-                    val updated = item.copy(favorite = applied.favorite ?: false, albums = applied.albums ?: emptyList())
+                    val updated = item.copy(
+                        favorite = applied.favorite ?: false,
+                        locked = applied.locked ?: false,
+                        albums = applied.albums ?: emptyList(),
+                    )
                     dao.upsert(listOf(toRow(updated)))
                     changed += updated
                 }
@@ -218,8 +271,8 @@ class LibraryStore(private val db: IndexDatabase) {
     private fun toRow(i: LibraryItem) = ItemRow(
         id = i.id, localId = i.localId, sha256 = i.sha256, status = i.status.code, createdAt = i.createdAt, kind = i.kind.code,
         filename = i.filename, width = i.width, height = i.height, duration = i.duration, fileSize = i.fileSize,
-        favorite = i.favorite, hidden = i.hidden, latitude = i.latitude, longitude = i.longitude, uploadedAt = i.uploadedAt,
-        verifiedAt = i.verifiedAt, extras = ItemExtras.encode(i),
+        favorite = i.favorite, locked = i.locked, hidden = i.hidden, latitude = i.latitude, longitude = i.longitude,
+        uploadedAt = i.uploadedAt, verifiedAt = i.verifiedAt, extras = ItemExtras.encode(i),
     )
 
     private fun toItem(r: ItemRow): LibraryItem {
@@ -227,7 +280,7 @@ class LibraryStore(private val db: IndexDatabase) {
             id = r.id, localId = r.localId, sha256 = r.sha256, filename = r.filename, kind = ItemKind.of(r.kind),
             createdAt = r.createdAt, latitude = r.latitude, longitude = r.longitude, width = r.width, height = r.height,
             duration = r.duration, fileSize = r.fileSize, status = ItemStatus.of(r.status), favorite = r.favorite,
-            hidden = r.hidden, uploadedAt = r.uploadedAt, verifiedAt = r.verifiedAt,
+            locked = r.locked, hidden = r.hidden, uploadedAt = r.uploadedAt, verifiedAt = r.verifiedAt,
         )
         return ItemExtras.apply(item, ItemExtras.decode(r.extras))
     }

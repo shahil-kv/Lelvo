@@ -54,18 +54,18 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.lelvo.android.LelvoApp
+import app.lelvo.core.support.AppLog
 import app.lelvo.android.R
 import app.lelvo.android.shell.LelvoTopBar
 import app.lelvo.android.shell.Messages
 import app.lelvo.android.ui.theme.Lelvo
 import app.lelvo.core.backup.BackupCounts
-import app.lelvo.core.index.BackupBadge
-import app.lelvo.core.index.ItemStatus
 import app.lelvo.core.index.LibraryItem
 import app.lelvo.data.backup.BackupActivity
 import app.lelvo.data.media.PhotoAccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
@@ -73,7 +73,7 @@ import java.text.DateFormat
 /** What the Backup tab counts (iOS `BackupStats`). */
 private data class Stats(
     val onPhone: Int = 0, val backedUp: Int = 0, val cloudOnly: Int = 0, val counts: BackupCounts = BackupCounts(),
-    val failedItems: List<LibraryItem> = emptyList(), val removed: Int = 0,
+    val failedItems: List<LibraryItem> = emptyList(), val removed: Int = 0, val ready: Boolean = false,
 )
 
 /**
@@ -101,22 +101,22 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
     }
     val demoRun by app.demo.backup.collectAsState()
     val stats by produceState(Stats(), isDemo) {
-        // Recounted when the index or the phone's photos change, and when a run moves on.
-        // At most every 2 s: counting reads every photo on the phone, and a backup changes the list all the time.
-        app.model.gallery(isDemo).throttled(2_000).collectLatest { entries ->
+        // The index or the phone's photos changed. Counts are SQL and a light scan, at most every 2 s.
+        combine(app.store.changes(), app.photos.changes()) { _, _ -> }.throttled(2_000).collectLatest {
             value = withContext(Dispatchers.IO) {
-                // Demo: the sample items waiting for "Back up now" stand in for this phone's photos.
-                val counts = if (isDemo) BackupCounts(notQueued = app.demo.pendingItems().size) else engine.counts()
-                val trashed = app.store.items(ItemStatus.Trashed)
-                val phoneIds = entries.mapNotNull { it.asset?.localId }.toHashSet()
-                Stats(
-                    onPhone = entries.count { it.asset != null },
-                    backedUp = entries.count { it.badge == BackupBadge.BackedUp },
-                    cloudOnly = entries.count { it.badge == BackupBadge.CloudOnly },
-                    counts = counts,
-                    failedItems = app.store.items(ItemStatus.Failed).sortedByDescending { it.createdAt ?: 0 },
-                    removed = BackupCounts.removedFromBackup(trashed, app.store.offBackupLocalIds(), app.store.knownLocalIds(), phoneIds).size,
-                )
+                try {
+                    // Demo: the sample items waiting for "Back up now" stand in for this phone's photos.
+                    if (isDemo) Stats(counts = BackupCounts(notQueued = app.demo.pendingItems().size), ready = true)
+                    else engine.snapshot().let { s ->
+                        Stats(s.onPhone, s.backedUp, s.cloudOnly, s.counts, s.failedItems, s.removed, ready = true)
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A failed count must not close the app or claim the library is done.
+                    AppLog.error("Backup counts failed: ${e.javaClass.simpleName}")
+                    value
+                }
             }
         }
     }
@@ -203,10 +203,10 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                 HorizontalDivider(Modifier.padding(top = 8.dp))
                 Text("Library", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp).semantics { heading() })
-                StatRow("On this phone", stats.onPhone, R.drawable.ic_phone, MaterialTheme.colorScheme.onSurfaceVariant)
-                StatRow("Backed up (verified)", stats.backedUp, R.drawable.ic_cloud_done, Lelvo.colors.green)
-                StatRow("Only in the cloud", stats.cloudOnly, R.drawable.ic_cloud, MaterialTheme.colorScheme.onSurfaceVariant)
-                StatRow("Waiting to upload", stats.counts.pending(app.prefs.autoBackup), R.drawable.ic_schedule, MaterialTheme.colorScheme.onSurfaceVariant)
+                StatRow("On this phone", stats.onPhone, R.drawable.ic_phone, MaterialTheme.colorScheme.onSurfaceVariant, ready = stats.ready)
+                StatRow("Backed up (verified)", stats.backedUp, R.drawable.ic_cloud_done, Lelvo.colors.green, ready = stats.ready)
+                StatRow("Only in the cloud", stats.cloudOnly, R.drawable.ic_cloud, MaterialTheme.colorScheme.onSurfaceVariant, ready = stats.ready)
+                StatRow("Waiting to upload", stats.counts.pending(app.prefs.autoBackup), R.drawable.ic_schedule, MaterialTheme.colorScheme.onSurfaceVariant, ready = stats.ready)
                 if (stats.counts.failed > 0) {
                     StatRow("Failed", stats.counts.failed, R.drawable.ic_error, Lelvo.colors.red, onClick = { page = Page.Failed })
                 }
@@ -272,12 +272,14 @@ private fun StatusHeader(activity: BackupActivity, stats: Stats, lastBackupAt: L
         else -> pending
     }
     val (icon, tint, title) = when {
+        !stats.ready -> Triple(R.drawable.ic_cloud_upload, Lelvo.colors.accent, "Checking this phone…")
         activity.isRunning || pending > 0 -> Triple(R.drawable.ic_cloud_upload, Lelvo.colors.accent, "${"%,d".format(left)} item${if (left == 1) "" else "s"} left to back up")
         c.notQueued > 0 -> Triple(R.drawable.ic_cloud_off, MaterialTheme.colorScheme.onSurfaceVariant, "${"%,d".format(c.notQueued)} item${if (c.notQueued == 1) "" else "s"} not in the cloud")
         c.failed > 0 -> Triple(R.drawable.ic_error, Lelvo.colors.orange, "Backup complete, ${"%,d".format(c.failed)} item${if (c.failed == 1) "" else "s"} couldn't be backed up")
         else -> Triple(R.drawable.ic_cloud_done, Lelvo.colors.green, "Backup complete")
     }
     val subtitle = when {
+        !stats.ready -> "Counting photos. A large library takes a moment."
         activity.isRunning || pending > 0 -> "To your Telegram library"
         c.notQueued > 0 -> "Back up now uploads them all, or choose photos in Photos and tap Back up."
         else -> "Everything${if (stats.removed > 0) " else" else ""} on this phone is backed up"
@@ -289,7 +291,7 @@ private fun StatusHeader(activity: BackupActivity, stats: Stats, lastBackupAt: L
         // The mark catches each photo as it lands, like the iPhone (iOS `CatchingMark`); the icon beside the title
         // only marks the states that need a look.
         val mark = when {
-            activity.isRunning -> CatchingStatus.Working
+            !stats.ready || activity.isRunning -> CatchingStatus.Working
             pending > 0 || c.notQueued > 0 -> CatchingStatus.Idle
             c.failed > 0 -> CatchingStatus.Attention
             else -> CatchingStatus.Complete
@@ -352,11 +354,11 @@ private fun ToolRow(title: String, icon: Int, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StatRow(title: String, value: Int, icon: Int, tint: Color, onClick: (() -> Unit)? = null) {
+private fun StatRow(title: String, value: Int, icon: Int, tint: Color, onClick: (() -> Unit)? = null, ready: Boolean = true) {
     ListItem(
         headlineContent = { Text(title) },
         leadingContent = { Icon(painterResource(icon), contentDescription = null, tint = tint) },
-        trailingContent = { Text("%,d".format(value), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+        trailingContent = { Text(if (ready) "%,d".format(value) else "…", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) },
         modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
     )
 }

@@ -14,7 +14,6 @@ import app.lelvo.core.backup.TelegramErrorClassifier
 import app.lelvo.core.backup.TelegramErrorKind
 import app.lelvo.core.backup.TransferRate
 import app.lelvo.core.backup.UploadNames
-import app.lelvo.core.backup.UploadOrder
 import app.lelvo.core.backup.UploadSlots
 import app.lelvo.core.backup.reduced
 import app.lelvo.core.crypto.CryptoException
@@ -106,6 +105,8 @@ class BackupEngine(
     private val staging = File(app.cacheDir, "backup")
     private val uploader = CloudUploader(uploads, library, staging).also { it.beforeSend = { waitForFloodPause() } }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** Locked Folder (#129): promote phone-only pending locks after a successful backup. */
+    var onItemBackedUp: ((LibraryItem) -> Unit)? = null
 
     data class Summary(val uploaded: Int = 0, val alreadyBackedUp: Int = 0, val failed: Int = 0, val remaining: Int = 0, val error: String? = null) {
         val text: String
@@ -190,33 +191,35 @@ class BackupEngine(
 
     // MARK: Queue
 
-    /** The phone files the backup selection covers (iOS `backupCandidates`). */
-    private fun candidates(among: List<PhoneFile> = phone.all()): List<PhoneFile> {
+    /** Whether this phone file is inside the backup selection (iOS `backupCandidates`). */
+    private fun selected(isVideo: Boolean, createdAt: Long?, bucketId: String?, bucketName: String?, relativePath: String?): Boolean {
         val from = prefs.dateFrom
         val albums = prefs.albumIds
-        return among.filter { f ->
-            when (prefs.mediaFilter) {
-                Prefs.MediaFilter.Photos -> !f.isVideo
-                Prefs.MediaFilter.Videos -> f.isVideo
-                Prefs.MediaFilter.All -> true
-            } && (prefs.backupVideos || !f.isVideo) &&
-                (prefs.includeScreenshots || !isScreenshot(f)) &&
-                (from == null || (f.createdAt ?: Long.MAX_VALUE) >= from) &&
-                when (prefs.albumMode) {
-                    Prefs.AlbumMode.All -> true
-                    Prefs.AlbumMode.Include -> f.bucketId in albums
-                    Prefs.AlbumMode.Exclude -> f.bucketId !in albums
-                }
-        }
+        return when (prefs.mediaFilter) {
+            Prefs.MediaFilter.Photos -> !isVideo
+            Prefs.MediaFilter.Videos -> isVideo
+            Prefs.MediaFilter.All -> true
+        } && (prefs.backupVideos || !isVideo) &&
+            (prefs.includeScreenshots || !isScreenshot(bucketName, relativePath)) &&
+            (from == null || (createdAt ?: Long.MAX_VALUE) >= from) &&
+            when (prefs.albumMode) {
+                Prefs.AlbumMode.All -> true
+                Prefs.AlbumMode.Include -> bucketId in albums
+                Prefs.AlbumMode.Exclude -> bucketId !in albums
+            }
     }
 
-    private fun isScreenshot(f: PhoneFile) =
-        f.bucketName.equals("Screenshots", ignoreCase = true) || f.relativePath?.contains("Screenshots", ignoreCase = true) == true
+    private fun isScreenshot(bucketName: String?, relativePath: String?) =
+        bucketName.equals("Screenshots", ignoreCase = true) || relativePath?.contains("Screenshots", ignoreCase = true) == true
 
     /** Adds phone photos the selection covers and the index doesn't know as queued items. */
     suspend fun enqueueNew(): Int {
         val known = store.knownLocalIds() + store.offBackupLocalIds()
-        val fresh = candidates().filter { it.localId !in known }.map(::makeItem)
+        val freshIds = ArrayList<String>()
+        phone.forEachLight { id, video, created, bucket, name, path ->
+            if (id !in known && selected(video, created, bucket, name, path)) freshIds += id
+        }
+        val fresh = phone.files(freshIds).values.map(::makeItem)
         store.upsert(fresh)
         return fresh.size
     }
@@ -247,26 +250,63 @@ class BackupEngine(
         return failed.size
     }
 
-    /** What the Backup tab shows as left, failed and retryable. */
-    suspend fun counts(): BackupCounts = withContext(Dispatchers.IO) {
-        val queued = store.items(ItemStatus.Queued) + store.items(ItemStatus.Uploading)
-        BackupCounts.compute(
-            queued = queued, failed = store.items(ItemStatus.Failed), candidates = candidates().map { it.localId },
-            known = store.knownLocalIds(), offBackup = store.offBackupLocalIds(), autoBackup = prefs.autoBackup,
+    /** What the Backup tab shows. Counts and id sets only: the queue itself stays in the database. */
+    data class Snapshot(
+        val counts: BackupCounts, val onPhone: Int, val backedUp: Int, val cloudOnly: Int,
+        val removed: Int, val failedItems: List<LibraryItem>,
+    )
+
+    suspend fun snapshot(): Snapshot = withContext(Dispatchers.IO) {
+        val totals = store.queueTotals()
+        val known = store.knownLocalIds()
+        val off = store.offBackupLocalIds()
+        val phoneIds = HashSet<String>()
+        var fresh = 0
+        phone.forEachLight { id, video, created, bucket, name, path ->
+            phoneIds += id
+            if (id !in known && id !in off && selected(video, created, bucket, name, path)) fresh++
+        }
+        var backedOnPhone = 0
+        var cloudOnly = 0
+        for (row in store.backedUpRefs()) {
+            val here = row.localId != null && row.localId in phoneIds
+            if (here) backedOnPhone++ else if (!row.hidden) cloudOnly++
+        }
+        val trashed = store.trashedLocalIds().map {
+            LibraryItem(id = it, localId = it, sha256 = "", filename = "", kind = ItemKind.Photo, createdAt = null, fileSize = 0, status = ItemStatus.Trashed)
+        }
+        Snapshot(
+            counts = BackupCounts.fromParts(
+                totals.uploadable, totals.chosenUploadable, totals.stranded, totals.failed, totals.retryableFailed,
+                newOnPhone = fresh, autoBackup = prefs.autoBackup,
+            ),
+            onPhone = phoneIds.size, backedUp = backedOnPhone, cloudOnly = cloudOnly,
+            removed = BackupCounts.removedFromBackup(trashed, off, known, phoneIds).size,
+            failedItems = store.items(ItemStatus.Failed).sortedByDescending { it.createdAt ?: 0 },
         )
     }
 
+    /** What the Backup tab shows as left, failed and retryable. */
+    suspend fun counts(): BackupCounts = snapshot().counts
+
     /** Queued items whose photo was deleted from the phone before it was uploaded go (iOS `dropDeletedQueuedItems`). */
     private suspend fun dropDeletedQueuedItems(): Int {
-        store.items(ItemStatus.Queued).filter { it.isStrandedInCloud }.takeIf { it.isNotEmpty() }?.let { stuck ->
+        store.queuedWithoutPhone().filter { it.isStrandedInCloud }.takeIf { it.isNotEmpty() }?.let { stuck ->
             store.upsert(stuck.map { it.photoLeftDevice() })
         }
-        val queued = store.items(ItemStatus.Queued)
-        val ids = queued.mapNotNull { it.localId }
-        if (ids.isEmpty()) return 0
-        val present = phone.files(ids).keys
-        val gone = PhotoChangeScan.queuedButDeleted(queued, present, libraryIsEmpty = phone.all().isEmpty())
-        val dropped = gone.count { store.deleteIfQueued(it.id) }
+        val queued = store.queuedOnPhone()
+        if (queued.isEmpty()) return 0
+        val present = phone.files(queued.map { it.second }).keys
+        val libraryIsEmpty = phone.count() == 0
+        // A MediaStore hiccup must not look like every photo was deleted.
+        if (present.isEmpty() && !libraryIsEmpty) return 0
+        var dropped = 0
+        for ((id, localId) in queued) {
+            if (localId in present) continue
+            val item = store.item(id) ?: continue
+            if (PhotoChangeScan.queuedButDeleted(listOf(item), present, libraryIsEmpty).isEmpty()) continue
+            if (store.deleteIfQueued(id)) dropped++
+        }
         if (dropped > 0) AppLog.info("Dropped $dropped queued items deleted from the phone")
         return dropped
     }
@@ -276,9 +316,6 @@ class BackupEngine(
         createdAt = f.createdAt, width = f.width, height = f.height, duration = f.duration, fileSize = 0,
         status = ItemStatus.Queued, favorite = f.isFavorite, encrypted = true,
     )
-
-    private fun runnable(now: Long, onlyChosen: Boolean, items: List<LibraryItem>) =
-        UploadOrder.sorted(items.filter { it.localId != null && (it.notBefore?.let { nb -> nb <= now } ?: true) && (!onlyChosen || it.chosen) })
 
     // MARK: Run
 
@@ -316,7 +353,8 @@ class BackupEngine(
             store.items(ItemStatus.Uploading).takeIf { it.isNotEmpty() }?.let { stale -> store.upsert(stale.map { it.reduced(JobEvent.Interrupted) }) }
 
             val onlyChosen = !includeNew && !prefs.autoBackup
-            val queue = ArrayDeque(runnable(System.currentTimeMillis(), onlyChosen, store.items(ItemStatus.Queued)))
+            // Ids only. Each upload loads its own row, so a run of tens of thousands never holds them all.
+            val queue = ArrayDeque(store.queuedIdsInOrder(onlyChosen))
             val total = queue.size
             _activity.update {
                 it.copy(done = 0, total = total, uploaded = 0, failed = 0, lanes = emptyMap(),
@@ -330,7 +368,13 @@ class BackupEngine(
                 repeat(MAX_CONCURRENT_UPLOADS) { lane ->
                     launch {
                         while (isActive) {
-                            val item = queueLock.withLock { queue.removeFirstOrNull() } ?: break
+                            val id = queueLock.withLock { queue.removeFirstOrNull() } ?: break
+                            val item = store.item(id) ?: continue
+                            // The id list is a moment's view. Skip a row that moved on, isn't due yet, or wasn't chosen.
+                            if (item.status != ItemStatus.Queued || item.localId == null) continue
+                            if (onlyChosen && !item.chosen) continue
+                            val notBefore = item.notBefore
+                            if (notBefore != null && notBefore > System.currentTimeMillis()) continue
                             // A blip (Wi-Fi roaming) shouldn't end the run; wait it out, stop only if it lasts.
                             waitForConditions()?.let { reason ->
                                 _activity.update { it.copy(message = reason.text) }
@@ -348,7 +392,7 @@ class BackupEngine(
                             if (outcome == Outcome.RetryLater) {
                                 // Slowed down or a network error: try again later in this run, at most 5 times.
                                 val n = requeues.getOrDefault(item.id, 0)
-                                if (n < 5) { requeues[item.id] = n + 1; queueLock.withLock { queue.addLast(item) }; continue }
+                                if (n < 5) { requeues[item.id] = n + 1; queueLock.withLock { queue.addLast(item.id) }; continue }
                             }
                             val (done, snap) = counter.record(outcome)
                             _activity.update { a ->
@@ -363,7 +407,7 @@ class BackupEngine(
             waitForFloodPause()
             writeSnapshotIfDue()
             val snap = counter.snapshot()
-            val left = runnable(Long.MAX_VALUE, onlyChosen, store.items(ItemStatus.Queued)).size
+            val left = store.remainingQueued(onlyChosen)
             val summary = Summary(uploaded = snap.first, alreadyBackedUp = snap.second, failed = snap.third, remaining = left)
             if (summary.uploaded > 0) prefs.lastBackupAt = System.currentTimeMillis()
             AppLog.info("Backup run finished: ${summary.text}")
@@ -374,6 +418,10 @@ class BackupEngine(
             AppLog.info("Backup stopped: ${if (paused) "paused" else "ended"}")
             finish(s, started = true, announce = userStarted)
             throw e
+        } catch (e: Exception) {
+            // One bad database row must not close the app. The queue is still there for the next tap.
+            AppLog.error("Backup run failed: ${e.javaClass.simpleName}")
+            finish(Summary(error = "Backup stopped. Tap Back up now to continue where it stopped."), started = true, announce = userStarted)
         } finally {
             synchronized(gate) { running = false; runJob = null }
         }
@@ -495,7 +543,14 @@ class BackupEngine(
     // MARK: One item
 
     private suspend fun process(queued: LibraryItem, lane: Int): Outcome {
-        var item = store.item(queued.id) ?: return Outcome.Skipped
+        var item = try {
+            store.item(queued.id) ?: return Outcome.Skipped
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.error("Backup: couldn't read one item: ${e.javaClass.simpleName}")
+            return Outcome.Failed
+        }
         if (item.status != ItemStatus.Queued && item.status != ItemStatus.Uploading) return Outcome.Skipped
         val localId = item.localId ?: return Outcome.Skipped
         val file = phone.file(localId)
@@ -587,6 +642,8 @@ class BackupEngine(
                 .reduced(JobEvent.Sent(sizeMatches = item.isCompleteInCloud)).copy(uploadedAt = System.currentTimeMillis())
             store.upsert(listOf(item))
             if (item.status != ItemStatus.BackedUp) return Outcome.Failed
+            // Locked Folder pending → MetaLog lock once we have a cloud id (#129).
+            onItemBackedUp?.invoke(item)
             AppLog.info("Backed up ${item.kind.code} (${item.fileSize shr 10} KB)")
             // The fast version, from the file that's here: the video then plays at once from the cloud. Optional.
             if (prefs.streamingCopies && StreamingCopyPolicy.shouldMake(item)) {
