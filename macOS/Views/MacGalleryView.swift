@@ -32,6 +32,7 @@ struct MacGalleryView: View {
     /// The items the Delete choice (Remove from This Mac or Delete Everywhere) is open for.
     @State private var confirmDelete: [GalleryEntry] = []
     @State private var addingToAlbum: [GalleryEntry] = []
+    @State private var pendingRemoveFromPhone: [GalleryEntry] = []
     @State private var commandToken: UUID?
     @State private var scrollRequest: String?
     @State private var scrollToken = 0
@@ -77,8 +78,11 @@ struct MacGalleryView: View {
                 .allowsHitTesting(viewerId == nil)
                 .accessibilityHidden(viewerId != nil)
             if viewerId != nil {
-                MacViewer(entries: flat, currentId: $viewerId, onClose: closeViewer)
-                    .zIndex(1)
+                // Same actions as the grid; "Open" is omitted because the item is already open.
+                MacViewer(entries: flat, currentId: $viewerId, onClose: closeViewer) { entry in
+                    contextMenu(for: entry).filter { $0.title != "Open" }
+                }
+                .zIndex(1)
             }
         }
         .coordinateSpace(name: Self.space)
@@ -139,6 +143,34 @@ struct MacGalleryView: View {
             AddToAlbumView(count: entries.count) { id, title in
                 Task { await MacActions.addToAlbum(entries, albumId: id, title: title, toast: toast) }
             }
+        }
+        .sheet(isPresented: Binding(get: { !pendingRemoveFromPhone.isEmpty }, set: { if !$0 { pendingRemoveFromPhone = [] } })) {
+            RemoveFromPhoneAfterLockSheet(
+                entries: pendingRemoveFromPhone,
+                onKeep: { pendingRemoveFromPhone = [] },
+                onDeleteFromPhotos: {
+                    let items = RemoveFromPhoneAfterLockSheet.mediaItems(from: pendingRemoveFromPhone)
+                    pendingRemoveFromPhone = []
+                    Task { await removeLockedFromMac(items) }
+                }
+            )
+            .frame(width: 380)
+        }
+    }
+
+    private func removeLockedFromMac(_ items: [MediaItem]) async {
+        toast.progress("Deleting from Photos…")
+        do {
+            let gone = try await AppEnvironment.shared.freeUpSpace.delete(items)
+            if gone.isEmpty {
+                toast.show(.info, "Nothing deleted from Photos", detail: "Couldn’t confirm every file in Telegram. Try Free Up Space later.")
+            } else {
+                toast.show(.success, "Deleted from Photos on This Mac",
+                           detail: "Still in Locked Folder and Telegram.")
+                await model.reload()
+            }
+        } catch {
+            toast.show(.failure, "Couldn't delete from Photos", detail: (error as? LocalizedError)?.errorDescription)
         }
     }
 
@@ -257,32 +289,41 @@ struct MacGalleryView: View {
                 if selection.count == flat.count { selection.removeAll() } else { selectAll() }
             }
             .buttonStyle(.borderless)
-            barButton("Share", "square.and.arrow.up") { Task { await MacActions.share(selectedEntries, toast: toast) } }
-                .disabled(selection.isEmpty)
-            barButton("Export", "square.and.arrow.down.on.square") { Task { await MacActions.export(selectedEntries, toast: toast) } }
-                .disabled(selection.isEmpty)
-            barButton("Add to Album", "rectangle.stack.badge.plus") { addingToAlbum = selectedEntries }
-                .disabled(selection.isEmpty)
-            let allFavorite = GalleryActions.allFavorite(selectedEntries)
-            barButton(allFavorite ? "Unfavorite" : "Favorite", allFavorite ? "heart.slash" : "heart") {
-                let chosen = selectedEntries
-                Task { await MacActions.setFavorite(chosen, !allFavorite, toast: toast) }
-            }
-            .disabled(selection.isEmpty)
-            if !actions.downloadable.isEmpty {
-                barButton("Save to Photos", "photo.badge.plus") { Task { await MacActions.saveToPhotos(actions.downloadable, toast: toast) } }
-            }
-            if !actions.notBackedUp.isEmpty {
-                barButton("Back Up \(actions.notBackedUp.count)", "icloud.and.arrow.up") {
-                    Task { await MacActions.backUp(actions.notBackedUp, toast: toast) }
+            if item == .locked {
+                // Google Photos: no share / export / album / trash from Locked — only move out.
+                barButton("Remove from Locked", "lock.open") {
+                    LockedFolderStore.shared.unlockEntries(selectedEntries)
+                    endSelecting()
                 }
-                .foregroundStyle(Color.accentColor)
+                .disabled(selection.isEmpty)
+            } else {
+                barButton("Share", "square.and.arrow.up") { Task { await MacActions.share(selectedEntries, toast: toast) } }
+                    .disabled(selection.isEmpty)
+                barButton("Export", "square.and.arrow.down.on.square") { Task { await MacActions.export(selectedEntries, toast: toast) } }
+                    .disabled(selection.isEmpty)
+                barButton("Add to Album", "rectangle.stack.badge.plus") { addingToAlbum = selectedEntries }
+                    .disabled(selection.isEmpty)
+                let allFavorite = GalleryActions.allFavorite(selectedEntries)
+                barButton(allFavorite ? "Unfavorite" : "Favorite", allFavorite ? "heart.slash" : "heart") {
+                    let chosen = selectedEntries
+                    Task { await MacActions.setFavorite(chosen, !allFavorite, toast: toast) }
+                }
+                .disabled(selection.isEmpty)
+                if !actions.downloadable.isEmpty {
+                    barButton("Save to Photos", "photo.badge.plus") { Task { await MacActions.saveToPhotos(actions.downloadable, toast: toast) } }
+                }
+                if !actions.notBackedUp.isEmpty {
+                    barButton("Back Up \(actions.notBackedUp.count)", "icloud.and.arrow.up") {
+                        Task { await MacActions.backUp(actions.notBackedUp, toast: toast) }
+                    }
+                    .foregroundStyle(Color.accentColor)
+                }
+                Button { confirmDelete = selectedEntries } label: { Image(systemName: "trash").frame(width: 22, height: 22) }
+                .buttonStyle(.borderless)
+                .disabled(actions.inCloud.isEmpty && actions.onMac.isEmpty)
+                .help("Delete")
+                .accessibilityLabel("Delete")
             }
-            Button { confirmDelete = selectedEntries } label: { Image(systemName: "trash").frame(width: 22, height: 22) }
-            .buttonStyle(.borderless)
-            .disabled(actions.inCloud.isEmpty && actions.onMac.isEmpty)
-            .help("Delete")
-            .accessibilityLabel("Delete")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -393,6 +434,13 @@ struct MacGalleryView: View {
             items.append(GridMenuItem(title: "Get Info", symbol: "info.circle") { cursorId = entry.id; showInfo = true })
             items.append(.separator)
         }
+        if item == .locked {
+            // Google Photos: Locked Folder content stays inside until deliberately moved out.
+            items.append(GridMenuItem(title: "Remove from Locked Folder", symbol: "lock.open") {
+                LockedFolderStore.shared.unlockEntries(group)
+            })
+            return items
+        }
         items.append(GridMenuItem(title: "Share…", symbol: "square.and.arrow.up") { Task { await MacActions.share(group, toast: toast) } })
         items.append(GridMenuItem(title: group.count == 1 ? "Download" : "Download \(group.count) Items", symbol: "arrow.down.circle") {
             Task { await MacActions.download(group, toast: toast) }
@@ -419,19 +467,26 @@ struct MacGalleryView: View {
         items.append(GridMenuItem(title: allFavorite ? "Unfavorite" : "Favorite", symbol: allFavorite ? "heart.slash" : "heart") {
             Task { await MacActions.setFavorite(group, !allFavorite, toast: toast) }
         })
-        if item == .locked {
-            items.append(GridMenuItem(title: "Remove from Locked Folder", symbol: "lock.open") {
-                LockedFolderStore.shared.unlockItems(group.map(\.id))
-            })
-        } else {
-            items.append(GridMenuItem(title: "Move to Locked Folder", symbol: "lock.fill") {
-                guard ProStore.shared.isPro else {
-                    toast.show(.info, "Lelvo Pro", detail: "Locked folder is included with Pro. Open Settings → Lelvo Pro.")
-                    return
+        items.append(GridMenuItem(title: "Move to Locked Folder", symbol: "lock.fill") {
+            guard ProStore.shared.isPro else {
+                toast.show(.info, "Lelvo Pro", detail: "Locked folder is included with Pro. Open Settings → Lelvo Pro.")
+                return
+            }
+            // Google Photos: device auth before hiding.
+            Task {
+                do {
+                    try await BiometricGate.unlock(reason: "Move to Locked folder")
+                    LockedFolderStore.shared.lockEntries(group)
+                    toast.show(.success, "Moved to Locked Folder")
+                    let removable = RemoveFromPhoneAfterLockSheet.removable(group)
+                    if !removable.isEmpty { pendingRemoveFromPhone = removable }
+                } catch BiometricGate.Failure.cancelled {
+                    // quiet
+                } catch {
+                    toast.show(.failure, "Couldn't move", detail: (error as? LocalizedError)?.errorDescription)
                 }
-                LockedFolderStore.shared.lock(group.map(\.id))
-            })
-        }
+            }
+        })
         items.append(.separator)
         items.append(GridMenuItem(title: "Delete…", symbol: "trash", enabled: !actions.inCloud.isEmpty || !actions.onMac.isEmpty) {
             confirmDelete = group
@@ -442,10 +497,10 @@ struct MacGalleryView: View {
     // MARK: - Data
 
     private func recompute() async {
-        let lockedIds = LockedFolderStore.shared.ids
+        let folder = LockedFolderStore.shared
         let entries: [GalleryEntry] = {
             if filter?.needsAllEntries == true {
-                return model.allEntries.filter { lockedIds.contains($0.id) }
+                return model.allEntries.filter { folder.hidesFromTimeline($0) }
             }
             return model.entries
         }()

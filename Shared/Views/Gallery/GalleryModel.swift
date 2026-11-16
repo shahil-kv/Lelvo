@@ -47,7 +47,7 @@ enum GalleryFilter: Hashable {
     case album(title: String, localIds: Set<String>)
     /// Search results and other fixed sets of timeline entries, by entry id.
     case matching(title: String, ids: Set<String>)
-    /// Locked folder (ids live in `LockedFolderStore`; source is `GalleryModel.allEntries`).
+    /// Locked folder (synced `MediaItem.locked` + pending phone-only; source is `GalleryModel.allEntries`).
     case locked
 
     var title: String {
@@ -245,9 +245,11 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     }
 
     private func applyLockedFilter(from merged: [GalleryEntry], sections: [GallerySection]?, grouping: Grouping) {
-        let locked = LockedFolderStore.shared.ids
-        let visible = locked.isEmpty ? merged : merged.filter { !locked.contains($0.id) }
-        if locked.isEmpty, let sections {
+        LockedFolderStore.shared.refreshSyncedLockedIds()
+        let folder = LockedFolderStore.shared
+        let anyLocked = !folder.syncedLockedIds.isEmpty || !folder.pendingLocalIds.isEmpty
+        let visible = anyLocked ? merged.filter { !folder.hidesFromTimeline($0) } : merged
+        if !anyLocked, let sections {
             self.entries = visible
             self.sections = sections
         } else {

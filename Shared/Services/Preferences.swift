@@ -47,6 +47,8 @@ enum Prefs {
         static let secondCopyVolume = "secondCopyVolume"
         /// Debug-only Pro unlock (also used from the paywall Toggle in DEBUG builds).
         static let proDebugUnlocked = "proDebugUnlocked"
+        /// Locked folder auto-lock grace after backgrounding, in milliseconds (Ente-style). Default 5 seconds.
+        static let lockedFolderAutoLockMs = "lockedFolderAutoLockMs"
     }
 
     enum AlbumMode: String, CaseIterable, Identifiable {
@@ -96,7 +98,8 @@ enum Prefs {
             Key.streamingCopies: true,
             Key.keepAwakeDuringBackup: true,
             Key.videoQuality: VideoQualityPreference.automatic.rawValue,
-            Key.onboardingComplete: false
+            Key.onboardingComplete: false,
+            Key.lockedFolderAutoLockMs: 5_000,
         ])
     }
 
@@ -153,6 +156,14 @@ enum Prefs {
     static var backupPaused: Bool {
         get { defaults.bool(forKey: Key.backupPaused) }
         set { defaults.set(newValue, forKey: Key.backupPaused) }
+    }
+    /// Milliseconds before Locked folder re-locks after backgrounding (Ente). Default 5 seconds.
+    static var lockedFolderAutoLockMs: Int {
+        get {
+            if defaults.object(forKey: Key.lockedFolderAutoLockMs) == nil { return 5_000 }
+            return max(0, defaults.integer(forKey: Key.lockedFolderAutoLockMs))
+        }
+        set { defaults.set(max(0, newValue), forKey: Key.lockedFolderAutoLockMs) }
     }
     static var albumMode: AlbumMode { AlbumMode(rawValue: defaults.string(forKey: Key.albumMode) ?? "") ?? .all }
     static var albumIds: Set<String> {

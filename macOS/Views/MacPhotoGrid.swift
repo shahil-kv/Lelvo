@@ -261,16 +261,7 @@ struct MacPhotoGrid: NSViewRepresentable {
 
         func menu(for id: String) -> NSMenu? {
             guard let entry = entries[id] else { return nil }
-            let menu = NSMenu()
-            for item in parent.menu(entry) {
-                if item.isSeparator { menu.addItem(.separator()); continue }
-                let mi = ClosureMenuItem(title: item.title, action: item.action)
-                if let symbol = item.symbol { mi.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
-                mi.isEnabled = item.enabled
-                menu.addItem(mi)
-            }
-            menu.autoenablesItems = false
-            return menu
+            return parent.menu(entry).makeNSMenu()
         }
 
         func key(_ key: GridKey, _ modifiers: NSEvent.ModifierFlags) { parent.onKey(key, modifiers) }
@@ -327,6 +318,22 @@ final class ClosureMenuItem: NSMenuItem {
     required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     @objc private func run() { handler() }
+}
+
+extension Array where Element == GridMenuItem {
+    /// Builds the same AppKit menu the grid and the viewer use for a right-click.
+    func makeNSMenu() -> NSMenu {
+        let menu = NSMenu()
+        for item in self {
+            if item.isSeparator { menu.addItem(.separator()); continue }
+            let mi = ClosureMenuItem(title: item.title, action: item.action)
+            if let symbol = item.symbol { mi.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+            mi.isEnabled = item.enabled
+            menu.addItem(mi)
+        }
+        menu.autoenablesItems = false
+        return menu
+    }
 }
 
 // MARK: - Layout
