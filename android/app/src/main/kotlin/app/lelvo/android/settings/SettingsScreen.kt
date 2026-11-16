@@ -74,7 +74,7 @@ fun SettingsScreen(
                 when (page) {
                     Page.BackupOptions -> BackupOptionsScreen(app.prefs, onAlbums = { open(Page.Albums) }, onRulesChanged = onBackupRulesChanged, onBack = back)
                     Page.Albums -> AlbumPickerScreen(app, onChanged = { onBackupRulesChanged(false) }, onBack = back)
-                    Page.Memories -> MemoriesSettingsScreen(app.prefs, onBack = back)
+                    Page.Memories -> MemoriesSettingsScreen(app, onBack = back)
                     Page.Pro -> ProSettingsScreen(app, onBack = back)
                     Page.Storage -> StorageScreen(app, onBack = back)
                     Page.DownloadCopy -> SecondCopyScreen(app, back)
@@ -128,7 +128,7 @@ private fun Main(
         SectionDivider()
         SettingRow("Memories", icon = R.drawable.ic_schedule) { open(Page.Memories) }
         val isPro by app.pro.isPro.collectAsState()
-        SettingRow("Lelvo Pro", if (isPro) "On" else "Off", icon = R.drawable.ic_lock) { open(Page.Pro) }
+        SettingRow("Lelvo Pro", if (isPro) "On" else "Off", icon = R.drawable.ic_lock, pro = true) { open(Page.Pro) }
         SettingRow("Storage", storage, icon = R.drawable.ic_storage) { open(Page.Storage) }
         Footnote("Space used on this phone by cloud previews you've viewed. Your photos aren't affected.")
 

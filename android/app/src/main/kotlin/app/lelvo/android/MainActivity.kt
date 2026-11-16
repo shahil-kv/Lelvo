@@ -22,7 +22,6 @@ import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -307,7 +306,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
     LaunchedEffect(lifecycle, isDemo) {
         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
             // New backups bring new places to name; a library scan finishing after launch counts too.
-            val library = app.store.items().map { it.size }.distinctUntilChanged()
+            val library = app.store.countFlow().distinctUntilChanged()
             app.photos.changes().combine(library) { _, _ -> }.conflate().collect { app.search.index(phone = !isDemo) }
         }
     }
@@ -337,7 +336,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                         is CollectionPage.All -> AllCollectionsScreen(app, page, onOpen = openPage, onBack = closePage)
                         CollectionPage.RecentlyDeleted -> RecentlyDeletedScreen(app, onBack = closePage)
                         is CollectionPage.MemoryList -> MemoriesScreen(app, page, onOpen = openPage, onBack = closePage)
-                        CollectionPage.MemorySettings -> MemoriesSettingsScreen(app.prefs, onBack = closePage)
+                        CollectionPage.MemorySettings -> MemoriesSettingsScreen(app, onBack = closePage)
                         is CollectionPage.Places -> PhotoMapScreen(app, page.entries, onOpen = openPage, onBack = closePage)
                         CollectionPage.Duplicates -> DuplicatesScreen(app, onBack = closePage)
                         CollectionPage.Locked -> LockedFolderScreen(

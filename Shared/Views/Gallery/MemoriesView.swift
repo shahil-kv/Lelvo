@@ -79,7 +79,10 @@ final class MemoriesModel: ObservableObject {
         let mine = generation
         let search = AppEnvironment.shared.search!
         let store = AppEnvironment.shared.store
-        let kinds = MemoriesSettingsView.enabled
+        var kinds = MemoriesSettingsView.enabled
+        // Theme memories are Lelvo Pro (#16E); On This Day / recent / trips stay free.
+        let isPro = await MainActor.run { ProStore.shared.isPro }
+        if !isPro { kinds.remove(.themes) }
         let started = Date()
         let (cards, byId) = await Task.detached(priority: .utility) {
             (Self.cards(entries, facts: (try? store.photoFacts()) ?? [:], kinds: kinds, search: search),

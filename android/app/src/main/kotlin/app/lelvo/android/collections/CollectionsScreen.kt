@@ -3,6 +3,7 @@ package app.lelvo.android.collections
 import kotlinx.coroutines.flow.conflate
 
 import app.lelvo.android.timeline.throttled
+import app.lelvo.android.timeline.visibleGallery
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -60,7 +61,6 @@ import app.lelvo.android.shell.LelvoTopBar
 import app.lelvo.core.index.Collections
 import app.lelvo.core.index.GalleryEntry
 import app.lelvo.core.index.GalleryFilter
-import app.lelvo.core.index.ItemStatus
 import app.lelvo.data.DemoMode
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
@@ -123,14 +123,18 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
         // Albums and folders read every photo: during a backup they're counted again at most every 10 s.
         // Memories are not. A backup only changes upload status, which memories don't use.
         var memories: MemoryCache? = null
-        app.model.gallery(isDemo).throttled(10_000)
+        app.visibleGallery(isDemo).throttled(10_000)
             .combine(memorySettings) { entries, _ -> entries }
             // New places and place names (read for search) change memories and their titles.
             .combine(app.search.revision) { entries, rev -> entries to rev }
+            .combine(app.pro.isPro) { pair, isPro -> Triple(pair.first, pair.second, isPro) }
             .conflate()
-            .map { (entries, rev) ->
+            .map { (entries, rev, isPro) ->
                 val inputs = MemoryInputs.of(entries)
-                val kinds = app.prefs.memoryKinds
+                // Themes are Lelvo Pro (#16E); On This Day / recent / trips stay free.
+                val kinds = app.prefs.memoryKinds.let { k ->
+                    if (isPro) k else k - Memories.KindFilter.Themes
+                }
                 val previous = memories
                 val forced = previous != null && (previous.rev != rev || previous.kinds != kinds)
                 val cards = if (MemoryInputs.changed(previous?.inputs, inputs, forced)) {
@@ -147,7 +151,7 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
             .collect { value = it }
     }
     val trashed by produceState(0, isDemo) {
-        app.store.items().map { all -> all.count { it.status == ItemStatus.Trashed } }.flowOn(Dispatchers.Default).collect { value = it }
+        app.store.trashedCountFlow().collect { value = it }
     }
     val scroll = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
@@ -189,8 +193,8 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
             }
             item("utilities") {
                 Section("Utilities") {
-                    LinkRow("Locked folder", R.drawable.ic_lock, app.lockedFolder.count()) { onOpen(CollectionPage.Locked) }
-                    LinkRow("Cleanup", R.drawable.ic_auto_awesome, null) { onOpen(CollectionPage.Duplicates) }
+                    LinkRow("Locked folder", R.drawable.ic_lock, null, pro = true) { onOpen(CollectionPage.Locked) }
+                    LinkRow("Smart Cleanup", R.drawable.ic_auto_awesome, null, pro = true) { onOpen(CollectionPage.Duplicates) }
                     LinkRow("Recently Deleted", R.drawable.ic_delete, trashed) { onOpen(CollectionPage.RecentlyDeleted) }
                 }
             }
@@ -273,16 +277,27 @@ internal fun Cover(entry: GalleryEntry?, app: LelvoApp, icon: Int, modifier: Mod
     }
 }
 
-/** A plain list row: icon, title, count. */
+/** A plain list row: icon, title, optional gold PRO pill, count. */
 @Composable
-internal fun LinkRow(title: String, icon: Int, count: Int?, onClick: () -> Unit) {
+internal fun LinkRow(title: String, icon: Int, count: Int?, pro: Boolean = false, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 56.dp).padding(horizontal = 16.dp)
-            .semantics(mergeDescendants = true) { contentDescription = if (count != null) "$title, $count items" else title },
+            .semantics(mergeDescendants = true) {
+                contentDescription = buildString {
+                    append(title)
+                    if (pro) append(", Pro")
+                    if (count != null) append(", $count items")
+                }
+            },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(painterResource(icon), null, tint = MaterialTheme.colorScheme.primary)
-        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 24.dp).weight(1f))
+        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 24.dp))
+        if (pro) {
+            androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+            app.lelvo.android.ui.ProBadge()
+        }
+        androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
         if (count != null) Text(countFormat.format(count), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

@@ -39,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -70,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import app.lelvo.android.LelvoApp
 import app.lelvo.android.R
+import app.lelvo.android.ui.ProBadge
 import app.lelvo.core.index.GalleryFilter
 import app.lelvo.android.media.CloudPhoto
 import app.lelvo.android.media.CloudThumbnail
@@ -193,9 +195,12 @@ fun MemoriesScreen(app: LelvoApp, page: CollectionPage.MemoryList, onOpen: (Coll
 /** Which memory types to make, like Google Photos' Memories settings (iOS `MemoriesSettingsView`, same keys). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MemoriesSettingsScreen(prefs: Prefs, onBack: () -> Unit) {
+fun MemoriesSettingsScreen(app: LelvoApp, onBack: () -> Unit) {
+    val prefs = app.prefs
     androidx.activity.compose.BackHandler(onBack = onBack)
     var kinds by remember { mutableStateOf(prefs.memoryKinds) }
+    val isPro by app.pro.isPro.collectAsState()
+    var openPro by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -209,7 +214,6 @@ fun MemoriesSettingsScreen(prefs: Prefs, onBack: () -> Unit) {
                 Memories.KindFilter.OnThisDay to "Years ago on this day",
                 Memories.KindFilter.Recent to "Recent highlights",
                 Memories.KindFilter.Trips to "Trips",
-                // Themes need image labels, which Android doesn't make yet: no switch that does nothing.
             ).forEach { (kind, title) ->
                 val on = kind in kinds
                 ListItem(
@@ -221,12 +225,42 @@ fun MemoriesSettingsScreen(prefs: Prefs, onBack: () -> Unit) {
                     },
                 )
             }
+            if (isPro) {
+                val on = Memories.KindFilter.Themes in kinds
+                ListItem(
+                    headlineContent = { Text("Themes: pets, beaches, food and more") },
+                    trailingContent = { Switch(checked = on, onCheckedChange = null) },
+                    modifier = Modifier.clickable(role = Role.Switch) {
+                        prefs.setMemoryKind(Memories.KindFilter.Themes, !on)
+                        kinds = prefs.memoryKinds
+                    },
+                )
+            } else {
+                ListItem(
+                    headlineContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Themes: pets, beaches, food and more")
+                            ProBadge()
+                        }
+                    },
+                    modifier = Modifier.clickable { openPro = true },
+                )
+            }
             Text(
-                "Memories are made on this phone from your photos' dates and places. Nothing is sent anywhere.",
+                if (isPro) "Memories are made on this phone from your photos' dates, places and what's in them. Nothing is sent anywhere."
+                else "On this day, recent highlights and trips stay free. Theme stories need Lelvo Pro.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(16.dp),
             )
         }
+    }
+    if (openPro) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { openPro = false },
+            title = { Text("Lelvo Pro") },
+            text = { Text("Theme memories are included with Lelvo Pro.") },
+            confirmButton = { TextButton(onClick = { openPro = false }) { Text("OK") } },
+        )
     }
 }
 
