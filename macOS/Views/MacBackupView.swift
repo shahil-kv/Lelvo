@@ -65,7 +65,7 @@ struct MacBackupView: View {
                 NavigationLink { SaveAllToPhotosView() } label: { iconLabel("Save All to Photos", "square.and.arrow.down.on.square.fill", .teal) }
                 NavigationLink { TakeoutGuideView(source: .photos) } label: { iconLabel("Import from Google Photos", "photo.stack", .orange) }
                 NavigationLink { TakeoutGuideView(source: .drive) } label: { iconLabel("Import from Google Drive", "folder", .accentColor) }
-                NavigationLink { DuplicatesView() } label: { iconLabel("Cleanup", "wand.and.stars", .purple) }
+                NavigationLink { DuplicatesView() } label: { iconLabel("Smart Cleanup", "wand.and.stars", .purple) }
                 Button { rescan() } label: {
                     HStack {
                         iconLabel("Re-scan Telegram Library", "arrow.clockwise", .teal)

@@ -492,9 +492,8 @@ struct FailedThumbnail: View {
     }
 }
 
-/// Review duplicates: extra copies in Telegram (same upload twice, or the same content as two items)
-/// and identical photos on this iPhone. Nothing is removed without a tap; the first copy always stays.
-/// Exact duplicates (free) and similar / near-duplicate cleanup (Lelvo Pro). Free Up Space stays a separate free tool.
+/// Smart cleanup: exact duplicates (free), plus similar / screenshots / large videos / blurry (Lelvo Pro).
+/// Shows estimated space before pay. Free Up Space stays a separate free tool. Nothing deletes without a tap.
 struct DuplicatesView: View {
     @ObservedObject private var pro = ProStore.shared
     @State private var messageDuplicates: [Int64] = []
@@ -510,16 +509,45 @@ struct DuplicatesView: View {
     @State private var selectedSimilar = Set<String>()
     @State private var confirmSimilar = false
     @State private var showProPaywall = false
+    @State private var smart = SmartCleanupService.Report()
+    @State private var selectedSmart = Set<String>()
+    @State private var confirmSmart: SmartBucket?
     private var env: AppEnvironment { AppEnvironment.shared }
+
+    private enum SmartBucket: String, Identifiable {
+        case screenshots, largeVideos, blurry
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .screenshots: return "screenshots"
+            case .largeVideos: return "large videos"
+            case .blurry: return "low-quality photos"
+            }
+        }
+    }
 
     /// Rough space sitting in exact Telegram extras (what we can count without opening every similar group).
     private var telegramExtraBytes: Int64 {
         cloudGroups.reduce(0) { $0 + $1.wastedBytes }
     }
 
+    /// Pro teaser: screenshots + large videos + blurry + burst estimate (or real similar extras once scanned).
+    private var proEstimateBytes: Int64 {
+        let similarBytes: Int64 = {
+            guard pro.isPro, !similar.isEmpty else { return smart.burstBytes }
+            return similar.reduce(0) { sum, g in
+                sum + g.entries.filter { $0.id != g.best }.compactMap(\.asset).reduce(0) { $0 + Self.assetBytes($1) }
+            }
+        }()
+        return smart.screenshots.reduce(0) { $0 + $1.bytes }
+            + smart.largeVideos.reduce(0) { $0 + $1.bytes }
+            + smart.blurry.reduce(0) { $0 + $1.bytes }
+            + similarBytes
+    }
+
     var body: some View {
         Form {
-            if telegramExtraBytes > 0 || !phoneGroups.isEmpty || (pro.isPro && !similar.isEmpty) {
+            if telegramExtraBytes > 0 || !phoneGroups.isEmpty || proEstimateBytes > 0 || !smart.isEmpty {
                 Section {
                     if telegramExtraBytes > 0 {
                         LabeledContent("Extra copies in Telegram", value: Format.bytes(telegramExtraBytes))
@@ -527,13 +555,19 @@ struct DuplicatesView: View {
                     if !phoneGroups.isEmpty {
                         LabeledContent("Identical copies on this \(Device.name)", value: "\(phoneGroups.flatMap(\.copies).count)")
                     }
-                    if pro.isPro, !similar.isEmpty {
-                        LabeledContent("Similar groups", value: "\(similar.count)")
+                    if proEstimateBytes > 0 {
+                        LabeledContent(pro.isPro ? "Smart cleanup" : "About this much with Pro",
+                                       value: Format.bytes(proEstimateBytes))
                     }
-                } header: { Text("Cleanup") } footer: {
+                    if !pro.isPro, proEstimateBytes > 0 {
+                        Button { showProPaywall = true } label: {
+                            Label("Unlock Smart Cleanup", systemImage: "sparkles")
+                        }
+                    }
+                } header: { Text("Space you can free") } footer: {
                     Text(pro.isPro
-                         ? "Exact copies are free to clean. Similar photos (bursts) are included with Lelvo Pro."
-                         : "Exact copies are free. Similar photos (bursts that look almost the same) need Lelvo Pro.")
+                         ? "Exact copies are free. Similar shots, screenshots, large videos and low-quality photos are included with Lelvo Pro."
+                         : "Exact copies are free. The estimate above includes similar bursts, screenshots, large videos and low-quality photos — unlock with Lelvo Pro to review and delete.")
                 }
             }
 
@@ -603,17 +637,21 @@ struct DuplicatesView: View {
             }
 
             similarSection
+            smartBucketSection(.screenshots, items: smart.screenshots, symbol: "camera.viewfinder")
+            smartBucketSection(.largeVideos, items: smart.largeVideos, symbol: "film")
+            smartBucketSection(.blurry, items: smart.blurry, symbol: "eye.slash")
         }
         .platformGroupedForm()
         .overlay {
             if loading {
-                ProgressView("Looking for duplicates…")
-            } else if messageDuplicates.isEmpty && cloudGroups.isEmpty && phoneGroups.isEmpty && similar.isEmpty && similarProgress == nil {
-                EmptyStateView(systemImage: "checkmark.circle", title: "No Duplicates",
-                               message: "Nothing is stored twice in your library or on this \(Device.name).")
+                ProgressView("Looking for cleanup…")
+            } else if messageDuplicates.isEmpty && cloudGroups.isEmpty && phoneGroups.isEmpty
+                        && similar.isEmpty && similarProgress == nil && smart.isEmpty {
+                EmptyStateView(systemImage: "checkmark.circle", title: "Looking Good",
+                               message: "No extra copies, screenshots pile-up, large videos or low-quality shots stood out.")
             }
         }
-        .navigationTitle("Cleanup")
+        .navigationTitle("Smart Cleanup")
         .disabled(busy != nil)
         .overlay {
             if let busy { ProgressView(busy).padding(20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) }
@@ -639,6 +677,15 @@ struct DuplicatesView: View {
                  ? "\(unsafe) of these are not backed up yet and are lost once Recently Deleted in Photos is emptied."
                  : "Photos on this \(Device.name) go to Recently Deleted in Photos; photos only in your Telegram library go to Recently Deleted in Lelvo.")
         }
+        .alert("Delete \(selectedSmart.count) \(confirmSmart?.title ?? "items") from Photos?", isPresented: Binding(
+            get: { confirmSmart != nil },
+            set: { if !$0 { confirmSmart = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { confirmSmart = nil }
+            Button("Delete from Photos", role: .destructive) { deleteSmart() }
+        } message: {
+            Text("They move to Recently Deleted in Photos. Your Telegram library is not changed.")
+        }
         .alert("Remove extra copies?", isPresented: $confirmCloud) {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) { removeCloud() }
@@ -650,14 +697,24 @@ struct DuplicatesView: View {
     private func load() async {
         loading = true
         let env = self.env
-        let (m, c, p) = await Task.detached {
-            (env.library.duplicateMessageIds, env.engine.cloudDuplicateGroups(), env.engine.phoneDuplicateGroups())
+        let (m, c, p, report) = await Task.detached {
+            (env.library.duplicateMessageIds, env.engine.cloudDuplicateGroups(), env.engine.phoneDuplicateGroups(),
+             env.smartCleanup.scan())
         }.value
         messageDuplicates = m
         cloudGroups = c
         phoneGroups = p
+        smart = report
         selectedCopies = selectedCopies.intersection(Set(p.flatMap(\.copies)))
+        let smartIds = Set(report.screenshots.map(\.id) + report.largeVideos.map(\.id) + report.blurry.map(\.id))
+        selectedSmart = selectedSmart.intersection(smartIds)
         loading = false
+    }
+
+    private static func assetBytes(_ asset: PHAsset) -> Int64 {
+        PHAssetResource.assetResources(for: asset).reduce(0) {
+            $0 + (($1.value(forKey: "fileSize") as? NSNumber)?.int64Value ?? 0)
+        }
     }
 
     // MARK: - Similar photos (#15) — Lelvo Pro
@@ -665,10 +722,15 @@ struct DuplicatesView: View {
     @ViewBuilder private var similarSection: some View {
         if !pro.isPro {
             Section {
-                Button { showProPaywall = true } label: {
-                    Label("Find similar photos with Pro", systemImage: "sparkles")
+                if smart.burstExtras > 0 {
+                    LabeledContent("Possible burst extras", value: "\(smart.burstExtras) · \(Format.bytes(smart.burstBytes))")
                 }
-            } header: { Text("Similar Photos") } footer: {
+                Button { showProPaywall = true } label: {
+                    Label("Review similar photos with Pro", systemImage: "sparkles")
+                }
+            } header: {
+                HStack { Text("Similar Photos"); ProBadge() }
+            } footer: {
                 Text("Bursts and near-duplicates, with a Best pick to keep. Exact copies above stay free.")
             }
         } else if let p = similarProgress {
@@ -701,9 +763,102 @@ struct DuplicatesView: View {
                         .disabled(selectedSimilar.isEmpty)
                 }
                 .buttonStyle(.borderless)
-            } header: { Text("Similar Photos") } footer: {
+            } header: {
+                HStack { Text("Similar Photos"); ProBadge() }
+            } footer: {
                 Text("Photos taken moments apart that look almost the same. The suggested one to keep is marked Best. Photos on this \(Device.name) go to Recently Deleted in Photos; photos only in your Telegram library go to Recently Deleted in Lelvo.")
             }
+        }
+    }
+
+    // MARK: - Screenshots / large videos / blurry — Lelvo Pro
+
+    @ViewBuilder private func smartBucketSection(_ bucket: SmartBucket, items: [SmartCleanupService.Item],
+                                                 symbol: String) -> some View {
+        if items.isEmpty { EmptyView() }
+        else if !pro.isPro {
+            Section {
+                LabeledContent("\(items.count) items", value: Format.bytes(items.reduce(0) { $0 + $1.bytes }))
+                Button { showProPaywall = true } label: {
+                    Label("Review with Pro", systemImage: "sparkles")
+                }
+            } header: {
+                HStack { Label(header(for: bucket), systemImage: symbol); ProBadge() }
+            }
+        } else {
+            Section {
+                ForEach(items.prefix(40)) { item in
+                    let selected = selectedSmart.contains(item.id)
+                    Button {
+                        if selected { selectedSmart.remove(item.id) } else { selectedSmart.insert(item.id) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selected ? Color.accentColor : .secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.asset.creationDate.map { Format.date($0) } ?? "Photo")
+                                    .foregroundStyle(.primary)
+                                Text(item.subtitle).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+                if items.count > 40 {
+                    Text("Showing 40 of \(items.count). Delete some, then pull to refresh.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button("Select all") { selectedSmart.formUnion(items.map(\.id)) }
+                    Spacer()
+                    Button(role: .destructive) { confirmSmart = bucket } label: {
+                        Text("Delete \(items.filter { selectedSmart.contains($0.id) }.count)")
+                    }
+                    .disabled(items.filter { selectedSmart.contains($0.id) }.isEmpty)
+                }
+                .buttonStyle(.borderless)
+            } header: {
+                HStack { Label(header(for: bucket), systemImage: symbol); ProBadge() }
+            } footer: {
+                Text(footer(for: bucket))
+            }
+        }
+    }
+
+    private func header(for bucket: SmartBucket) -> String {
+        switch bucket {
+        case .screenshots: return "Screenshots"
+        case .largeVideos: return "Large Videos"
+        case .blurry: return "Low Quality"
+        }
+    }
+
+    private func footer(for bucket: SmartBucket) -> String {
+        switch bucket {
+        case .screenshots:
+            return "Screenshots on this \(Device.name). Deleting moves them to Recently Deleted in Photos."
+        case .largeVideos:
+            return "Videos over \(Int(SmartCleanupService.largeVideoSeconds / 60)) minutes or \(Format.bytes(SmartCleanupService.largeVideoBytes)). Your Telegram library is not changed."
+        case .blurry:
+            return "Photos Vision marked as low quality on this \(Device.name). Available after Search has read them."
+        }
+    }
+
+    private func deleteSmart() {
+        let ids = Array(selectedSmart)
+        confirmSmart = nil
+        guard !ids.isEmpty else { return }
+        Task {
+            do {
+                try await env.photos.deleteAssets(ids)
+                Haptics.success()
+                selectedSmart.removeAll()
+            } catch let error as NSError where error.domain == PHPhotosErrorDomain && error.code == PHPhotosError.userCancelled.rawValue {
+            } catch {
+                AppLog.shared.error("Smart cleanup delete failed: \(error.localizedDescription)")
+                alert = GalleryAlert(title: "Couldn't delete", message: error.localizedDescription)
+            }
+            await load()
         }
     }
 

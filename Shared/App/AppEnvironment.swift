@@ -20,6 +20,7 @@ final class AppEnvironment: @unchecked Sendable {
     private(set) var media: CloudMediaService!
     private(set) var freeUpSpace: FreeUpSpaceService!
     private(set) var similar: SimilarPhotosService!
+    private(set) var smartCleanup: SmartCleanupService!
     private(set) var search: SearchService!
     private(set) var secondCopy: SecondCopyService!
     private(set) var importer: TakeoutImporter!
@@ -55,6 +56,7 @@ final class AppEnvironment: @unchecked Sendable {
         media = CloudMediaService(environment: self)
         freeUpSpace = FreeUpSpaceService(environment: self)
         similar = SimilarPhotosService(photos: photos, store: store, media: { [unowned self] in self.media })
+        smartCleanup = SmartCleanupService(photos: photos, store: store)
         search = SearchService(store: store, photos: photos, media: { [unowned self] in self.media })
         secondCopy = SecondCopyService(environment: self)
         importer = TakeoutImporter(environment: self)
