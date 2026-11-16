@@ -59,6 +59,7 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
     lateinit var freeUpSpace: app.lelvo.data.backup.FreeUpSpaceService private set
     lateinit var duplicates: app.lelvo.data.backup.Duplicates private set
     lateinit var similar: app.lelvo.data.backup.SimilarPhotosService private set
+    lateinit var smartCleanup: app.lelvo.data.backup.SmartCleanupService private set
     lateinit var secondCopy: app.lelvo.data.backup.SecondCopyService private set
     lateinit var sync: app.lelvo.data.sync.NoteSync private set
     lateinit var choices: app.lelvo.data.sync.LibraryChoices private set
@@ -105,9 +106,19 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         demo = DemoMode(this, store)
         prefs = Prefs(this)
         pro = app.lelvo.data.ProStore(this)
-        lockedFolder = app.lelvo.data.LockedFolderStore(this)
+        lockedFolder = app.lelvo.data.LockedFolderStore(this).also { it.reloadForLibrary(library.chatId) }
         files = TdFiles(telegram)
-        scanner = LibraryScanner(files, library, store, telegram).also { it.follow() }
+        scanner = LibraryScanner(files, library, store, telegram).also { scanner ->
+            scanner.onMetaApplied = {
+                kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
+                    lockedFolder.refreshSynced(store)
+                }
+            }
+            scanner.follow()
+        }
+        kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
+            lockedFolder.refreshSynced(store)
+        }
         coreCheck = CoreCheck(files, library, scanner, store)
         photos = app.lelvo.data.media.PhotoAccess(this)
         linker = app.lelvo.data.media.PhotoLinker(store, photos)
@@ -123,23 +134,32 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         freeUpSpace = app.lelvo.data.backup.FreeUpSpaceService(store, library, scanner, uploads, backup.phone)
         duplicates = app.lelvo.data.backup.Duplicates(store, library, scanner, uploads, backup.phone)
         similar = app.lelvo.data.backup.SimilarPhotosService(this, store, photos, media)
+        smartCleanup = app.lelvo.data.backup.SmartCleanupService(this)
         secondCopy = app.lelvo.data.backup.SecondCopyService(this, store, reader)
         choices = app.lelvo.data.sync.LibraryChoices(java.io.File(noBackupFilesDir, "choices"))
         scanner.choices = choices
         sync = app.lelvo.data.sync.NoteSync(this, store, library, scanner, files, uploads, backup, telegram, photos, isDemo = { demo.active.value })
+        backup.onItemBackedUp = { item ->
+            kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
+                lockedFolder.promotePendingAfterBackup(item, sync, store)
+            }
+        }
         model = AppModel(this)
         // Shared cloud photos from the last run (Copy's stay: the clipboard may still point at them).
         Thread { java.io.File(cacheDir, "Share").deleteRecursively() }.start()
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 // Lelvo comes to the front (iOS scene `.active`): follow the other devices, send what's waiting.
-                if (startedActivities++ == 0 && library.setupFinished) sync.onOpen { linker.relink() }
+                if (startedActivities++ == 0) {
+                    lockedFolder.noteBecameActive()
+                    if (library.setupFinished) sync.onOpen { linker.relink() }
+                }
             }
             override fun onActivityStopped(activity: android.app.Activity) {
                 startedActivities = maxOf(0, startedActivities - 1)
-                // To the background (iOS `.background`): changes go now, not after the pacing.
+                // To the background (iOS `.background`): Ente-style grace; changes go now, not after the pacing.
                 if (startedActivities == 0) {
-                    lockedFolder.lockSession()
+                    lockedFolder.noteEnteredBackground()
                     sync.onBackground()
                 }
             }

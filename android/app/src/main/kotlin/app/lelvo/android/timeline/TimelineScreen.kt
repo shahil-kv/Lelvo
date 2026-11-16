@@ -135,19 +135,33 @@ fun TimelineScreen(
     val filterState = androidx.compose.runtime.rememberUpdatedState(filter)
     val model = (LocalContext.current.applicationContext as app.lelvo.android.LelvoApp).model
     val app = LocalContext.current.applicationContext as app.lelvo.android.LelvoApp
-    val lockedIds by app.lockedFolder.ids.collectAsState()
-    val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(null, store, grouping, isDemo, lockedIds) {
-        model.gallery(isDemo)
-            .combine(snapshotFlow { filterState.value to lockedIds }) { all, (f, locked) ->
+    val syncedLocked by app.lockedFolder.syncedLockedIds.collectAsState()
+    val pendingLocked by app.lockedFolder.pendingLocalIds.collectAsState()
+    // The Photos tab grows a page at a time. A filter or a collection needs its own set, so it reads the whole list.
+    var pageLimit by rememberSaveable { mutableIntStateOf(FIRST_PAGE) }
+    val paging = collection == null && filter == null
+    var galleryComplete by remember { mutableStateOf(false) }
+    var galleryLoaded by remember { mutableIntStateOf(0) }
+    val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(
+        null, store, grouping, isDemo, syncedLocked, pendingLocked, pageLimit, paging,
+    ) {
+        val raw = if (paging) galleryWindow(store, photos, isDemo, pageLimit)
+        else model.gallery(isDemo).map { GalleryWindow(it, complete = true, loaded = Int.MAX_VALUE) }
+        raw.combine(snapshotFlow { Triple(filterState.value, syncedLocked, pendingLocked) }) { window, (f, _, _) ->
+                fun hidden(e: GalleryEntry) = app.lockedFolder.hidesFromTimeline(e)
                 val list = when (f) {
-                    is GalleryFilter.Locked -> all.filter { it.id in locked }
-                    null -> all.filter { it.id !in locked }
-                    else -> all.filter { it.id !in locked }.filter(f::matches)
+                    is GalleryFilter.Locked -> window.entries.filter(::hidden)
+                    null -> window.entries.filter { !hidden(it) }
+                    else -> window.entries.filter { !hidden(it) }.filter(f::matches)
                 }
-                Timeline.groupEntries(list, grouping, ZoneId.systemDefault(), LocalDate.now())
+                Triple(window.complete, window.loaded, Timeline.groupEntries(list, grouping, ZoneId.systemDefault(), LocalDate.now()))
             }
             .flowOn(Dispatchers.Default)
-            .collect { value = it }
+            .collect { (complete, loaded, grouped) ->
+                galleryComplete = complete
+                galleryLoaded = loaded
+                value = grouped
+            }
     }
     val backup by demo.backup.collectAsState()
     val scope = rememberCoroutineScope()
@@ -241,12 +255,21 @@ fun TimelineScreen(
                     val all = list.flatMap { it.items }
                     onOpen(all, all.indexOf(entry))
                 },
+                onNearEnd = {
+                    // One more page per finished load, so a short screen can't jump straight to the whole library.
+                    if (paging && !galleryComplete && galleryLoaded == pageLimit) pageLimit += FIRST_PAGE
+                },
             )
         }
         if (selecting) {
             val byId = remember(list) { list.orEmpty().flatMap { it.items }.associateBy { it.id } }
             Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding()), contentAlignment = Alignment.BottomCenter) {
-                SelectionActions(selection.mapNotNull(byId::get), onDone = { selection = emptySet() }, album = (collection as? GalleryFilter.Album)?.name)
+                SelectionActions(
+                    selection.mapNotNull(byId::get),
+                    onDone = { selection = emptySet() },
+                    album = (collection as? GalleryFilter.Album)?.name,
+                    inLockedFolder = collection is GalleryFilter.Locked,
+                )
             }
         }
     }
@@ -279,6 +302,14 @@ fun TimelineScreen(
  * Phone photos and cloud items in one newest-first list, again whenever either side changes (iOS `GalleryModel`).
  * The demo shows only its sample library.
  */
+/** Main timeline / search / memories: hide Locked Folder membership (iOS `GalleryModel.entries`). */
+fun app.lelvo.android.LelvoApp.visibleGallery(isDemo: Boolean): kotlinx.coroutines.flow.Flow<List<GalleryEntry>> =
+    model.gallery(isDemo)
+        .combine(lockedFolder.syncedLockedIds) { entries, _ -> entries }
+        .combine(lockedFolder.pendingLocalIds) { entries, _ ->
+            entries.filter { !lockedFolder.hidesFromTimeline(it) }
+        }
+
 fun galleryEntries(store: LibraryStore, photos: PhotoAccess, isDemo: Boolean): kotlinx.coroutines.flow.Flow<List<GalleryEntry>> {
     // The first listing starts with the newest photos only, so the timeline draws at once on a big phone; the full
     // list follows. Later changes always list everything.
@@ -308,6 +339,46 @@ fun galleryEntries(store: LibraryStore, photos: PhotoAccess, isDemo: Boolean): k
 }
 
 private class PhonePage(val assets: List<app.lelvo.core.index.PhoneAsset>, val complete: Boolean)
+
+/** The photos loaded so far. [complete] when scrolling further would add nothing. */
+internal class GalleryWindow(val entries: List<GalleryEntry>, val complete: Boolean, val loaded: Int)
+
+/**
+ * The newest [limit] phone photos, plus the cloud items that belong in that same stretch of time. Grows when the
+ * grid asks for more, instead of following the first screen with the whole library.
+ */
+internal fun galleryWindow(store: LibraryStore, photos: PhotoAccess, isDemo: Boolean, limit: Int): kotlinx.coroutines.flow.Flow<GalleryWindow> {
+    if (isDemo) return galleryEntries(store, photos, true).map { GalleryWindow(it, complete = true, loaded = limit) }
+    val phoneIds = kotlinx.coroutines.flow.flow { photos.changes().collect { emit(photos.localIds()) } }
+    return kotlinx.coroutines.flow.flow {
+        kotlinx.coroutines.flow.combine(phoneIds, store.changes()) { ids, _ -> ids }.collect { onPhone ->
+            val assets = photos.assets(limit = limit)
+            val phoneDone = assets.size < limit
+            val oldest = assets.minOfOrNull { it.takenAt ?: it.addedAt ?: Long.MIN_VALUE } ?: Long.MIN_VALUE
+            val aliases = store.aliases()
+            // A copy on the phone of a backed-up item: that item is on the phone too.
+            val aliasOnPhone = aliases.filterKeys { it in onPhone }.values.toHashSet()
+            val ids = assets.map { it.localId } + assets.mapNotNull { aliases[it.localId] }
+            val linked = store.items(ids)
+            // Blue is "only in the cloud". A photo still on the phone must not get it just because this page
+            // hasn't reached that photo yet.
+            val cloudRefs = store.backedUpRefs().filter { ref ->
+                if (ref.hidden) return@filter false
+                val local = ref.localId
+                if (local != null && local in onPhone) return@filter false
+                if (ref.id in aliasOnPhone) return@filter false
+                if (assets.isNotEmpty() && !phoneDone && (ref.createdAt ?: Long.MIN_VALUE) < oldest) return@filter false
+                true
+            }
+            val shown = if (assets.isEmpty() || phoneDone) {
+                cloudRefs.sortedByDescending { it.createdAt ?: Long.MIN_VALUE }.take(limit)
+            } else cloudRefs
+            val cloud = store.items(shown.map { it.id })
+            val complete = if (assets.isEmpty()) cloudRefs.size <= limit else phoneDone && cloudRefs.size <= limit
+            emit(GalleryWindow(Gallery.merge(assets, linked + cloud, aliases), complete, limit))
+        }
+    }.flowOn(Dispatchers.Default)
+}
 
 private const val FIRST_PAGE = 600
 
@@ -350,6 +421,7 @@ private fun EmptyState(modifier: Modifier) {
 private fun Grid(
     sections: List<Timeline.Section<GalleryEntry>>, columns: Int, grouping: Timeline.Grouping, padding: PaddingValues,
     photos: PhotoAccess, selection: Set<String>, onSelection: (Set<String>) -> Unit, onZoom: (Int) -> Unit, onOpen: (GalleryEntry) -> Unit,
+    onNearEnd: () -> Unit = {},
 ) {
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val order = remember(sections) { sections.flatMap { s -> s.items.map { it.id } } }
@@ -360,6 +432,16 @@ private fun Grid(
     val edge = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
     val side = LocalConfiguration.current.screenWidthDp.dp / columns
     val state = rememberLazyGridState()
+    val nearEnd by androidx.compose.runtime.rememberUpdatedState(onNearEnd)
+    // Restart when a new page arrives, so staying at the bottom loads the page after that too.
+    LaunchedEffect(state, sections) {
+        snapshotFlow {
+            val info = state.layoutInfo
+            val total = info.totalItemsCount
+            val last = info.visibleItemsInfo.lastOrNull()?.index ?: return@snapshotFlow false
+            total > 0 && last >= total - 8
+        }.collect { if (it) nearEnd() }
+    }
     val titles = rememberTitles()
     // New items land above the newest section. A lazy grid keeps its place by key, so they would arrive off screen;
     // someone looking at the top keeps seeing the top, like Photos. Only the user's own scrolling moves the pin.

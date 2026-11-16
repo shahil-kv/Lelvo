@@ -108,7 +108,10 @@ class NoteSync(
         if (ids.isEmpty()) return 0
         val chatId = noteChatId
         store.changeMeta(ids, key, value, chatId)
-        if (chatId != null) metaPacer.schedule()
+        if (chatId != null) {
+            // Locked Folder: flush soon so Mac / iPhone see membership without waiting on the favorites pacer.
+            if (key == MetaLog.Key.Locked) sendMeta() else metaPacer.schedule()
+        }
         return ids.size
     }
 
