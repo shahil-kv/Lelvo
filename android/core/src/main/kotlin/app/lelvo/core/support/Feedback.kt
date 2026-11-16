@@ -17,9 +17,19 @@ object Feedback {
         val os: String,
     )
 
+    /** Shown on Report a problem: why attaching the log helps. */
+    const val LOG_HELP_NOTE =
+        "Your log helps find bugs we can't reproduce on our phones. It stays on your device until you share it."
+
+    /** Shown wherever logs are shared. Matches what Redactor strips; file names of photos may still appear. */
+    const val LOG_PRIVACY_NOTE =
+        "Phone numbers, login codes, passwords, keys, channel IDs and file IDs are removed from logs before they are shown or shared. The log may include photo file names and what the app was doing."
+
     fun draft(kind: Kind, appName: String, developer: String, env: Environment): String {
         val body = when (kind) {
-            Kind.Bug -> "Hi $developer, something isn't working in $appName.\n\nWhat I was doing:\n\n\nWhat happened instead:\n\n"
+            Kind.Bug -> "Hi $developer, something isn't working in $appName.\n\nWhat I was doing:\n\n\nWhat happened instead:\n\n\n" +
+                "Please use the attached Lelvo-log.txt (or attach it from Settings → Logs). " +
+                "It helps debug the app. Phone numbers, login codes, passwords, keys, channel IDs and file IDs are removed automatically.\n"
             Kind.Idea -> "Hi $developer, I have an idea for $appName.\n\nWhat I'd like:\n\n\nWhy it would help:\n\n"
         }
         return body + "\n— $appName ${env.version}, ${env.device}, ${env.os}"
@@ -31,6 +41,7 @@ object Feedback {
      */
     fun groupPost(kind: Kind, appName: String, env: Environment): String = when (kind) {
         Kind.Bug -> "🐞 Bug\n\nWhat I did:\n\nWhat I expected:\n\nWhat happened instead:\n\nHow often: every time / sometimes / once\n" +
+            "Log: attaching Lelvo-log.txt (paperclip). It helps debug; phone numbers, codes, passwords, keys and IDs are removed.\n" +
             "Phone: ${env.device}, ${env.os}\n$appName version: ${env.version} (${env.app})"
         Kind.Idea -> "💡 Feature idea\n\nWhat I'd like $appName to do:\n\nWhy it would help me:\n\nHow I do it today:\n\n" +
             "$appName ${env.version} (${env.app}), ${env.device}"

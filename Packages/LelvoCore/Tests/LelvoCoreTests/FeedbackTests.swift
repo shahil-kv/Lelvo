@@ -14,7 +14,16 @@ import LelvoCore
         let text = Feedback.draft(.bug, appName: "Lelvo", developer: "Shahil", env: env)
         #expect(text.hasPrefix("Hi Shahil,"))
         #expect(text.contains("What happened instead:"))
+        #expect(text.contains("Lelvo-log.txt"))
+        #expect(text.contains("removed automatically"))
         #expect(text.hasSuffix("Lelvo 0.1.0 (12), iPhone17,1, iOS 26.1"))
+    }
+
+    @Test func logNotesExplainHelpAndPrivacyWithoutSecrets() {
+        #expect(Feedback.logHelpNote.contains("helps"))
+        #expect(Feedback.logPrivacyNote.contains("Phone numbers"))
+        #expect(Feedback.logPrivacyNote.contains("removed"))
+        #expect(!Feedback.logPrivacyNote.lowercased().contains("api_hash"))
     }
 
     @Test func ideaDraftAsksForTheIdeaAndWhy() {
@@ -65,9 +74,12 @@ import LelvoCore
         let bug = Feedback.groupPost(.bug, appName: "Lelvo", env: env)
         #expect(bug.hasPrefix("🐞 Bug\n\nWhat I did:"))
         #expect(bug.contains("What happened instead:"))
-        #expect(bug.hasSuffix("Phone: iPhone17,1, iOS 26.1\nLelvo version: 0.1.0 (12) (iPhone)"))
+        #expect(bug.contains("Lelvo-log.txt"))
+        #expect(bug.contains("removed"))
+        #expect(bug.contains("Phone: iPhone17,1, iOS 26.1\nLelvo version: 0.1.0 (12) (iPhone)"))
         let idea = Feedback.groupPost(.idea, appName: "Lelvo", env: env)
         #expect(idea.hasPrefix("💡 Feature idea\n\nWhat I'd like Lelvo to do:"))
         #expect(idea.hasSuffix("Lelvo 0.1.0 (12) (iPhone), iPhone17,1"))
+        #expect(!idea.contains("Lelvo-log.txt"))
     }
 }

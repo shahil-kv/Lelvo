@@ -112,7 +112,7 @@ internal fun LogsScreen(onBack: () -> Unit) {
         SelectionContainer(Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
                 item {
-                    Footnote("Phone numbers, API keys, channel IDs and file IDs are removed from logs before they are shown or shared.")
+                    Footnote(Feedback.LOG_PRIVACY_NOTE)
                 }
                 val shown = lines
                 if (shown != null && shown.isEmpty()) item { Footnote("No log entries yet.") }
@@ -130,12 +130,44 @@ internal fun LogsScreen(onBack: () -> Unit) {
 /** The log as a file in the share folder (the only folder the FileProvider exposes), to the share sheet. */
 private suspend fun shareLogs(context: Context) {
     val file = withContext(Dispatchers.IO) {
-        File(context.cacheDir, "Share").apply { mkdirs() }.let { AppLog.export(File(it, "lelvo-log.txt")) }
+        File(context.cacheDir, "Share").apply { mkdirs() }.let { AppLog.export(File(it, "Lelvo-log.txt")) }
     } ?: run { Messages.show(Messages.Style.Failure, "Couldn't share the logs", "Try again."); return }
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.share", file)
     val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri)
         .putExtra(Intent.EXTRA_SUBJECT, "Lelvo logs").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     context.startActivity(Intent.createChooser(send, "Share logs").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+}
+
+/** Bug email with the redacted log attached when the mail app accepts ACTION_SEND. */
+private suspend fun emailBugWithLog(context: Context, onNoMail: () -> Unit) {
+    val draft = Feedback.draft(Feedback.Kind.Bug, "Lelvo", AppLinks.DEVELOPER_NAME, feedbackEnvironment)
+    val subject = Feedback.subject(Feedback.Kind.Bug, "Lelvo")
+    val file = withContext(Dispatchers.IO) {
+        File(context.cacheDir, "Share").apply { mkdirs() }.let { AppLog.export(File(it, "Lelvo-log.txt")) }
+    }
+    if (file == null) {
+        try {
+            context.startActivity(
+                Intent(Intent.ACTION_SENDTO, Uri.parse(Feedback.mailUrl(AppLinks.DEVELOPER_EMAIL, subject, draft)))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        } catch (_: ActivityNotFoundException) {
+            onNoMail()
+        }
+        return
+    }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.share", file)
+    val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+        .putExtra(Intent.EXTRA_EMAIL, arrayOf(AppLinks.DEVELOPER_EMAIL))
+        .putExtra(Intent.EXTRA_SUBJECT, subject)
+        .putExtra(Intent.EXTRA_TEXT, draft)
+        .putExtra(Intent.EXTRA_STREAM, uri)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    try {
+        context.startActivity(Intent.createChooser(send, "Email ${AppLinks.DEVELOPER_NAME}").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: ActivityNotFoundException) {
+        onNoMail()
+    }
 }
 
 private val feedbackEnvironment: Feedback.Environment
@@ -152,6 +184,7 @@ private val feedbackEnvironment: Feedback.Environment
 @Composable
 internal fun FeedbackScreen(kind: Feedback.Kind, onLogs: () -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val bug = kind == Feedback.Kind.Bug
     fun copyAddress(noMailApp: Boolean = false) {
         copy(context, "Email address", AppLinks.DEVELOPER_EMAIL)
@@ -169,8 +202,9 @@ internal fun FeedbackScreen(kind: Feedback.Kind, onLogs: () -> Unit, onBack: () 
             SettingRow("What you were doing, and what you expected", icon = R.drawable.ic_info_outline)
             SettingRow("What happened instead", icon = R.drawable.ic_error)
             SettingRow("A screen recording or screenshots", icon = R.drawable.ic_image)
-            SettingRow("Your logs: open Logs and share the file", icon = R.drawable.ic_description, onClick = onLogs)
-            Footnote("Phone numbers, API keys, channel IDs and file IDs are removed from logs before they're shared.")
+            SettingRow("Your log file (attached when you email or share)", icon = R.drawable.ic_description)
+            SettingRow("Preview or share logs yourself", icon = R.drawable.ic_description, onClick = onLogs)
+            Footnote("${Feedback.LOG_HELP_NOTE} ${Feedback.LOG_PRIVACY_NOTE}")
         } else {
             SettingRow("What you'd like Lelvo to do", icon = R.drawable.ic_auto_awesome)
             SettingRow("Why it would help you", icon = R.drawable.ic_favorite_border)
@@ -180,22 +214,36 @@ internal fun FeedbackScreen(kind: Feedback.Kind, onLogs: () -> Unit, onBack: () 
         SectionHeader("Send it")
         SettingRow(
             "Post in the Lelvo group",
-            "Opens ${if (bug) "Bugs" else "Feature ideas"} in Telegram with your ${if (bug) "report" else "idea"} copied. Paste it there.",
+            if (bug) "Copies your report, opens Bugs in Telegram, and shares the log to attach."
+            else "Opens Feature ideas in Telegram with your idea copied. Paste it there.",
             icon = R.drawable.ic_chat,
         ) {
             copy(context, if (bug) "Bug report" else "Feature idea", Feedback.groupPost(kind, "Lelvo", feedbackEnvironment))
-            Messages.show(Messages.Style.Info, if (bug) "Report copied" else "Idea copied", "Paste it in the group and send.")
+            if (bug) {
+                Messages.show(Messages.Style.Info, "Report copied", "Paste it in the group, then attach the log file.")
+                scope.launch { shareLogs(context) }
+            } else {
+                Messages.show(Messages.Style.Info, "Idea copied", "Paste it in the group and send.")
+            }
             openLink(context, if (bug) AppLinks.COMMUNITY_BUGS else AppLinks.COMMUNITY_IDEAS)
         }
-        SettingRow("Email ${AppLinks.DEVELOPER_NAME}", AppLinks.DEVELOPER_EMAIL, icon = R.drawable.ic_mail) {
-            val url = Feedback.mailUrl(
-                AppLinks.DEVELOPER_EMAIL, Feedback.subject(kind, "Lelvo"),
-                Feedback.draft(kind, "Lelvo", AppLinks.DEVELOPER_NAME, feedbackEnvironment),
-            )
-            try {
-                context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            } catch (_: ActivityNotFoundException) {
-                copyAddress(noMailApp = true)
+        SettingRow(
+            "Email ${AppLinks.DEVELOPER_NAME}",
+            if (bug) "${AppLinks.DEVELOPER_EMAIL}. Includes the log when your mail app accepts attachments."
+            else AppLinks.DEVELOPER_EMAIL,
+            icon = R.drawable.ic_mail,
+        ) {
+            if (bug) scope.launch { emailBugWithLog(context, onNoMail = { copyAddress(noMailApp = true) }) }
+            else {
+                val url = Feedback.mailUrl(
+                    AppLinks.DEVELOPER_EMAIL, Feedback.subject(kind, "Lelvo"),
+                    Feedback.draft(kind, "Lelvo", AppLinks.DEVELOPER_NAME, feedbackEnvironment),
+                )
+                try {
+                    context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (_: ActivityNotFoundException) {
+                    copyAddress(noMailApp = true)
+                }
             }
         }
         Footnote(

@@ -22,11 +22,21 @@ public enum Feedback {
         }
     }
 
+    /// Shown on Report a problem: why attaching the log helps.
+    public static let logHelpNote =
+        "Your log helps find bugs we can't reproduce on our phones. It stays on your device until you share it."
+
+    /// Shown wherever logs are shared. Matches what `Redactor` strips; file names of photos may still appear.
+    public static let logPrivacyNote =
+        "Phone numbers, login codes, passwords, keys, channel IDs and file IDs are removed from logs before they are shown or shared. The log may include photo file names and what the app was doing."
+
     public static func draft(_ kind: Kind, appName: String, developer: String, env: Environment) -> String {
         let body: String
         switch kind {
         case .bug:
-            body = "Hi \(developer), something isn't working in \(appName).\n\nWhat I was doing:\n\n\nWhat happened instead:\n\n"
+            body = "Hi \(developer), something isn't working in \(appName).\n\nWhat I was doing:\n\n\nWhat happened instead:\n\n\n"
+                + "Please use the attached Lelvo-log.txt (or attach it from Settings → Logs). "
+                + "It helps debug the app. Phone numbers, login codes, passwords, keys, channel IDs and file IDs are removed automatically.\n"
         case .idea:
             body = "Hi \(developer), I have an idea for \(appName).\n\nWhat I'd like:\n\n\nWhy it would help:\n\n"
         }
@@ -39,6 +49,7 @@ public enum Feedback {
         switch kind {
         case .bug:
             return "🐞 Bug\n\nWhat I did:\n\nWhat I expected:\n\nWhat happened instead:\n\nHow often: every time / sometimes / once\n"
+                + "Log: attaching Lelvo-log.txt (paperclip). It helps debug; phone numbers, codes, passwords, keys and IDs are removed.\n"
                 + "Phone: \(env.device), \(env.os)\n\(appName) version: \(env.version) (\(env.app))"
         case .idea:
             return "💡 Feature idea\n\nWhat I'd like \(appName) to do:\n\nWhy it would help me:\n\nHow I do it today:\n\n"
