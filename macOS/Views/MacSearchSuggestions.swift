@@ -5,7 +5,9 @@ import LelvoCore
 /// Photos and Spotlight. The iPhone's list turns into a stack of bordered buttons here.
 struct MacSearchSuggestions: View {
     @ObservedObject var search: SearchModel
+    @ObservedObject private var pro = ProStore.shared
     @State private var expanded: Set<String> = []
+    @State private var showProPaywall = false
     private static let shown = 8
     private let columns = [GridItem(.adaptive(minimum: 220, maximum: 360), spacing: 8, alignment: .leading)]
 
@@ -20,12 +22,31 @@ struct MacSearchSuggestions: View {
                 if !search.places.isEmpty { section("Places", items: search.places, symbol: "mappin.and.ellipse") }
                 if !search.months.isEmpty { section("Months", items: search.months, symbol: "calendar") }
                 section("Try", items: ["Videos", "Favorites", "Screenshots"], symbol: "magnifyingglass")
+                if !pro.isPro {
+                    Button { showProPaywall = true } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "sparkle.magnifyingglass").foregroundStyle(.tint)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text("Smart Search").font(.headline)
+                                    ProBadge()
+                                }
+                                Text("Find by text and things in a photo").font(.callout).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                }
                 Text(search.status).font(.callout).foregroundStyle(.secondary)
             }
             .padding(24)
             .frame(maxWidth: 1100, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .sheet(isPresented: $showProPaywall) { ProPaywallView() }
     }
 
     private func section(_ title: String, items: [String], symbol: String,

@@ -113,7 +113,7 @@ class SearchCorpusTest {
     private val phone = mapOf("p2" to kochi)
 
     @Test fun findsByPlaceDateKindFolderAlbumAndName() {
-        val index = SearchCorpus.index(entries, places, phone::get, ZoneOffset.UTC, Locale.US)
+        val index = SearchCorpus.index(entries, places, phone::get, ZoneOffset.UTC, Locale.US).free
         assertEquals(listOf("p2", "cloud-c1"), index.search("kochi"), "the phone file's place and the backup's place")
         assertEquals(listOf("p2", "cloud-c1"), index.search("kerala june 2023"))
         assertEquals(listOf("p1"), index.search("screenshots"))
@@ -126,11 +126,12 @@ class SearchCorpusTest {
 
     @Test fun thingsInPhotosAreWordsAndTheirAlternativesFindThem() {
         val labels = mapOf("p1" to listOf("christmas_tree", "dog"), "p2" to listOf("ocean"))
-        val index = SearchCorpus.index(entries, places, phone::get, ZoneOffset.UTC, Locale.US) { e -> e.asset?.let { labels[it.localId] }.orEmpty() }
-        assertEquals(listOf("p1"), index.search("christmas tree"))
-        assertEquals(listOf("p1"), index.search("dog"))
-        assertEquals(listOf("p1"), index.search("pets"), "pets counts as dog, as on iOS")
-        assertEquals(listOf("p2"), index.search("sea"))
+        val indexes = SearchCorpus.index(entries, places, phone::get, ZoneOffset.UTC, Locale.US) { e -> e.asset?.let { labels[it.localId] }.orEmpty() }
+        assertEquals(emptyList(), indexes.free.search("dog"), "things stay Pro-only on the free index")
+        assertEquals(listOf("p1"), indexes.full.search("christmas tree"))
+        assertEquals(listOf("p1"), indexes.full.search("dog"))
+        assertEquals(listOf("p1"), indexes.full.search("pets"), "pets counts as dog, as on iOS")
+        assertEquals(listOf("p2"), indexes.full.search("sea"))
     }
 
     @Test fun zeroZeroIsNoPlace() {

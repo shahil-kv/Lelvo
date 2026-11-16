@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
@@ -57,6 +58,8 @@ import app.lelvo.android.R
 import app.lelvo.android.collections.Cover
 import app.lelvo.android.shell.LelvoTopBar
 import app.lelvo.android.timeline.TimelineScreen
+import app.lelvo.android.timeline.visibleGallery
+import app.lelvo.android.ui.ProBadge
 import app.lelvo.android.ui.theme.Lelvo
 import app.lelvo.core.index.GalleryEntry
 import app.lelvo.core.index.GalleryFilter
@@ -71,11 +74,23 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import java.text.NumberFormat
 
-/** The word index and suggestions, made together off the main thread whenever the library or known places change. */
-private class SearchData(val index: SearchIndex, val suggestions: SearchCorpus.Suggestions, val byId: Map<String, GalleryEntry>)
+/** Free + full indexes and suggestions, made off the main thread whenever the library or known places change. */
+private class SearchData(
+    val free: SearchIndex,
+    val full: SearchIndex,
+    val suggestions: SearchCorpus.Suggestions,
+    val byId: Map<String, GalleryEntry>,
+    /** False until the full index exists. The screen is already showing places and months from disk. */
+    val ready: Boolean,
+)
 
-/** Ids found for [query]; kept with it so results for older letters are never shown as the current ones. */
-private class Found(val query: String, val ids: Set<String>)
+private fun blankSearch() = SearchData(
+    SearchIndex(emptyList()), SearchIndex(emptyList()),
+    SearchCorpus.Suggestions(emptyList(), emptyList()), emptyMap(), ready = false,
+)
+
+/** Ids found for [query]; [needsPro] when Free found nothing but Pro things-search would. */
+private class Found(val query: String, val ids: Set<String>, val needsPro: Boolean = false)
 
 /**
  * The last index made, kept while the app runs. Switching tabs disposes Search; without this, coming back to it in a
@@ -98,35 +113,54 @@ private const val SHOWN = 4
 @Composable
 fun SearchScreen(app: LelvoApp, onOpen: (List<GalleryEntry>, Int) -> Unit, onSettings: () -> Unit, modifier: Modifier = Modifier) {
     val isDemo by app.demo.active.collectAsState()
-    val data by produceState(lastData?.takeIf { it.first == isDemo }?.second, isDemo) {
-        app.model.gallery(isDemo)
+    val isPro by app.pro.isPro.collectAsState()
+    val data by produceState(lastData?.takeIf { it.first == isDemo }?.second ?: blankSearch(), isDemo) {
+        // Places and months from the cache, before the full library is indexed. The field is already on screen.
+        if (!value.ready) {
+            val preview = runCatching { app.search.preview() }.getOrNull()
+            if (preview != null && !value.ready) {
+                val current = value
+                value = SearchData(current.free, current.full, preview, current.byId, ready = false)
+            }
+        }
+        app.visibleGallery(isDemo)
             .combine(app.search.revision) { entries, _ -> entries }
             .flowOn(Dispatchers.Default)
             .collect { entries ->
                 value = withContext(Dispatchers.Default) {
                     val started = System.currentTimeMillis()
                     val places = app.search.placeNames()
+                    val indexes = SearchCorpus.index(
+                        entries, places, app.search::phoneLocation,
+                        things = { e -> e.asset?.let { app.search.things(it.localId) }.orEmpty() },
+                    )
                     val built = SearchData(
-                        SearchCorpus.index(entries, places, app.search::phoneLocation, things = { e -> e.asset?.let { app.search.things(it.localId) }.orEmpty() }),
+                        indexes.free, indexes.full,
                         SearchCorpus.suggestions(entries, places, app.search::phoneLocation),
                         entries.associateBy { it.id },
+                        ready = true,
                     )
                     AppLog.info("Search: index of ${entries.size} items in %.2f s".format((System.currentTimeMillis() - started) / 1000.0))
                     built
                 }
-                lastData = isDemo to value!!
+                lastData = isDemo to value
             }
     }
     var query by rememberSaveable { mutableStateOf("") }
     var recent by remember { mutableStateOf(app.prefs.recentSearches) }
     val searching = SearchMatcher.words(query).isNotEmpty()
     // A moment after the last letter, off the main thread (iOS waits 120 ms too).
-    val found by produceState<Found?>(null, query, data) {
-        val d = data ?: return@produceState
+    val found by produceState<Found?>(null, query, data, isPro) {
+        val d = data
         val text = query
         if (SearchMatcher.words(text).isEmpty()) { value = null; return@produceState }
         delay(120)
-        value = Found(text, withContext(Dispatchers.Default) { d.index.search(text).toHashSet() })
+        value = withContext(Dispatchers.Default) {
+            val freeHits = d.free.search(text)
+            val fullHits = d.full.search(text)
+            if (isPro) Found(text, fullHits.toHashSet())
+            else Found(text, freeHits.toHashSet(), needsPro = freeHits.isEmpty() && fullHits.isNotEmpty())
+        }
     }
     val focus = LocalFocusManager.current
     val remember = { text: String ->
@@ -153,15 +187,17 @@ fun SearchScreen(app: LelvoApp, onOpen: (List<GalleryEntry>, Int) -> Unit, onSet
         val d = data
         val f = found
         when {
-            d == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                androidx.compose.material3.CircularProgressIndicator()
+            searching && !d.ready -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text("Looking through your photos…", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             !searching -> Suggestions(
-                d, recent, app, PaddingValues(top = padding.calculateTopPadding(), bottom = 24.dp + padding.calculateBottomPadding()),
+                d, recent, app, isPro, PaddingValues(top = padding.calculateTopPadding(), bottom = 24.dp + padding.calculateBottomPadding()),
                 onChoose = choose, onClearRecent = { app.prefs.recentSearches = emptyList(); recent = emptyList() },
+                onOpenPro = onSettings,
             )
             // Still looking for these letters: the last results stay rather than flashing "No results".
             f == null -> Unit
+            f.needsPro && f.query == query -> NeedsPro(Modifier.padding(padding), query, onOpenPro = onSettings)
             f.ids.isEmpty() && f.query == query -> NoResults(Modifier.padding(padding))
             f.ids.isEmpty() -> Unit
             else -> TimelineScreen(
@@ -198,8 +234,8 @@ private fun SearchField(query: String, onChange: (String) -> Unit, onSubmit: () 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Suggestions(
-    d: SearchData, recent: List<String>, app: LelvoApp, padding: PaddingValues,
-    onChoose: (String) -> Unit, onClearRecent: () -> Unit,
+    d: SearchData, recent: List<String>, app: LelvoApp, isPro: Boolean, padding: PaddingValues,
+    onChoose: (String) -> Unit, onClearRecent: () -> Unit, onOpenPro: () -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val status by app.search.status.collectAsState()
@@ -238,9 +274,26 @@ private fun Suggestions(
                 for (kind in listOf("Videos", "Favorites", "Screenshots")) SuggestionChip(onClick = { onChoose(kind) }, label = { Text(kind) })
             }
         }
+        if (!isPro) item("smartSearch") {
+            ListItem(
+                headlineContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Smart Search")
+                        ProBadge()
+                    }
+                },
+                supportingContent = { Text("Find by things in a photo") },
+                leadingContent = { Icon(painterResource(R.drawable.ic_search), null) },
+                modifier = Modifier.clickable(onClick = onOpenPro),
+            )
+        }
         item("status") {
-            val text = if (status.total == 0 || status.read >= status.total) "Search looks at places, dates, albums and file names, on this phone."
-            else "${countFormat.format(status.read)} of ${countFormat.format(status.total)} photos read for places. Reading continues while Lelvo is open."
+            val text = when {
+                status.total > 0 && status.read < status.total ->
+                    "${countFormat.format(status.read)} of ${countFormat.format(status.total)} photos read for places. Reading continues while Lelvo is open."
+                isPro -> "Search looks at places, dates, and things in your photos, on this phone."
+                else -> "Places, dates and kinds are free. Things in a photo need Lelvo Pro."
+            }
             Text(
                 text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(16.dp, 24.dp, 16.dp, 0.dp),
@@ -283,5 +336,22 @@ private fun NoResults(modifier: Modifier) {
             "Try a place, a month or year, an album or a file name.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
         )
+    }
+}
+
+@Composable
+private fun NeedsPro(modifier: Modifier, query: String, onOpenPro: () -> Unit) {
+    Column(
+        modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(painterResource(R.drawable.ic_search), contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Smart Search", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "“$query” matches things in your photos. That needs Lelvo Pro. Places and dates stay free.",
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
+        )
+        androidx.compose.material3.Button(onClick = onOpenPro) { Text("Unlock Smart Search") }
     }
 }

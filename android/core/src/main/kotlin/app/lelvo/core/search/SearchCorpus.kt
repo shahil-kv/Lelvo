@@ -23,24 +23,34 @@ object SearchCorpus {
     fun cell(e: GalleryEntry, phone: (String) -> Pair<Double, Double>?): String? =
         location(e, phone)?.let { (lat, lon) -> SearchMatcher.placeCell(lat, lon) }
 
+    /** Free index (dates, places, filenames, albums, kinds) and full index including ML Kit things (#16D). */
+    data class Indexes(val free: SearchIndex, val full: SearchIndex)
+
     /**
-     * The inverted index of every entry's words, in timeline order. [places]: cell → "City, State, Country".
-     * [things]: what is in the photo ("christmas_tree"), stored as words the way iOS does (`storedWords`).
+     * The inverted indexes of every entry's words, in timeline order. [places]: cell → "City, State, Country".
+     * [things]: what is in the photo ("christmas_tree") — Pro-only in the full index (iOS Vision text/things).
      */
     fun index(
         entries: List<GalleryEntry>, places: Map<String, String>, phone: (String) -> Pair<Double, Double>?,
         zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault(),
         things: (GalleryEntry) -> List<String> = { emptyList() },
-    ): SearchIndex = SearchIndex(entries.map { e ->
-        val known = SearchMatcher.dateWords(e.date, zone, locale).toMutableList()
-        known += SearchMatcher.words(things(e).joinToString(" ") { it.replace('_', ' ') })
-        cell(e, phone)?.let { places[it] }?.let { known += SearchMatcher.words(it) }
-        e.item?.let { known += SearchMatcher.words((it.albums + it.filename).joinToString(" ")) }
-        // Android's own albums are folders: "whatsapp", "camera", "screenshots" find their photos.
-        e.asset?.let { known += SearchMatcher.words(listOfNotNull(it.filename, it.bucketName).joinToString(" ")) }
-        known += kindWords(e)
-        e.id to known
-    })
+    ): Indexes {
+        val freePairs = ArrayList<Pair<String, List<String>>>(entries.size)
+        val fullPairs = ArrayList<Pair<String, List<String>>>(entries.size)
+        for (e in entries) {
+            val free = SearchMatcher.dateWords(e.date, zone, locale).toMutableList()
+            cell(e, phone)?.let { places[it] }?.let { free += SearchMatcher.words(it) }
+            e.item?.let { free += SearchMatcher.words((it.albums + it.filename).joinToString(" ")) }
+            // Android's own albums are folders: "whatsapp", "camera", "screenshots" find their photos.
+            e.asset?.let { free += SearchMatcher.words(listOfNotNull(it.filename, it.bucketName).joinToString(" ")) }
+            free += kindWords(e)
+            val full = free.toMutableList()
+            full += SearchMatcher.words(things(e).joinToString(" ") { it.replace('_', ' ') })
+            freePairs += e.id to free
+            fullPairs += e.id to full
+        }
+        return Indexes(SearchIndex(freePairs), SearchIndex(fullPairs))
+    }
 
     fun kindWords(e: GalleryEntry): List<String> = buildList {
         if (e.isVideo) addAll(listOf("video", "videos"))
