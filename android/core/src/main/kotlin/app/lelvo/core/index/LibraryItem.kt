@@ -50,6 +50,8 @@ data class LibraryItem(
     val fileSize: Long,
     val status: ItemStatus,
     val favorite: Boolean = false,
+    /** Locked Folder (#129): hidden from Lelvo timelines on every device until unlocked. */
+    val locked: Boolean = false,
     val hidden: Boolean = false,
     val uploadedAt: Long? = null,
     val verifiedAt: Long? = null,
@@ -129,6 +131,8 @@ data class LibraryItem(
         screenCopySkipped = local.screenCopySkipped, streamingCopySkipped = local.streamingCopySkipped,
         // Safe to keep: a resume is used only when the parts in the channel end exactly where it says.
         uploadResume = local.uploadResume,
+        // Locked Folder is MetaLog-only (not in captions). Keep across scan merge like iOS (#129).
+        locked = if (local.locked) true else locked,
     )
 
     /** [files] as the parts of [role], with the resume point kept only while the role is incomplete (iOS `setParts`). */

@@ -4,9 +4,9 @@ import app.lelvo.core.crypto.Hashing
 import app.lelvo.core.crypto.nfc
 
 /**
- * Favorites and albums across devices (docs/CLOUD_FORMAT.md §7.3). A change made after an item was backed up adds one
- * small document to the channel, for many items at once. For each item, its favorite and its membership of each album
- * follow the note with the highest message id.
+ * Favorites, albums and Locked Folder across devices (docs/CLOUD_FORMAT.md §7.3). A change made after an item was
+ * backed up adds one small document to the channel, for many items at once. For each item, its favorite, Locked Folder
+ * membership and each album follow the note with the highest message id.
  */
 object MetaLog {
     private val captions = PrefixedCaption("CGM1")
@@ -14,33 +14,39 @@ object MetaLog {
     val ENCRYPTED_PREFIX = captions.encryptedPrefix
 
     enum class Op(val wire: String) {
-        FAVORITE("fav"), UNFAVORITE("unfav"), ALBUM_ADD("album-add"), ALBUM_REMOVE("album-remove");
+        FAVORITE("fav"), UNFAVORITE("unfav"), ALBUM_ADD("album-add"), ALBUM_REMOVE("album-remove"),
+        /** Locked Folder (#129): hide on every Lelvo device; media messages stay in the channel. */
+        LOCK("lock"), UNLOCK("unlock");
 
         val isAlbum: Boolean get() = this == ALBUM_ADD || this == ALBUM_REMOVE
+        val isLocked: Boolean get() = this == LOCK || this == UNLOCK
 
         /** What the note sets its key to. */
-        val value: Boolean get() = this == FAVORITE || this == ALBUM_ADD
+        val value: Boolean get() = this == FAVORITE || this == ALBUM_ADD || this == LOCK
 
         companion object {
             fun of(wire: String): Op? = entries.firstOrNull { it.wire == wire }
         }
     }
 
-    /** What a note sets: the favorite, or membership of one album (by name). */
+    /** What a note sets: the favorite, Locked Folder membership, or membership of one album (by name). */
     sealed class Key {
         object Favorite : Key()
+        object Locked : Key()
         data class Album(val name: String) : Key()
 
         /** For the index's outbox. */
         val stored: String
             get() = when (this) {
                 Favorite -> "fav"
+                Locked -> "locked"
                 is Album -> "a:$name"
             }
 
         companion object {
             fun ofStored(stored: String): Key? = when {
                 stored == "fav" -> Favorite
+                stored == "locked" -> Locked
                 stored.startsWith("a:") && stored.length > 2 -> Album(stored.substring(2))
                 else -> null
             }
@@ -58,8 +64,12 @@ object MetaLog {
         val key: Key? get() = keyOf(op, album)
     }
 
-    private fun keyOf(op: Op, album: String?): Key? =
-        if (op.isAlbum) album?.let(::albumName)?.let { Key.Album(it) } else if (album == null) Key.Favorite else null
+    private fun keyOf(op: Op, album: String?): Key? = when {
+        op.isAlbum -> album?.let(::albumName)?.let { Key.Album(it) }
+        album != null -> null
+        op.isLocked -> Key.Locked
+        else -> Key.Favorite
+    }
 
     /**
      * Album names as Photos keeps them: surrounding spaces don't make a different album. Empty is no album. In NFC,
@@ -77,7 +87,7 @@ object MetaLog {
 
     /**
      * Null for anything this version doesn't understand (a newer version, an unknown action, an album op without an
-     * album, an album on a favorite op): such a note is ignored, which changes nothing.
+     * album, an album on a favorite/lock op): such a note is ignored, which changes nothing.
      */
     fun decode(data: ByteArray): Body? = try {
         JsonIO.parseObject(data)?.let(::JsonFields)?.let { f ->
@@ -132,20 +142,25 @@ object MetaLog {
         return values
     }
 
-    data class Applied(val favorite: Boolean?, val albums: List<String>?, val changed: Boolean)
+    data class Applied(val favorite: Boolean?, val locked: Boolean?, val albums: List<String>?, val changed: Boolean)
 
     /**
-     * An item's favorite and albums after `values`. Albums not named keep what the backup recorded (`albums` is the
-     * caption's list, or the `md` resource's when the item has one).
+     * An item's favorite, Locked Folder flag and albums after `values`. Albums not named keep what the backup recorded
+     * (`albums` is the caption's list, or the `md` resource's when the item has one).
      */
-    fun apply(values: Map<Key, Boolean>, favorite: Boolean?, albums: List<String>?): Applied {
+    fun apply(values: Map<Key, Boolean>, favorite: Boolean?, locked: Boolean?, albums: List<String>?): Applied {
         var changed = false
         var fav = favorite
+        var lock = locked
         val list = (albums ?: emptyList()).toMutableList()
         for ((key, value) in values.entries.sortedBy { it.key.stored }) {
             when (key) {
                 Key.Favorite -> if (fav != value) {
                     fav = value
+                    changed = true
+                }
+                Key.Locked -> if (lock != value) {
+                    lock = value
                     changed = true
                 }
                 is Key.Album -> {
@@ -161,8 +176,12 @@ object MetaLog {
                 }
             }
         }
-        return if (changed) Applied(fav, list.ifEmpty { null }, true) else Applied(favorite, albums, false)
+        return if (changed) Applied(fav, lock, list.ifEmpty { null }, true) else Applied(favorite, locked, albums, false)
     }
+
+    /** Overload matching older call sites that only passed favorite + albums. */
+    fun apply(values: Map<Key, Boolean>, favorite: Boolean?, albums: List<String>?): Applied =
+        apply(values, favorite, locked = null, albums)
 
     // Sending
 
@@ -171,7 +190,7 @@ object MetaLog {
 
     /**
      * Turns waiting changes (item → key → value) into notes: one per action and album, ids sorted. Many photos
-     * favorited in a minute share one note.
+     * favorited or locked in a minute share one note.
      */
     fun bodies(changes: Map<String, Map<Key, Boolean>>): List<Body> {
         val grouped = HashMap<Pair<Key, Boolean>, MutableList<String>>()
@@ -185,6 +204,7 @@ object MetaLog {
                 bodies.add(
                     when (key) {
                         Key.Favorite -> Body(if (value) Op.FAVORITE else Op.UNFAVORITE, chunk)
+                        Key.Locked -> Body(if (value) Op.LOCK else Op.UNLOCK, chunk)
                         is Key.Album -> Body(if (value) Op.ALBUM_ADD else Op.ALBUM_REMOVE, chunk, key.name)
                     },
                 )

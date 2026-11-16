@@ -143,6 +143,12 @@ import LelvoCore
         try store.changeMeta(ids: [b.id], key: .favorite, value: true, chatId: nil)
         #expect(try store.item(id: b.id)?.favorite == true)
         #expect(try store.queuedMetaChanges(chatId: 7)[b.id] == nil)
+        // Locked Folder (#129): lock/unlock use the same outbox key path.
+        try store.changeMeta(ids: [a.id], key: .locked, value: true, chatId: 7)
+        #expect(try store.item(id: a.id)?.locked == true)
+        #expect(try store.queuedMetaChanges(chatId: 7)[a.id]?[.locked] == true)
+        try store.changeMeta(ids: [a.id], key: .locked, value: false, chatId: 7)
+        #expect(try store.item(id: a.id)?.locked == false)
     }
 
     @Test func metaNotesAreKept() throws {

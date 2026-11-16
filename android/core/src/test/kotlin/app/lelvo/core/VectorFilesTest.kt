@@ -24,6 +24,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 fun sampleMeta() = CaptionMeta(
     id = "0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10", r = Role.ORIGINAL, k = Kind.VIDEO, h = "ab".repeat(32),
@@ -181,6 +182,22 @@ class NoteVectorsTest {
         assertEquals(caption, MetaLog.parseCaption(v.string("encryptedCaption"), keys.captionKey))
         assertEquals(Hashing.sha256Hex(document), caption.h)
         assertEquals(body, MetaLog.read(document, caption))
+    }
+
+    /** Locked Folder (#129): same encoding as favorites; media messages stay put. */
+    @Test
+    fun lockAndUnlockNotes() {
+        val lock = MetaLog.Body(MetaLog.Op.LOCK, listOf("a", "b"))
+        assertEquals("""{"ids":["a","b"],"op":"lock","v":1}""", String(MetaLog.encode(lock)))
+        assertEquals(lock, MetaLog.decode(MetaLog.encode(lock)))
+        assertEquals(MetaLog.Key.Locked, lock.key)
+        val unlock = MetaLog.Body(MetaLog.Op.UNLOCK, listOf("a"))
+        assertEquals("""{"ids":["a"],"op":"unlock","v":1}""", String(MetaLog.encode(unlock)))
+        val applied = MetaLog.apply(mapOf(MetaLog.Key.Locked to true), favorite = false, locked = false, albums = null)
+        assertTrue(applied.changed)
+        assertEquals(true, applied.locked)
+        val bodies = MetaLog.bodies(mapOf("x" to mapOf(MetaLog.Key.Locked to true), "y" to mapOf(MetaLog.Key.Locked to true)))
+        assertEquals(listOf(MetaLog.Body(MetaLog.Op.LOCK, listOf("x", "y"))), bodies)
     }
 
     @Test

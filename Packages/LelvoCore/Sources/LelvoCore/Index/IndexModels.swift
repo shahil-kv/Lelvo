@@ -85,6 +85,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var tzOffsetMinutes: Int?
     public var albums: [String]?
     public var favorite: Bool?
+    /// Locked Folder (#129): hidden from Lelvo timelines on every device until unlocked. Media stays in Telegram.
+    public var locked: Bool?
     /// Hidden in Photos when it was backed up: never shown in the timeline, restored hidden.
     public var hidden: Bool?
     public var mimeType: String?

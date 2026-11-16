@@ -72,7 +72,7 @@ import CryptoKit
         #expect(MetaLog.read(good, caption: .init(n: 2, h: IndexCodec.sha256Hex(good))) == nil)
         for json in [#"{"ids":["a"],"op":"explode","v":1}"#, #"{"ids":["a"],"op":"fav","v":2}"#,
                      #"{"ids":["a"],"op":"album-add","v":1}"#, #"{"album":"  ","ids":["a"],"op":"album-add","v":1}"#,
-                     #"{"album":"X","ids":["a"],"op":"fav","v":1}"#] {
+                     #"{"album":"X","ids":["a"],"op":"fav","v":1}"#, #"{"album":"X","ids":["a"],"op":"lock","v":1}"#] {
             let data = Data(json.utf8)
             #expect(MetaLog.read(data, caption: .init(n: 1, h: IndexCodec.sha256Hex(data))) == nil, "\(json)")
         }
@@ -105,6 +105,25 @@ import CryptoKit
         #expect(!MetaLog.apply([.favorite: true, .album("Beach"): true], to: &it), "Applying again changes nothing")
         #expect(MetaLog.apply([.album("Family"): false, .album("Beach"): false], to: &it))
         #expect(it.albums == nil)
+    }
+
+    /// Locked Folder (#129): lock/unlock notes use item caption ids; media messages stay put.
+    @Test func lockAndUnlockRoundTripAndApply() throws {
+        let body = MetaLog.Body(op: .lock, ids: ["a", "b"])
+        let data = try MetaLog.encode(body)
+        #expect(String(decoding: data, as: UTF8.self) == #"{"ids":["a","b"],"op":"lock","v":1}"#)
+        #expect(try MetaLog.decode(data) == body)
+        #expect(try MetaLog.encode(.init(op: .unlock, ids: ["a"])) == Data(#"{"ids":["a"],"op":"unlock","v":1}"#.utf8))
+        var it = item()
+        #expect(MetaLog.apply([.locked: true], to: &it))
+        #expect(it.locked == true)
+        #expect(MetaLog.apply([.locked: false], to: &it))
+        #expect(it.locked == false)
+        let latest = MetaLog.latest([note(1, .lock, ["a", "b"]), note(2, .unlock, ["a"])])
+        #expect(latest["a"]?[.locked]?.value == false)
+        #expect(latest["b"]?[.locked]?.value == true)
+        let bodies = MetaLog.bodies(for: ["x": [.locked: true], "y": [.locked: true]])
+        #expect(bodies == [MetaLog.Body(op: .lock, ids: ["x", "y"])])
     }
 
     @Test func waitingChangesBeatNotes() {
@@ -159,6 +178,11 @@ import CryptoKit
         #expect(MetaLog.notesToRemove([old, newer, album, both]) == [old])
         // A note for another key doesn't replace a favorite note.
         #expect(MetaLog.notesToRemove([note(1, .favorite, ["a"]), note(2, .albumAdd, ["a"], album: "X")]).isEmpty)
+        // Locked Folder (#129): unlock supersedes lock; old lock notes don't pile up forever.
+        let lock = note(10, .lock, ["p", "q"])
+        let unlock = note(11, .unlock, ["p", "q"])
+        #expect(MetaLog.notesToRemove([lock, unlock]) == [lock])
+        #expect(MetaLog.compacted([lock, unlock]) == [.init(op: .unlock, ids: ["p", "q"])])
     }
 
     /// A note about items deleted for good would otherwise stay forever: nothing newer is ever written for them.
@@ -186,7 +210,7 @@ import CryptoKit
     }
 
     @Test func outboxKeysRoundTrip() {
-        for key in [MetaLog.Key.favorite, .album("Goa Trip"), .album("a:b")] { #expect(MetaLog.Key(stored: key.stored) == key) }
+        for key in [MetaLog.Key.favorite, .locked, .album("Goa Trip"), .album("a:b")] { #expect(MetaLog.Key(stored: key.stored) == key) }
         #expect(MetaLog.Key(stored: "a:") == nil)
         #expect(MetaLog.Key(stored: "x") == nil)
     }

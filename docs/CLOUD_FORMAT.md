@@ -218,19 +218,20 @@ So that Recently Deleted is the same on every device, writers record each change
 - Readers that don't know notes ignore them: the caption doesn't start with `CG1:` or `CG1E:`. They show the item as a normal backup until its messages are deleted.
 - Test vector: `docs/test-vectors/trashlog1.json`.
 
-### 7.3 Favorites and albums notes (optional)
+### 7.3 Favorites, albums and Locked Folder notes (optional)
 
-So that a favorite or an album changed after the backup is the same on every device, and reaches Photos when an item is saved there, writers record each change as a **note**, like §7.2 but with its own prefix.
+So that a favorite, an album, or Locked Folder membership changed after the backup is the same on every device, and favorites/albums reach Photos when an item is saved there, writers record each change as a **note**, like §7.2 but with its own prefix. Locked Folder notes never move or delete media messages: they only change visibility inside Lelvo.
 
 - Its caption is `CGM1:` followed by compact JSON `{"h":…,"n":…,"v":1}`, or in E2E libraries `CGM1E:` followed by Base64 of `nonce(12) ‖ AES-256-GCM(ck, nonce, json, aad = UTF-8("CGM1E")) ‖ tag(16)`. `n` and `h` as in §7.2.
-- The document is compact JSON with sorted keys, CGFE-encrypted (§6.2) in E2E libraries: `{"ids":[…],"op":"fav","v":1}` or `"unfav"`, and `{"album":"Goa Trip","ids":[…],"op":"album-add","v":1}` or `"album-remove"`. An album is its name as Photos shows it, without surrounding spaces. At most 2000 ids per note.
-- Each note sets one **key** for its items: the favorite, or membership of one album. For each item and key, the note with the **highest message id** wins. A key no note sets keeps the backup's caption (`fav`, `a`, and `md`).
-- Readers ignore a note that doesn't check out, has a newer `v` or an unknown `op`, has an album op without an album, or has `album` on a favorite op: when in doubt, keep data. A note may arrive before its item; readers keep it and apply it once the item is there.
-- Saving an item to Photos (a restore, or "Save to iPhone") applies its current favorite and albums, making albums that don't exist.
+- The document is compact JSON with sorted keys, CGFE-encrypted (§6.2) in E2E libraries: `{"ids":[…],"op":"fav","v":1}` or `"unfav"`, `{"ids":[…],"op":"lock","v":1}` or `"unlock"`, and `{"album":"Goa Trip","ids":[…],"op":"album-add","v":1}` or `"album-remove"`. An album is its name as Photos shows it, without surrounding spaces. At most 2000 ids per note. `ids` are item caption ids (§3.1), never platform asset ids.
+- Each note sets one **key** for its items: the favorite, Locked Folder membership (`locked`), or membership of one album. For each item and key, the note with the **highest message id** wins. A key no note sets keeps the backup's caption (`fav`, `a`, and `md`); Locked Folder defaults to not locked.
+- Readers ignore a note that doesn't check out, has a newer `v` or an unknown `op`, has an album op without an album, or has `album` on a favorite/lock op: when in doubt, keep data. A note may arrive before its item; readers keep it and apply it once the item is there.
+- Saving an item to Photos (a restore, or "Save to iPhone") applies its current favorite and albums, making albums that don't exist. Locked Folder is Lelvo-only and is not written into Photos.
 - Writers send changes made after the item's backup only, grouped like §7.2: one note per action and album, at most one note every 10 seconds.
 - **Nothing stays behind.** A note is deleted once every item it lists has a newer note for the same key, or, for a note over 31 days old, is no longer in the library (deleted for good) right after the channel was read. With more than 200 notes, a writer reads the newest messages, then sends the current state of the items still in the library as fresh notes, which makes every older one removable.
-- Readers that don't know these notes skip them without downloading: the caption starts with neither `CG1:`, `CG1E:`, `CGT1:` nor `CGT1E:`.
-- Test vector: `docs/test-vectors/metalog1.json`.
+- Readers that don't know these notes skip them without downloading: the caption starts with neither `CG1:`, `CG1E:`, `CGT1:` nor `CGT1E:`. Old MetaLog readers that don't know `lock`/`unlock` ignore those notes (unknown `op`).
+- Test vector: `docs/test-vectors/metalog1.json` (album-add). Locked Folder uses the same encoding with `"op":"lock"` / `"unlock"`.
+- Issue: #129.
 
 ## 8. Writing rules
 
