@@ -15,6 +15,7 @@ struct MacSettingsView: View {
                 NavigationStack { LibrarySettingsView() }
             }
             Tab("Memories", systemImage: "sparkles") { MemoriesSettingsView() }
+            Tab("Locked", systemImage: "lock.fill") { LockedFolderSettingsView().formStyle(.grouped) }
             Tab("Storage", systemImage: "internaldrive") { StorageSettingsView().formStyle(.grouped) }
             Tab("Second Copy", systemImage: "externaldrive.badge.checkmark") { MacSecondCopyView() }
             Tab("Export", systemImage: "square.and.arrow.down.on.square") { ExportLibraryView().formStyle(.grouped) }

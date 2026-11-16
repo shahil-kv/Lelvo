@@ -557,7 +557,8 @@ final class BackupEngine: @unchecked Sendable {
         // Videos wait for Wi-Fi when only photos may use mobile data. Same filter as a short run (photos only).
         let photosOnly = shortRun || networkAllowance() == .photosOnly
         if photosOnly, !shortRun { appLog("On mobile data: photos only, videos wait for Wi-Fi") }
-        let queue = JobQueue(items: photosOnly ? UploadOrder.forShortRun(runnable) : runnable)
+        // Ids only. Each upload reads its own row, so a long run doesn't keep every queued photo in memory.
+        let queue = JobQueue(ids: (photosOnly ? UploadOrder.forShortRun(runnable) : runnable).map(\.id))
         let total = await queue.count
         await publish { a in
             a.done = 0
@@ -958,6 +959,9 @@ final class BackupEngine: @unchecked Sendable {
             item.roleHashes = hashes
             save(item)
             guard item.status == .backedUp else { return .failed }
+            // Locked Folder pending (phone-only hide): now that we have a cloud id, sync lock to every device (#129).
+            let lockedItem = item
+            await MainActor.run { LockedFolderStore.shared.promotePendingAfterBackup(item: lockedItem) }
             // The fast version, from the file that's already here: no extra download, so the video plays at once
             // from the cloud later. Optional: a failure never undoes the backup.
             if item.kind == .video, Prefs.streamingCopies, StreamingCopyPolicy.shouldMake(item), !isCancelled() {
@@ -1532,18 +1536,26 @@ final class BackupEngine: @unchecked Sendable {
     }
 }
 
-/// Hands out queue items to the upload lanes, one at a time.
+/// Hands out queue items to the upload lanes, one at a time. Holds ids, and reads the row when a lane takes it.
 actor JobQueue {
-    private var items: [MediaItem]
-    init(items: [MediaItem]) { self.items = items.reversed() }
-    var count: Int { items.count }
+    private var ids: [String]
+    init(ids: [String]) { self.ids = ids.reversed() }
+    var count: Int { ids.count }
     private var requeues: [String: Int] = [:]
-    func next() -> MediaItem? { items.popLast() }
+    func next() -> MediaItem? {
+        while let id = ids.popLast() {
+            // The list is a moment's view. A row that already moved on is skipped, not uploaded twice.
+            guard let item = try? AppEnvironment.shared.store.item(id: id),
+                  item.status == .queued, item.localIdentifier != nil else { continue }
+            return item
+        }
+        return nil
+    }
     /// Empties the queue; true for the lane that actually stopped it (so the reason is logged once).
     @discardableResult
     func drain() -> Bool {
-        defer { items.removeAll() }
-        return !items.isEmpty
+        defer { ids.removeAll() }
+        return !ids.isEmpty
     }
 
     /// Puts an item back at the end of the queue (at most 5 times per run). Returns false when exhausted.
@@ -1551,7 +1563,7 @@ actor JobQueue {
         let n = requeues[item.id, default: 0]
         guard n < 5 else { return false }
         requeues[item.id] = n + 1
-        items.insert(item, at: 0)
+        ids.insert(item.id, at: 0)
         return true
     }
 }

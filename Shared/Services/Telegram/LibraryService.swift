@@ -671,7 +671,8 @@ final class LibraryService: @unchecked Sendable {
             }
             guard let body = MetaLog.read(data, caption: caption) else {
                 skippedMetaNotes = true
-                AppLog.shared.warn("Skipped a favorites and albums note that doesn't check out")
+                // Hash / id-count mismatch: keep going, but a later full scan (Locked Folder open) re-reads these.
+                AppLog.shared.warn("Skipped a favorites, albums or Locked Folder note that doesn't check out (message \(note.messageId))")
                 continue
             }
             try store.addMetaNote(MetaLog.Note(messageId: note.messageId, date: Foundation.Date(timeIntervalSince1970: TimeInterval(note.date)),
@@ -700,7 +701,15 @@ final class LibraryService: @unchecked Sendable {
             _ = try store.update(id: item.id) { MetaLog.apply(values, to: &$0) }
             changed += 1
         }
-        if changed > 0 { appLog("Favorites and albums synced: \(changed) items updated") }
+        if changed > 0 {
+            appLog("Favorites, albums and Locked Folder synced: \(changed) items updated")
+            // Gallery / Locked Folder refresh off LibraryStore.didChange; also poke the session store so the
+            // Mac sidebar count and Locked empty-state update without waiting for the next timeline rebuild.
+            Task { @MainActor in
+                LockedFolderStore.shared.refreshSyncedLockedIds()
+                NotificationCenter.default.post(name: LockedFolderStore.didChange, object: nil)
+            }
+        }
     }
 
     /// Sends one favorites and albums note and records it. Only a note Telegram confirmed with the expected size counts.

@@ -69,7 +69,22 @@ struct SettingsView: View {
                     NavigationLink {
                         ProPaywallView()
                     } label: {
-                        LabeledContent("Lelvo Pro", value: pro.isPro ? "On" : "Off")
+                        HStack {
+                            Text("Lelvo Pro")
+                            ProBadge()
+                            Spacer()
+                            Text(pro.isPro ? "On" : "Off").foregroundStyle(.secondary)
+                        }
+                    }
+                    if pro.isPro {
+                        NavigationLink {
+                            LockedFolderSettingsView()
+                        } label: {
+                            HStack {
+                                Text("Locked Folder")
+                                ProBadge()
+                            }
+                        }
                     }
                 }
 
@@ -226,7 +241,7 @@ struct LogsView: View {
             }
         }
         .safeAreaInset(edge: .top) {
-            Text("Phone numbers, API keys, channel IDs and file IDs are removed from logs before they are shown or shared.")
+            Text(Feedback.logPrivacyNote)
                 .font(.caption2).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 4)
         }
         .task { text = AppLog.shared.contents() }

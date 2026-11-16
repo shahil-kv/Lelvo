@@ -1,9 +1,9 @@
 import Foundation
 import LelvoCore
 
-/// Sends favorite and album changes to the channel as notes (docs/CLOUD_FORMAT.md §7.3), so every device and every
-/// save to Photos sees them. Changes wait in the index, so they survive the app closing. A burst shares one note per
-/// action and album, and at most one send goes every 10 seconds, through the same slot and `FLOOD_WAIT` pause as uploads.
+/// Sends favorite, album and Locked Folder changes to the channel as notes (docs/CLOUD_FORMAT.md §7.3), so every
+/// device agrees. Changes wait in the index, so they survive the app closing. A burst shares one note per action and
+/// album, and at most one send goes every 10 seconds, through the same slot and `FLOOD_WAIT` pause as uploads.
 final class MetaSync: @unchecked Sendable {
     static let shared = MetaSync()
 
@@ -21,8 +21,9 @@ final class MetaSync: @unchecked Sendable {
         return env.library.chatId
     }
 
-    /// Sets the favorite or an album on items in the Telegram library and queues the note. Items without a finished
-    /// backup aren't touched: their favorite and albums go with their backup.
+    /// Sets the favorite, Locked Folder membership, or an album on items in the Telegram library and queues the note.
+    /// Items without a finished backup aren't touched: their favorite and albums go with their backup; Locked Folder
+    /// keeps those as phone-only pending until backup finishes.
     @discardableResult
     func change(_ items: [MediaItem], key: MetaLog.Key, value: Bool) throws -> Int {
         let ids = items.filter { $0.status == .backedUp || $0.status == .trashed }.map(\.id)
@@ -107,7 +108,7 @@ final class MetaSync: @unchecked Sendable {
                 do {
                     try await env.td.deleteMessages(chatId: chatId, ids: batch)
                     try? env.store.removeMetaNotes(messageIds: batch)
-                    appLog("Removed \(batch.count) finished favorites and albums notes")
+                    appLog("Removed \(batch.count) finished favorites, albums and Locked Folder notes")
                     break
                 } catch {
                     guard case .floodWait(let seconds)? = (error as? TDServiceError)?.kind,
@@ -144,6 +145,6 @@ final class MetaSync: @unchecked Sendable {
             }
         }
         lock.withLock { lastSent = Date() }
-        appLog("Compacted \(notes.count) favorites and albums notes")
+        appLog("Compacted \(notes.count) favorites, albums and Locked Folder notes")
     }
 }

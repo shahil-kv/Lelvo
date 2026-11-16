@@ -40,12 +40,14 @@ struct LelvoApp: App {
                 .id(model.sessionId)
                 .environmentObject(model)
                 .environmentObject(BackupActivity.shared)
+                .lockedFolderPrivacyCover()
                 .launchOverlay(isLaunching: $launching)
         }
         .onChange(of: scenePhase) { _, phase in
             let env = AppEnvironment.shared
             switch phase {
             case .active:
+                LockedFolderStore.shared.noteBecameActive()
                 guard model.onboardingComplete else { return }
                 env.td.start()
                 Task { await env.enforceCacheLimits() }
@@ -78,9 +80,11 @@ struct LelvoApp: App {
                 // Cheap no-op unless restored items are still unlinked (e.g. right after a reinstall).
                 Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
             case .inactive:
-                LockedFolderStore.shared.lockSession()
+                // Don't lock here: Control Center and the app switcher fire `.inactive` and would
+                // force Face ID on every peek (Ente/Google wait for real background + grace).
+                break
             case .background:
-                LockedFolderStore.shared.lockSession()
+                LockedFolderStore.shared.noteEnteredBackground()
                 Task.detached(priority: .userInitiated) { await TrashSync.shared.send(); await MetaSync.shared.send() }
                 env.search.stopForeground()
                 env.originalsCache.flush()

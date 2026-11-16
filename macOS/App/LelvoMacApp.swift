@@ -43,6 +43,7 @@ struct LelvoMacApp: App {
                 .environmentObject(model)
                 .environmentObject(navigation)
                 .environmentObject(BackupActivity.shared)
+                .lockedFolderPrivacyCover()
                 .launchOverlay(isLaunching: $launching)
         }
         .defaultSize(width: 1320, height: 860)
@@ -77,6 +78,7 @@ struct LelvoMacApp: App {
         let env = AppEnvironment.shared
         switch phase {
         case .active:
+            LockedFolderStore.shared.noteBecameActive()
             guard model.onboardingComplete else { return }
             env.td.start()
             Task { await env.enforceCacheLimits() }
@@ -95,9 +97,10 @@ struct LelvoMacApp: App {
             }
             Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }
         case .inactive:
-            LockedFolderStore.shared.lockSession()
+            // Don't lock on inactive — only real background + grace (Ente).
+            break
         case .background:
-            LockedFolderStore.shared.lockSession()
+            LockedFolderStore.shared.noteEnteredBackground()
             Task.detached(priority: .userInitiated) { await TrashSync.shared.send(); await MetaSync.shared.send() }
             env.originalsCache.flush()
             env.thumbnailCache.flush()
