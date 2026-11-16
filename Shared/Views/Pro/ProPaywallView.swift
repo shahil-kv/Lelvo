@@ -20,9 +20,13 @@ struct ProPaywallView: View {
                     .padding(.top, 8)
 
                     VStack(alignment: .leading, spacing: 12) {
-                        feature("lock.fill", "Locked folder", "Hide photos behind Face ID or your passcode")
-                        feature("sparkle.magnifyingglass", "Smart search", "Find by what’s in a photo (coming next)")
-                        feature("wand.and.stars", "Smart cleanup", "Similar shots and space you can free (coming next)")
+                        feature("lock.fill", "Locked folder", "Hide photos behind Face ID or your passcode", pro: true)
+                        feature("sparkle.magnifyingglass", "Smart search", "Find by what’s in a photo — text, things and scenes", pro: true)
+                        feature("wand.and.stars", "Smart cleanup", "Similar shots, screenshots, large videos and more", pro: true)
+                        feature("sparkles", "Memories themes", "Pets, beaches, food and other theme stories", pro: true)
+                        #if os(macOS)
+                        feature("externaldrive.badge.checkmark", "Folder backup", "Keep a second copy on a drive you own", pro: true)
+                        #endif
                     }
 
                     if let err = pro.errorMessage {
@@ -103,14 +107,17 @@ struct ProPaywallView: View {
         }
     }
 
-    private func feature(_ symbol: String, _ title: String, _ subtitle: String) -> some View {
+    private func feature(_ symbol: String, _ title: String, _ subtitle: String, pro: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: symbol)
                 .font(.title3)
                 .frame(width: 28)
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
+                HStack(spacing: 6) {
+                    Text(title).font(.headline)
+                    if pro { ProBadge() }
+                }
                 Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
             }
         }

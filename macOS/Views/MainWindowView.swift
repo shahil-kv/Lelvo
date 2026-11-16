@@ -258,6 +258,7 @@ struct MacSidebar: View {
             HStack(spacing: 6) {
                 Text(item.title).lineLimit(1)
                 if item == .favorites { BetaTag() }
+                if item == .locked { ProBadge() }
             }
         } icon: {
             Image(systemName: item.symbol).foregroundStyle(item.tint)
@@ -270,7 +271,7 @@ struct MacSidebar: View {
         switch item {
         case .backup: return activity.isRunning ? activity.remaining : 0
         case .notBackedUp, .cloudOnly, .favorites: return index.counts[item] ?? 0
-        case .locked: return LockedFolderStore.shared.count
+        case .locked: return 0
         default: return 0
         }
     }

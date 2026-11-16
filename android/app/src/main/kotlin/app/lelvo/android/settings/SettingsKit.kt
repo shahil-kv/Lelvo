@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
@@ -84,6 +86,7 @@ internal fun Footnote(text: String) {
 @Composable
 internal fun SettingRow(
     title: String, value: String? = null, icon: Int? = null, destructive: Boolean = false, enabled: Boolean = true,
+    pro: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val colour = when {
@@ -92,7 +95,15 @@ internal fun SettingRow(
         else -> MaterialTheme.colorScheme.onSurface
     }
     ListItem(
-        headlineContent = { Text(title, color = colour) },
+        headlineContent = {
+            androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text(title, color = colour)
+                if (pro) {
+                    androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+                    app.lelvo.android.ui.ProBadge()
+                }
+            }
+        },
         supportingContent = value?.takeIf { it.isNotEmpty() }?.let { { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
         leadingContent = icon?.let { { Icon(painterResource(it), contentDescription = null, tint = if (destructive) colour else MaterialTheme.colorScheme.onSurfaceVariant) } },
         modifier = if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick) else Modifier,

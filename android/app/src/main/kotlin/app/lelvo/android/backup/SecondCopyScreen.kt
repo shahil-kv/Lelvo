@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,14 +27,19 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import app.lelvo.android.LelvoApp
 import app.lelvo.android.R
+import app.lelvo.android.ui.ProBadge
 
-/** Keep a second copy in a folder (the Mac's `MacSecondCopyView`): a USB drive, an SD card or a NAS. */
+/** Keep a second copy in a folder (the Mac's `MacSecondCopyView`): a USB drive, an SD card or a NAS. Lelvo Pro (#16E). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SecondCopyScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Modifier) {
@@ -41,42 +47,65 @@ fun SecondCopyScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
     val context = LocalContext.current
     val service = app.secondCopy
     val s by service.state.collectAsState()
+    val isPro by app.pro.isPro.collectAsState()
+    var openPro by remember { mutableStateOf(false) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) { service.choose(uri); service.syncNow() }
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (!isPro) { openPro = true; return@rememberLauncherForActivityResult }
+        service.choose(uri); service.syncNow()
     }
     Scaffold(modifier, topBar = {
-        TopAppBar(title = { Text("Second copy") },
+        TopAppBar(title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Second copy")
+                ProBadge()
+            }
+        },
             navigationIcon = { IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), "Back") } })
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
-            Note("Keep a second copy of your whole library in a folder you choose, such as a USB drive, an SD card or a network drive. Files go into Year/Month folders as they are, decrypted. Nothing is ever deleted from the folder.")
-            val name = s.folderName
-            if (name == null) {
-                Button(onClick = { pick.launch(null) }, modifier = Modifier.fillMaxWidth().padding(16.dp)) { Text("Choose a folder") }
+            Note("Keep a second copy of your whole library in a folder you choose, such as a USB drive, an SD card or a network drive. Files go into Year/Month folders as they are, decrypted. Nothing is ever deleted from the folder. Folder backup is included with Lelvo Pro.")
+            if (!isPro && s.folderName == null) {
+                Button(onClick = { openPro = true }, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("Unlock folder backup")
+                }
             } else {
-                ValueRow("Folder", name)
-                ValueRow("Files in the folder", "%,d".format(s.inFolder))
-                if (s.bytesLeft > 0) ValueRow("Still to copy", Formatter.formatShortFileSize(context, s.bytesLeft))
-                if (s.removedFromLibrary > 0) ValueRow("No longer in your library (kept)", "%,d".format(s.removedFromLibrary))
-                s.lastRunAt?.let { ValueRow("Last copied", DateUtils.getRelativeTimeSpanString(it).toString()) }
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (s.running) {
-                        if (s.total > 0) {
-                            LinearProgressIndicator(progress = { s.done.toFloat() / s.total }, modifier = Modifier.fillMaxWidth())
-                            Text("Copying ${minOf(s.done + 1, s.total)} of ${s.total}…", style = MaterialTheme.typography.bodySmall)
-                        } else LinearProgressIndicator(Modifier.fillMaxWidth())
-                        OutlinedButton(onClick = { service.cancel() }, modifier = Modifier.fillMaxWidth()) { Text("Stop") }
-                    } else {
-                        Button(onClick = { service.syncNow() }, modifier = Modifier.fillMaxWidth()) { Text("Copy now") }
-                        OutlinedButton(onClick = { pick.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Choose another folder") }
-                        TextButton(onClick = { service.turnOff() }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Turn off second copy", color = MaterialTheme.colorScheme.error)
+                val name = s.folderName
+                if (name == null) {
+                    Button(onClick = { pick.launch(null) }, modifier = Modifier.fillMaxWidth().padding(16.dp)) { Text("Choose a folder") }
+                } else {
+                    ValueRow("Folder", name)
+                    ValueRow("Files in the folder", "%,d".format(s.inFolder))
+                    if (s.bytesLeft > 0) ValueRow("Still to copy", Formatter.formatShortFileSize(context, s.bytesLeft))
+                    if (s.removedFromLibrary > 0) ValueRow("No longer in your library (kept)", "%,d".format(s.removedFromLibrary))
+                    s.lastRunAt?.let { ValueRow("Last copied", DateUtils.getRelativeTimeSpanString(it).toString()) }
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (s.running) {
+                            if (s.total > 0) {
+                                LinearProgressIndicator(progress = { s.done.toFloat() / s.total }, modifier = Modifier.fillMaxWidth())
+                                Text("Copying ${minOf(s.done + 1, s.total)} of ${s.total}…", style = MaterialTheme.typography.bodySmall)
+                            } else LinearProgressIndicator(Modifier.fillMaxWidth())
+                            OutlinedButton(onClick = { service.cancel() }, modifier = Modifier.fillMaxWidth()) { Text("Stop") }
+                        } else {
+                            Button(onClick = { if (isPro) service.syncNow() else openPro = true }, modifier = Modifier.fillMaxWidth()) { Text("Copy now") }
+                            OutlinedButton(onClick = { pick.launch(null) }, modifier = Modifier.fillMaxWidth()) { Text("Choose another folder") }
+                            TextButton(onClick = { service.turnOff() }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Turn off second copy", color = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
+                    s.message?.let { Note(it) }
+                    Note("Turning it off keeps the files in the folder. Keep Lelvo open while it copies.")
                 }
-                s.message?.let { Note(it) }
-                Note("Turning it off keeps the files in the folder. Keep Lelvo open while it copies.")
             }
         }
+    }
+    if (openPro) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { openPro = false },
+            title = { Text("Lelvo Pro") },
+            text = { Text("Folder backup is included with Lelvo Pro. Backup and restore stay free.") },
+            confirmButton = { TextButton(onClick = { openPro = false }) { Text("OK") } },
+        )
     }
 }
