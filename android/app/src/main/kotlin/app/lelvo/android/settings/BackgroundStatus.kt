@@ -36,13 +36,19 @@ object BackgroundStatus {
         val last = app.prefs.runRecords
             .filter { it.source != RunSource.User && it.source != RunSource.Refresh && it.uploaded > 0 }
             .maxOfOrNull { it.startedAt }
+            // No automatic upload yet: count from the last upload of any kind. Falling back to now hid the card on
+            // exactly the phones where background backup never worked; a fresh install has no upload and isn't nagged.
+            ?: app.prefs.lastBackupAt
             ?: System.currentTimeMillis()
+        val forceStop = DeviceState.lastExitWasForceStop(context)
+        // A later force stop shows the note again.
+        if (!forceStop && app.prefs.forceStopNoteDismissed) app.prefs.forceStopNoteDismissed = false
         return BackgroundRuns.backgroundIssue(
             partialAccess = app.photos.status() == PhotoAccess.Status.Partial,
             restricted = DeviceState.backgroundRestricted(context),
             optimized = !DeviceState.ignoringBatteryOptimizations(context),
             bucket = DeviceState.standbyBucket(context),
-            lastExitForceStop = DeviceState.lastExitWasForceStop(context),
+            lastExitForceStop = forceStop,
             lastAutoUpload = last,
             waiting = waiting,
             now = System.currentTimeMillis(),

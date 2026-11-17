@@ -367,9 +367,11 @@ class BackupEngine(
                 }
                 if (deadlineMs == null) job.join()
                 else {
-                    val wait = (deadlineMs - System.currentTimeMillis()).coerceAtLeast(0)
+                    // Lanes stop taking items at the deadline; a photo already sending gets a short grace to finish
+                    // instead of being cut and sent again by the next run. Still well inside Android's 10 minutes.
+                    val wait = (deadlineMs + IN_FLIGHT_GRACE_MS - System.currentTimeMillis()).coerceAtLeast(0)
                     if (withTimeoutOrNull(wait) { job.join() } == null && job.isActive) {
-                        // Stop taking items and cancel what is in flight. Confirmed parts stay; the half-sent one is dropped.
+                        // Cancel what is still in flight. Confirmed parts stay; the half-sent one is dropped.
                         stoppedByTime.set(true)
                         job.cancel()
                         try {
@@ -432,6 +434,12 @@ class BackupEngine(
                 _activity.update { it.copy(message = reason.text) }
                 if (queueLock.withLock { queue.isNotEmpty().also { queue.clear() } }) AppLog.info("Backup stopped: ${reason.text} (for over 2 minutes)")
                 return
+            }
+            // Telegram's wait outlasts this background run: end now and let the next run start after it, instead of
+            // spending the job's time (and Android's quota for it) asleep.
+            if (deadlineMs != null && synchronized(gate) { pausedUntil } >= deadlineMs) {
+                stoppedByTime.set(true)
+                break
             }
             waitForFloodPause()
             acquireLaneSlot()
@@ -959,6 +967,8 @@ class BackupEngine(
         const val MAX_CONCURRENT_UPLOADS = 2
         /** Background uploads stop themselves here, before Android's 10-minute kill, so the next run can be booked. */
         const val BACKGROUND_BUDGET_MS = 9 * 60 * 1000L
+        /** How long an upload already sending at the deadline may take to finish before it is cancelled. */
+        const val IN_FLIGHT_GRACE_MS = 30_000L
         const val UPLOAD_SPACING_MS = 1_500L
         const val SNAPSHOT_EVERY = 500
         const val SNAPSHOT_UPTO = "snapshotUpto"

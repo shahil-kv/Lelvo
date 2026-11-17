@@ -141,7 +141,11 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
                 // To the background (iOS `.background`): changes go now, not after the pacing.
                 if (startedActivities == 0) {
                     sync.onBackground()
-                    io.launch { BackupScheduler.bookReminder(this@LelvoApp, prefs, backup.readyCount()) }
+                    // No handler on this scope: a throw from the index would end the process, so it is caught here.
+                    if (library.setupFinished) io.launch {
+                        runCatching { BackupScheduler.bookReminder(this@LelvoApp, prefs, backup.readyCount()) }
+                            .onFailure { AppLog.warn("Backup reminder not booked (${it.javaClass.simpleName})") }
+                    }
                 }
             }
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}

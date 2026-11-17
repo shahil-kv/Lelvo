@@ -45,6 +45,10 @@ object AutoStart {
                 AppLog.info("Auto-start on open: $waiting waiting")
                 lastAt = System.currentTimeMillis()
                 BackupScheduler.startNow(app, includeNew = false, fromApp = true)
+            } catch (e: Exception) {
+                // This scope has no handler: an index or WorkManager error here must not close Lelvo as it opens.
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                AppLog.warn("Auto-start on open failed (${e.javaClass.simpleName})")
             } finally {
                 checking.set(false)
             }

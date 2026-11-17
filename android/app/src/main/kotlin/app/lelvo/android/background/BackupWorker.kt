@@ -16,10 +16,12 @@ import app.lelvo.core.support.AppLog
 import app.lelvo.data.backup.BackupEngine
 import app.lelvo.telegram.AuthStep
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** One background run; [KIND] says which (see [BackupScheduler]). The queue lives in the index, so a stopped run loses nothing. */
@@ -92,7 +94,9 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             AppLog.info(String.format("Background %s stopped after %.0f s%s", kind, (System.currentTimeMillis() - started) / 1000.0,
                 if (isStopped) " (WorkManager stop reason $stopReason)" else ""))
         } finally {
-            if (ran) {
+            // Android's stop cancels this coroutine, so without NonCancellable the first suspend call below throws,
+            // readyCount() reads as 0 and the next run is never booked.
+            if (ran) withContext(NonCancellable) {
                 if (kind == BackupScheduler.USER && summary != null) {
                     if (summary.uploaded > 0) app.prefs.remindersSent = 0
                     app.prefs.emptyChainedRuns = BackgroundRuns.emptyRunsAfter(
@@ -159,17 +163,23 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val empty = BackgroundRuns.emptyRunsAfter(app.prefs.emptyChainedRuns, summary.uploaded, summary.partsSaved, userRun = false)
         app.prefs.emptyChainedRuns = empty
         refreshReminder()
-        if (app.isOnScreen || workActive(BackupScheduler.USER) || empty >= 3) return
+        if (workActive(BackupScheduler.USER) || empty >= 3) return
         val now = System.currentTimeMillis()
         val next = BackgroundRuns.nextAutoRun(
             summary.remaining, summary.stoppedByTime, summary.blockedByRule, app.prefs.floodUntil, now,
         ) ?: return
+        // Lelvo is open (new photos arrived while it was on screen): carry on as a user run, without the 9-minute cap.
+        // Returning here instead left the rest waiting until Lelvo was closed and reopened.
+        if (app.isOnScreen && next <= now + 15 * 60_000L) {
+            BackupScheduler.startNow(applicationContext, includeNew = false, fromApp = true)
+            return
+        }
         BackupScheduler.startAutoRun(applicationContext, app.prefs, delayMs = (next - now).coerceAtLeast(0), ExistingWorkPolicy.APPEND_OR_REPLACE)
     }
 
     /** The fallback when Android cancels the worker before the 9-minute return. No network. */
     private suspend fun bookNextAfterStop() {
-        if (app.isOnScreen || workActive(BackupScheduler.USER) || app.prefs.emptyChainedRuns >= 3) return
+        if (app.isOnScreen || workActive(BackupScheduler.USER, excludingSelf = true) || app.prefs.emptyChainedRuns >= 3) return
         val waiting = runCatching { app.backup.readyCount() }.getOrDefault(0)
         val now = System.currentTimeMillis()
         val next = BackgroundRuns.nextAutoRun(waiting, stoppedByTime = true, blocked = false, floodUntil = app.prefs.floodUntil, now = now) ?: return
@@ -216,9 +226,10 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         BackupScheduler.bookReminder(applicationContext, app.prefs, waiting)
     }
 
-    private fun workActive(name: String): Boolean =
+    /** [excludingSelf]: a stopped user run asks whether *another* user run is queued; it is still RUNNING itself. */
+    private fun workActive(name: String, excludingSelf: Boolean = false): Boolean =
         WorkManager.getInstance(applicationContext).getWorkInfosForUniqueWork(name).get()
-            .any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
+            .any { (!excludingSelf || it.id != id) && (it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING) }
 
     /**
      * The content trigger is only a signal. Arm the next one first (this one already fired), then queue photos
