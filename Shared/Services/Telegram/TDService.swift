@@ -782,7 +782,7 @@ final class TDService: @unchecked Sendable {
                 let window = lock.withLock { streamWindows[fileId] }
                 AppLog.shared.warn("Stream stuck \(waited) s: file \(fileId) want \(count) at \(offset), have \(have); window \(window.map(String.init) ?? "none"); "
                     + "active \(file.local.isDownloadingActive) downloaded \(file.local.downloadedSize)/\(file.size) canDownload \(file.local.canBeDownloaded) "
-                    + "remote '\(file.remote.id.prefix(12))…' uploaded \(file.remote.isUploadingCompleted) path '\(file.local.path.suffix(60))'")
+                    + "remote \(file.remote.id.isEmpty ? "none" : "known") uploaded \(file.remote.isUploadingCompleted) local copy \(file.local.path.isEmpty ? "none" : "present")")
                 if waited >= 30 { throw TDServiceError.sendFailed("Telegram didn't deliver this video's data for 30 s") }
             }
             if file.local.isDownloadingCompleted || (file.size > 0 && offset + have >= Int64(file.size)) { break }
