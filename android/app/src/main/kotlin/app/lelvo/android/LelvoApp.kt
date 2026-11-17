@@ -1,6 +1,7 @@
 package app.lelvo.android
 
 import android.app.Application
+import app.lelvo.android.background.AutoStart
 import app.lelvo.android.background.BackupScheduler
 import app.lelvo.android.background.BackupTileService
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -33,6 +34,7 @@ import kotlinx.coroutines.withContext
 
 /** Creates the services once per process; screens and background work share them (like iOS AppEnvironment). */
 class LelvoApp : Application(), SingletonImageLoader.Factory {
+    private val io = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     lateinit var secrets: SecretStore private set
     lateinit var telegram: TdClient private set
     lateinit var library: LibraryService private set
@@ -102,6 +104,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         store = LibraryStore(IndexDatabase.open(this))
         demo = DemoMode(this, store)
         prefs = Prefs(this)
+        // A run that never wrote its record was ended with the process (Android's kill, a force stop): count it.
+        prefs.recordKilledRuns().takeIf { it > 0 }?.let { AppLog.info("Backup runs ended with the last process: $it") }
         files = TdFiles(telegram)
         scanner = LibraryScanner(files, library, store, telegram).also { it.follow() }
         coreCheck = CoreCheck(files, library, scanner, store)
@@ -129,12 +133,22 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 // Lelvo comes to the front (iOS scene `.active`): follow the other devices, send what's waiting.
-                if (startedActivities++ == 0 && library.setupFinished) sync.onOpen { linker.relink() }
+                if (startedActivities++ == 0 && library.setupFinished) {
+                    sync.onOpen { linker.relink() }
+                    AutoStart.onForeground(this@LelvoApp)
+                }
             }
             override fun onActivityStopped(activity: android.app.Activity) {
                 startedActivities = maxOf(0, startedActivities - 1)
                 // To the background (iOS `.background`): changes go now, not after the pacing.
-                if (startedActivities == 0) sync.onBackground()
+                if (startedActivities == 0) {
+                    sync.onBackground()
+                    // No handler on this scope: a throw from the index would end the process, so it is caught here.
+                    if (library.setupFinished) io.launch {
+                        runCatching { BackupScheduler.bookReminder(this@LelvoApp, prefs, backup.readyCount()) }
+                            .onFailure { AppLog.warn("Backup reminder not booked (${it.javaClass.simpleName})") }
+                    }
+                }
             }
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
             override fun onActivityResumed(activity: android.app.Activity) {}

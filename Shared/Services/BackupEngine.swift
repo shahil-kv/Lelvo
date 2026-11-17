@@ -234,7 +234,10 @@ final class BackupEngine: @unchecked Sendable {
     private let gate = NSLock()
     private let relinkLock = NSLock()
     private var running = false
-    private var pausedUntil = Date.distantPast
+    /// Every lane waits until this; written down so a new process honours a wait an earlier one was given.
+    private var pausedUntil = Prefs.floodUntil {
+        didSet { if pausedUntil != oldValue { Prefs.floodUntil = pausedUntil } }
+    }
     /// Upload lanes currently waiting in `waitForConditions`.
     private var waitingLanes = 0
     private var pauseRequested = false

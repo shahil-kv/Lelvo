@@ -56,7 +56,7 @@ struct MacBackupView: View {
                 Toggle(isOn: $chargingOnly) { iconLabel("Only on Power Adapter", "powerplug.fill", .green) }
                     .accessibilityLabel("Only on Power Adapter")
             } header: { Text("Options") } footer: {
-                Text(autoBackup ? "While Lelvo is open, even with its window closed, new photos are backed up every hour."
+                Text(autoBackup ? "While Lelvo is open, even with its window closed, new photos are backed up about a minute after they reach Photos."
                                 : "Nothing uploads on its own. Use Back Up Now, or select photos and choose Back Up.")
             }
 

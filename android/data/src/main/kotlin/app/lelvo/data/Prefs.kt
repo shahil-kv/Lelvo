@@ -2,6 +2,8 @@ package app.lelvo.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import app.lelvo.core.backup.BackgroundRuns
+import app.lelvo.core.backup.RunRecord
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -38,6 +40,10 @@ class Prefs(context: Context) {
     var chargingOnly by flag("chargingOnly", false)
     var allowFreeUpSpace by flag("allowFreeUpSpace", false)
     var autoBackup by flag("autoBackup", false)
+    /** The onboarding switch or the Backup tab card has been answered. The card is not shown again. */
+    var autoBackupAsked by flag("autoBackupAsked", false)
+    /** The force-stop note was dismissed. Cleared once the last exit is no longer a force stop. */
+    var forceStopNoteDismissed by flag("forceStopNoteDismissed", false)
     var streamingCopies by flag("streamingCopies", true)
     var keepAwakeDuringBackup by flag("keepAwakeDuringBackup", true)
     var backupPaused by flag("backupPaused", false)
@@ -45,6 +51,21 @@ class Prefs(context: Context) {
     var communityNoteShown by flag("communityNoteShown", false)
     /** Android 13+: the notification permission was asked for once (the first Back up now). */
     var askedNotifications by flag("askedNotifications", false)
+    /** Morning summary and the stuck reminder. Off until the person turns it on. */
+    var backupNotifications by flag("backupNotifications", false)
+    var nightPhotos: Int
+        get() = p.getInt("nightPhotos", 0)
+        set(v) = p.edit().putInt("nightPhotos", v).apply()
+    var nightVideos: Int
+        get() = p.getInt("nightVideos", 0)
+        set(v) = p.edit().putInt("nightVideos", v).apply()
+    /** The 07:30 the current night totals belong to, so an earlier night is not added to tonight. */
+    var nightKey: Long
+        get() = p.getLong("nightKey", 0)
+        set(v) = p.edit().putLong("nightKey", v).apply()
+    var remindersSent: Int
+        get() = p.getInt("remindersSent", 0)
+        set(v) = p.edit().putInt("remindersSent", v).apply()
 
     var albumMode: AlbumMode
         get() = AlbumMode.of(p.getString("albumMode", null))
@@ -66,6 +87,44 @@ class Prefs(context: Context) {
     var lastBackupAt: Long?
         get() = p.getLong("lastBackupAt", 0).takeIf { it > 0 }
         set(v) = p.edit().apply { if (v == null) remove("lastBackupAt") else putLong("lastBackupAt", v) }.apply()
+
+    /** Automatic runs in a row that uploaded nothing and saved no part. Three stops the chain. */
+    var emptyChainedRuns: Int
+        get() = p.getInt("emptyChainedRuns", 0)
+        set(v) = p.edit().putInt("emptyChainedRuns", v).apply()
+
+    /** Telegram's FLOOD_WAIT, epoch ms. Written so a new process does not send before the wait is over. */
+    var floodUntil: Long
+        get() = p.getLong("floodUntil", 0)
+        set(v) = p.edit().putLong("floodUntil", v).apply()
+
+    /** The newest backup runs, counts only. Not library data, so it stays out of the index. */
+    var runRecords: List<RunRecord>
+        get() = BackgroundRuns.decode(p.getString("runRecords", null))
+        set(v) = p.edit().putString("runRecords", BackgroundRuns.encode(v)).apply()
+
+    fun record(r: RunRecord) {
+        runRecords = BackgroundRuns.appending(r, runRecords)
+    }
+
+    /** Runs started and not yet ended in this process (see [BackgroundRuns.killedRuns]). */
+    private val runMarks: Set<String> get() = p.getStringSet("runMarks", null).orEmpty()
+
+    @Synchronized fun markRunStarted(mark: String) {
+        p.edit().putStringSet("runMarks", runMarks + mark).apply()
+    }
+
+    @Synchronized fun markRunEnded(mark: String) {
+        p.edit().putStringSet("runMarks", runMarks - mark).apply()
+    }
+
+    /** Call once per process, before any run starts: turns marks left by a killed process into records. */
+    @Synchronized fun recordKilledRuns(): Int {
+        val killed = BackgroundRuns.killedRuns(runMarks)
+        if (killed.isNotEmpty()) runRecords = killed.fold(runRecords) { list, r -> BackgroundRuns.appending(r, list) }
+        p.edit().remove("runMarks").apply()
+        return killed.size
+    }
 
     /** Settings → Storage limits in MB, iOS keys and defaults. */
     var cacheCapMB: Int

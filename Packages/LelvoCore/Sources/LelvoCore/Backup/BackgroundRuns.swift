@@ -12,13 +12,16 @@ public struct RunRecord: Codable, Equatable, Sendable {
     public var uploaded: Int
     /// Items still waiting when it ended.
     public var remaining: Int
+    /// Why it ended, when not on its own. Optional, so records saved before it existed still decode.
+    public var stop: String?
 
-    public init(source: RunSource, startedAt: Date, seconds: Double, uploaded: Int, remaining: Int) {
+    public init(source: RunSource, startedAt: Date, seconds: Double, uploaded: Int, remaining: Int, stop: String? = nil) {
         self.source = source
         self.startedAt = startedAt
         self.seconds = seconds
         self.uploaded = uploaded
         self.remaining = remaining
+        self.stop = stop
     }
 }
 
@@ -42,6 +45,25 @@ public struct NightTotals: Codable, Equatable, Sendable {
 }
 
 public enum BackgroundRuns {
+    /// The stop text for a run whose process ended before it could write its own record.
+    public static let killed = "ended with the process"
+
+    /// A run's mark while it is going: `"source:startedAt"` (seconds since 1970).
+    public static func mark(_ source: RunSource, startedAt: Date) -> String {
+        "\(source.rawValue):\(Int64(startedAt.timeIntervalSince1970))"
+    }
+
+    /// Marks still set when a new process starts. A run clears its mark when it ends, so one left behind means iOS
+    /// (expiry, memory) or a force quit ended the process mid-run. A damaged mark is dropped. Oldest first.
+    public static func killedRuns(marks: [String]) -> [RunRecord] {
+        marks.compactMap { mark -> RunRecord? in
+            let parts = mark.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2, let source = RunSource(rawValue: parts[0]), let t = Int64(parts[1]) else { return nil }
+            return RunRecord(source: source, startedAt: Date(timeIntervalSince1970: TimeInterval(t)),
+                             seconds: 0, uploaded: 0, remaining: 0, stop: killed)
+        }.sorted { $0.startedAt < $1.startedAt }
+    }
+
     /// Keeps the newest `limit` records.
     public static func appending(_ r: RunRecord, to list: [RunRecord], limit: Int = 200) -> [RunRecord] {
         let all = list + [r]

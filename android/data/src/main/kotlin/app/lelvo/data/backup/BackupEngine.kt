@@ -24,6 +24,7 @@ import app.lelvo.core.index.LibraryIndexer
 import app.lelvo.core.crypto.FileCrypto
 import app.lelvo.core.format.Kind
 import app.lelvo.core.format.Role
+import app.lelvo.core.backup.BackgroundRuns
 import app.lelvo.core.index.ItemKind
 import app.lelvo.core.index.ItemStatus
 import app.lelvo.core.index.LibraryItem
@@ -56,6 +57,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.IOException
 import java.util.TimeZone
@@ -107,7 +109,21 @@ class BackupEngine(
     private val uploader = CloudUploader(uploads, library, staging).also { it.beforeSend = { waitForFloodPause() } }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    data class Summary(val uploaded: Int = 0, val alreadyBackedUp: Int = 0, val failed: Int = 0, val remaining: Int = 0, val error: String? = null) {
+    data class Summary(
+        val uploaded: Int = 0,
+        val alreadyBackedUp: Int = 0,
+        val failed: Int = 0,
+        val remaining: Int = 0,
+        val error: String? = null,
+        /** Videos among [uploaded], for the morning summary. */
+        val uploadedVideos: Int = 0,
+        /** Parts Telegram confirmed this run. A large video can make progress without finishing. */
+        val partsSaved: Int = 0,
+        /** The 9-minute budget ended the run. Phase 3 sets this; a user run never does. */
+        val stoppedByTime: Boolean = false,
+        /** Paused, no photo access, or waiting for Wi-Fi or power. The chain stops; the constraint brings it back. */
+        val blockedByRule: Boolean = false,
+    ) {
         val text: String
             get() = error ?: buildList {
                 add("Backed up $uploaded item${if (uploaded == 1) "" else "s"}")
@@ -136,7 +152,11 @@ class BackupEngine(
     private val gate = Any()
     private val slots = UploadSlots(MAX_CONCURRENT_UPLOADS)
     private var nextUploadStart = 0L
-    private var pausedUntil = 0L
+    private var pausedUntil = prefs.floodUntil
+    /** Parts confirmed since this run started. Reset at the start of [run]. */
+    private val partsThisRun = java.util.concurrent.atomic.AtomicInteger(0)
+    /** Set when a lane stops because a rule (Wi-Fi, power, offline) held for two minutes. */
+    private val blockedThisRun = java.util.concurrent.atomic.AtomicReference<StopReason?>(null)
     private var running = false
     private var waitingLanes = 0
     @Volatile private var pauseRequested = false
@@ -213,6 +233,12 @@ class BackupEngine(
     private fun isScreenshot(f: PhoneFile) =
         f.bucketName.equals("Screenshots", ignoreCase = true) || f.relativePath?.contains("Screenshots", ignoreCase = true) == true
 
+    /** Queued items an automatic run would upload, including ones left "uploading" by a killed process. */
+    suspend fun readyCount(): Int = withContext(Dispatchers.IO) {
+        val items = store.items(ItemStatus.Queued) + store.items(ItemStatus.Uploading)
+        runnable(System.currentTimeMillis(), onlyChosen = !prefs.autoBackup, items).size
+    }
+
     /** Adds phone photos the selection covers and the index doesn't know as queued items. */
     suspend fun enqueueNew(): Int {
         val known = store.knownLocalIds() + store.offBackupLocalIds()
@@ -286,13 +312,15 @@ class BackupEngine(
      * Processes the queue with up to two uploads at once until it's empty or the run is paused. [includeNew]: also
      * queue every photo not yet in the cloud ("Back up now"); otherwise only queued items (chosen photos, retries) go,
      * unless automatic backup is on.
+     * [deadlineMs] is the background budget (9 minutes). A user run passes null and keeps going.
+     * Hitting the deadline returns; it does not pause the backup and it does not throw.
      */
-    suspend fun run(userStarted: Boolean, includeNew: Boolean): Summary = withContext(Dispatchers.IO) {
+    suspend fun run(userStarted: Boolean, includeNew: Boolean, deadlineMs: Long? = null): Summary = withContext(Dispatchers.IO) {
         if (userStarted) prefs.backupPaused = false
-        else if (prefs.backupPaused) return@withContext Summary(error = "Backup is paused. Open Lelvo and tap Back up now to resume.")
+        else if (prefs.backupPaused) return@withContext Summary(error = "Backup is paused. Open Lelvo and tap Back up now to resume.", blockedByRule = true)
         blocker()?.let { reason ->
             // A tap must say why nothing happens, or the button looks broken.
-            return@withContext finish(Summary(error = reason.text), started = false, announce = userStarted)
+            return@withContext finish(Summary(error = reason.text, blockedByRule = true), started = false, announce = userStarted)
         }
         val chatId = library.chatId ?: return@withContext finish(Summary(error = StopReason.NotConfigured.text), started = false, announce = userStarted)
         synchronized(gate) {
@@ -301,6 +329,8 @@ class BackupEngine(
             runJob = coroutineContext[Job]
         }
         pauseRequested = false
+        partsThisRun.set(0)
+        blockedThisRun.set(null)
         try {
             _activity.update { it.copy(isRunning = true, message = "Connecting to Telegram…", lanes = emptyMap(), notice = null) }
             // Anything sent before an interruption is found first, so it isn't uploaded twice.
@@ -326,56 +356,109 @@ class BackupEngine(
             val counter = Counter()
             val queueLock = Mutex()
             val requeues = HashMap<String, Int>()
+            val stoppedByTime = java.util.concurrent.atomic.AtomicBoolean(false)
             coroutineScope {
-                repeat(MAX_CONCURRENT_UPLOADS) { lane ->
-                    launch {
-                        while (isActive) {
-                            val item = queueLock.withLock { queue.removeFirstOrNull() } ?: break
-                            // A blip (Wi-Fi roaming) shouldn't end the run; wait it out, stop only if it lasts.
-                            waitForConditions()?.let { reason ->
-                                _activity.update { it.copy(message = reason.text) }
-                                if (queueLock.withLock { queue.isNotEmpty().also { queue.clear() } }) AppLog.info("Backup stopped: ${reason.text} (for over 2 minutes)")
-                                return@launch
-                            }
-                            waitForFloodPause()
-                            acquireLaneSlot()
-                            val outcome = try {
-                                paceUploadStart()
-                                process(item, lane)
-                            } finally {
-                                synchronized(gate) { slots.release() }
-                            }
-                            if (outcome == Outcome.RetryLater) {
-                                // Slowed down or a network error: try again later in this run, at most 5 times.
-                                val n = requeues.getOrDefault(item.id, 0)
-                                if (n < 5) { requeues[item.id] = n + 1; queueLock.withLock { queue.addLast(item) }; continue }
-                            }
-                            val (done, snap) = counter.record(outcome)
-                            _activity.update { a ->
-                                a.copy(done = done, uploaded = snap.first + snap.second, failed = snap.third,
-                                    landed = if (outcome == Outcome.Uploaded) (item.localId ?: "") to done else a.landed)
-                            }
+                val job = launch {
+                    coroutineScope {
+                        repeat(MAX_CONCURRENT_UPLOADS) { lane ->
+                            launch { lane(lane, queue, queueLock, requeues, counter, deadlineMs, stoppedByTime) }
+                        }
+                    }
+                }
+                if (deadlineMs == null) job.join()
+                else {
+                    // Lanes stop taking items at the deadline; a photo already sending gets a short grace to finish
+                    // instead of being cut and sent again by the next run. Still well inside Android's 10 minutes.
+                    val wait = (deadlineMs + IN_FLIGHT_GRACE_MS - System.currentTimeMillis()).coerceAtLeast(0)
+                    if (withTimeoutOrNull(wait) { job.join() } == null && job.isActive) {
+                        // Cancel what is still in flight. Confirmed parts stay; the half-sent one is dropped.
+                        stoppedByTime.set(true)
+                        job.cancel()
+                        try {
+                            job.join()
+                        } catch (e: CancellationException) {
+                            if (!coroutineContext.isActive || pauseRequested) throw e
                         }
                     }
                 }
             }
-            makeEarlierScreenCopies()
-            waitForFloodPause()
-            writeSnapshotIfDue()
+            if (!stoppedByTime.get() && BackgroundRuns.mayTakeNextItem(deadlineMs, System.currentTimeMillis())) {
+                makeEarlierScreenCopies()
+                waitForFloodPause()
+                writeSnapshotIfDue()
+            }
             val snap = counter.snapshot()
-            val left = runnable(Long.MAX_VALUE, onlyChosen, store.items(ItemStatus.Queued)).size
-            val summary = Summary(uploaded = snap.first, alreadyBackedUp = snap.second, failed = snap.third, remaining = left)
+            val left = runnable(Long.MAX_VALUE, onlyChosen, store.items(ItemStatus.Queued) + store.items(ItemStatus.Uploading)).size
+            val blocked = blockedThisRun.get()
+            val summary = Summary(
+                uploaded = snap.first, alreadyBackedUp = snap.second, failed = snap.third, remaining = left,
+                error = blocked?.text, uploadedVideos = counter.videos, partsSaved = partsThisRun.get(),
+                stoppedByTime = stoppedByTime.get(), blockedByRule = blocked != null,
+            )
             if (summary.uploaded > 0) prefs.lastBackupAt = System.currentTimeMillis()
             AppLog.info("Backup run finished: ${summary.text}")
             finish(summary, started = true, announce = userStarted)
         } catch (e: CancellationException) {
             val paused = pauseRequested
-            val s = Summary(error = if (paused) "Paused. Tap Back up now to continue where it stopped." else null)
+            val s = Summary(
+                error = if (paused) "Paused. Tap Back up now to continue where it stopped." else null,
+                partsSaved = partsThisRun.get(), blockedByRule = paused,
+            )
             AppLog.info("Backup stopped: ${if (paused) "paused" else "ended"}")
             finish(s, started = true, announce = userStarted)
             throw e
         } finally {
             synchronized(gate) { running = false; runJob = null }
+        }
+    }
+
+    /** One of the two upload lanes. Stops taking items once [deadlineMs] is reached; the caller cancels work already started. */
+    private suspend fun lane(
+        lane: Int,
+        queue: ArrayDeque<LibraryItem>,
+        queueLock: Mutex,
+        requeues: HashMap<String, Int>,
+        counter: Counter,
+        deadlineMs: Long?,
+        stoppedByTime: java.util.concurrent.atomic.AtomicBoolean,
+    ) {
+        while (kotlinx.coroutines.currentCoroutineContext()[Job]?.isActive != false) {
+            if (!BackgroundRuns.mayTakeNextItem(deadlineMs, System.currentTimeMillis())) {
+                stoppedByTime.set(true)
+                break
+            }
+            val item = queueLock.withLock { queue.removeFirstOrNull() } ?: break
+            // A blip (Wi-Fi roaming) shouldn't end the run; wait it out, stop only if it lasts.
+            waitForConditions()?.let { reason ->
+                blockedThisRun.compareAndSet(null, reason)
+                _activity.update { it.copy(message = reason.text) }
+                if (queueLock.withLock { queue.isNotEmpty().also { queue.clear() } }) AppLog.info("Backup stopped: ${reason.text} (for over 2 minutes)")
+                return
+            }
+            // Telegram's wait outlasts this background run: end now and let the next run start after it, instead of
+            // spending the job's time (and Android's quota for it) asleep.
+            if (deadlineMs != null && synchronized(gate) { pausedUntil } >= deadlineMs) {
+                stoppedByTime.set(true)
+                break
+            }
+            waitForFloodPause()
+            acquireLaneSlot()
+            val outcome = try {
+                paceUploadStart()
+                process(item, lane)
+            } finally {
+                synchronized(gate) { slots.release() }
+            }
+            if (outcome == Outcome.RetryLater) {
+                // Slowed down or a network error: try again later in this run, at most 5 times.
+                val n = requeues.getOrDefault(item.id, 0)
+                if (n < 5) { requeues[item.id] = n + 1; queueLock.withLock { queue.addLast(item) }; continue }
+            }
+            val (done, snap) = counter.record(outcome, item.kind == ItemKind.Video)
+            _activity.update { a ->
+                a.copy(done = done, uploaded = snap.first + snap.second, failed = snap.third,
+                    landed = if (outcome == Outcome.Uploaded) (item.localId ?: "") to done else a.landed)
+            }
         }
     }
 
@@ -447,7 +530,11 @@ class BackupEngine(
         }
     }
 
-    private fun holdFor(seconds: Int) = synchronized(gate) { pausedUntil = maxOf(pausedUntil, System.currentTimeMillis() + seconds * 1000L) }
+    private fun holdFor(seconds: Int) = synchronized(gate) {
+        // The later deadline wins, and it is written down: a new process must not send during Telegram's wait.
+        pausedUntil = BackgroundRuns.laterDeadline(pausedUntil, System.currentTimeMillis() + seconds * 1000L)
+        prefs.floodUntil = pausedUntil
+    }
 
     /** Null when the backup may go on; waits up to [patienceMs] for a condition to clear and says what it waits for. */
     private suspend fun waitForConditions(patienceMs: Long = 120_000): StopReason? {
@@ -577,7 +664,10 @@ class BackupEngine(
                 val base = before
                 val parts = uploader.upload(
                     itemId, r, item.parts[r.role].orEmpty(), item.uploadResume[r.role],
-                    checkpoint = { parts, expected, point -> store.update(itemId) { it.withParts(r.role, parts, expected, point) } },
+                    checkpoint = { parts, expected, point ->
+                        partsThisRun.incrementAndGet()
+                        store.update(itemId) { it.withParts(r.role, parts, expected, point) }
+                    },
                     progress = { sent, _ -> showLane(laneKey, BackupActivity.Lane(file.filename, minOf(base + sent, streamTotal), streamTotal)) },
                 )
                 item = (store.item(itemId) ?: item).withParts(r.role, parts, parts.size)
@@ -716,7 +806,10 @@ class BackupEngine(
             val meta = captionMeta(item, Role.SCREEN_COPY, hash, name, size).copy(wh = listOf(w, h), m = "image/jpeg")
             val parts = uploader.upload(
                 item.id, Resource("d", size, meta) { copy.inputStream() }, emptyList(), null,
-                checkpoint = { p, expected, _ -> store.update(item.id) { it.withParts("d", p, expected) } },
+                checkpoint = { p, expected, _ ->
+                    partsThisRun.incrementAndGet()
+                    store.update(item.id) { it.withParts("d", p, expected) }
+                },
                 progress = { sent, total -> showLane(laneKey, BackupActivity.Lane(label, sent, total)) },
             )
             store.update(item.id) { it.withParts("d", parts, parts.size).copy(screenCopySkipped = false, roleHashes = it.roleHashes + ("d" to hash)) }
@@ -780,7 +873,10 @@ class BackupEngine(
                 .copy(wh = listOf(copy.width, copy.height), c = copy.codec, hdr = null, m = "video/mp4")
             val parts = uploader.upload(
                 item.id, Resource("sp", size, meta) { copy.file.inputStream() }, emptyList(), null,
-                checkpoint = { p, expected, _ -> store.update(item.id) { it.withParts("sp", p, expected) } },
+                checkpoint = { p, expected, _ ->
+                    partsThisRun.incrementAndGet()
+                    store.update(item.id) { it.withParts("sp", p, expected) }
+                },
                 progress = { sent, total -> showLane(laneKey, BackupActivity.Lane(label, sent, total)) },
             )
             store.update(item.id) { it.withParts("sp", parts, parts.size).copy(streamingCopySkipped = false, roleHashes = it.roleHashes + ("sp" to hash)) }
@@ -850,10 +946,12 @@ class BackupEngine(
 
     private class Counter {
         private var uploaded = 0; private var duplicate = 0; private var failed = 0; private var done = 0
+        var videos = 0
+            private set
 
-        @Synchronized fun record(o: Outcome): Pair<Int, Triple<Int, Int, Int>> {
+        @Synchronized fun record(o: Outcome, video: Boolean): Pair<Int, Triple<Int, Int, Int>> {
             when (o) {
-                Outcome.Uploaded -> uploaded++
+                Outcome.Uploaded -> { uploaded++; if (video) videos++ }
                 Outcome.Duplicate -> duplicate++
                 Outcome.Failed -> failed++
                 Outcome.Skipped, Outcome.RetryLater -> Unit
@@ -867,6 +965,10 @@ class BackupEngine(
 
     companion object {
         const val MAX_CONCURRENT_UPLOADS = 2
+        /** Background uploads stop themselves here, before Android's 10-minute kill, so the next run can be booked. */
+        const val BACKGROUND_BUDGET_MS = 9 * 60 * 1000L
+        /** How long an upload already sending at the deadline may take to finish before it is cancelled. */
+        const val IN_FLIGHT_GRACE_MS = 30_000L
         const val UPLOAD_SPACING_MS = 1_500L
         const val SNAPSHOT_EVERY = 500
         const val SNAPSHOT_UPTO = "snapshotUpto"

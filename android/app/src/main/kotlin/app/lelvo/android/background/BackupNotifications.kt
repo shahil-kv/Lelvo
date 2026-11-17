@@ -32,6 +32,28 @@ class BackupNotifications(private val context: Context) {
             description = "Progress while Lelvo backs up to your Telegram library"
             setShowBadge(false)
         })
+        manager.createNotificationChannel(NotificationChannel(SUMMARY_CHANNEL, "Backup summaries", NotificationManager.IMPORTANCE_LOW).apply {
+            description = "A morning summary, and a reminder when backup is waiting"
+            setShowBadge(false)
+        })
+    }
+
+    fun summary(text: String) = quiet(SUMMARY_ID, text)
+
+    fun reminder(waiting: Int) {
+        val text = "$waiting item${if (waiting == 1) "" else "s"} are waiting to be backed up. Open Lelvo to continue."
+        quiet(REMINDER_ID, "Backup waiting", text)
+    }
+
+    private fun quiet(id: Int, title: String, text: String = title) {
+        show(id, NotificationCompat.Builder(context, SUMMARY_CHANNEL)
+            .setSmallIcon(R.drawable.ic_cloud_done)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .setContentIntent(openApp())
+            .build())
     }
 
     fun progress(a: BackupActivity): Notification {
@@ -60,6 +82,19 @@ class BackupNotifications(private val context: Context) {
             .build()
     }
 
+    /** Android stopped a long user run. The short background runs carry on. */
+    fun limited() {
+        val text = "Backup paused. Android limits long backups to 6 hours a day. It continues in the background."
+        show(DONE_ID, NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_pause)
+            .setContentTitle("Backup paused")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .setContentIntent(openApp())
+            .build())
+    }
+
     fun finished(s: BackupEngine.Summary) {
         val paused = s.error != null
         show(DONE_ID, NotificationCompat.Builder(context, CHANNEL)
@@ -85,8 +120,11 @@ class BackupNotifications(private val context: Context) {
 
     companion object {
         const val CHANNEL = "backup"
+        const val SUMMARY_CHANNEL = "backup.summaries"
         const val PROGRESS_ID = 41
         const val DONE_ID = 42
+        const val SUMMARY_ID = 43
+        const val REMINDER_ID = 44
     }
 }
 

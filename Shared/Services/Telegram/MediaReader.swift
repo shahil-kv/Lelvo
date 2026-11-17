@@ -192,14 +192,18 @@ final class MediaReader: @unchecked Sendable {
     /// Fetches the start of a video, and its index when that sits at the end (iPhone camera videos keep `moov`
     /// after the media data), so playback begins without waiting when swiped to. Cancelling stops its download
     /// too, so it never takes bandwidth from the video on screen.
-    func prefetch(_ item: MediaItem, role: String = "o", bytes: Int64 = 2 << 20) async {
+    /// True when the start was fetched (or was already on the device); false when the read failed or was cancelled.
+    @discardableResult
+    func prefetch(_ item: MediaItem, role: String = "o", bytes: Int64 = 2 << 20) async -> Bool {
         await withTaskCancellationHandler {
             let size = (try? await plaintextSize(item, role: role)) ?? 0
             // Same streaming path as the player, so opening this video shares the download instead of waiting
             // behind a separate low-priority one holding the file gate (AVPlayer timed out at 18 s).
-            guard let head = try? await read(item, role: role, range: 0..<min(size, bytes), streaming: true), !Task.isCancelled,
-                  let tail = MovieLayout.trailingIndexRange(prefix: head, totalSize: size), tail.count <= 4 << 20 else { return }
+            guard size > 0, let head = try? await read(item, role: role, range: 0..<min(size, bytes), streaming: true),
+                  !Task.isCancelled else { return false }
+            guard let tail = MovieLayout.trailingIndexRange(prefix: head, totalSize: size), tail.count <= 4 << 20 else { return true }
             _ = try? await read(item, role: role, range: tail, streaming: true)
+            return true
         } onCancel: {
             self.stopDownloadsIfUnused(item, role: role)
         }

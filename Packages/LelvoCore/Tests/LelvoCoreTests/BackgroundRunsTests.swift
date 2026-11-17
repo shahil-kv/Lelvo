@@ -129,4 +129,23 @@ import Testing
         t.add(uploaded: 5, videos: 0)
         #expect(t == NightTotals(photos: 13, videos: 2))
     }
+
+    @Test func marksLeftByAKilledProcessBecomeRecords() {
+        let marks = [
+            BackgroundRuns.mark(.processing, startedAt: Date(timeIntervalSince1970: 2_000)),
+            BackgroundRuns.mark(.shortcut, startedAt: Date(timeIntervalSince1970: 1_000)),
+            "nonsense:12", "refresh:", "broken",
+        ]
+        let killed = BackgroundRuns.killedRuns(marks: marks)
+        #expect(killed.map(\.source) == [.shortcut, .processing])
+        #expect(killed.map(\.startedAt.timeIntervalSince1970) == [1_000, 2_000])
+        #expect(killed.allSatisfy { $0.stop == BackgroundRuns.killed && $0.uploaded == 0 })
+        #expect(BackgroundRuns.killedRuns(marks: []).isEmpty)
+    }
+
+    @Test func recordsSavedBeforeStopExistedStillDecode() throws {
+        let old = #"[{"source":"refresh","startedAt":0,"seconds":3,"uploaded":1,"remaining":2}]"#
+        let list = try JSONDecoder().decode([RunRecord].self, from: Data(old.utf8))
+        #expect(list.first?.stop == nil && list.first?.uploaded == 1)
+    }
 }

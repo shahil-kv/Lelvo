@@ -36,6 +36,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import app.lelvo.android.background.BackupScheduler
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -107,6 +109,13 @@ fun FirstBackupScreen(app: LelvoApp, onDone: () -> Unit, previewNew: Boolean = f
     val photos = recent
     LaunchedEffect(photos) { if (photos != null && photos.isEmpty() && !returning) phase = Phase.Nothing }
     val finished = phase == Phase.Safe || phase == Phase.AlreadySafe
+    var automatic by remember { mutableStateOf(true) }
+    val startUsing = {
+        app.prefs.autoBackup = automatic
+        app.prefs.autoBackupAsked = true
+        BackupScheduler.schedule(app, app.prefs)
+        onDone()
+    }
 
     fun upload(id: String) = scope.launch {
         phase = Phase.Uploading
@@ -155,13 +164,15 @@ fun FirstBackupScreen(app: LelvoApp, onDone: () -> Unit, previewNew: Boolean = f
                     PhotoGrid(photos.orEmpty(), selected) { id -> haptics.performHapticFeedback(HapticFeedbackType.SegmentTick); selected = if (selected == id) null else id }
                 }
                 finished && photos.orEmpty().count { it.asset.localId != selected } >= 4 ->
-                    LibraryReady(photos.orEmpty().filter { it.asset.localId != selected }.map { it.asset }, phase.detail)
-                else -> UploadProgress(app, photos.orEmpty().firstOrNull { it.asset.localId == selected }?.asset, phase, progress, finished)
+                    LibraryReady(photos.orEmpty().filter { it.asset.localId != selected }.map { it.asset }, phase.line(automatic))
+                else -> UploadProgress(app, photos.orEmpty().firstOrNull { it.asset.localId == selected }?.asset, phase, progress, finished, automatic)
             }
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (returning || finished) AutomaticBackupSwitch(automatic) { automatic = it }
             val (label, action) = when {
-                returning || finished || phase == Phase.Nothing -> "Start using Lelvo" to onDone
+                returning || finished -> "Start using Lelvo" to startUsing
+                phase == Phase.Nothing -> "Start using Lelvo" to onDone
                 phase == Phase.Choosing -> "Back up this photo" to { selected?.let { upload(it) }; Unit }
                 else -> "Continue in the background" to onDone
             }
@@ -170,10 +181,30 @@ fun FirstBackupScreen(app: LelvoApp, onDone: () -> Unit, previewNew: Boolean = f
                 modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(26.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Lelvo.colors.accent),
             ) { Text(label, fontWeight = FontWeight.SemiBold) }
+            if (returning || finished) {
+                Text("You can change this in Settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (!returning && phase == Phase.Choosing) TextButton(onClick = onDone) { Text("Skip for now", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }
+}
+
+private fun Phase.line(automatic: Boolean): String =
+    if (automatic && (this == Phase.Safe || this == Phase.AlreadySafe)) "Backed up and checked, at full quality." else detail
+
+@Composable
+private fun AutomaticBackupSwitch(on: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Back up new photos automatically", style = MaterialTheme.typography.titleSmall)
+            Text("Soon after you take them, and when you open Lelvo.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = on, onCheckedChange = onChange)
+    }
 }
 
 private sealed class Phase(val title: String, val detail: String) {
@@ -270,7 +301,7 @@ private fun PhotoGrid(photos: List<Recent>, selected: String?, onPick: ((String)
 }
 
 @Composable
-private fun UploadProgress(app: LelvoApp, photo: PhoneAsset?, phase: Phase, progress: Float, finished: Boolean) {
+private fun UploadProgress(app: LelvoApp, photo: PhoneAsset?, phase: Phase, progress: Float, finished: Boolean, automatic: Boolean) {
     val shown by animateFloatAsState(if (finished) 1f else progress, tween(400), label = "ring")
     val check by animateFloatAsState(if (finished) 1f else 0f, spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMediumLow), label = "check")
     val accent = Lelvo.colors.accent
@@ -296,7 +327,7 @@ private fun UploadProgress(app: LelvoApp, photo: PhoneAsset?, phase: Phase, prog
         AnimatedContent(phase, label = "phase") { p ->
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(p.title, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.Center)
-                Text(p.detail, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                Text(p.line(automatic), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             }
         }
     }

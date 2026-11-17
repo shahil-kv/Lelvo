@@ -85,6 +85,9 @@ Yes, if **Back up new photos automatically** is on. It's offered at the end of s
 up when you open it, in short background moments, and overnight. If you switch it off, nothing uploads until you tap
 **Back up now** (everything not yet backed up) or **Back up** on photos you picked.
 
+**Why did backup stop on my Android phone?**
+Android, and some phone makers, stop apps that run in the background. Open the Backup tab. If Lelvo can only see the photos you selected, new photos are not backed up until you allow all photos. If Android has stopped background use, or the phone has been saving battery since yesterday, tap Fix. That opens Lelvo's page in Settings. On a Samsung phone, also remove Lelvo from Sleeping apps. On Xiaomi, Redmi or POCO, also turn on Autostart. Force-stopping Lelvo stops automatic backup until you open Lelvo again.
+
 **Why doesn't Lelvo back up in the background like Google Photos?**
 Your photos are end-to-end encrypted before they leave your iPhone. iPhone only lets apps upload in the background
 when the photo goes to the app maker's own server unencrypted. Google Photos can do that because Google can see your

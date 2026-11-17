@@ -426,13 +426,21 @@ final class VisibleVideoPreloader {
         task = Task {
             // Let a fling settle completely before using the network.
             try? await Task.sleep(nanoseconds: 400_000_000)
+            // Right after launch the grid settles a second or two before Telegram is ready, and every read failed.
+            // Wait for it here; the grid and thumbnails never wait for this.
+            guard (try? await AppEnvironment.shared.td.waitUntilReady(timeout: 15)) != nil, !Task.isCancelled else {
+                if !Task.isCancelled { lastIds = [] }
+                return
+            }
             let started = Date()
             var done = 0
             for item in items {
                 if Task.isCancelled { break }
-                await AppEnvironment.shared.reader.prefetch(item, role: "sp", bytes: Self.bytes)
-                if !Task.isCancelled { done += 1 }
+                if await AppEnvironment.shared.reader.prefetch(item, role: "sp", bytes: Self.bytes) { done += 1 }
             }
+            // Nothing fetched (offline, a read failed): let the next time the grid settles try again instead of
+            // treating this screenful as done for a minute.
+            if done == 0, !Task.isCancelled { lastIds = [] }
             let took = Date().timeIntervalSince(started)
             // Already on the device returns at once; only real downloads are worth a log line.
             if done > 0, took > 0.2 { appLog(String(format: "Preloaded the start of %d cloud videos on screen in %.1f s", done, took)) }

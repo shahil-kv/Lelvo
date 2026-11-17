@@ -2,15 +2,18 @@ package app.lelvo.android.background
 
 import android.content.Context
 import android.provider.MediaStore
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import app.lelvo.core.backup.BackgroundRuns
 import app.lelvo.core.support.AppLog
 import app.lelvo.data.Prefs
 import java.util.concurrent.TimeUnit
@@ -19,7 +22,8 @@ import java.util.concurrent.TimeUnit
  * Android's version of iOS `BackgroundTasks` and `ContinuedBackup`, on WorkManager:
  * - **User runs** (Back up now, Back up on chosen photos, Retry, the shortcut and the tile) run as a worker with a
  *   foreground notification, so they keep going when Lelvo leaves the screen (iOS continued-processing task).
- * - **New photos**: with automatic backup on, a MediaStore content trigger starts a run soon after photos are added.
+ * - **New photos**: with automatic backup on, a MediaStore content trigger only notices photos. It has no
+ *   network or charging constraint, and it queues an automatic run that does the upload.
  * - **Overnight**: every few hours while charging, the queue is processed and new photos are read for search (iOS
  *   BGProcessingTask, which also requires power).
  * - **Refresh**: every few hours the index catches up with what other devices did (iOS BGAppRefreshTask).
@@ -30,13 +34,21 @@ import java.util.concurrent.TimeUnit
 object BackupScheduler {
     const val USER = "backup.user"
     const val NEW_PHOTOS = "backup.newPhotos"
+    const val AUTO_RUN = "backup.auto"
+    const val SAFETY_NET = "backup.safetyNet"
     const val OVERNIGHT = "backup.overnight"
     const val REFRESH = "index.refresh"
+    const val SUMMARY = "backup.summary"
+    const val REMINDER = "backup.reminder"
 
     /** Starts a user run, or queues it right after the one running (chosen photos added meanwhile then go too). */
-    fun startNow(context: Context, includeNew: Boolean) {
+    fun startNow(context: Context, includeNew: Boolean, fromApp: Boolean = false) {
         val request = OneTimeWorkRequestBuilder<BackupWorker>()
-            .setInputData(Data.Builder().putString(BackupWorker.KIND, USER).putBoolean(BackupWorker.INCLUDE_NEW, includeNew).build())
+            .setInputData(Data.Builder()
+                .putString(BackupWorker.KIND, USER)
+                .putBoolean(BackupWorker.INCLUDE_NEW, includeNew)
+                .putBoolean(BackupWorker.FROM_APP, fromApp)
+                .build())
             // Expedited where the quota allows, so it starts at once even in Doze; a normal job otherwise.
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
@@ -50,14 +62,23 @@ object BackupScheduler {
     fun schedule(context: Context, prefs: Prefs, rulesChanged: Boolean = false) {
         val wm = WorkManager.getInstance(context)
         val network = if (prefs.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
-        val periodicPolicy = if (rulesChanged) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP
-
+        // UPDATE keeps the next run time and replaces constraints. KEEP left a Wi-Fi or charging rule that had since changed.
         val overnight = PeriodicWorkRequestBuilder<BackupWorker>(4, TimeUnit.HOURS, 1, TimeUnit.HOURS)
             .setInputData(Data.Builder().putString(BackupWorker.KIND, OVERNIGHT).build())
             .setConstraints(Constraints.Builder().setRequiredNetworkType(network).setRequiresCharging(true).build())
             .setInitialDelay(1, TimeUnit.HOURS)
             .build()
-        wm.enqueueUniquePeriodicWork(OVERNIGHT, periodicPolicy, overnight)
+        wm.enqueueUniquePeriodicWork(OVERNIGHT, if (rulesChanged) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP, overnight)
+
+        val safety = PeriodicWorkRequestBuilder<BackupWorker>(60, TimeUnit.MINUTES, 15, TimeUnit.MINUTES)
+            .setInputData(Data.Builder().putString(BackupWorker.KIND, SAFETY_NET).build())
+            .setConstraints(Constraints.Builder()
+                .setRequiredNetworkType(network)
+                .setRequiresBatteryNotLow(true)
+                .apply { if (prefs.chargingOnly) setRequiresCharging(true) }
+                .build())
+            .build()
+        wm.enqueueUniquePeriodicWork(SAFETY_NET, ExistingPeriodicWorkPolicy.UPDATE, safety)
 
         val refresh = PeriodicWorkRequestBuilder<BackupWorker>(4, TimeUnit.HOURS, 1, TimeUnit.HOURS)
             .setInputData(Data.Builder().putString(BackupWorker.KIND, REFRESH).build())
@@ -66,18 +87,21 @@ object BackupScheduler {
             .build()
         wm.enqueueUniquePeriodicWork(REFRESH, ExistingPeriodicWorkPolicy.KEEP, refresh)
 
-        if (prefs.autoBackup) armNewPhotos(context, prefs, if (rulesChanged) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP)
-        else wm.cancelUniqueWork(NEW_PHOTOS)
+        if (prefs.autoBackup) armNewPhotos(context, prefs, ExistingWorkPolicy.KEEP)
+        else {
+            wm.cancelUniqueWork(NEW_PHOTOS)
+            wm.cancelUniqueWork(AUTO_RUN)
+        }
     }
 
     /**
-     * Waits for MediaStore to report new photos or videos. A content trigger fires once, so the worker arms the next one
-     * when it's done ([ExistingWorkPolicy.APPEND_OR_REPLACE] queues it behind itself instead of cancelling it).
+     * Waits for MediaStore to report new photos or videos. No network or charging constraint: those would hold
+     * the trigger itself, and photos taken off Wi-Fi or off the charger would never be noticed.
+     * A content trigger fires once, so the worker arms the next one before it does anything else
+     * ([ExistingWorkPolicy.APPEND_OR_REPLACE] queues it behind itself instead of cancelling it).
      */
     fun armNewPhotos(context: Context, prefs: Prefs, policy: ExistingWorkPolicy) {
         val constraints = Constraints.Builder()
-            .setRequiredNetworkType(if (prefs.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
-            .setRequiresCharging(prefs.chargingOnly)
             .addContentUriTrigger(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true)
             .addContentUriTrigger(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true)
             // A burst (a few photos, a screen recording being written) becomes one run instead of one each.
@@ -91,13 +115,70 @@ object BackupScheduler {
         WorkManager.getInstance(context).enqueueUniqueWork(NEW_PHOTOS, policy, request)
     }
 
+    /**
+     * Uploads whatever is already queued. [KEEP] by default: a run already queued picks up new photos itself.
+     * The 15-minute chain uses [ExistingWorkPolicy.APPEND_OR_REPLACE] so it is not dropped behind a finished run.
+     */
+    fun startAutoRun(context: Context, prefs: Prefs, delayMs: Long, policy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP) {
+        WorkManager.getInstance(context).enqueueUniqueWork(AUTO_RUN, policy, autoRunRequest(prefs.wifiOnly, prefs.chargingOnly, delayMs))
+    }
+
+    /** Built without a [Context] so a JVM test can prove an expedited request does not carry a constraint that throws. */
+    internal fun autoRunRequest(wifiOnly: Boolean, chargingOnly: Boolean, delayMs: Long): OneTimeWorkRequest {
+        val plan = BackgroundRuns.autoRunPlan(wifiOnly, chargingOnly, delayMs)
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(if (plan.unmetered) NetworkType.UNMETERED else NetworkType.CONNECTED)
+            .apply { if (plan.batteryNotLow) setRequiresBatteryNotLow(true) }
+            .apply { if (plan.requiresCharging) setRequiresCharging(true) }
+            .build()
+        val builder = OneTimeWorkRequestBuilder<BackupWorker>()
+            .setInputData(Data.Builder().putString(BackupWorker.KIND, AUTO_RUN).build())
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
+        if (plan.expedited) builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+        else builder.setInitialDelay(plan.delayMs, TimeUnit.MILLISECONDS)
+        return builder.build()
+    }
+
     /** Sign out: nothing runs for the old account. */
     fun cancelAll(context: Context) {
         val wm = WorkManager.getInstance(context)
-        listOf(USER, NEW_PHOTOS, OVERNIGHT, REFRESH).forEach(wm::cancelUniqueWork)
+        listOf(USER, NEW_PHOTOS, AUTO_RUN, SAFETY_NET, OVERNIGHT, REFRESH, SUMMARY, REMINDER).forEach(wm::cancelUniqueWork)
         AppLog.info("Background backups cancelled")
     }
 
     /** Pause from the notification or the tile: the run stops and the queued user runs go too. */
     fun cancelUserRuns(context: Context) = WorkManager.getInstance(context).cancelUniqueWork(USER)
+
+    /** One morning summary. A later night replaces it, so only the latest totals are posted. */
+    fun bookSummary(context: Context, delayMs: Long) = bookQuiet(context, SUMMARY, delayMs)
+
+    /** One stuck reminder. Nothing waiting cancels it. */
+    fun bookReminder(context: Context, prefs: Prefs, waiting: Int) {
+        val wm = WorkManager.getInstance(context)
+        if (!prefs.backupNotifications || waiting <= 0) {
+            wm.cancelUniqueWork(REMINDER)
+            return
+        }
+        val now = System.currentTimeMillis()
+        val due = BackgroundRuns.nextReminder(prefs.lastBackupAt, waiting, prefs.remindersSent, now) ?: run {
+            wm.cancelUniqueWork(REMINDER)
+            return
+        }
+        bookQuiet(context, REMINDER, (due - now).coerceAtLeast(0))
+    }
+
+    fun cancelQuiet(context: Context) {
+        val wm = WorkManager.getInstance(context)
+        wm.cancelUniqueWork(SUMMARY)
+        wm.cancelUniqueWork(REMINDER)
+    }
+
+    private fun bookQuiet(context: Context, name: String, delayMs: Long) {
+        val request = OneTimeWorkRequestBuilder<BackupWorker>()
+            .setInputData(Data.Builder().putString(BackupWorker.KIND, name).build())
+            .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(name, ExistingWorkPolicy.REPLACE, request)
+    }
 }

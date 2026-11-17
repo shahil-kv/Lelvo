@@ -698,6 +698,14 @@ Phase 0 (core check on the real library) → A (theme, shell, prefs, logs) → B
   - Gaps: no Automations guide (Android has no Shortcuts automations; automatic backup and the tile cover it);
     Android 15+ caps `dataSync` at 6 h a day, after which runs are ordinary jobs; no run starts at boot until the
     first trigger or periodic job (WorkManager reschedules them itself).
+- 2026-11-14, automatic backup hardening (`docs/ANDROID_AUTO_BACKUP_PLAN.md`). Code is in `android/auto-backup`. The Pixel_9 emulator had too little free space to install this build, and no Samsung, Xiaomi or stock Pixel was available, so the device checks below were not run:
+  - The new-photos trigger has no network or charging constraint. It arms the next trigger first, queues photos even when the signal carries no URI, and starts `backup.auto` for the upload.
+  - `backup.auto`, the hourly safety net and the upload part of overnight stop at 9 minutes and book the next run 15 minutes later. They do not book one while Lelvo is open, a user run is queued, the backup is paused, or a rule is blocking it. Three runs with no finished item and no saved part stop the chain. Confirmed parts of a large video stay.
+  - `FLOOD_WAIT` is stored, so a new process does not send during Telegram's wait. Opening Lelvo starts a backup when photos are waiting and does not cancel the automatic run.
+  - Setup offers automatic backup, switched on. The Backup tab asks once if it is still off.
+  - The Backup tab names selected photos, a background restriction, a force stop, and, after a day with photos waiting, battery optimisation or a rare standby bucket. Fix opens the app's settings page. Lelvo does not ask for the battery-optimisation permission.
+  - A user run that Android stops at the 6-hour limit says so and hands the queue to the short runs.
+  - Optional backup notifications: one note at 07:30 and a reminder when photos have been waiting. Counts only.
   - Test files left on the emulator: `Pictures/PhaseJ/phasej1–6.jpg`, `Movies/PhaseJ_1–6.mp4` (all backed up to
     "Android Test"); automatic backup is on there.
 - 2026-11-12, Phase K (Settings) on the "Android Test" library:
