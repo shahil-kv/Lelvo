@@ -201,12 +201,13 @@ struct MemoriesView<Destination: View>: View {
         // Clear `playing` ourselves: Environment dismiss often fails for a fullScreenCover inside NavigationStack,
         // so the only way out was to finish every photo (end of story calls close).
         MemoryStoryView(
-            card: card,
-            entries: card.memory.ids.compactMap { model.entries[$0] },
+            cards: model.cards,
+            start: model.cards.firstIndex(of: card) ?? 0,
+            entriesFor: { c in c.memory.ids.compactMap { model.entries[$0] } },
             onClose: { playing = nil },
-            showAll: {
+            showAll: { current in
                 playing = nil
-                showingAll = card
+                showingAll = current
             }
         )
     }
@@ -270,159 +271,323 @@ private struct MemoryCard: View {
     }
 }
 
-/// A memory played like Apple's and Google's: each photo for a few seconds with a slow zoom, cross-fading to the next,
-/// which is already loaded. Tap the sides to move, hold to pause, swipe down or tap Close (X) to leave — same idea as
-/// dismissing a photo in Photos.
+/// A memory played like a story: the bar sits at the top, each photo plays for a few seconds, tap the sides to move
+/// inside this memory, swipe sideways for the next or previous memory, swipe down or tap Close to leave.
 struct MemoryStoryView: View {
-    let card: MemoriesModel.Card
-    let entries: [GalleryEntry]
+    let cards: [MemoriesModel.Card]
+    let start: Int
+    let entriesFor: (MemoriesModel.Card) -> [GalleryEntry]
     /// Clears the fullScreenCover / sheet binding. Prefer this over Environment dismiss (unreliable in NavigationStack).
     let onClose: () -> Void
-    let showAll: () -> Void
+    let showAll: (MemoriesModel.Card) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var cardIndex = 0
     @State private var index = 0
-    @State private var images: [Int: PlatformImage] = [:]
+    /// Photos already decoded, keyed by memory and frame, so the neighbour is on screen before the swipe lands.
+    @State private var images: [String: PlatformImage] = [:]
     /// Photos that wouldn't load (no connection, say). The story says so and moves on instead of spinning forever.
-    @State private var failed: Set<Int> = []
+    @State private var failed: Set<String> = []
     @State private var elapsed: Double = 0
     @State private var holding = false
     @State private var paused = false
+    @State private var dragX: CGFloat = 0
     @State private var dragY: CGFloat = 0
+    @State private var pageWidth: CGFloat = 1
+    /// Bumped when a new drag or settle starts, so a finger can cancel a settle that has not landed yet.
+    @State private var settleID = 0
+    @State private var settling = false
+    @State private var closing = false
     private static let seconds: Double = 4
     private static let tick: Double = 1.0 / 30
+    /// The black gap between two memories while one slides over the other.
+    private static let gap: CGFloat = 10
+
+    init(cards: [MemoriesModel.Card], start: Int, entriesFor: @escaping (MemoriesModel.Card) -> [GalleryEntry], onClose: @escaping () -> Void, showAll: @escaping (MemoriesModel.Card) -> Void) {
+        self.cards = cards
+        self.start = start
+        self.entriesFor = entriesFor
+        self.onClose = onClose
+        self.showAll = showAll
+        let first = cards.isEmpty ? 0 : min(max(0, start), cards.count - 1)
+        _cardIndex = State(initialValue: first)
+    }
+
+    private var card: MemoriesModel.Card { cards[min(max(0, cardIndex), cards.count - 1)] }
+    private var entries: [GalleryEntry] { cards.isEmpty ? [] : entriesFor(card) }
 
     var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            // The pages move. The gesture stays on this reader, which does not, so a downward drag
+            // cannot slide the touch off the view and freeze the card halfway.
+            ZStack(alignment: .topLeading) {
+                HStack(spacing: Self.gap) {
+                    storyPage(cardIndex - 1, width: width)
+                    storyPage(cardIndex, width: width)
+                    storyPage(cardIndex + 1, width: width)
+                }
+                .offset(x: -(width + Self.gap) + dragX, y: max(0, dragY))
+                .scaleEffect(reduceMotion ? 1 : 1 - min(0.08, max(0, dragY) / 1800), anchor: .center)
+                .allowsHitTesting(false)
+            }
+            .frame(width: width, height: geo.size.height, alignment: .topLeading)
+            .contentShape(Rectangle())
+            .gesture(storyDrag(width: width))
+            .simultaneousGesture(SpatialTapGesture().onEnded { value in
+                guard !closing, abs(dragX) < 1, abs(dragY) < 1 else { return }
+                move(value.location.x < width / 3 ? -1 : 1)
+            })
+            .onChange(of: width, initial: true) { _, new in pageWidth = new }
+        }
+        .overlay(alignment: .top) {
+            if cards.indices.contains(cardIndex) {
+                chrome(card, photos: entries, active: true)
+                    .offset(x: dragX, y: max(0, dragY))
+                    .opacity(dragY > 12 ? max(0, 1 - Double(dragY / 220)) : 1)
+            }
+        }
+        // The black behind the card fades with the finger. It used to stop at a dark veil, and the
+        // cover then slid that veil off on its own, so a second black sheet followed the photo.
+        .background(Color.black.opacity(veil).ignoresSafeArea())
+        .presentationBackground { Color.black.opacity(veil) }
+        .task(id: "\(card.id)-\(index)-\(cardIndex)") { await preload() }
+        .task { await play() }
+        .onChange(of: index) { _, _ in
+            elapsed = 0
+            holding = false
+        }
+    }
+
+    /// One memory in the pager. Only the memory under the finger has the controls; the others are what slides in.
+    @ViewBuilder private func storyPage(_ slot: Int, width: CGFloat) -> some View {
+        let active = slot == cardIndex
         ZStack {
-            Color.black.opacity(1 - min(0.6, Double(dragY / 600))).ignoresSafeArea()
-            ZStack {
-                if let image = images[index] {
+            Color.black
+            if cards.indices.contains(slot) {
+                let item = cards[slot]
+                let photos = entriesFor(item)
+                let photo = active ? index : 0
+                if photos.isEmpty {
+                    Text("No photos in this memory").font(.subheadline).foregroundStyle(.white)
+                } else if let image = images[cacheKey(item, photo)] {
                     Image(platformImage: image)
                         .resizable()
                         .scaledToFit()
-                        .scaleEffect(reduceMotion ? 1 : (1 + 0.06 * elapsed / Self.seconds))
-                        .id(index)
-                        .transition(.opacity)
-                } else if failed.contains(index) {
+                        .scaleEffect(active && dragX == 0 && dragY == 0 && !reduceMotion ? 1 + 0.06 * elapsed / Self.seconds : 1)
+                } else if failed.contains(cacheKey(item, photo)) {
                     Label("This photo couldn't load", systemImage: "exclamationmark.icloud")
                         .font(.subheadline).foregroundStyle(.white)
                 } else {
                     ProgressView().tint(.white)
                 }
             }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: index)
-            .offset(y: dragY)
-            .scaleEffect(1 - min(0.25, dragY / 1600))
-            HStack(spacing: 0) {
-                Color.clear.contentShape(Rectangle()).onTapGesture { move(-1) }
-                    .accessibilityLabel("Previous photo").accessibilityAddTraits(.isButton)
-                Color.clear.contentShape(Rectangle()).onTapGesture { move(1) }
-                    .accessibilityLabel("Next photo").accessibilityAddTraits(.isButton)
+        }
+        .frame(width: width)
+        .frame(maxHeight: .infinity)
+        .overlay(alignment: .top) {
+            // The open card's controls live in the safe area above. Neighbours carry their own so a swipe shows a header.
+            if !active, cards.indices.contains(slot) {
+                chrome(cards[slot], photos: entriesFor(cards[slot]), active: false)
             }
-            .simultaneousGesture(holdToPause)
-            .gesture(swipeDownToClose)
-            chrome
-                .opacity(dragY > 12 ? max(0, 1 - Double(dragY / 180)) : 1)
         }
-        .task(id: index) { await preload() }
-        .task { await play() }
-        .onChange(of: index) { _, _ in
-            elapsed = 0
-            // A touch the system cancelled never ends its gesture: moving on clears it.
-            holding = false
-        }
+        .accessibilityHidden(!active)
     }
 
-    private var chrome: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    /// The open memory, in the shape of a highlight: one thin segment per photo, the cover, the title and the date.
+    private func chrome(_ item: MemoriesModel.Card, photos: [GalleryEntry], active: Bool) -> some View {
+        let shown = active ? index : 0
+        let cover = images[cacheKey(item, shown)]
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 3) {
-                ForEach(entries.indices, id: \.self) { i in
-                    GeometryReader { geo in
-                        Capsule().fill(.white.opacity(0.35))
-                            .overlay(alignment: .leading) {
-                                Capsule().fill(.white)
-                                    .frame(width: geo.size.width * (i < index ? 1 : (i == index ? min(1, elapsed / Self.seconds) : 0)))
-                            }
-                    }
-                    .frame(height: 3)
+                ForEach(0..<max(photos.count, 1), id: \.self) { i in
+                    Capsule().fill(.white.opacity(0.35))
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(.white)
+                                .scaleEffect(x: segmentFill(i, count: photos.count, active: active), y: 1, anchor: .leading)
+                        }
+                        .frame(height: 2.5)
                 }
             }
             .accessibilityHidden(true)
-            HStack(spacing: 12) {
+            HStack(alignment: .center, spacing: 8) {
+                Group {
+                    if let cover {
+                        Image(platformImage: cover).resizable().scaledToFill()
+                    } else {
+                        Color.white.opacity(0.2)
+                    }
+                }
+                .frame(width: 32, height: 32)
+                .clipShape(Circle())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(card.title).font(.headline)
-                    Text(card.subtitle).font(.caption)
+                    HStack(spacing: 6) {
+                        Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        Text(item.subtitle).font(.caption).lineLimit(1)
+                    }
+                    if active {
+                        Button("Show All") { showAll(item) }
+                            .font(.subheadline.weight(.semibold))
+                    }
                 }
                 Spacer(minLength: 8)
-                Button { paused.toggle() } label: {
-                    Image(systemName: paused ? "play.fill" : "pause.fill")
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                if active {
+                    Button { paused.toggle() } label: {
+                        Image(systemName: paused ? "play.fill" : "pause.fill")
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel(paused ? "Play" : "Pause")
+                    Button { close(animated: true) } label: {
+                        Image(systemName: "xmark")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 32, height: 32)
+                            .background(.white.opacity(0.22), in: Circle())
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Close")
+                    .keyboardShortcut(.cancelAction)
                 }
-                .accessibilityLabel(paused ? "Play" : "Pause")
-                Button("Show All", action: showAll)
-                Button { close() } label: {
-                    Image(systemName: "xmark")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 32, height: 32)
-                        .background(.white.opacity(0.22), in: Circle())
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Close")
-                .keyboardShortcut(.cancelAction)
             }
             .foregroundStyle(.white)
             .buttonStyle(.plain)
-            .font(.body.weight(.semibold))
             .shadow(radius: 3)
         }
-        .padding(16)
-        // Top bar only — no full-screen Spacer, so swipe-down and side taps still reach the photo.
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 28)
         .frame(maxWidth: .infinity, alignment: .top)
+        .background(alignment: .top) {
+            LinearGradient(colors: [.black.opacity(0.55), .black.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 160)
+                .allowsHitTesting(false)
+        }
     }
 
-    /// Paused while a finger is down. A drag gesture always ends when the finger lifts, so a quick tap pauses only for
-    /// the tap (a long press that failed after a tap never ended, and the story stayed frozen).
-    private var holdToPause: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { _ in if !holding { holding = true } }
-            .onEnded { _ in holding = false }
+    private func segmentFill(_ i: Int, count: Int, active: Bool) -> CGFloat {
+        guard active, count > 0 else { return 0 }
+        if i < index { return 1 }
+        if i > index { return 0 }
+        return CGFloat(min(1, elapsed / Self.seconds))
     }
 
-    /// Follow-the-finger dismiss like Photos: pull down, release past the threshold or with enough speed.
-    private var swipeDownToClose: some Gesture {
-        DragGesture(minimumDistance: 20)
+    /// The card follows the finger. Sideways reveals the next memory; down leaves. A short drag springs back.
+    private func storyDrag(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12)
             .onChanged { v in
-                guard v.translation.height > 0 else { return }
-                dragY = v.translation.height
+                guard !closing else { return }
                 holding = true
-            }
-            .onEnded { v in
-                holding = false
-                let far = v.translation.height > 120
-                let fling = v.predictedEndTranslation.height > 320 || v.velocity.height > 900
-                if far || fling {
-                    close(animated: true)
-                } else if reduceMotion {
+                settling = false
+                if abs(v.translation.width) + abs(v.translation.height) < 20 { settleID += 1 }
+                let dx = v.translation.width
+                let dy = v.translation.height
+                if dy > 0, dy > abs(dx) {
+                    dragX = 0
+                    dragY = dy
+                } else if abs(dx) > abs(dy) {
                     dragY = 0
-                } else {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { dragY = 0 }
+                    let dest = cardIndex + (dx < 0 ? 1 : -1)
+                    dragX = cards.indices.contains(dest) ? dx : dx * 0.28
                 }
             }
+            .onEnded { v in
+                guard !closing else { return }
+                holding = false
+                let dx = v.translation.width
+                let dy = v.translation.height
+                let horizontal = abs(dx) > abs(dy)
+                let flickAcross = abs(v.predictedEndTranslation.width) > width * 0.55
+                    && abs(v.predictedEndTranslation.width) > abs(v.predictedEndTranslation.height)
+                let flickDown = v.predictedEndTranslation.height > 280
+                    && v.predictedEndTranslation.height > abs(v.predictedEndTranslation.width)
+                if dy > 0, !horizontal, dy > 110 || flickDown {
+                    close(animated: true)
+                    return
+                }
+                if horizontal, abs(dx) > width * 0.22 || flickAcross {
+                    beginShift(dx < 0 ? 1 : -1)
+                    return
+                }
+                springBack()
+            }
     }
 
-    private func close(animated: Bool = false) {
-        if animated && !reduceMotion {
-            withAnimation(.easeOut(duration: 0.2)) { dragY = 900 }
+    /// Slide the rest of the way onto the next memory, then park there without moving the picture.
+    private func beginShift(_ delta: Int) {
+        let next = cardIndex + delta
+        guard cards.indices.contains(next), !closing else { springBack(); return }
+        let target = CGFloat(-delta) * (max(pageWidth, 1) + Self.gap)
+        if reduceMotion {
+            cardIndex = next
+            index = 0
+            elapsed = 0
+            dragX = 0
+            dragY = 0
+            return
         }
-        onClose()
+        settleID += 1
+        let id = settleID
+        settling = true
+        Haptics.selection()
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+            dragX = target
+            dragY = 0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.36) {
+            guard id == settleID, !closing else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                cardIndex = next
+                index = 0
+                elapsed = 0
+                dragX = 0
+                dragY = 0
+                settling = false
+            }
+        }
+    }
+
+    private func springBack() {
+        settleID += 1
+        if reduceMotion {
+            dragX = 0
+            dragY = 0
+            return
+        }
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+            dragX = 0
+            dragY = 0
+        }
+    }
+
+    /// How much of the black behind the card is still there. A short pull keeps it; a close takes it to nothing.
+    private var veil: Double { 1 - min(1, Double(max(0, dragY) / 320)) }
+
+    private func close(animated: Bool = false) {
+        guard !closing else { return }
+        settleID += 1
+        closing = true
+        // The card has already left. Clearing the cover with the system animation would slide a
+        // second black sheet down after it.
+        let finish = {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { onClose() }
+        }
+        if animated && !reduceMotion {
+            withAnimation(.easeOut(duration: 0.28)) { dragY = max(900, pageWidth * 1.8) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { finish() }
+        } else {
+            finish()
+        }
     }
 
     /// One clock for the whole story: it stops while paused, held, or waiting for a photo that hasn't loaded yet.
     private func play() async {
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: UInt64(Self.tick * 1_000_000_000))
-            guard !paused, !holding, images[index] != nil || failed.contains(index) else { continue }
+            guard !paused, !holding, !settling, images[cacheKey(card, index)] != nil || failed.contains(cacheKey(card, index)) else { continue }
             elapsed += Self.tick
             if elapsed >= Self.seconds { move(1) }
         }
@@ -430,17 +595,33 @@ struct MemoryStoryView: View {
 
     private func move(_ delta: Int) {
         let next = index + delta
-        if next >= entries.count { close(); return }
+        if next >= entries.count {
+            if cardIndex < cards.count - 1 { beginShift(1) } else { close(animated: true) }
+            return
+        }
+        if next < 0 {
+            if cardIndex > 0 { beginShift(-1) } else { elapsed = 0; index = 0 }
+            return
+        }
         elapsed = 0
-        index = max(0, next)
+        index = next
     }
 
-    /// This photo and the next two, so moving on never waits; photos far behind are let go.
+    private func cacheKey(_ item: MemoriesModel.Card, _ photo: Int) -> String { "\(item.id)#\(photo)" }
+
+    /// This photo, the next two, and the first frame of each neighbour, so a swipe never waits on a blank page.
     private func preload() async {
-        for i in [index, index + 1, index + 2] where entries.indices.contains(i) && images[i] == nil {
-            if let image = await Self.image(for: entries[i]) { images[i] = image } else { failed.insert(i) }
+        var jobs: [(MemoriesModel.Card, Int)] = []
+        for i in [index, index + 1, index + 2] where entries.indices.contains(i) { jobs.append((card, i)) }
+        if cards.indices.contains(cardIndex - 1) { jobs.append((cards[cardIndex - 1], 0)) }
+        if cards.indices.contains(cardIndex + 1) { jobs.append((cards[cardIndex + 1], 0)) }
+        for (item, i) in jobs {
+            let photos = entriesFor(item)
+            guard photos.indices.contains(i) else { continue }
+            let key = cacheKey(item, i)
+            if images[key] != nil || failed.contains(key) { continue }
+            if let image = await Self.image(for: photos[i]) { images[key] = image } else { failed.insert(key) }
         }
-        images = images.filter { abs($0.key - index) <= 3 }
     }
 
     /// Screen-sized from the photo on this device; a cloud photo uses its screen copy when it has one (no big download).

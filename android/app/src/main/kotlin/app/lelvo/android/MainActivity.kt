@@ -17,6 +17,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.conflate
@@ -324,7 +325,9 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
         pages.forEachIndexed { i, page ->
             // Each page stays composed under the next, so Back returns to the same scroll position.
             androidx.compose.runtime.key(i, page) {
-                Surface(Modifier.fillMaxSize()) {
+                // The story fades over the library. A solid surface here stayed black after the card had gone.
+                val story = page is CollectionPage.Story
+                Surface(Modifier.fillMaxSize(), color = if (story) Color.Transparent else MaterialTheme.colorScheme.surface) {
                     when (page) {
                         is CollectionPage.Grid -> {
                             androidx.activity.compose.BackHandler(enabled = i == pages.lastIndex, onBack = closePage)
@@ -345,7 +348,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                         )
                         is CollectionPage.Story -> MemoryStoryScreen(
                             app, page,
-                            onShowAll = { pages = pages.dropLast(1) + CollectionPage.Grid(GalleryFilter.Matching(page.card.title, page.allIds)) },
+                            onShowAll = { card -> pages = pages.dropLast(1) + CollectionPage.Grid(GalleryFilter.Matching(card.title, card.memory.allIds.toSet())) },
                             onClose = closePage,
                         )
                     }

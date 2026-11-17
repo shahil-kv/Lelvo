@@ -228,18 +228,23 @@ class BackupEngine(
     suspend fun enqueue(localIds: List<String>): Int {
         val files = phone.files(localIds)
         val out = ArrayList<LibraryItem>()
+        var already = 0
         for (id in localIds) {
             store.allowBackup(id)
             val existing = store.itemForPhone(id)
             if (existing != null) {
                 // Recovering from Recently Deleted sends a note: Phase L.
-                if (existing.status == ItemStatus.BackedUp || existing.status == ItemStatus.Trashed) continue
+                if (existing.status == ItemStatus.BackedUp || existing.status == ItemStatus.Trashed) {
+                    already++
+                    continue
+                }
                 out += (if (existing.status == ItemStatus.Failed) existing.reduced(JobEvent.Retry) else existing).copy(chosen = true)
             } else {
                 files[id]?.let { out += makeItem(it).copy(chosen = true) }
             }
         }
         store.upsert(out)
+        if (already > 0) AppLog.info("Backup enqueue: $already already in the library, ${out.size} queued")
         return out.size
     }
 

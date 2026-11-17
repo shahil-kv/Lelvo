@@ -83,12 +83,13 @@ struct AlbumsView: View {
             .settingsButton()
             .fullScreenCover(item: $playing) { card in
                 MemoryStoryView(
-                    card: card,
-                    entries: card.memory.ids.compactMap { memories.entries[$0] },
+                    cards: memories.cards,
+                    start: memories.cards.firstIndex(of: card) ?? 0,
+                    entriesFor: { c in c.memory.ids.compactMap { memories.entries[$0] } },
                     onClose: { playing = nil },
-                    showAll: {
+                    showAll: { current in
                         playing = nil
-                        showingAll = card
+                        showingAll = current
                     }
                 )
             }

@@ -83,8 +83,14 @@ sealed interface CollectionPage {
     data class All(val title: String, val rows: List<Collections.Row>, val list: Boolean = false) : CollectionPage
     data object RecentlyDeleted : CollectionPage
     data class MemoryList(val cards: List<MemoryCard>, val byId: Map<String, GalleryEntry>) : CollectionPage
-    /** A memory playing: the photos it plays, and every photo of it for Show all. */
-    data class Story(val card: MemoryCard, val entries: List<GalleryEntry>, val allIds: Set<String>) : CollectionPage
+    /** A memory playing. [playlist] is every memory, so a sideways swipe moves to the next one. */
+    data class Story(
+        val card: MemoryCard,
+        val entries: List<GalleryEntry>,
+        val allIds: Set<String>,
+        val playlist: List<MemoryCard> = emptyList(),
+        val byId: Map<String, GalleryEntry> = emptyMap(),
+    ) : CollectionPage
     data object MemorySettings : CollectionPage
     /** The map of every photo with a location (iOS `PhotoMapView`). */
     data class Places(val entries: List<GalleryEntry>) : CollectionPage
@@ -158,12 +164,21 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
         modifier = modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = { LelvoTopBar("Collections", app.demo, onSettings, scroll) },
     ) { padding ->
-        val st = state ?: return@Scaffold
+        val st = state
+        if (st == null) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    androidx.compose.material3.CircularProgressIndicator()
+                    Text("Loading your photos", style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+            return@Scaffold
+        }
         val c = st.content
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = 24.dp + padding.calculateBottomPadding())) {
             if (st.memories.isNotEmpty()) item("memories") {
                 Section("Memories", seeAll = { onOpen(CollectionPage.MemoryList(st.memories, st.byId)) }) {
-                    MemoriesRow(st.memories.take(SHOWN), st.byId, app, onOpen)
+                    MemoriesRow(st.memories.take(SHOWN), st.byId, app, onOpen, playlist = st.memories)
                 }
             }
             if (c.days.isNotEmpty()) item("days") {

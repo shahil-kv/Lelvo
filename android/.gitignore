@@ -1,5 +1,7 @@
 .gradle/
 build/
+# IDE copy of core sources (src/main/kotlin). The app compiles from src/, not this folder.
+core/bin/
 local.properties
 .idea/
 *.iml

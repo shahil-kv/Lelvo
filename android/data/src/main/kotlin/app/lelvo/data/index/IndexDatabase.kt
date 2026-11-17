@@ -66,6 +66,7 @@ interface ItemDao {
     @Query("DELETE FROM items") suspend fun deleteAll()
     @Query("SELECT * FROM items") suspend fun allNow(): List<ItemRow>
     @Query("SELECT * FROM items WHERE id IN (:ids)") suspend fun items(ids: List<String>): List<ItemRow>
+    @Query("SELECT * FROM items WHERE local_id IN (:localIds)") suspend fun withLocalIds(localIds: List<String>): List<ItemRow>
     @Query("DELETE FROM items WHERE id = :id") suspend fun delete(id: String)
     @Query("SELECT * FROM items WHERE status = :status") suspend fun withStatus(status: String): List<ItemRow>
     @Query("SELECT COUNT(*) FROM items") suspend fun countAll(): Int

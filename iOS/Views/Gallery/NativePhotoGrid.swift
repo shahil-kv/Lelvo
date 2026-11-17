@@ -14,8 +14,8 @@ struct NativePhotoGrid: UIViewRepresentable {
     let grouping: GalleryModel.Grouping
     let selecting: Bool
     @Binding var selection: Set<String>
-    /// Scroll the grid so this section's header is at the top (date scrubber); applied when `scrubToken` changes.
-    let scrubTarget: String?
+    /// Scroll the grid to this point in the timeline (0 top … 1 bottom). Applied when `scrubToken` changes.
+    let scrubFraction: CGFloat
     let scrubToken: Int
     let motion: GridMotion
     var onLongPress: (GalleryEntry) -> Void
@@ -161,9 +161,7 @@ struct NativePhotoGrid: UIViewRepresentable {
             syncSelection(cv)
             if p.scrubToken != appliedScrub {
                 appliedScrub = p.scrubToken
-                if let id = p.scrubTarget, let s = sectionIds.firstIndex(of: id) {
-                    scrollToSection(s, in: cv)
-                }
+                scrollToFraction(p.scrubFraction, in: cv)
             }
         }
 
@@ -234,11 +232,13 @@ struct NativePhotoGrid: UIViewRepresentable {
             if abs(clamped - cv.contentOffset.y) > 0.25 { cv.contentOffset.y = clamped }
         }
 
-        private func scrollToSection(_ section: Int, in cv: UICollectionView) {
-            guard let attrs = cv.layoutAttributesForSupplementaryElement(ofKind: UICollectionView.elementKindSectionHeader,
-                                                                         at: IndexPath(item: 0, section: section)) else { return }
-            let maxY = max(-cv.adjustedContentInset.top, cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom)
-            cv.setContentOffset(CGPoint(x: 0, y: min(maxY, attrs.frame.minY - cv.adjustedContentInset.top)), animated: false)
+        /// The same fraction the thumb shows while scrolling, so grabbing it doesn't jump to another date.
+        private func scrollToFraction(_ fraction: CGFloat, in cv: UICollectionView) {
+            let inset = cv.adjustedContentInset
+            let minY = -inset.top
+            let maxY = max(minY, cv.contentSize.height - cv.bounds.height + inset.bottom)
+            let y = minY + (maxY - minY) * min(1, max(0, fraction))
+            if abs(y - cv.contentOffset.y) > 0.5 { cv.setContentOffset(CGPoint(x: 0, y: y), animated: false) }
         }
 
         // MARK: Taps and selection
@@ -527,6 +527,24 @@ struct NativePhotoGrid: UIViewRepresentable {
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             let range = scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.top + scrollView.adjustedContentInset.bottom
             parent.motion.fraction = range > 0 ? (scrollView.contentOffset.y + scrollView.adjustedContentInset.top) / range : 0
+            let title = topSectionTitle(scrollView)
+            if !title.isEmpty, title != parent.motion.topTitle { parent.motion.topTitle = title }
+        }
+
+        /// The date at the top of the screen, from the layout rather than whichever cells happen to be visible.
+        private func topSectionTitle(_ scrollView: UIScrollView) -> String {
+            guard !sectionIds.isEmpty, let cv = scrollView as? UICollectionView else { return "" }
+            let y = scrollView.contentOffset.y + scrollView.adjustedContentInset.top
+            var lo = 0, hi = sectionIds.count - 1, found = 0
+            while lo <= hi {
+                let mid = (lo + hi) / 2
+                guard let frame = cv.layoutAttributesForSupplementaryElement(
+                    ofKind: UICollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: mid)
+                )?.frame else { break }
+                if frame.minY <= y { found = mid; lo = mid + 1 } else { hi = mid - 1 }
+            }
+            guard let id = sectionIds[safe: found] else { return "" }
+            return sections[id]?.title ?? ""
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {

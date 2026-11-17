@@ -68,6 +68,10 @@ class LibraryStore(private val db: IndexDatabase) {
     /** Chunked: Android 10's SQLite allows 999 values in one query. */
     suspend fun items(ids: Collection<String>): List<LibraryItem> = ids.chunked(500).flatMap { dao.items(it) }.map(::toItem)
 
+    /** Items whose photo is one of these MediaStore ids. `items` looks up the row id, not the phone id. */
+    suspend fun itemsForPhone(localIds: Collection<String>): List<LibraryItem> =
+        localIds.distinct().chunked(500).flatMap { dao.withLocalIds(it) }.map(::toItem)
+
     suspend fun delete(id: String) = dao.delete(id)
 
     suspend fun items(status: ItemStatus): List<LibraryItem> = dao.withStatus(status.code).map(::toItem)

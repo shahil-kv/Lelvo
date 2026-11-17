@@ -21,7 +21,7 @@ struct GalleryView: View {
     @State private var viewerCurrentId: String?
     /// Per-frame scroll values live here, read only by the date scrubber, so nothing else redraws while scrolling.
     @State private var motion = GridMotion()
-    @State private var scrubTarget: String?
+    @State private var scrubFraction: CGFloat = 0
     @State private var scrubToken = 0
     /// Bumped when the filtered timeline is recomputed, so the grid knows its data changed.
     @State private var filteredVersion = 0
@@ -198,7 +198,7 @@ struct GalleryView: View {
 
     private var grid: some View {
         NativePhotoGrid(entries: entries, sections: sections, dataVersion: gridVersion, columns: $columns, grouping: grouping,
-                        selecting: selecting, selection: $selection, scrubTarget: scrubTarget, scrubToken: scrubToken, motion: motion,
+                        selecting: selecting, selection: $selection, scrubFraction: scrubFraction, scrubToken: scrubToken, motion: motion,
                         onLongPress: { entry in
                             Haptics.press()
                             selecting = true
@@ -212,8 +212,8 @@ struct GalleryView: View {
             }
             .overlay(alignment: .trailing) {
                 if sections.count > 3 {
-                    DateScrubber(sections: sections, motion: motion) { id in
-                        scrubTarget = id
+                    DateScrubber(motion: motion) { fraction in
+                        scrubFraction = fraction
                         scrubToken += 1
                     }
                 }
@@ -676,16 +676,14 @@ struct GalleryView: View {
     }
 }
 
-/// The only scroll bar: a thumb that follows the scroll position, appears while scrolling, and can be
-/// dragged to jump through dates with the month shown beside it (like Photos and Google Photos).
+/// The only scroll bar: a slim handle on the trailing edge. It follows the scroll position, and dragging it moves
+/// through the timeline by the same amount, with the date tucked against the handle (like Photos).
 struct DateScrubber: View {
-    let sections: [GallerySection]
     let motion: GridMotion
-    let jump: (String) -> Void
+    let jump: (CGFloat) -> Void
     @State private var dragging = false
     @State private var dragFraction: CGFloat = 0
-    @State private var label = ""
-    @State private var lastId = ""
+    @State private var lastTitle = ""
     @State private var visible = false
     @State private var hideTask: Task<Void, Never>?
 
@@ -693,53 +691,58 @@ struct DateScrubber: View {
 
     var body: some View {
         GeometryReader { geo in
-            let track = max(geo.size.height - thumbHeight - 16, 1)
+            // The grid draws under the tab bar. Keep the handle in the area above it.
+            let bottom = max(geo.safeAreaInsets.bottom, 8)
+            let track = max(geo.size.height - thumbHeight - 8 - bottom, 1)
             let f = dragging ? dragFraction : min(max(motion.fraction, 0), 1)
-            ZStack(alignment: .topTrailing) {
-                HStack(spacing: 8) {
-                    if dragging {
-                        Text(label)
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 12).padding(.vertical, 7)
-                            .background(.regularMaterial, in: Capsule())
-                            .transition(.opacity.combined(with: .move(edge: .trailing)))
-                    }
-                    Capsule()
-                        .fill(.regularMaterial)
-                        .overlay(Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary))
-                        .frame(width: 26, height: thumbHeight)
-                        .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-                }
-                .padding(.trailing, 4)
-                .offset(y: 8 + f * track)
-                .opacity(visible || dragging ? 1 : 0)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .contentShape(Rectangle().inset(by: 0))
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { v in
-                        guard visible || dragging else { return }
-                        if !dragging { withAnimation(.easeOut(duration: 0.15)) { dragging = true } }
-                        dragFraction = min(max((v.location.y - 8 - thumbHeight / 2) / track, 0), 1)
-                        let s = sections[min(sections.count - 1, Int(dragFraction * CGFloat(sections.count)))]
-                        label = s.title
-                        if s.id != lastId {
-                            lastId = s.id
-                            jump(s.id)
-                            Haptics.selection()
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { v in
+                            guard visible || dragging else { return }
+                            if !dragging { dragging = true }
+                            // Finger position on the edge. The handle used to grow sideways to fit the date, which
+                            // moved this coordinate and jumped the grid.
+                            dragFraction = min(max((v.location.y - 8 - thumbHeight / 2) / track, 0), 1)
+                            jump(dragFraction)
                         }
+                        .onEnded { _ in
+                            dragging = false
+                            scheduleHide()
+                        }
+                )
+                .overlay(alignment: .topTrailing) {
+                    HStack(spacing: 8) {
+                        if dragging, !motion.topTitle.isEmpty {
+                            Text(motion.topTitle)
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 12).padding(.vertical, 7)
+                                .background(.regularMaterial, in: Capsule())
+                                .transition(.opacity)
+                        }
+                        Capsule()
+                            .fill(.regularMaterial)
+                            .overlay(Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary))
+                            .frame(width: 26, height: thumbHeight)
+                            .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
                     }
-                    .onEnded { _ in
-                        withAnimation(.easeOut(duration: 0.2)) { dragging = false }
-                        scheduleHide()
-                    }
-            )
-            .allowsHitTesting(visible || dragging)
+                    .padding(.trailing, 4)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .offset(y: 8 + f * track)
+                    .opacity(visible || dragging ? 1 : 0)
+                    .allowsHitTesting(false)
+                }
+                .allowsHitTesting(visible || dragging)
         }
-        .frame(width: dragging ? 220 : 44)
+        .frame(width: 44)
         .onChange(of: motion.isScrolling) { _, now in
             if now { hideTask?.cancel(); withAnimation(.easeOut(duration: 0.15)) { visible = true } } else { scheduleHide() }
+        }
+        .onChange(of: motion.topTitle) { _, title in
+            guard dragging, !title.isEmpty, title != lastTitle else { return }
+            lastTitle = title
+            Haptics.selection()
         }
         .accessibilityLabel("Date scrubber")
         .accessibilityHint("Drag to jump to a date")
@@ -759,6 +762,8 @@ struct DateScrubber: View {
 @Observable final class GridMotion {
     var fraction: CGFloat = 0
     var isScrolling = false
+    /// The date at the top of the grid. The scrubber shows it while the handle is dragged.
+    var topTitle = ""
 }
 
 /// Grey tiles in the grid's own layout while the library loads, so the screen doesn't jump when photos arrive. Shown
