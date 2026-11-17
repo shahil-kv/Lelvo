@@ -318,7 +318,14 @@ private fun StatusHeader(activity: BackupActivity, stats: Stats, lastBackupAt: L
         !stats.ready -> "Counting photos. A large library takes a moment."
         activity.isRunning || pending > 0 -> "To your Telegram library"
         c.notQueued > 0 -> "Back up now uploads them all, or choose photos in Photos and tap Back up."
-        else -> "Everything${if (stats.removed > 0) " else" else ""} on this phone is backed up"
+        // Photos deleted from the library on another device stay here and aren't sent again. Say so: "Everything else"
+        // alone read like a bug next to their crossed-out cloud badges in the grid.
+        stats.removed > 0 -> {
+            val n = stats.removed
+            "Everything else on this phone is backed up. ${"%,d".format(n)} ${if (n == 1) "photo" else "photos"} deleted from your " +
+                "Telegram library ${if (n == 1) "stays" else "stay"} on this phone and ${if (n == 1) "isn't" else "aren't"} backed up again. See Removed from backup."
+        }
+        else -> "Everything on this phone is backed up"
     }
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),

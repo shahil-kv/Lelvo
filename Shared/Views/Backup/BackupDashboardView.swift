@@ -333,6 +333,11 @@ struct BackupDashboardView: View {
         return stats.failed > 0 ? .completeWithFailures : .complete
     }
 
+    /// Shared with the Mac card: the photos deleted from the library that stay on this device.
+    static func removedLine(_ n: Int, device: String) -> String {
+        "\(n.formatted()) \(n == 1 ? "photo" : "photos") deleted from your Telegram library \(n == 1 ? "stays" : "stay") on this \(device) and \(n == 1 ? "isn't" : "aren't") backed up again. See Removed from backup."
+    }
+
     /// Mirrors Google Photos: "Backup complete" when nothing is left, failures called out separately.
     private var statusHeader: some View {
         // A run that is still listing its photos has no total yet: the photos it's about to queue count, not "0 left".
@@ -371,7 +376,11 @@ struct BackupDashboardView: View {
                     Image(systemName: icon).foregroundStyle(tint)
                 }
             }
-            Text(state == .complete ? "Everything\(stats.removedFromBackup > 0 ? " else" : "") on this \(Device.name) is backed up"
+            // Photos deleted from the library on another device stay here and aren't sent again. Say so: "Everything else"
+            // alone read like a bug next to their crossed-out cloud badges in the grid.
+            Text(state == .complete ? (stats.removedFromBackup > 0
+                    ? "Everything else on this \(Device.name) is backed up. \(Self.removedLine(stats.removedFromBackup, device: Device.name))"
+                    : "Everything on this \(Device.name) is backed up")
                  : state == .notBackedUp ? "Back up now uploads them all, or choose photos in Photos and tap Back up."
                  : "To your Telegram library")
                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)

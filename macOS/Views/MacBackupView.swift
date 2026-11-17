@@ -158,7 +158,10 @@ struct MacBackupView: View {
     private var subtitle: String {
         switch state {
         case .running: return activity.notice ?? activity.message ?? "Uploading originals to your Telegram library."
-        case .complete: return "Everything\(stats.removedFromBackup > 0 ? " else" : "") in Photos on this Mac is in your Telegram library."
+        case .complete:
+            return stats.removedFromBackup > 0
+                ? "Everything else in Photos on this Mac is in your Telegram library. \(BackupDashboardView.removedLine(stats.removedFromBackup, device: "Mac"))"
+                : "Everything in Photos on this Mac is in your Telegram library."
         case .failures: return "Everything else is safe. Retry, or open Failed to see why."
         case .notBackedUp: return paused ? "Paused. Automatic backups wait until you resume." : "Back Up Now uploads them all."
         }
