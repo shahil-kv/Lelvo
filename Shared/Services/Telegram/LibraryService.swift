@@ -207,23 +207,53 @@ final class LibraryService: @unchecked Sendable {
     }
 
     /// Reads the header of an existing channel (pinned header message first, then the description).
+    /// For lists: never waits out a FLOOD_WAIT, so one slowed-down channel can't hold the whole list for minutes.
     func readHeader(chatId: Int64) async -> LibraryHeader? {
-        guard let api = try? td.api() else { return nil }
+        try? await readHeaderChecked(chatId: chatId, waitOutFlood: false)
+    }
+
+    /// nil only when Telegram answered and the channel has no header. A failed read (FLOOD_WAIT, no network) throws:
+    /// treated as "no header", it made `useExisting` write a second header into a library that already had one.
+    func readHeaderChecked(chatId: Int64, waitOutFlood: Bool = true) async throws -> LibraryHeader? {
+        let api = try td.api()
         await td.ensureChat(chatId)
-        if let pinned = try? await api.getChatPinnedMessage(chatId: chatId),
+        let waits = waitOutFlood ? 3 : 0
+        if let pinned = try await Self.unlessNotFound(waits: waits, { try await api.getChatPinnedMessage(chatId: chatId) }),
            case .messageText(let t) = pinned.content, let h = LibraryHeader.parse(t.text.text) {
             return h
         }
-        if let chat = try? await td.chat(chatId), case .chatTypeSupergroup(let sg) = chat.type,
-           let info = try? await api.getSupergroupFullInfo(supergroupId: sg.supergroupId) {
-            return LibraryHeader.parse(info.description)
+        let chat = try await Self.waitingOutFlood(waits: waits) { try await self.td.chat(chatId) }
+        guard case .chatTypeSupergroup(let sg) = chat.type else { return nil }
+        let info = try await Self.waitingOutFlood(waits: waits) { try await api.getSupergroupFullInfo(supergroupId: sg.supergroupId) }
+        return LibraryHeader.parse(info.description)
+    }
+
+    /// The pinned message, or nil when there is none (TDLib answers 404). Other errors throw.
+    private static func unlessNotFound<T>(waits: Int = 3, _ read: @escaping () async throws -> T) async throws -> T? {
+        do { return try await waitingOutFlood(waits: waits, read) } catch {
+            if case .telegram(let code, _)? = error as? TDServiceError, code == 404 { return nil }
+            throw error
         }
-        return nil
+    }
+
+    /// Waits out a short FLOOD_WAIT exactly as asked and reads again, up to three times. A long one, or a fourth,
+    /// throws, so the screen says how long to wait instead of spinning.
+    private static func waitingOutFlood<T>(waits limit: Int = 3, _ read: @escaping () async throws -> T) async throws -> T {
+        var waits = 0
+        while true {
+            do { return try await read() } catch {
+                let td = error.asTD
+                guard case .floodWait(let seconds)? = (td as? TDServiceError)?.kind, seconds <= 60, waits < limit else { throw td }
+                waits += 1
+                AppLog.shared.warn("Telegram asked to wait \(seconds) s before reading the library header")
+                try await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+            }
+        }
     }
 
     /// Uses an existing channel. Channels without a header are turned into a plain library (header added).
     func useExisting(chatId: Int64) async throws -> LibraryHeader {
-        if let header = await readHeader(chatId: chatId) {
+        if let header = try await readHeaderChecked(chatId: chatId) {
             // Never store it or "repair" it with a header of our own: that would put a plain header on a library this
             // version doesn't understand.
             if header.isNewerVersion { throw LibraryError.newerVersion }
@@ -262,7 +292,7 @@ final class LibraryService: @unchecked Sendable {
     /// Switching checks the other library first, so a wrong passphrase or an unreadable header leaves the open library
     /// and its key as they were (forgetting first left it locked).
     func verify(chatId: Int64, secret: String?) async throws -> VerifiedLibrary? {
-        guard let header = await readHeader(chatId: chatId) else { return nil }
+        guard let header = try await readHeaderChecked(chatId: chatId) else { return nil }
         if header.isNewerVersion { throw LibraryError.newerVersion }
         guard header.encrypted else { return VerifiedLibrary(chatId: chatId, header: header, keys: nil) }
         guard let secret, !secret.isEmpty else { throw LibraryError.locked }
@@ -288,7 +318,7 @@ final class LibraryService: @unchecked Sendable {
     @discardableResult
     func refreshHeader() async throws -> LibraryHeader {
         guard let chatId else { throw LibraryError.noLibrary }
-        guard let current = await readHeader(chatId: chatId) else { throw LibraryError.notALibrary }
+        guard let current = try await readHeaderChecked(chatId: chatId) else { throw LibraryError.notALibrary }
         if current.isNewerVersion { throw LibraryError.newerVersion }
         if current != header { save(chatId: chatId, header: current) }
         return current
@@ -352,8 +382,9 @@ final class LibraryService: @unchecked Sendable {
             _ = try await api.setChatDescription(chatId: chatId, description: "Lelvo Library · do not edit\n" + new.line)
             let text = InputMessageContent.inputMessageText(InputMessageText(
                 clearDraft: false, linkPreviewOptions: nil, text: FormattedText(entities: [], text: new.messageText)))
-            if let pinned = try? await api.getChatPinnedMessage(chatId: chatId), case .messageText(let t) = pinned.content,
-               LibraryHeader.parse(t.text.text) != nil {
+            // A failed read must not look like "no pinned header": that sent a second header and left the old one readable.
+            if let pinned = try await Self.unlessNotFound({ try await api.getChatPinnedMessage(chatId: chatId) }),
+               case .messageText(let t) = pinned.content, LibraryHeader.parse(t.text.text) != nil {
                 _ = try await api.editMessageText(chatId: chatId, inputMessageContent: text, messageId: pinned.id, replyMarkup: nil)
             } else {
                 let message = try await td.sendText(chatId: chatId, text: new.messageText)
@@ -363,7 +394,7 @@ final class LibraryService: @unchecked Sendable {
             AppLog.shared.error("Writing the library header failed: \(error.asTD.localizedDescription)")
             throw LibraryError.headerNotSaved
         }
-        guard await readHeader(chatId: chatId) == new else { throw LibraryError.headerNotSaved }
+        guard (try? await readHeaderChecked(chatId: chatId)) == new else { throw LibraryError.headerNotSaved }
         save(chatId: chatId, header: new)
     }
 
