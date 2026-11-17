@@ -498,14 +498,14 @@ struct MacGalleryView: View {
 
     private func recompute() async {
         let folder = LockedFolderStore.shared
+        let filter = self.filter
+        let grouping = self.grouping
         let entries: [GalleryEntry] = {
             if filter?.needsAllEntries == true {
                 return model.allEntries.filter { folder.hidesFromTimeline($0) }
             }
             return model.entries
         }()
-        let filter = self.filter
-        let grouping = self.grouping
         let (flat, sections) = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection]) in
             let flat: [GalleryEntry]
             if case .locked = filter {
