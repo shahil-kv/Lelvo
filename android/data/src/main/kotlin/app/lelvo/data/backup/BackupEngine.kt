@@ -671,6 +671,8 @@ class BackupEngine(
                 store.items(item.sha256).firstOrNull { it.id != item.id && it.status == ItemStatus.BackedUp }?.let { twin ->
                     link(item, localId, twin)
                     AppLog.info("${item.filename} is already backed up (stored hash, not read again)")
+                    // A photo locked while only on this phone gets its lock note on the copy already backed up.
+                    onItemBackedUp?.invoke(twin.copy(localId = localId))
                     return Outcome.Duplicate
                 }
             }
@@ -687,6 +689,7 @@ class BackupEngine(
             if (!item.hasCloudParts) {
                 store.items(hash).firstOrNull { it.id != item.id && it.status == ItemStatus.BackedUp }?.let { twin ->
                     link(item, localId, twin)
+                    onItemBackedUp?.invoke(twin.copy(localId = localId))
                     return Outcome.Duplicate
                 }
                 // Another copy of a photo deleted from the backup: stays on the phone unless the user asks.

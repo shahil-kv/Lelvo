@@ -110,8 +110,9 @@ class NoteSync(
         val chatId = noteChatId
         store.changeMeta(ids, key, value, chatId)
         if (chatId != null) {
-            // Locked Folder: flush soon so Mac / iPhone see membership without waiting on the favorites pacer.
-            if (key == MetaLog.Key.Locked) sendMeta() else metaPacer.schedule()
+            // Paced like favorites, Locked Folder too: a lock sent at once per call meant one unpaced note per photo
+            // as a backup promoted them, which invites FLOOD_WAIT.
+            metaPacer.schedule()
         }
         return ids.size
     }

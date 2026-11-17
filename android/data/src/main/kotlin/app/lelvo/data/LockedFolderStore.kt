@@ -61,7 +61,7 @@ class LockedFolderStore(context: Context) {
     }
 
     suspend fun refreshSynced(store: LibraryStore) {
-        val locked = store.allItems().filter { it.locked }.map { it.id }.toSet()
+        val locked = store.lockedIds()
         _synced.value = locked
         if (locked.isNotEmpty() || _pending.value.isNotEmpty()) markSetUp()
     }
@@ -72,15 +72,16 @@ class LockedFolderStore(context: Context) {
      * selected by caption prefix — not a forced full library rebuild when Locked is empty.
      */
     suspend fun syncFromChannel(scanner: LibraryScanner, sync: NoteSync, store: LibraryStore) {
-        val localLocked = store.allItems().filter {
-            it.locked && (it.status == ItemStatus.BackedUp || it.status == ItemStatus.Trashed)
-        }
-        if (localLocked.isNotEmpty()) {
-            runCatching { sync.change(localLocked, MetaLog.Key.Locked, true) }
-        }
-        runCatching { scanner.catchUp() }
+        val caughtUp = runCatching { scanner.catchUp() }
             .onFailure { runCatching { scanner.applyMetaNotesNow(null) } }
+            .isSuccess
         runCatching { scanner.applyMetaNotesNow(null) }
+        // Only after catching up, and only locks the channel doesn't hold yet (a note that never left this phone).
+        // Sent before the catch-up, every lock here overrode a newer unlock from another device, on every open.
+        val latest = MetaLog.latest(store.metaNotes())
+        val missing = store.lockedInCloud().filter { latest[it.id]?.get(MetaLog.Key.Locked)?.value != true }
+        // Without a catch-up this phone may not know a newer unlock: re-send nothing then.
+        if (caughtUp && missing.isNotEmpty()) runCatching { sync.change(missing, MetaLog.Key.Locked, true) }
         refreshSynced(store)
     }
 

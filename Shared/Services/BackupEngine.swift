@@ -270,6 +270,15 @@ final class BackupEngine: @unchecked Sendable {
 
     /// Fails before the export when the phone can't hold the item's files and one upload part: copying a 10 GB video
     /// out of Photos onto a nearly full phone otherwise fails halfway with a vague Photos error.
+    /// A photo locked while it was only on this device gets its lock note once it has a cloud copy, its own or an
+    /// identical one already backed up. A duplicate used to leave the lock pending forever.
+    private func promoteLock(of localId: String, to cloudItem: MediaItem) async {
+        var linked = cloudItem
+        linked.localIdentifier = localId
+        let item = linked
+        await MainActor.run { LockedFolderStore.shared.promotePendingAfterBackup(item: item) }
+    }
+
     private func checkFreeSpace(for asset: PHAsset, name: String) async throws {
         guard let sizes = env.photos.exportSizes(of: asset), let free = CloudUploader.freeSpace(at: rawDirectory) else { return }
         let needed = PartLayout.spaceNeeded(exportSizes: sizes, encrypted: env.library.isEncrypted,
@@ -814,6 +823,7 @@ final class BackupEngine: @unchecked Sendable {
                 try env.store.delete(id: item.id)
                 try Deduplicator(store: env.store).link(localIdentifier: localId, to: twin, existingAssetIsMissing: missing)
                 appLog("\(item.filename) is already backed up (stored hash, not exported again)")
+                await promoteLock(of: localId, to: twin)
                 return .duplicate
             }
             try await checkFreeSpace(for: asset, name: item.filename)
@@ -838,6 +848,7 @@ final class BackupEngine: @unchecked Sendable {
                 let missing = twin.localIdentifier.map { env.photos.asset(localIdentifier: $0) == nil } ?? true
                 try env.store.delete(id: item.id)
                 try Deduplicator(store: env.store).link(localIdentifier: localId, to: twin, existingAssetIsMissing: missing)
+                await promoteLock(of: localId, to: twin)
                 return .duplicate
             }
             // Another copy of a photo deleted from the cloud (iCloud Photos puts it on every device): it stays on this device
@@ -963,8 +974,7 @@ final class BackupEngine: @unchecked Sendable {
             save(item)
             guard item.status == .backedUp else { return .failed }
             // Locked Folder pending (phone-only hide): now that we have a cloud id, sync lock to every device (#129).
-            let lockedItem = item
-            await MainActor.run { LockedFolderStore.shared.promotePendingAfterBackup(item: lockedItem) }
+            await promoteLock(of: localId, to: item)
             // The fast version, from the file that's already here: no extra download, so the video plays at once
             // from the cloud later. Optional: a failure never undoes the backup.
             if item.kind == .video, Prefs.streamingCopies, StreamingCopyPolicy.shouldMake(item), !isCancelled() {

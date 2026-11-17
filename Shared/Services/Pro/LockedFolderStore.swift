@@ -69,6 +69,7 @@ final class LockedFolderStore: ObservableObject {
         var changed = 0
         if !cloud.isEmpty {
             changed += (try? MetaSync.shared.change(cloud, key: .locked, value: true)) ?? 0
+            noteLocked(cloud.map(\.id))
             refreshSyncedLockedIds()
             // Don't wait for the usual 10s favorites pacing — other devices need the lock note soon.
             Task { await MetaSync.shared.send() }
@@ -105,6 +106,8 @@ final class LockedFolderStore: ObservableObject {
         var changed = 0
         if !cloud.isEmpty {
             changed += (try? MetaSync.shared.change(cloud, key: .locked, value: false)) ?? 0
+            localChanges += 1
+            syncedLockedIds.subtract(cloud.map(\.id))
             refreshSyncedLockedIds()
             Task { await MetaSync.shared.send() }
         }
@@ -125,6 +128,7 @@ final class LockedFolderStore: ObservableObject {
         _ = try? MetaSync.shared.change([item], key: .locked, value: true)
         pendingLocalIds.remove(local)
         persistPending()
+        noteLocked([item.id])
         refreshSyncedLockedIds()
         NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
@@ -167,9 +171,40 @@ final class LockedFolderStore: ObservableObject {
         NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
 
+    /// Re-reads the locked ids off the main actor. It used to decode the whole library here on the main actor, on
+    /// every timeline rebuild, which made a large library stutter. Posts `didChange` when the set changed.
     func refreshSyncedLockedIds() {
-        let items = (try? AppEnvironment.shared.store.allItems()) ?? []
-        syncedLockedIds = Set(items.filter { $0.locked == true }.map(\.id))
+        Task { await reloadSyncedLockedIds() }
+    }
+
+    func reloadSyncedLockedIds() async {
+        var ids: Set<String> = []
+        // A lock or unlock tapped while the read runs changes the set first; read again so the older read can't undo it.
+        while true {
+            let started = localChanges
+            ids = await Task.detached(priority: .userInitiated) {
+                Set(((try? AppEnvironment.shared.store.lockedItems()) ?? []).map(\.id))
+            }.value
+            if started == localChanges { break }
+        }
+        let changed = ids != syncedLockedIds
+        syncedLockedIds = ids
+        markSetUpIfUsed()
+        if changed { NotificationCenter.default.post(name: Self.didChange, object: nil) }
+    }
+
+    /// Locked items the timeline already holds, so a lock shows at once without reading the store.
+    func noteLocked(_ ids: some Sequence<String>) {
+        localChanges += 1
+        let before = syncedLockedIds.count
+        syncedLockedIds.formUnion(ids)
+        if syncedLockedIds.count != before { markSetUpIfUsed() }
+    }
+
+    /// Counts locks and unlocks made here, so a store read that started before one is read again.
+    private var localChanges = 0
+
+    private func markSetUpIfUsed() {
         if !syncedLockedIds.isEmpty || !pendingLocalIds.isEmpty {
             isSetUp = true
             Prefs.defaults.set(true, forKey: Self.setupKey(chat: chatKey))
@@ -178,30 +213,38 @@ final class LockedFolderStore: ObservableObject {
 
     /// Pull Locked Folder membership from the Telegram library (and re-apply notes already stored). Call when opening
     /// Locked on a second device so a lock note from iPhone/Android shows up without waiting for the 5‑minute open gap.
-    /// Also re-queues lock notes for items this device already has locked, so a note that never left the phone still
-    /// reaches Mac and Android.
+    /// Also re-sends a lock the channel doesn't hold yet, so a note that never left this device still reaches Mac and
+    /// Android.
     func syncFromChannel() async {
         let env = AppEnvironment.shared
         guard env.isConfigured, env.library.isUnlocked, !DemoMode.isActive else {
             refreshSyncedLockedIds()
             return
         }
-        let localLocked = ((try? env.store.allItems()) ?? []).filter { $0.locked == true && ($0.status == .backedUp || $0.status == .trashed) }
-        if !localLocked.isEmpty {
-            _ = try? MetaSync.shared.change(localLocked, key: .locked, value: true)
-        }
         // Same path as Recently Deleted / favorites: catch-up only reads *new* channel messages (and a weekly full
         // pass when due). Caption prefixes pick notes (`CGM1` / `CGT1`); photo parts are not re-downloaded. Never
         // force a full library rebuild just because Locked looks empty — that would walk every document in a big library.
+        var caughtUp = false
         do {
             try await env.library.catchUp()
+            caughtUp = true
         } catch {
             AppLog.shared.warn("Locked Folder catch-up failed: \(error.localizedDescription)")
         }
         // Re-apply notes already stored locally (cheap; no Telegram round trip).
         try? env.library.applyMetaNotes(only: nil)
+        // Only after catching up, and only locks the channel doesn't hold yet (a note that never left this device).
+        // Sent before the catch-up, every lock here overrode a newer unlock from another device, on every open.
+        let missing = await Task.detached(priority: .userInitiated) { () -> [MediaItem] in
+            let latest = MetaLog.latest((try? env.store.metaNotes()) ?? [])
+            return ((try? env.store.lockedItems()) ?? []).filter {
+                ($0.status == .backedUp || $0.status == .trashed) && latest[$0.id]?[.locked]?.value != true
+            }
+        }.value
+        // Without a catch-up this device may not know a newer unlock: re-send nothing then.
+        if caughtUp, !missing.isEmpty { _ = try? MetaSync.shared.change(missing, key: .locked, value: true) }
         await MetaSync.shared.send()
-        refreshSyncedLockedIds()
+        await reloadSyncedLockedIds()
         NotificationCenter.default.post(name: Self.didChange, object: nil)
         if syncedLockedIds.isEmpty {
             appLog("Locked Folder: still empty after sync — no lock note in the Telegram library yet. Lock again on the phone.")

@@ -245,8 +245,10 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     }
 
     private func applyLockedFilter(from merged: [GalleryEntry], sections: [GallerySection]?, grouping: Grouping) {
-        LockedFolderStore.shared.refreshSyncedLockedIds()
         let folder = LockedFolderStore.shared
+        // A fresh timeline may hold locks from another device: re-read them in the background (it posts `didChange`,
+        // which only refilters, when the set changed). Lock and unlock here update the set themselves, at once.
+        if sections != nil { folder.refreshSyncedLockedIds() }
         let anyLocked = !folder.syncedLockedIds.isEmpty || !folder.pendingLocalIds.isEmpty
         let visible = anyLocked ? merged.filter { !folder.hidesFromTimeline($0) } : merged
         if !anyLocked, let sections {
