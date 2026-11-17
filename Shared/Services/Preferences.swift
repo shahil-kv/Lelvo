@@ -26,6 +26,8 @@ enum Prefs {
         static let botUsername = "botUsername"
         static let lastBackupAt = "lastBackupAt"
         static let backgroundRuns = "backgroundRuns"
+        static let runMarks = "runMarks"
+        static let floodUntil = "floodUntil"
         static let firstFullBackupAt = "firstFullBackupAt"
         static let automationOfferSnoozedUntil = "automationOfferSnoozedUntil"
         static let automationOfferDismissals = "automationOfferDismissals"
@@ -146,6 +148,41 @@ enum Prefs {
     static func record(_ r: RunRecord) {
         let list = BackgroundRuns.appending(r, to: runRecords)
         if let data = try? JSONEncoder().encode(list) { defaults.set(data, forKey: Key.backgroundRuns) }
+    }
+
+    private static let marksLock = NSLock()
+
+    /// A run is going; `recordRun` clears it. See `BackgroundRuns.killedRuns`.
+    static func markRunStarted(_ source: RunSource, at started: Date) {
+        marksLock.withLock {
+            let marks = defaults.stringArray(forKey: Key.runMarks) ?? []
+            defaults.set(marks + [BackgroundRuns.mark(source, startedAt: started)], forKey: Key.runMarks)
+        }
+    }
+
+    static func markRunEnded(_ source: RunSource, at started: Date) {
+        marksLock.withLock {
+            let mark = BackgroundRuns.mark(source, startedAt: started)
+            defaults.set((defaults.stringArray(forKey: Key.runMarks) ?? []).filter { $0 != mark }, forKey: Key.runMarks)
+        }
+    }
+
+    /// Once per process, before any run starts: marks left by the last process become "ended with the process" records.
+    @discardableResult
+    static func recordKilledRuns() -> Int {
+        marksLock.withLock {
+            let killed = BackgroundRuns.killedRuns(marks: defaults.stringArray(forKey: Key.runMarks) ?? [])
+            defaults.removeObject(forKey: Key.runMarks)
+            killed.forEach(record)
+            return killed.count
+        }
+    }
+
+    /// Telegram's FLOOD_WAIT end. Saved so a new process (iOS starts one for most background tasks) doesn't send
+    /// before the wait is over.
+    static var floodUntil: Date {
+        get { Date(timeIntervalSince1970: defaults.double(forKey: Key.floodUntil)) }
+        set { defaults.set(newValue.timeIntervalSince1970, forKey: Key.floodUntil) }
     }
 
     static var backupPaused: Bool {

@@ -1,5 +1,6 @@
 import Foundation
 import LelvoCore
+import Photos
 #if os(iOS)
 import BackgroundTasks
 import UIKit
@@ -13,6 +14,9 @@ enum BackgroundTasks {
 
     /// Must run before the app finishes launching.
     static func register() {
+        // Once per process, before any run: count the runs the last process didn't live to record.
+        let killed = Prefs.recordKilledRuns()
+        if killed > 0 { appLog("Backup runs ended with the last process: \(killed)") }
         let scheduler = BGTaskScheduler.shared
         scheduler.register(forTaskWithIdentifier: processingId, using: nil) { task in
             guard let task = task as? BGProcessingTask else { return }
@@ -80,6 +84,7 @@ enum BackgroundTasks {
     @discardableResult
     static func processingWork(isCancelled: @escaping @Sendable () -> Bool) async -> BackupEngine.Summary {
         let started = Date()
+        Prefs.markRunStarted(.processing, at: started)
         let summary = await AppEnvironment.shared.engine.run(isCancelled: isCancelled)
         recordRun(.processing, started: started, summary: summary)
         // Awaited, so the notification is posted before the task tells iOS it's done and the app is suspended.
@@ -106,6 +111,7 @@ enum BackgroundTasks {
         guard env.isConfigured, (try? await env.td.waitUntilReady(timeout: 10)) != nil else { return }
         if Prefs.autoBackup, !Prefs.backupPaused {
             let started = Date()
+            Prefs.markRunStarted(.refresh, at: started)
             // The engine scans the channel itself before it uploads.
             let summary = await env.engine.run(deadline: deadline, shortRun: true, isCancelled: isCancelled)
             recordRun(.refresh, started: started, summary: summary)
@@ -119,8 +125,9 @@ enum BackgroundTasks {
 
 #else
 
-/// macOS has no BGTaskScheduler: while Lelvo is open, a system-scheduled activity checks for new
-/// photos and refreshes the index every hour (it respects Wi-Fi only / charging only through the engine).
+/// macOS has no BGTaskScheduler and no background time limit. While Lelvo is open (window closed too), new photos are
+/// backed up about a minute after Photos reports them, and a system-scheduled activity catches up every hour (the
+/// engine still applies Wi-Fi only and charging only).
 enum BackgroundTasks {
     private static let scheduler: NSBackgroundActivityScheduler = {
         let s = NSBackgroundActivityScheduler(identifier: "app.lelvo.mac.hourly")
@@ -131,25 +138,70 @@ enum BackgroundTasks {
         return s
     }()
     private nonisolated(unsafe) static var scheduled = false
+    private static let newPhotos = NewPhotosWatcher()
 
-    static func register() {}
+    static func register() {
+        let killed = Prefs.recordKilledRuns()
+        if killed > 0 { appLog("Backup runs ended with the last process: \(killed)") }
+    }
 
     static func scheduleAll() {
         guard !scheduled else { return }
         scheduled = true
+        newPhotos.start()
         scheduler.schedule { completion in
             Task {
+                await catchUp(isCancelled: { scheduler.shouldDefer })
                 let env = AppEnvironment.shared
-                if env.isConfigured, (try? await env.td.waitUntilReady(timeout: 20)) != nil {
-                    _ = try? await env.library.scan(full: false)
-                    if Prefs.autoBackup && !Prefs.backupPaused {
-                        let summary = await env.engine.run(isCancelled: { scheduler.shouldDefer })
-                        appLog("Hourly backup: \(summary.text)")
-                    }
-                }
                 if Device.isCharging { await env.search.index(isCancelled: { scheduler.shouldDefer || !Device.isCharging }) }
                 await env.enforceCacheLimits()
                 completion(.finished)
+            }
+        }
+    }
+
+    /// Follows the channel, then uploads what is waiting when automatic backup is on.
+    static func catchUp(isCancelled: @escaping @Sendable () -> Bool) async {
+        let env = AppEnvironment.shared
+        guard env.isConfigured, (try? await env.td.waitUntilReady(timeout: 20)) != nil else { return }
+        _ = try? await env.library.scan(full: false)
+        guard Prefs.autoBackup, !Prefs.backupPaused, !env.engine.isRunning else { return }
+        let started = Date()
+        Prefs.markRunStarted(.processing, at: started)
+        let summary = await env.engine.run(isCancelled: isCancelled)
+        recordRun(.processing, started: started, summary: summary)
+    }
+}
+
+/// Photos tells Lelvo about changes while it runs. Edits and favourites change the library too, so a change only
+/// starts a backup when it queued something; changes within a minute are taken together.
+private final class NewPhotosWatcher: NSObject, PHPhotoLibraryChangeObserver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var registered = false
+    private var pending: Task<Void, Never>?
+
+    func start() {
+        guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized else { return }
+        let first = lock.withLock { () -> Bool in
+            defer { registered = true }
+            return !registered
+        }
+        if first { PHPhotoLibrary.shared().register(self) }
+    }
+
+    func photoLibraryDidChange(_ changeInstance: PHChange) {
+        guard Prefs.autoBackup, !Prefs.backupPaused else { return }
+        lock.withLock {
+            pending?.cancel()
+            pending = Task.detached(priority: .utility) {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { return }
+                let env = AppEnvironment.shared
+                guard env.isConfigured, !env.engine.isRunning else { return }
+                let fresh = env.engine.queueNewPhotos()
+                guard fresh > 0 || env.engine.readyCount() > 0 else { return }
+                appLog("New photos on the Mac: \(fresh) queued")
+                await BackgroundTasks.catchUp(isCancelled: { false })
             }
         }
     }
@@ -158,6 +210,7 @@ enum BackgroundTasks {
 
 /// Remembers a finished run (counts only) and writes one log line for it.
 func recordRun(_ source: RunSource, started: Date, summary: BackupEngine.Summary) {
+    Prefs.markRunEnded(source, at: started)
     let seconds = Date().timeIntervalSince(started)
     Prefs.record(RunRecord(source: source, startedAt: started, seconds: seconds,
                            uploaded: summary.uploaded, remaining: summary.remaining))
@@ -339,6 +392,7 @@ enum ContinuedBackup {
             #if os(iOS)
             let bg = UIApplication.shared.beginBackgroundTask(withName: "Backup") { flag.cancel() }
             let started = Date()
+            Prefs.markRunStarted(.app, at: started)
             let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
             recordRun(.app, started: started, summary: summary)
             UIApplication.shared.endBackgroundTask(bg)
@@ -388,6 +442,7 @@ enum ContinuedBackup {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
+        Prefs.markRunStarted(.continued, at: started)
         Task {
             let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
             recordRun(.continued, started: started, summary: summary)
