@@ -17,12 +17,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -60,6 +60,7 @@ import app.lelvo.android.collections.MemoriesScreen
 import app.lelvo.android.collections.MemoriesSettingsScreen
 import app.lelvo.android.collections.MemoryStoryScreen
 import app.lelvo.android.collections.RecentlyDeletedScreen
+import app.lelvo.android.collections.LockedFolderScreen
 import app.lelvo.android.shell.AppShell
 import app.lelvo.android.shell.CommunityNote
 import app.lelvo.android.shell.MessageHost
@@ -314,7 +315,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
     LaunchedEffect(lifecycle, isDemo) {
         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
             // New backups bring new places to name; a library scan finishing after launch counts too.
-            val library = app.store.items().map { it.size }.distinctUntilChanged()
+            val library = app.store.countFlow().distinctUntilChanged()
             app.photos.changes().combine(library) { _, _ -> }.conflate().collect { app.search.index(phone = !isDemo) }
         }
     }
@@ -332,7 +333,9 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
         pages.forEachIndexed { i, page ->
             // Each page stays composed under the next, so Back returns to the same scroll position.
             androidx.compose.runtime.key(i, page) {
-                Surface(Modifier.fillMaxSize()) {
+                // The story fades over the library. A solid surface here stayed black after the card had gone.
+                val story = page is CollectionPage.Story
+                Surface(Modifier.fillMaxSize(), color = if (story) Color.Transparent else MaterialTheme.colorScheme.surface) {
                     when (page) {
                         is CollectionPage.Grid -> {
                             androidx.activity.compose.BackHandler(enabled = i == pages.lastIndex, onBack = closePage)
@@ -344,12 +347,16 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                         is CollectionPage.All -> AllCollectionsScreen(app, page, onOpen = openPage, onBack = closePage)
                         CollectionPage.RecentlyDeleted -> RecentlyDeletedScreen(app, onBack = closePage)
                         is CollectionPage.MemoryList -> MemoriesScreen(app, page, onOpen = openPage, onBack = closePage)
-                        CollectionPage.MemorySettings -> MemoriesSettingsScreen(app.prefs, onBack = closePage)
+                        CollectionPage.MemorySettings -> MemoriesSettingsScreen(app, onBack = closePage)
                         is CollectionPage.Places -> PhotoMapScreen(app, page.entries, onOpen = openPage, onBack = closePage)
                         CollectionPage.Duplicates -> DuplicatesScreen(app, onBack = closePage)
+                        CollectionPage.Locked -> LockedFolderScreen(
+                            app, onBack = closePage,
+                            onOpenPro = { /* Settings → Pro; open settings for now */ settings = true; pages = emptyList() },
+                        )
                         is CollectionPage.Story -> MemoryStoryScreen(
                             app, page,
-                            onShowAll = { pages = pages.dropLast(1) + CollectionPage.Grid(GalleryFilter.Matching(page.card.title, page.allIds)) },
+                            onShowAll = { card -> pages = pages.dropLast(1) + CollectionPage.Grid(GalleryFilter.Matching(card.title, card.memory.allIds.toSet())) },
                             onClose = closePage,
                         )
                     }

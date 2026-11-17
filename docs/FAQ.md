@@ -359,6 +359,7 @@ Releases from 0.3.0 on are notarized and don't show this. For an older build or 
 
 ## Reporting a problem
 
-Settings → **Logs** → share the log file, and [open a bug report](https://github.com/shahil-kv/Lelvo/issues/new/choose).
-Phone numbers, keys, channel IDs and file IDs are removed from logs before you see them, but read the log before you
-post it. Security problems go to [SECURITY.md](../SECURITY.md), never to a public issue.
+Settings → **Report a problem** attaches the log when you email or post in the Lelvo group, or use Settings → **Logs**
+→ share. The log helps debug bugs we can't reproduce. Phone numbers, login codes, passwords, keys, channel IDs and
+file IDs are removed automatically; photo file names and what the app was doing may still appear. Read the log before
+you send it. Security problems go to [SECURITY.md](../SECURITY.md), never to a public issue.

@@ -57,6 +57,12 @@ enum TDServiceError: LocalizedError {
         return message.contains("API_ID_INVALID") || message.contains("API_ID_PUBLISHED_FLOOD")
     }
 
+    /// TDLib refused a sign-in call in its current state ("Call to setAuthenticationPhoneNumber unexpected").
+    var isUnexpectedAuthCall: Bool {
+        guard case .telegram(let code, let message) = self else { return false }
+        return code == 400 && message.localizedCaseInsensitiveContains("unexpected")
+    }
+
     /// Classification used by the backup job machine.
     var kind: TelegramErrorKind {
         switch self {
@@ -507,6 +513,16 @@ final class TDService: @unchecked Sendable {
         start()
     }
 
+    /// [switchAccount], then waits (at most 15 s) until the new TDLib asks for a phone number, so a number sent next
+    /// doesn't reach a client still starting.
+    func startSignInAgain() async {
+        await switchAccount()
+        for _ in 0..<150 {
+            if lock.withLock({ _auth }) == .waitPhone { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
     /// Days of inactivity after which Telegram deletes the account (and the library channel with it).
     func accountTtlDays() async -> Int? {
         try? await requireClient().getAccountTtl().days
@@ -766,7 +782,7 @@ final class TDService: @unchecked Sendable {
                 let window = lock.withLock { streamWindows[fileId] }
                 AppLog.shared.warn("Stream stuck \(waited) s: file \(fileId) want \(count) at \(offset), have \(have); window \(window.map(String.init) ?? "none"); "
                     + "active \(file.local.isDownloadingActive) downloaded \(file.local.downloadedSize)/\(file.size) canDownload \(file.local.canBeDownloaded) "
-                    + "remote '\(file.remote.id.prefix(12))…' uploaded \(file.remote.isUploadingCompleted) path '\(file.local.path.suffix(60))'")
+                    + "remote \(file.remote.id.isEmpty ? "none" : "known") uploaded \(file.remote.isUploadingCompleted) local copy \(file.local.path.isEmpty ? "none" : "present")")
                 if waited >= 30 { throw TDServiceError.sendFailed("Telegram didn't deliver this video's data for 30 s") }
             }
             if file.local.isDownloadingCompleted || (file.size > 0 && offset + have >= Int64(file.size)) { break }

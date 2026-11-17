@@ -40,13 +40,23 @@ class UploadSlots(val limit: Int) {
  */
 object UploadOrder {
     fun sorted(items: List<LibraryItem>): List<LibraryItem> =
-        items.sortedWith(compareBy<LibraryItem> { group(it) }.thenByDescending { it.createdAt ?: Long.MIN_VALUE })
+        items.sortedWith(compareBy<LibraryItem> { rank(it) }.thenByDescending { it.createdAt ?: Long.MIN_VALUE })
 
-    private fun group(item: LibraryItem): Int = when {
+    /** 0 half-done, 1 photo, 2 video. The queue query uses the same order without loading every row. */
+    fun rank(item: LibraryItem): Int = when {
         item.hasCloudParts || item.uploadResume.isNotEmpty() -> 0
         item.kind == ItemKind.Video -> 2
         else -> 1
     }
+
+    /**
+     * True when the extras JSON has a part or a resume point. The Android queue query looks for these same
+     * characters, so its order matches [sorted]. A false match only changes order, and the upload still checks the item.
+     */
+    fun extrasMarkInProgress(extras: String): Boolean = extras.contains("\"res\"") || extras.contains("\"p\":{\"")
+
+    /** True when the extras JSON marks the item chosen. Same characters as the count query. */
+    fun extrasMarkChosen(extras: String): Boolean = extras.contains("\"ch\":1")
 }
 
 /**
@@ -139,12 +149,31 @@ data class BackupCounts(val activeQueue: Int = 0, val notQueued: Int = 0, val fa
         ): BackupCounts {
             // Nothing can upload an incomplete item with no photo on this phone: it belongs under Failed.
             val uploadable = queued.filter { !it.isStrandedInCloud }
-            val active = if (autoBackup) uploadable.size else uploadable.count { it.chosen }
+            return fromParts(
+                uploadable = uploadable.size,
+                chosenUploadable = uploadable.count { it.chosen },
+                stranded = queued.count { it.isStrandedInCloud },
+                failed = failed.size,
+                retryableFailed = failed.count { !it.isStrandedInCloud },
+                newOnPhone = candidates.count { it !in known && it !in offBackup },
+                autoBackup = autoBackup,
+            )
+        }
+
+        /**
+         * The same numbers as [compute], from counts rather than lists. A large library never has to load every queued
+         * photo just to draw the Backup tab.
+         */
+        fun fromParts(
+            uploadable: Int, chosenUploadable: Int, stranded: Int, failed: Int, retryableFailed: Int,
+            newOnPhone: Int, autoBackup: Boolean,
+        ): BackupCounts {
+            val active = if (autoBackup) uploadable else chosenUploadable
             return BackupCounts(
                 activeQueue = active,
-                notQueued = candidates.count { it !in known && it !in offBackup } + (uploadable.size - active),
-                failed = failed.size + queued.count { it.isStrandedInCloud },
-                retryable = failed.count { !it.isStrandedInCloud },
+                notQueued = newOnPhone + (uploadable - active),
+                failed = failed + stranded,
+                retryable = retryableFailed,
             )
         }
 
@@ -241,8 +270,12 @@ object UploadNames {
 object FreeUpSpace {
     const val VERIFICATION_LIFETIME_MS = 24L * 60 * 60 * 1000
 
-    /** Backed up, complete, and linked to a photo on this phone. */
-    fun isCandidate(item: LibraryItem): Boolean = item.status == ItemStatus.BackedUp && item.localId != null && item.isCompleteInCloud
+    /** Backed up, complete, linked to a photo on this phone, and not in Locked Folder (#129). */
+    fun isCandidate(item: LibraryItem): Boolean =
+        item.status == ItemStatus.BackedUp && item.localId != null && item.isCompleteInCloud
+
+    /** Free Up’s offer list: never Locked Folder items (Google Photos). Explicit “remove after lock” still uses [isCandidate]. */
+    fun isFreeUpOffer(item: LibraryItem): Boolean = isCandidate(item) && !item.locked
 
     /**
      * Changed on the phone since its backup: removing it could lose that change. Android keeps no separate edit, so an

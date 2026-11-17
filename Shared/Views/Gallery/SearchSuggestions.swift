@@ -4,7 +4,9 @@ import SwiftUI
 /// Each section shows its first few; Show More opens the rest.
 struct SearchSuggestions: View {
     @ObservedObject var search: SearchModel
+    @ObservedObject private var pro = ProStore.shared
     @State private var expanded: Set<String> = []
+    @State private var showProPaywall = false
     private static let shown = 4
 
     var body: some View {
@@ -21,7 +23,26 @@ struct SearchSuggestions: View {
                     row(kind, symbol: "magnifyingglass")
                 }
             } header: { Text("Try") } footer: { Text(search.status) }
+            if !pro.isPro {
+                Section {
+                    Button { showProPaywall = true } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text("Smart Search")
+                                    ProBadge()
+                                }
+                                Text("Find by text and things in a photo")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "sparkle.magnifyingglass")
+                        }
+                    }
+                }
+            }
         }
+        .sheet(isPresented: $showProPaywall) { ProPaywallView() }
     }
 
     private func section(_ title: String, items: [String], symbol: String,

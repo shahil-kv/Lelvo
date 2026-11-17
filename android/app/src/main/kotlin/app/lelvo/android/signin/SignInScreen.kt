@@ -85,6 +85,7 @@ import app.lelvo.telegram.CodeResend
 import app.lelvo.telegram.TdClient
 import app.lelvo.telegram.TelegramException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -99,17 +100,48 @@ fun SignInScreen(td: TdClient, step: AuthStep, demo: DemoMode, onIntro: (() -> U
     // The review number was entered: the code step checks the demo code instead of Telegram's.
     var demoCode by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val toPhone: () -> Unit = { scope.launch { td.switchAccount() } }
+    val context = LocalContext.current
+    // Kept here, not in the phone step, so "Wrong number?" comes back with the number still typed.
+    var dial by rememberSaveable { mutableStateOf(Countries.defaultDialCode(simRegion(context))) }
+    var number by rememberSaveable { mutableStateOf("") }
+    // The phone step is shown over a code, password or new-account state TDLib still holds. TDLib takes a new number
+    // in those states (`setAuthenticationPhoneNumber`), so back is instant, as in Telegram's own apps. Signing out and
+    // restarting TDLib took several seconds on the code screen.
+    var editing by rememberSaveable { mutableStateOf(false) }
+    // Back from the other-device step does need a restart: it runs behind the phone step and a submit waits for it.
+    var reset by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val toPhone: () -> Unit = {
+        if (step is AuthStep.WaitOtherDevice) reset = scope.launch { td.switchAccount() }
+        editing = true
+    }
+    LaunchedEffect(step) { if (step == AuthStep.WaitPhone || step == AuthStep.Ready) editing = false }
     when {
         demoCode -> {
             BackHandler { demoCode = false }
             DemoCodeStep(demo, phone, onBack = { demoCode = false })
         }
         // The demo works in a build without Telegram app keys too.
-        step == AuthStep.WaitPhone || step == AuthStep.NeedsCredentials -> {
-            BackHandler(enabled = onIntro != null) { onIntro?.invoke() }
-            PhoneStep(td, demo, hasKeys = step == AuthStep.WaitPhone, onBack = onIntro,
-                onDemo = { phone = it; demoCode = true }, onSent = { phone = it })
+        step == AuthStep.WaitPhone || step == AuthStep.NeedsCredentials || (editing && step != AuthStep.Ready) -> {
+            // Back from "Wrong number?" returns to the code or password step TDLib still holds.
+            val back: (() -> Unit)? = if (editing && reset == null) ({ editing = false }) else onIntro
+            BackHandler(enabled = back != null) { back?.invoke() }
+            PhoneStep(td, demo, dial, { dial = it }, number, { number = it }, hasKeys = step != AuthStep.NeedsCredentials, onBack = back,
+                onDemo = { phone = it; demoCode = true }, onSent = { phone = it },
+                send = { p ->
+                    reset?.join(); reset = null
+                    try {
+                        td.submitPhone(p)
+                    } catch (e: TelegramException) {
+                        // A code check was still in flight, so TDLib refused the new number: start over, then send it.
+                        if (!editing || e.code != 400 || !e.message.contains("unexpected", ignoreCase = true)) throw e
+                        app.lelvo.core.support.AppLog.warn("Sign-in: new number refused in the current state; starting sign-in again")
+                        td.switchAccount()
+                        // The restarted TDLib takes a number only once it asks for one.
+                        kotlinx.coroutines.withTimeoutOrNull(15_000) { td.auth.first { it == AuthStep.WaitPhone } }
+                        td.submitPhone(p)
+                    }
+                    editing = false
+                })
         }
         step is AuthStep.WaitCode -> { BackHandler(onBack = toPhone); CodeStep(td, step, phone, toPhone) }
         step is AuthStep.WaitPassword -> { BackHandler(onBack = toPhone); PasswordStep(td, step.hint, toPhone) }
@@ -122,7 +154,6 @@ fun SignInScreen(td: TdClient, step: AuthStep, demo: DemoMode, onIntro: (() -> U
             }
         }
         step == AuthStep.WaitRegistration -> {
-            val context = LocalContext.current
             BackHandler(onBack = toPhone)
             OnboardingPage(R.drawable.ic_info, "No Telegram account",
                 "$phone isn't registered on Telegram yet. Create an account in the Telegram app (it's free), then come back and sign in.",
@@ -154,11 +185,12 @@ private suspend fun attempt(setError: (String?) -> Unit, setBusy: (Boolean) -> U
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PhoneStep(td: TdClient, demo: DemoMode, hasKeys: Boolean, onBack: (() -> Unit)?, onDemo: (String) -> Unit, onSent: (String) -> Unit) {
-    val context = LocalContext.current
+private fun PhoneStep(
+    td: TdClient, demo: DemoMode, dial: String, setDial: (String) -> Unit, number: String, setNumber: (String) -> Unit,
+    hasKeys: Boolean, onBack: (() -> Unit)?, onDemo: (String) -> Unit, onSent: (String) -> Unit,
+    send: suspend (String) -> Unit = { td.submitPhone(it) },
+) {
     val scope = rememberCoroutineScope()
-    var dial by rememberSaveable { mutableStateOf(Countries.defaultDialCode(simRegion(context))) }
-    var number by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf(false) }
@@ -173,7 +205,7 @@ private fun PhoneStep(td: TdClient, demo: DemoMode, hasKeys: Boolean, onBack: ((
             !valid || busy -> Unit
             demo.matches(phone) -> { error = null; onDemo(phone) }
             !hasKeys -> error = "This build has no Telegram app keys. Add telegram.apiId and telegram.apiHash to android/local.properties and build again."
-            else -> { onSent(phone); scope.launch { attempt({ error = it }, { busy = it }) { td.submitPhone(phone) } } }
+            else -> { onSent(phone); scope.launch { attempt({ error = it }, { busy = it }) { send(phone) } } }
         }
     }
     OnboardingPage(
@@ -192,7 +224,7 @@ private fun PhoneStep(td: TdClient, demo: DemoMode, hasKeys: Boolean, onBack: ((
             Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("+", style = mono, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    BasicTextField(dial, { v -> dial = v.filter { it.isDigit() }.take(4) }, singleLine = true, textStyle = mono,
+                    BasicTextField(dial, { v -> setDial(v.filter { it.isDigit() }.take(4)) }, singleLine = true, textStyle = mono,
                         cursorBrush = SolidColor(Lelvo.colors.accent), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.width(52.dp).semantics { contentDescription = "Country code" })
                 }
@@ -205,7 +237,7 @@ private fun PhoneStep(td: TdClient, demo: DemoMode, hasKeys: Boolean, onBack: ((
                             // Autofill gives the whole number with the country code: split it.
                             val d = v.filter { it.isDigit() }
                             val match = if (v.trimStart().startsWith("+")) Countries.matchPrefixOf(d) else null
-                            number = if (match != null) { dial = match.dialCode; d.removePrefix(match.dialCode) } else d.take(Countries.lengths(dial).last)
+                            setNumber(if (match != null) { setDial(match.dialCode); d.removePrefix(match.dialCode) } else d.take(Countries.lengths(dial).last))
                         },
                         singleLine = true, textStyle = mono, cursorBrush = SolidColor(Lelvo.colors.accent),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
@@ -229,7 +261,7 @@ private fun PhoneStep(td: TdClient, demo: DemoMode, hasKeys: Boolean, onBack: ((
                         headlineContent = { Text(c.name) },
                         leadingContent = { Text(c.flag) },
                         trailingContent = { Text("+${c.dialCode}") },
-                        modifier = Modifier.clickable { dial = c.dialCode; picking = false; focus.requestFocus() },
+                        modifier = Modifier.clickable { setDial(c.dialCode); picking = false; focus.requestFocus() },
                     )
                 }
             }

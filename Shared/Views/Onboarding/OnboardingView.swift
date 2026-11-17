@@ -119,10 +119,17 @@ final class OnboardingModel: ObservableObject {
         guard step != .welcome || auth == .ready else { return }
         // Any new state from Telegram means the previous request finished: never leave the spinner on.
         if auth != .starting { busy = false; credentialsTimeout?.cancel() }
+        lastAuth = auth
+        if editingNumber && step == .phone {
+            switch auth {
+            case .waitCode, .waitPassword, .waitRegistration: return
+            default: break
+            }
+        }
         switch auth {
         case .needsCredentials: if step != .credentials { step = .credentials }
         case .starting, .loggingOut, .closed: break
-        case .waitPhone: step = .phone
+        case .waitPhone: editingNumber = false; step = .phone
         case .waitCode(let info, let length, let delivery, let resend):
             codeInfo = info; codeLength = length; codeDelivery = delivery; codeResend = resend
             codeResendAt = Date().addingTimeInterval(TimeInterval(resend?.after ?? 0))
@@ -227,7 +234,22 @@ final class OnboardingModel: ObservableObject {
             return
         }
         guard TDCredentials.load() != nil else { step = .credentials; return }
-        run { try await self.env.td.submitPhone(self.fullPhone) }
+        let number = fullPhone
+        let reset = pendingReset
+        let wasEditing = editingNumber
+        run {
+            // Back from the other-device step restarts TDLib; the number goes once that is done.
+            if let reset { await reset.value; self.pendingReset = nil }
+            self.editingNumber = false
+            do {
+                try await self.env.td.submitPhone(number)
+            } catch let error as TDServiceError where wasEditing && error.isUnexpectedAuthCall {
+                // A code check was still in flight, so TDLib refused the new number: start sign-in over, then send it.
+                AppLog.shared.warn("Onboarding: new number refused in the current sign-in state; starting sign-in again")
+                await self.env.td.startSignInAgain()
+                try await self.env.td.submitPhone(number)
+            }
+        }
     }
 
     /// Steps with a back button, like every sign-in flow people know.
@@ -240,13 +262,18 @@ final class OnboardingModel: ObservableObject {
         if codePreview { return }
         #endif
         switch step {
+        case .phone where editingNumber:
+            // Back from "Wrong number?": return to the step TDLib still holds.
+            editingNumber = false
+            if let lastAuth { apply(lastAuth) }
         case .credentials, .phone: step = .welcome
         case .code where demoSignIn:
             demoSignIn = false
             code = ""
             step = .phone
-        case .code, .password, .otherDevice: useDifferentAccount(keepNumber: true)
-        case .noAccount: useDifferentAccount()
+        case .code, .password: editNumber(keepNumber: true)
+        case .noAccount: editNumber(keepNumber: false)
+        case .otherDevice: useDifferentAccount(keepNumber: true, inBackground: true)
         case .unlock:
             env.library.forget()
             passphrase = ""
@@ -386,22 +413,43 @@ final class OnboardingModel: ObservableObject {
     }
 
     /// Sign out and log in with another phone number (keeps the API keys).
-    func useDifferentAccount(keepNumber: Bool = false) {
+    /// [inBackground]: show the phone step at once and let TDLib restart behind it; [submitPhone] waits for it.
+    func useDifferentAccount(keepNumber: Bool = false, inBackground: Bool = false) {
         error = nil
         info = nil
-        busy = true
         if !keepNumber { nationalNumber = "" }
         phone = ""
         code = ""
         password = ""
         channels = []
         env.library.forget()
-        Task {
+        if inBackground { step = .phone } else { busy = true }
+        let reset = Task {
             await env.td.switchAccount()
-            step = .phone
-            busy = false
+            if !inBackground { step = .phone; busy = false }
         }
+        pendingReset = reset
     }
+
+    /// Back from the code, password or new-account step: straight to the phone step, with no sign-out. TDLib takes a
+    /// new number in those states (`setAuthenticationPhoneNumber`), the way Telegram's own apps go back. Signing out
+    /// and restarting TDLib here took several seconds on the code screen.
+    private func editNumber(keepNumber: Bool) {
+        busy = false
+        if !keepNumber { nationalNumber = "" }
+        phone = ""
+        code = ""
+        password = ""
+        editingNumber = true
+        step = .phone
+    }
+
+    /// Set while the phone step is shown over a code or password state TDLib still holds, so that state doesn't pull
+    /// the screen back before the new number is sent.
+    private var editingNumber = false
+    /// The newest sign-in state from TDLib, so Back from "Wrong number?" can return to it.
+    private var lastAuth: TDService.AuthStep?
+    private var pendingReset: Task<Void, Never>?
 
     func requestPhotos() {
         Task { photoStatus = await PhotoLibraryService.requestAuthorization() }

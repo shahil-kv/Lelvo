@@ -4,6 +4,7 @@ import LelvoCore
 
 struct SettingsView: View {
     @EnvironmentObject private var app: AppModel
+    @ObservedObject private var pro = ProStore.shared
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.mediaFilter) private var mediaFilter = Prefs.MediaFilter.all.rawValue
@@ -65,6 +66,26 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink("Memories") { MemoriesSettingsView() }
+                    NavigationLink {
+                        ProPaywallView()
+                    } label: {
+                        HStack {
+                            Text("Lelvo Pro")
+                            ProBadge()
+                            Spacer()
+                            Text(pro.isPro ? "On" : "Off").foregroundStyle(.secondary)
+                        }
+                    }
+                    if pro.isPro {
+                        NavigationLink {
+                            LockedFolderSettingsView()
+                        } label: {
+                            HStack {
+                                Text("Locked Folder")
+                                ProBadge()
+                            }
+                        }
+                    }
                 }
 
                 Section {
@@ -220,7 +241,7 @@ struct LogsView: View {
             }
         }
         .safeAreaInset(edge: .top) {
-            Text("Phone numbers, API keys, channel IDs and file IDs are removed from logs before they are shown or shared.")
+            Text(Feedback.logPrivacyNote)
                 .font(.caption2).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 4)
         }
         .task { text = AppLog.shared.contents() }

@@ -110,7 +110,7 @@ class LibraryScanner(
         files.ensureChat(chatId)
         val stopAt = if (full) 0L else store.meta(LAST_SCAN)?.toLongOrNull() ?: 0L
         // A phone with an empty index (new phone, reinstall) can take everything older than the newest snapshot from it.
-        val allowSnapshot = full && store.allItems().none { it.hasCloudParts }
+        val allowSnapshot = full && !store.hasCloudParts()
         var fromSnapshot: IndexSnapshot.Body? = null
         var s = Summary()
         val cloud = ArrayList<CloudMessage>()
@@ -217,8 +217,17 @@ class LibraryScanner(
             val local = existing[built.id]
             var item = built
             if (metaLatest.containsKey(item.id) || metaWaiting.containsKey(item.id)) {
-                val applied = MetaLog.apply(MetaLog.values(item.id, metaLatest, metaWaiting[item.id]), item.favorite, item.albums)
-                if (applied.changed) item = item.copy(favorite = applied.favorite ?: false, albums = applied.albums ?: emptyList())
+                val applied = MetaLog.apply(
+                    MetaLog.values(item.id, metaLatest, metaWaiting[item.id]),
+                    item.favorite, item.locked, item.albums,
+                )
+                if (applied.changed) {
+                    item = item.copy(
+                        favorite = applied.favorite ?: false,
+                        locked = applied.locked ?: false,
+                        albums = applied.albums ?: emptyList(),
+                    )
+                }
             }
             if (local != null) {
                 item = item.keepingLocalState(local)
@@ -312,9 +321,9 @@ class LibraryScanner(
     }
 
     /**
-     * Makes each item's favorite and albums follow its newest notes, with changes this phone hasn't sent yet on top.
-     * Each item is changed in place, so an upload finishing meanwhile isn't undone. [only]: just these items (and any
-     * with changes waiting).
+     * Makes each item's favorite, Locked Folder flag and albums follow its newest notes, with changes this phone
+     * hasn't sent yet on top. Each item is changed in place, so an upload finishing meanwhile isn't undone.
+     * [only]: just these items (and any with changes waiting).
      */
     private suspend fun applyMetaNotes(only: Set<String>?) {
         val notes = store.metaNotes()
@@ -326,14 +335,25 @@ class LibraryScanner(
         var changed = 0
         for (item in store.items(ids)) {
             val values = MetaLog.values(item.id, latest, waiting[item.id])
-            if (!MetaLog.apply(values, item.favorite, item.albums.ifEmpty { null }).changed) continue
+            if (!MetaLog.apply(values, item.favorite, item.locked, item.albums.ifEmpty { null }).changed) continue
             store.update(item.id) { now ->
-                val applied = MetaLog.apply(values, now.favorite, now.albums.ifEmpty { null })
-                if (applied.changed) now.copy(favorite = applied.favorite ?: false, albums = applied.albums ?: emptyList()) else now
+                val applied = MetaLog.apply(values, now.favorite, now.locked, now.albums.ifEmpty { null })
+                if (applied.changed) {
+                    now.copy(
+                        favorite = applied.favorite ?: false,
+                        locked = applied.locked ?: false,
+                        albums = applied.albums ?: emptyList(),
+                    )
+                } else {
+                    now
+                }
             }
             changed++
         }
-        if (changed > 0) AppLog.info("Favorites and albums synced: $changed items updated")
+        if (changed > 0) {
+            AppLog.info("Favorites, albums and Locked Folder synced: $changed items updated")
+            onMetaApplied?.invoke()
+        }
     }
 
     /** No full scan has finished for this index yet (iOS `needsRepairScan`): notes and deletes wait for one. */
@@ -344,6 +364,9 @@ class LibraryScanner(
 
     /** Changes waiting from an earlier visit to this library were put back: they go now. */
     var onChoicesRestored: (() -> Unit)? = null
+
+    /** After favorites / Locked Folder / albums notes are applied (iOS GalleryModel refreshes locked ids). */
+    var onMetaApplied: (() -> Unit)? = null
 
     /** After this phone sent notes (iOS calls these on `LibraryService`): every device now uses Telegram's date. */
     suspend fun applyTrashNotesNow() = gate.withLock { applyTrashNotes(messagesSeen = false) }

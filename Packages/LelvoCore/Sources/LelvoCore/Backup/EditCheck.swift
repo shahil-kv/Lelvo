@@ -39,6 +39,9 @@ extension MediaItem {
         item.screenCopySkipped = local.screenCopySkipped
         item.extrasChecked = local.extrasChecked
         item.uti = local.uti ?? item.uti
+        // Locked Folder is MetaLog-only (not in captions). Keep it across a scan merge until applyMetaNotes
+        // runs; otherwise a full rebuild briefly (or permanently, if notes are scoped) drops membership (#129).
+        if local.locked == true { item.locked = true }
         return item
     }
 }

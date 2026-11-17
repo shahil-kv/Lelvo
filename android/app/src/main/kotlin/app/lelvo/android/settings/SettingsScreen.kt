@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +44,7 @@ private sealed interface Page {
     data object Background : Page
     data object Albums : Page
     data object Memories : Page
+    data object Pro : Page
     data object Storage : Page
     data object DownloadCopy : Page
     data object Encryption : Page
@@ -77,7 +79,8 @@ fun SettingsScreen(
                     Page.BackupOptions -> BackupOptionsScreen(app.prefs, onAlbums = { open(Page.Albums) }, onRulesChanged = onBackupRulesChanged, onBack = back)
                     Page.Background -> BackgroundBackupScreen(app, onBack = back)
                     Page.Albums -> AlbumPickerScreen(app, onChanged = { onBackupRulesChanged(false) }, onBack = back)
-                    Page.Memories -> MemoriesSettingsScreen(app.prefs, onBack = back)
+                    Page.Memories -> MemoriesSettingsScreen(app, onBack = back)
+                    Page.Pro -> ProSettingsScreen(app, onBack = back)
                     Page.Storage -> StorageScreen(app, onBack = back)
                     Page.DownloadCopy -> SecondCopyScreen(app, back)
                     Page.Encryption -> EncryptionScreen(app, onBack = back)
@@ -134,6 +137,8 @@ private fun Main(
 
         SectionDivider()
         SettingRow("Memories", icon = R.drawable.ic_schedule) { open(Page.Memories) }
+        val isPro by app.pro.isPro.collectAsState()
+        SettingRow("Lelvo Pro", if (isPro) "On" else "Off", icon = R.drawable.ic_lock, pro = true) { open(Page.Pro) }
         SettingRow("Storage", storage, icon = R.drawable.ic_storage) { open(Page.Storage) }
         Footnote("Space used on this phone by cloud previews you've viewed. Your photos aren't affected.")
 

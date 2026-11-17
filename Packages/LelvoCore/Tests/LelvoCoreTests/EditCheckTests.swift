@@ -44,6 +44,16 @@ import LelvoCore
         #expect(merged.verifiedAt == backup)
         #expect(merged.extrasChecked == true)
     }
+
+    @Test func lockedFolderSurvivesScanMerge() {
+        var local = MediaItem(localIdentifier: "PHONE/1", sha256: "abc", filename: "a.jpg", kind: .photo,
+                              creationDate: nil, fileSize: 1, status: .backedUp)
+        local.locked = true
+        var scanned = local
+        scanned.locked = false
+        scanned.localIdentifier = nil
+        #expect(scanned.keepingLocalState(from: local).locked == true)
+    }
 }
 
 @Suite struct EditedDuplicateTests {

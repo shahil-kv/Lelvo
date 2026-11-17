@@ -9,13 +9,16 @@ import app.lelvo.core.format.MetaLog
 import app.lelvo.core.format.NoteIds
 import app.lelvo.core.format.TrashLog
 import kotlinx.coroutines.Dispatchers
+import app.lelvo.core.support.AppLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.transform
 
 /** The local index (iOS `LibraryStore`): every call runs off the main thread. */
 class LibraryStore(private val db: IndexDatabase) {
@@ -30,23 +33,99 @@ class LibraryStore(private val db: IndexDatabase) {
      */
     private val shared: Flow<List<LibraryItem>> = db.invalidationTracker.createFlow("items")
         .throttled(500)
-        .map { dao.allNow().map(::toItem) }
+        .conflate()
+        .transform {
+            // A failed read used to kill the app: Android throws from the cursor while a backup is also holding
+            // every queued row, and that exception reached the screen. Keep the last good list instead.
+            try {
+                val rows = dao.allNow().map(::toItem)
+                emit(rows)
+                // A backup changes the index every second or two. Re-reading tens of thousands of rows twice a second
+                // kept the CPU and garbage collector busy and made scrolling stutter; a large library refreshes less often.
+                if (rows.size > LARGE_LIBRARY) kotlinx.coroutines.delay(1_500)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.error("Library index read failed: ${e.javaClass.simpleName}")
+            }
+        }
         .flowOn(Dispatchers.Default)
         .shareIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000), replay = 1)
 
     fun items(): Flow<List<LibraryItem>> = shared
 
+    /** The index changed. Emits at once, then at most twice a second, and never reads a row. */
+    fun changes(): Flow<Unit> = flow {
+        emit(Unit)
+        db.invalidationTracker.createFlow("items").collect { emit(Unit) }
+    }.throttled(500).flowOn(Dispatchers.IO)
+
+    /** How many rows the index holds, without loading them. */
+    fun countFlow(): Flow<Int> = changes().map { dao.countAll() }.flowOn(Dispatchers.IO)
+
+    fun trashedCountFlow(): Flow<Int> = changes().map { dao.trashedCount() }.flowOn(Dispatchers.IO)
+
     suspend fun item(id: String): LibraryItem? = dao.item(id)?.let(::toItem)
     suspend fun upsert(items: List<LibraryItem>) = dao.upsert(items.map(::toRow))
     suspend fun backedUpCount(): Int = dao.backedUpCount()
     suspend fun allItems(): List<LibraryItem> = dao.allNow().map(::toItem)
+    suspend fun allIds(): Set<String> = dao.ids().toHashSet()
+    suspend fun lockedIds(): Set<String> = dao.lockedIds().toHashSet()
+    suspend fun lockedInCloud(): List<LibraryItem> = dao.lockedInCloud().map(::toItem)
+    suspend fun lockedLocalIds(): Set<String> = dao.lockedLocalIds().toHashSet()
+    suspend fun unlinkedBackedUp(): List<LibraryItem> = dao.unlinkedBackedUp().map(::toItem)
+    suspend fun linkedLocalIds(): Set<String> = dao.linkedLocalIds().toHashSet()
+    suspend fun favoriteRefs(): List<FavoriteRef> = dao.favoriteRefs()
+    suspend fun hasCloudParts(): Boolean = dao.withPartsCount() > 0
+
+    /**
+     * Backed-up items linked to a phone photo, [pageSize] rows at a time, until [block] returns false. A large
+     * library (tens of thousands of rows with their parts) never sits in memory at once.
+     */
+    suspend fun forEachBackedUpOnPhone(pageSize: Int = 500, block: suspend (List<LibraryItem>) -> Boolean) {
+        var after = ""
+        while (true) {
+            val page = dao.backedUpOnPhonePage(after, pageSize)
+            if (page.isEmpty() || !block(page.map(::toItem))) return
+            after = page.last().id
+        }
+    }
 
     /** Chunked: Android 10's SQLite allows 999 values in one query. */
     suspend fun items(ids: Collection<String>): List<LibraryItem> = ids.chunked(500).flatMap { dao.items(it) }.map(::toItem)
 
+    /** Items whose photo is one of these MediaStore ids. `items` looks up the row id, not the phone id. */
+    suspend fun itemsForPhone(localIds: Collection<String>): List<LibraryItem> =
+        localIds.distinct().chunked(500).flatMap { dao.withLocalIds(it) }.map(::toItem)
+
     suspend fun delete(id: String) = dao.delete(id)
 
     suspend fun items(status: ItemStatus): List<LibraryItem> = dao.withStatus(status.code).map(::toItem)
+
+    /** What the Backup tab counts, without loading the queue. */
+    data class QueueTotals(
+        val uploadable: Int, val chosenUploadable: Int, val stranded: Int, val failed: Int, val retryableFailed: Int,
+    )
+
+    suspend fun queueTotals() = QueueTotals(
+        dao.uploadableCount(), dao.chosenUploadableCount(), dao.strandedCount(), dao.failedCount(), dao.retryableFailedCount(),
+    )
+
+    /** Queued ids in upload order. The run holds these ids, and loads one full item when that item's turn comes. */
+    suspend fun queuedIdsInOrder(onlyChosen: Boolean = false): List<String> =
+        if (onlyChosen) dao.chosenQueuedIdsInOrder() else dao.queuedIdsInOrder()
+
+    suspend fun queuedOnPhone(): List<Pair<String, String>> = dao.queuedLocalIds().map { it.id to it.localId }
+
+    suspend fun queuedWithoutPhone(): List<LibraryItem> = dao.queuedWithoutPhone().map(::toItem)
+
+    suspend fun remainingQueued(onlyChosen: Boolean): Int = if (onlyChosen) dao.chosenQueuedCount() else dao.queuedWithPhoneCount()
+
+    suspend fun trashedLocalIds(): List<String> = dao.trashedLocalIds()
+
+    suspend fun backedUpRefs(): List<BackedUpRef> = dao.backedUpRefs()
+
+    suspend fun coordinates(): List<LatLon> = dao.coordinates()
     suspend fun items(sha256: String): List<LibraryItem> = if (sha256.isEmpty()) emptyList() else dao.withHash(sha256).map(::toItem)
     suspend fun itemForPhone(localId: String): LibraryItem? = dao.withLocalId(localId)?.let(::toItem)
 
@@ -170,9 +249,13 @@ class LibraryStore(private val db: IndexDatabase) {
         db.withTransaction {
             val changed = ArrayList<LibraryItem>()
             for (item in items(ids)) {
-                val applied = MetaLog.apply(mapOf(key to value), item.favorite, item.albums.ifEmpty { null })
+                val applied = MetaLog.apply(mapOf(key to value), item.favorite, item.locked, item.albums.ifEmpty { null })
                 if (applied.changed) {
-                    val updated = item.copy(favorite = applied.favorite ?: false, albums = applied.albums ?: emptyList())
+                    val updated = item.copy(
+                        favorite = applied.favorite ?: false,
+                        locked = applied.locked ?: false,
+                        albums = applied.albums ?: emptyList(),
+                    )
                     dao.upsert(listOf(toRow(updated)))
                     changed += updated
                 }
@@ -207,7 +290,10 @@ class LibraryStore(private val db: IndexDatabase) {
     suspend fun meta(key: String): String? = notes.meta(key)
     suspend fun setMeta(key: String, value: String?) = if (value == null) notes.removeMeta(key) else notes.setMeta(MetaRow(key, value))
 
-    private companion object { const val ALIAS = "alias:" }
+    private companion object {
+        const val ALIAS = "alias:"
+        const val LARGE_LIBRARY = 10_000
+    }
 
     private fun encodeIds(ids: List<String>) = NoteIds.encode(ids)
     private fun decodeIds(text: String) = NoteIds.decode(text)
@@ -218,8 +304,8 @@ class LibraryStore(private val db: IndexDatabase) {
     private fun toRow(i: LibraryItem) = ItemRow(
         id = i.id, localId = i.localId, sha256 = i.sha256, status = i.status.code, createdAt = i.createdAt, kind = i.kind.code,
         filename = i.filename, width = i.width, height = i.height, duration = i.duration, fileSize = i.fileSize,
-        favorite = i.favorite, hidden = i.hidden, latitude = i.latitude, longitude = i.longitude, uploadedAt = i.uploadedAt,
-        verifiedAt = i.verifiedAt, extras = ItemExtras.encode(i),
+        favorite = i.favorite, locked = i.locked, hidden = i.hidden, latitude = i.latitude, longitude = i.longitude,
+        uploadedAt = i.uploadedAt, verifiedAt = i.verifiedAt, extras = ItemExtras.encode(i),
     )
 
     private fun toItem(r: ItemRow): LibraryItem {
@@ -227,7 +313,7 @@ class LibraryStore(private val db: IndexDatabase) {
             id = r.id, localId = r.localId, sha256 = r.sha256, filename = r.filename, kind = ItemKind.of(r.kind),
             createdAt = r.createdAt, latitude = r.latitude, longitude = r.longitude, width = r.width, height = r.height,
             duration = r.duration, fileSize = r.fileSize, status = ItemStatus.of(r.status), favorite = r.favorite,
-            hidden = r.hidden, uploadedAt = r.uploadedAt, verifiedAt = r.verifiedAt,
+            locked = r.locked, hidden = r.hidden, uploadedAt = r.uploadedAt, verifiedAt = r.verifiedAt,
         )
         return ItemExtras.apply(item, ItemExtras.decode(r.extras))
     }

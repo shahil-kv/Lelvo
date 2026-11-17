@@ -12,6 +12,7 @@ import android.provider.MediaStore
 import android.util.Size
 import app.lelvo.core.index.AssetKey
 import app.lelvo.core.index.PhoneAsset
+import app.lelvo.core.index.captureDate
 import app.lelvo.core.index.date
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -28,6 +29,17 @@ import kotlinx.coroutines.withContext
  */
 class PhotoAccess(context: Context) {
     private val app = context.applicationContext
+    private val mediaWhere =
+        "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+
+    /** Newest first. Cleared when the phone gallery changes, so a scrub doesn't list every file again. */
+    @Volatile private var rankCache: List<Ranked>? = null
+
+    /** True once every photo has been ordered. The first screen must not wait for that on a large library. */
+    fun ranked(): Boolean = rankCache != null
+    @Volatile private var idCache: Set<String>? = null
+
+    private class Ranked(val id: String, val date: Long)
     // Not in the settings file on purpose: Android itself remembers a denial across a sign-out, so this must too.
     private val prefs = app.getSharedPreferences("photos", Context.MODE_PRIVATE)
 
@@ -109,13 +121,16 @@ class PhotoAccess(context: Context) {
             runCatching {
                 app.contentResolver.query(uri, columns, null, null, null)?.use { c ->
                     while (c.moveToNext()) {
-                        val w = c.getInt(3); val h = c.getInt(4)
-                        val sideways = turned != null && c.getInt(5).let { it == 90 || it == 270 }
-                        out += AssetKey(
-                            localId = c.getLong(0).toString(), filename = c.getString(1).orEmpty(),
-                            takenAt = if (c.isNull(2)) null else c.getLong(2),
-                            width = if (sideways) h else w, height = if (sideways) w else h,
-                        )
+                        val row = runCatching {
+                            val w = c.getInt(3); val h = c.getInt(4)
+                            val sideways = turned != null && c.getInt(5).let { it == 90 || it == 270 }
+                            AssetKey(
+                                localId = c.getLong(0).toString(), filename = c.text(1).orEmpty(),
+                                takenAt = if (c.isNull(2)) null else c.getLong(2),
+                                width = if (sideways) h else w, height = if (sideways) w else h,
+                            )
+                        }.getOrNull()
+                        if (row != null) out += row
                     }
                 }
             }.onFailure { AppLog.error("Photos: listing failed: ${it::class.simpleName}") }
@@ -124,51 +139,171 @@ class PhotoAccess(context: Context) {
     }
 
     /**
-     * This phone's photos and videos for the timeline, newest first: by the capture date when the file has one, else
-     * when it was added (`Gallery.merge` may use the backup's date for those). Empty without access.
+     * Every phone photo and video, newest first. [limit]: only the newest ones, so the first screen of a large
+     * library draws without holding every photo. Empty without access.
+     *
+     * The cutoff uses [captureDate], the same date the grid uses. Asking MediaStore for the highest `DATE_TAKEN`
+     * and then stopping leaves out a photo whose capture date is still empty: a new camera shot, a screenshot, a
+     * download. Collections reads every photo and shows it under today; this page never received the file.
      */
-    /**
-     * Every phone photo and video, newest first. [limit]: only the newest ones by capture date, so the first screen of
-     * a 30,000-photo phone draws at once while the rest is read.
-     */
-    suspend fun assets(limit: Int? = null): List<PhoneAsset> = withContext(Dispatchers.IO) {
+    suspend fun assets(limit: Int? = null, skip: Int = 0): List<PhoneAsset> = withContext(Dispatchers.IO) {
         val status = status()
         if (status != Status.Full && status != Status.Partial) return@withContext emptyList()
+        val ids = if (limit != null) {
+            val rows = ranks()
+            if (rows.isEmpty() || skip >= rows.size) emptyList()
+            else rows.subList(skip.coerceAtLeast(0), minOf(rows.size, skip.coerceAtLeast(0) + limit)).map { it.id }
+        } else null
+        if (ids != null && ids.isEmpty()) return@withContext emptyList()
+        readAssets(ids).sortedByDescending { it.date ?: Long.MIN_VALUE }
+    }
+
+    /**
+     * The newest [limit] photos without waiting to order the whole library. A full order is what left Photos and
+     * Collections blank for minutes on a phone with tens of thousands of files. Uses the ranked list once that exists.
+     */
+    suspend fun assetsRecent(limit: Int): List<PhoneAsset> {
+        if (rankCache != null) return assets(limit = limit, skip = 0)
+        return withContext(Dispatchers.IO) {
+            val status = status()
+            if (status != Status.Full && status != Status.Partial) return@withContext emptyList()
+            readRecent(limit).sortedByDescending { it.date ?: Long.MIN_VALUE }
+        }
+    }
+
+    /** Capture date of every photo, newest first. Dates only, so the scrubber can name a day without loading it. */
+    suspend fun dates(): LongArray = withContext(Dispatchers.IO) {
+        val status = status()
+        if (status != Status.Full && status != Status.Partial) return@withContext LongArray(0)
+        val rows = ranks()
+        LongArray(rows.size) { rows[it].date }
+    }
+
+    /** One pass over id and date, kept until the gallery changes. */
+    private fun ranks(): List<Ranked> {
+        rankCache?.let { return it }
+        val rows = ArrayList<Ranked>(256)
+        val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        runCatching {
+            app.contentResolver.query(
+                uri,
+                arrayOf(
+                    MediaStore.Files.FileColumns._ID, MediaStore.MediaColumns.DATE_TAKEN,
+                    MediaStore.MediaColumns.DATE_ADDED, MediaStore.MediaColumns.DATE_MODIFIED,
+                ),
+                mediaWhere, null, null,
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val taken = if (c.isNull(1)) null else c.getLong(1)
+                    val added = if (c.isNull(2)) null else c.getLong(2) * 1000
+                    val modified = if (c.isNull(3)) null else c.getLong(3)
+                    rows += Ranked(c.getLong(0).toString(), captureDate(taken, modified, added) ?: Long.MIN_VALUE)
+                }
+            }
+        }.onFailure { AppLog.error("Photos: newest page failed: ${it::class.simpleName}") }
+        rows.sortByDescending { it.date }
+        rankCache = rows
+        idCache = null
+        AppLog.info("Photos: ranked ${rows.size}")
+        return rows
+    }
+
+    /** [only] null reads every photo. Otherwise just those MediaStore ids. */
+    private fun readAssets(only: List<String>?): List<PhoneAsset> {
         val out = ArrayList<PhoneAsset>()
         val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val columns = assetColumns()
+        fun read(selection: String, args: Array<String>?) {
+            app.contentResolver.query(uri, columns, selection, args, null)?.use { c ->
+                while (c.moveToNext()) asset(c)?.let { out += it }
+            }
+        }
+        runCatching {
+            if (only == null) read(mediaWhere, null)
+            else only.chunked(500).forEach { chunk ->
+                read(
+                    "$mediaWhere AND ${MediaStore.Files.FileColumns._ID} IN (${chunk.joinToString(",") { "?" }})",
+                    chunk.toTypedArray(),
+                )
+            }
+        }.onFailure { AppLog.error("Photos: timeline listing failed: ${it::class.simpleName}") }
+        return out
+    }
+
+    /** Newest by the date the file was added. That column is indexed; ordering every capture date is not. */
+    private fun readRecent(limit: Int): List<PhoneAsset> {
+        val out = ArrayList<PhoneAsset>()
+        val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val args = android.os.Bundle().apply {
+            putString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION, mediaWhere)
+            putStringArray(android.content.ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(MediaStore.MediaColumns.DATE_ADDED))
+            putInt(android.content.ContentResolver.QUERY_ARG_SORT_DIRECTION, android.content.ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
+            putInt(android.content.ContentResolver.QUERY_ARG_LIMIT, limit)
+        }
+        runCatching {
+            app.contentResolver.query(uri, assetColumns(), args, null)?.use { c ->
+                while (c.moveToNext()) asset(c)?.let { out += it }
+            }
+        }.onFailure { AppLog.error("Photos: recent page failed: ${it::class.simpleName}") }
+        AppLog.info("Photos: recent page ${out.size}")
+        return out
+    }
+
+    private fun assetColumns(): Array<String> {
         val favorite = if (Build.VERSION.SDK_INT >= 30) MediaStore.MediaColumns.IS_FAVORITE else null
-        val columns = listOfNotNull(
+        return listOfNotNull(
             MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.MEDIA_TYPE, MediaStore.MediaColumns.DATE_TAKEN,
             MediaStore.MediaColumns.DATE_ADDED, MediaStore.MediaColumns.DURATION, MediaStore.MediaColumns.WIDTH,
             MediaStore.MediaColumns.HEIGHT, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.BUCKET_ID,
             MediaStore.MediaColumns.BUCKET_DISPLAY_NAME, MediaStore.MediaColumns.DATE_MODIFIED, favorite,
         ).toTypedArray()
+    }
+
+    private fun asset(c: android.database.Cursor): PhoneAsset? = runCatching {
+        val favorite = Build.VERSION.SDK_INT >= 30
+        val video = c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+        val taken = if (c.isNull(2)) null else c.getLong(2)
+        PhoneAsset(
+            localId = c.getLong(0).toString(), takenAt = taken, isVideo = video,
+            duration = if (video && !c.isNull(4)) c.getLong(4) / 1000.0 else null,
+            width = c.getInt(5), height = c.getInt(6), filename = c.text(7).orEmpty(),
+            isFavorite = favorite && c.getInt(11) == 1, addedAt = c.getLong(3) * 1000,
+            bucketId = c.text(8), bucketName = c.text(9), modifiedAt = c.getLong(10),
+        )
+    }.getOrNull()
+
+    /** MediaStore ids of every photo and video. Ids only, so a large library stays a set of strings. */
+    suspend fun localIds(): Set<String> = withContext(Dispatchers.IO) {
+        val status = status()
+        if (status != Status.Full && status != Status.Partial) return@withContext emptySet()
+        idCache?.let { return@withContext it }
+        val rows = ranks()
+        rows.mapTo(HashSet(rows.size)) { it.id }.also { idCache = it }
+    }
+
+    /** Capture dates of the newest [limit] photos, newest first. Dates only, for Search's month list. */
+    suspend fun newestDates(limit: Int): List<Long> = withContext(Dispatchers.IO) {
+        val status = status()
+        if (status != Status.Full && status != Status.Partial) return@withContext emptyList()
+        val out = ArrayList<Long>()
+        val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
         val where = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
         runCatching {
-            val cursor = if (limit == null) app.contentResolver.query(uri, columns, where, null, null)
-            else if (Build.VERSION.SDK_INT >= 30) app.contentResolver.query(uri, columns, android.os.Bundle().apply {
+            val cursor = if (Build.VERSION.SDK_INT >= 30) app.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATE_TAKEN, MediaStore.MediaColumns.DATE_ADDED), android.os.Bundle().apply {
                 putString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION, where)
                 putStringArray(android.content.ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(MediaStore.MediaColumns.DATE_TAKEN))
                 putInt(android.content.ContentResolver.QUERY_ARG_SORT_DIRECTION, android.content.ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
                 putInt(android.content.ContentResolver.QUERY_ARG_LIMIT, limit)
             }, null)
-            // Android 10 takes the limit in the sort order.
-            else app.contentResolver.query(uri, columns, where, null, "${MediaStore.MediaColumns.DATE_TAKEN} DESC LIMIT $limit")
+            else app.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATE_TAKEN, MediaStore.MediaColumns.DATE_ADDED), where, null, "${MediaStore.MediaColumns.DATE_TAKEN} DESC LIMIT $limit")
             cursor?.use { c ->
                 while (c.moveToNext()) {
-                    val video = c.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
-                    val taken = if (c.isNull(2)) null else c.getLong(2)
-                    out += PhoneAsset(
-                        localId = c.getLong(0).toString(), takenAt = taken, isVideo = video,
-                        duration = if (video && !c.isNull(4)) c.getLong(4) / 1000.0 else null,
-                        width = c.getInt(5), height = c.getInt(6), filename = c.getString(7).orEmpty(),
-                        isFavorite = favorite != null && c.getInt(11) == 1, addedAt = c.getLong(3) * 1000,
-                        bucketId = c.getString(8), bucketName = c.getString(9), modifiedAt = c.getLong(10),
-                    )
+                    val taken = if (c.isNull(0)) null else c.getLong(0)
+                    val added = if (c.isNull(1)) null else c.getLong(1) * 1000
+                    (taken ?: added)?.let { out += it }
                 }
             }
-        }.onFailure { AppLog.error("Photos: timeline listing failed: ${it::class.simpleName}") }
-        out.sortByDescending { it.date ?: Long.MIN_VALUE }
+        }.onFailure { AppLog.error("Photos: date listing failed: ${it::class.simpleName}") }
         out
     }
 
@@ -235,7 +370,11 @@ class PhotoAccess(context: Context) {
     /** Emits once at start and again (at most every 1.5 s) when photos are added, removed or changed. */
     fun changes(): Flow<Unit> = callbackFlow {
         val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) { trySend(Unit) }
+            override fun onChange(selfChange: Boolean) {
+                rankCache = null
+                idCache = null
+                trySend(Unit)
+            }
         }
         app.contentResolver.registerContentObserver(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), true, observer)
         trySend(Unit)

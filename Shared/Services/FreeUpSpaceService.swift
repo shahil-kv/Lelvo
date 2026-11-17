@@ -14,7 +14,10 @@ final class FreeUpSpaceService: @unchecked Sendable {
     /// Backed-up items still on the phone (and unchanged since their backup), so they can be downloaded again.
     func candidates() -> [MediaItem] {
         guard !DemoMode.isActive else { return [] }
-        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.sizeClass == .normal && $0.localIdentifier != nil }
+        // Locked Folder (#129): Free Up’s list excludes locked. Explicit “remove after lock” still uses `delete`.
+        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter {
+            $0.sizeClass == .normal && $0.localIdentifier != nil && $0.locked != true
+        }
         let present = env.photos.existingIdentifiers(items.compactMap(\.localIdentifier))
         return items.filter { item in
             guard let id = item.localIdentifier, present.contains(id), let asset = env.photos.asset(localIdentifier: id) else { return false }

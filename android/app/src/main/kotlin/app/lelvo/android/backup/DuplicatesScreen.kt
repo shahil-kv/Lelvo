@@ -40,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +56,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import app.lelvo.android.BuildConfig
 import app.lelvo.android.LelvoApp
 import app.lelvo.android.R
 import app.lelvo.android.media.CloudThumbnail
@@ -65,6 +67,7 @@ import app.lelvo.core.index.GalleryEntry
 import app.lelvo.core.support.AppLog
 import app.lelvo.core.index.ItemStatus
 import app.lelvo.data.backup.SimilarPhotosService
+import app.lelvo.data.backup.SmartCleanupService
 import app.lelvo.data.backup.Duplicates
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.CancellationException
@@ -73,7 +76,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Extra copies in the Telegram library, identical photos on this phone and similar photos (iOS `DuplicatesView`).
+ * Smart cleanup (iOS `DuplicatesView`): exact duplicates free; similar / screenshots / large videos need Pro.
  * Nothing is removed without a tap; one copy of everything always stays.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -97,9 +100,19 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
     var similarPass by remember { mutableIntStateOf(0) }
     var chosenSimilar by remember { mutableStateOf(setOf<String>()) }
     var confirmSimilar by remember { mutableStateOf(false) }
+    var smart by remember { mutableStateOf(SmartCleanupService.Report()) }
+    var selectedSmart by remember { mutableStateOf(setOf<String>()) }
+    var confirmSmart by remember { mutableStateOf<List<SmartCleanupService.Item>?>(null) }
+    val isPro by app.pro.isPro.collectAsState()
+    var openPro by remember { mutableStateOf(false) }
 
-    // Runs while the page is open: leaving Duplicates stops the comparing.
-    LaunchedEffect(similarPass) {
+    // Similar photos need Lelvo Pro (exact duplicates above stay free).
+    LaunchedEffect(similarPass, isPro) {
+        if (!isPro) {
+            similar = emptyList()
+            similarProgress = null
+            return@LaunchedEffect
+        }
         similarProgress = 0 to 0
         val found = app.similar.find { done, total -> similarProgress = done to total }
         similar = found
@@ -134,8 +147,14 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
         cloud = service.cloudGroups()
         phone = service.phoneGroups()
         selected = selected intersect phone.flatMap { g -> g.copies.map { it.localId } }.toSet()
+        // Locked Folder photos never show in the cleanup lists: they'd be seen there without unlocking, and could be deleted.
+        smart = app.smartCleanup.scan(excluding = app.lockedFolder.pendingLocalIds.value + app.store.lockedLocalIds())
+        val smartIds = (smart.screenshots + smart.largeVideos).map { it.localId }.toSet()
+        selectedSmart = selectedSmart intersect smartIds
         loading = false
     }
+    val telegramExtra = cloud.sumOf { it.wastedBytes }
+    val proEstimate = smart.proBytes
     val trash = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
         val ids = asked
         if (r.resultCode == Activity.RESULT_OK) scope.launch {
@@ -147,16 +166,121 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
     }
 
     Scaffold(modifier, topBar = {
-        TopAppBar(title = { Text("Extra copies and duplicates") },
+        TopAppBar(title = { Text("Smart Cleanup") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), "Back") } })
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             if (loading) item("loading") {
                 Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            } else if (messages.isEmpty() && cloud.isEmpty() && phone.isEmpty() && similar.isEmpty() && similarProgress == null) item("empty") {
+            } else if (messages.isEmpty() && cloud.isEmpty() && phone.isEmpty() && similar.isEmpty() && similarProgress == null && smart.isEmpty) item("empty") {
                 Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("No duplicates", style = MaterialTheme.typography.titleMedium)
-                    Text("Nothing is stored twice in your library or on this phone.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Looking good", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "No extra copies, screenshots pile-up or large videos stood out.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (telegramExtra > 0 || phone.isNotEmpty() || proEstimate > 0) item("estimate") {
+                Header("Space you can free")
+                if (telegramExtra > 0) ListItem(
+                    headlineContent = { Text("Extra copies in Telegram") },
+                    trailingContent = { Text(Formatter.formatShortFileSize(context, telegramExtra)) },
+                )
+                if (phone.isNotEmpty()) ListItem(
+                    headlineContent = { Text("Identical copies on this phone") },
+                    trailingContent = { Text("${phone.sumOf { it.copies.size }}") },
+                )
+                if (proEstimate > 0) ListItem(
+                    headlineContent = { Text(if (isPro) "Smart cleanup" else "About this much with Pro") },
+                    trailingContent = { Text(Formatter.formatShortFileSize(context, proEstimate)) },
+                )
+                if (!isPro && proEstimate > 0) ListItem(
+                    headlineContent = { Text("Unlock Smart Cleanup") },
+                    modifier = Modifier.clickable { openPro = true },
+                )
+                Note(
+                    if (isPro) "Exact copies are free. Similar shots, screenshots and large videos are included with Lelvo Pro."
+                    else "Exact copies are free. The estimate includes similar bursts, screenshots and large videos — unlock with Lelvo Pro.",
+                )
+            }
+            if (!isPro) item("proSimilar") {
+                HorizontalDivider()
+                Header("Similar photos")
+                if (smart.burstExtras > 0) ListItem(
+                    headlineContent = { Text("Possible burst extras") },
+                    trailingContent = { Text("${smart.burstExtras} · ${Formatter.formatShortFileSize(context, smart.burstBytes)}") },
+                )
+                ListItem(
+                    headlineContent = { Text("Review similar photos with Pro") },
+                    supportingContent = { Text("Bursts and near-duplicates. Exact copies above stay free.") },
+                    modifier = Modifier.clickable { openPro = true },
+                )
+            }
+            if (smart.screenshots.isNotEmpty()) item("screenshots") {
+                HorizontalDivider()
+                Header("Screenshots")
+                ListItem(
+                    headlineContent = { Text("${smart.screenshots.size} items") },
+                    trailingContent = { Text(Formatter.formatShortFileSize(context, smart.screenshots.sumOf { it.bytes })) },
+                )
+                if (!isPro) ListItem(
+                    headlineContent = { Text("Review with Pro") },
+                    modifier = Modifier.clickable { openPro = true },
+                ) else {
+                    smart.screenshots.take(40).forEach { item ->
+                        val on = item.localId in selectedSmart
+                        ListItem(
+                            headlineContent = { Text(item.subtitle) },
+                            trailingContent = {
+                                Icon(
+                                    painterResource(if (on) R.drawable.ic_check_circle else R.drawable.ic_circle_outline),
+                                    null, tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            modifier = Modifier.clickable {
+                                selectedSmart = if (on) selectedSmart - item.localId else selectedSmart + item.localId
+                            },
+                        )
+                    }
+                    TextButton(onClick = {
+                        confirmSmart = smart.screenshots.filter { it.localId in selectedSmart }
+                    }, enabled = selectedSmart.any { id -> smart.screenshots.any { it.localId == id } }) {
+                        Text("Delete selected screenshots", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            if (smart.largeVideos.isNotEmpty()) item("largeVideos") {
+                HorizontalDivider()
+                Header("Large videos")
+                ListItem(
+                    headlineContent = { Text("${smart.largeVideos.size} items") },
+                    trailingContent = { Text(Formatter.formatShortFileSize(context, smart.largeVideos.sumOf { it.bytes })) },
+                )
+                if (!isPro) ListItem(
+                    headlineContent = { Text("Review with Pro") },
+                    modifier = Modifier.clickable { openPro = true },
+                ) else {
+                    smart.largeVideos.take(40).forEach { item ->
+                        val on = item.localId in selectedSmart
+                        ListItem(
+                            headlineContent = { Text(item.subtitle) },
+                            trailingContent = {
+                                Icon(
+                                    painterResource(if (on) R.drawable.ic_check_circle else R.drawable.ic_circle_outline),
+                                    null, tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            modifier = Modifier.clickable {
+                                selectedSmart = if (on) selectedSmart - item.localId else selectedSmart + item.localId
+                            },
+                        )
+                    }
+                    TextButton(onClick = {
+                        confirmSmart = smart.largeVideos.filter { it.localId in selectedSmart }
+                    }, enabled = selectedSmart.any { id -> smart.largeVideos.any { it.localId == id } }) {
+                        Text("Delete selected videos", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
             if (messages.isNotEmpty() || cloud.isNotEmpty()) {
@@ -252,6 +376,20 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
             }
         }
     }
+    if (openPro) {
+        AlertDialog(
+            onDismissRequest = { openPro = false },
+            title = { Text("Lelvo Pro") },
+            text = { Text("Smart cleanup (similar shots, screenshots, large videos) is included with Pro. Turn on Debug unlock in Settings → Lelvo Pro while building.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    openPro = false
+                    if (BuildConfig.DEBUG) app.pro.debugUnlocked = true
+                }) { Text(if (BuildConfig.DEBUG) "Unlock for debug" else "OK") }
+            },
+            dismissButton = { TextButton(onClick = { openPro = false }) { Text("Not now") } },
+        )
+    }
     if (confirmSimilar) {
         val chosen = similar.flatMap { it.entries }.filter { it.id in chosenSimilar }
         val unsafe = chosen.count { it.notBackedUp }
@@ -278,6 +416,34 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
                 }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirmSimilar = false }) { Text("Cancel") } },
+        )
+    }
+    val trashSmart = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        val items = confirmSmart
+        confirmSmart = null
+        if (r.resultCode == Activity.RESULT_OK && items != null) {
+            Messages.show(Messages.Style.Success, "Moved ${items.size} to the phone's trash")
+            selectedSmart = emptySet()
+            reload++
+        }
+    }
+    confirmSmart?.let { items ->
+        AlertDialog(
+            onDismissRequest = { confirmSmart = null },
+            title = { Text("Delete ${items.size} from Photos?") },
+            text = { Text("They move to the phone's trash. Your Telegram library is not changed.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (Build.VERSION.SDK_INT < 30) {
+                        Messages.show(Messages.Style.Info, "Deleting needs Android 11 or later")
+                        confirmSmart = null
+                    } else {
+                        val pi = MediaStore.createTrashRequest(context.contentResolver, items.map { it.uri }, true)
+                        trashSmart.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                    }
+                }) { Text("Delete from Photos", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmSmart = null }) { Text("Cancel") } },
         )
     }
     if (confirmCloud) AlertDialog(

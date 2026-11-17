@@ -1,9 +1,10 @@
 import Foundation
 import CryptoKit
 
-/// Favorites and albums across devices (docs/CLOUD_FORMAT.md §7.3). A change made after an item was backed up adds one
-/// small document to the channel, for many items at once; messages are never edited, so two devices can't overwrite
-/// each other. For each item, its favorite and its membership of each album follow the note with the highest message id.
+/// Favorites, albums and Locked Folder across devices (docs/CLOUD_FORMAT.md §7.3). A change made after an item was
+/// backed up adds one small document to the channel, for many items at once; messages are never edited, so two devices
+/// can't overwrite each other. For each item, its favorite, Locked Folder membership and each album follow the note
+/// with the highest message id.
 ///
 /// Its own caption prefix, not Recently Deleted's: readers from before these notes don't download them at all.
 public enum MetaLog {
@@ -12,28 +13,36 @@ public enum MetaLog {
     static let captionAAD = "CGM1E"
 
     public enum Op: String, Codable, Sendable, CaseIterable {
-        case favorite = "fav", unfavorite = "unfav", albumAdd = "album-add", albumRemove = "album-remove"
+        case favorite = "fav", unfavorite = "unfav"
+        case albumAdd = "album-add", albumRemove = "album-remove"
+        /// Locked Folder (#129): hide on every Lelvo device; media messages stay in the channel.
+        case lock = "lock", unlock = "unlock"
 
         var isAlbum: Bool { self == .albumAdd || self == .albumRemove }
+        var isLocked: Bool { self == .lock || self == .unlock }
         /// What the note sets its key to.
-        public var value: Bool { self == .favorite || self == .albumAdd }
+        public var value: Bool { self == .favorite || self == .albumAdd || self == .lock }
     }
 
-    /// What a note sets: the favorite, or membership of one album (by name, as Photos shows it).
+    /// What a note sets: the favorite, Locked Folder membership, or membership of one album (by name).
     public enum Key: Hashable, Codable, Sendable {
         case favorite
+        case locked
         case album(String)
 
         /// For the index's outbox.
         public var stored: String {
             switch self {
             case .favorite: return "fav"
+            case .locked: return "locked"
             case .album(let name): return "a:" + name
             }
         }
 
         public init?(stored: String) {
-            if stored == "fav" { self = .favorite } else if stored.hasPrefix("a:"), stored.count > 2 {
+            if stored == "fav" { self = .favorite }
+            else if stored == "locked" { self = .locked }
+            else if stored.hasPrefix("a:"), stored.count > 2 {
                 self = .album(String(stored.dropFirst(2)))
             } else { return nil }
         }
@@ -58,7 +67,9 @@ public enum MetaLog {
                 guard let album, let name = MetaLog.albumName(album) else { return nil }
                 return .album(name)
             }
-            return album == nil ? .favorite : nil
+            guard album == nil else { return nil }
+            if op.isLocked { return .locked }
+            return .favorite
         }
     }
 
@@ -152,8 +163,8 @@ public enum MetaLog {
         return result
     }
 
-    /// Sets the item's favorite and albums to `values`. Albums not named keep what the backup recorded. Returns whether
-    /// anything changed.
+    /// Sets the item's favorite, Locked Folder flag and albums to `values`. Albums not named keep what the backup
+    /// recorded. Returns whether anything changed.
     @discardableResult
     public static func apply(_ values: [Key: Bool], to item: inout MediaItem) -> Bool {
         var changed = false
@@ -162,6 +173,8 @@ public enum MetaLog {
             switch key {
             case .favorite:
                 if item.favorite != value { item.favorite = value; changed = true }
+            case .locked:
+                if item.locked != value { item.locked = value; changed = true }
             case .album(let name):
                 let present = albums.contains(name)
                 if value && !present { albums.append(name); changed = true }
@@ -197,6 +210,7 @@ public enum MetaLog {
                     let chunk = Array(sorted[start..<min(start + maxIdsPerNote, sorted.count)])
                     switch key {
                     case .favorite: bodies.append(Body(op: value ? .favorite : .unfavorite, ids: chunk))
+                    case .locked: bodies.append(Body(op: value ? .lock : .unlock, ids: chunk))
                     case .album(let name): bodies.append(Body(op: value ? .albumAdd : .albumRemove, ids: chunk, album: name))
                     }
                 }

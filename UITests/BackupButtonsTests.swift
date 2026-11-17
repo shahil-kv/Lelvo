@@ -130,11 +130,11 @@ final class BackupButtonsTests: XCTestCase {
         XCTAssertTrue(app.buttons["Save to Photos"].waitForExistence(timeout: 5), "It asks first")
     }
 
+    /// The Shortcuts guide lives under "Automatic backup" since #125.
     func testShortcutsGuideOpens() {
-        open("Shortcuts automations").tap()
-        sleep(2)
+        open("Automatic backup").tap()
+        XCTAssertTrue(app.navigationBars["Automatic backup"].waitForExistence(timeout: 10), "The guide opens")
         screenshot("shortcuts-guide")
-        XCTAssertFalse(app.navigationBars["Backup"].exists && app.buttons["Back up now"].isHittable, "The guide opens")
     }
 
     func testRescanAnswers() {

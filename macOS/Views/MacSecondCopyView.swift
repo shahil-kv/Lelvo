@@ -3,11 +3,14 @@ import UniformTypeIdentifiers
 import LelvoCore
 
 /// Settings → Second copy: keep the whole library in a folder the user owns, kept up to date on its own (#71).
+/// Choosing and syncing a folder is Lelvo Pro; viewing and restoring the Telegram library stays free (#16E).
 struct MacSecondCopyView: View {
     @ObservedObject private var activity = SecondCopyActivity.shared
+    @ObservedObject private var pro = ProStore.shared
     @State private var picking = false
     @State private var confirmOff = false
     @State private var alert: GalleryAlert?
+    @State private var showProPaywall = false
     private var env: AppEnvironment { AppEnvironment.shared }
 
     var body: some View {
@@ -20,39 +23,58 @@ struct MacSecondCopyView: View {
                 Label("Encrypted items are decrypted, so the copy opens anywhere.", systemImage: "lock.open")
                 Label("Nothing is ever deleted from the copy, even when you delete a photo from your library.", systemImage: "trash.slash")
             } footer: {
-                Text("Two copies in two places: your Telegram library and a drive you own.")
+                Text("Two copies in two places: your Telegram library and a drive you own. Folder backup is included with Lelvo Pro.")
             }
             .font(.subheadline)
 
-            Section {
-                if activity.phase == .off && !env.secondCopy.isOn {
-                    Button { picking = true } label: { Label("Choose a folder", systemImage: "folder.badge.plus") }
-                } else {
-                    LabeledContent("Folder", value: activity.folderName ?? Prefs.secondCopyVolume ?? "…")
-                    status
-                    HStack {
-                        Button("Copy now") { env.secondCopy.syncNow() }
-                            .disabled(activity.phase == .copying || activity.phase == .checking)
-                        Button("Change folder…") { picking = true }
-                        Spacer()
-                        Button("Turn off", role: .destructive) { confirmOff = true }
+            if !pro.isPro && !env.secondCopy.isOn {
+                Section {
+                    Button { showProPaywall = true } label: {
+                        Label {
+                            HStack {
+                                Text("Unlock folder backup")
+                                ProBadge()
+                            }
+                        } icon: {
+                            Image(systemName: "sparkles")
+                        }
                     }
+                } header: {
+                    HStack { Text("Keep a second copy"); ProBadge() }
                 }
-            } header: {
-                Text("Keep a second copy")
-            } footer: {
-                if activity.removedFromLibrary > 0 {
-                    Text("\(activity.removedFromLibrary.formatted()) items you deleted from your library are still in the folder. Lelvo never removes them.")
+            } else {
+                Section {
+                    if activity.phase == .off && !env.secondCopy.isOn {
+                        Button { picking = true } label: { Label("Choose a folder", systemImage: "folder.badge.plus") }
+                    } else {
+                        LabeledContent("Folder", value: activity.folderName ?? Prefs.secondCopyVolume ?? "…")
+                        status
+                        HStack {
+                            Button("Copy now") { env.secondCopy.syncNow() }
+                                .disabled(activity.phase == .copying || activity.phase == .checking)
+                            Button("Change folder…") { picking = true }
+                            Spacer()
+                            Button("Turn off", role: .destructive) { confirmOff = true }
+                        }
+                    }
+                } header: {
+                    HStack { Text("Keep a second copy"); if !pro.isPro { ProBadge() } }
+                } footer: {
+                    if activity.removedFromLibrary > 0 {
+                        Text("\(activity.removedFromLibrary.formatted()) items you deleted from your library are still in the folder. Lelvo never removes them.")
+                    }
                 }
             }
         }
         .formStyle(.grouped)
         .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { result in
             guard case .success(let url) = result else { return }
+            guard pro.isPro else { showProPaywall = true; return }
             do { try env.secondCopy.choose(url) } catch {
                 alert = GalleryAlert(title: "Couldn't use that folder", message: error.localizedDescription)
             }
         }
+        .sheet(isPresented: $showProPaywall) { ProPaywallView() }
         .alert("Turn off the second copy?", isPresented: $confirmOff) {
             Button("Cancel", role: .cancel) {}
             Button("Turn Off", role: .destructive) { env.secondCopy.turnOff() }
@@ -60,7 +82,7 @@ struct MacSecondCopyView: View {
             Text("Lelvo stops copying new photos. Everything already in the folder stays there.")
         }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
-        .task { if env.secondCopy.isOn { env.secondCopy.syncNow() } }
+        .task { if pro.isPro, env.secondCopy.isOn { env.secondCopy.syncNow() } }
     }
 
     @ViewBuilder private var status: some View {

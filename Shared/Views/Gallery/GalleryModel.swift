@@ -47,6 +47,8 @@ enum GalleryFilter: Hashable {
     case album(title: String, localIds: Set<String>)
     /// Search results and other fixed sets of timeline entries, by entry id.
     case matching(title: String, ids: Set<String>)
+    /// Locked folder (synced `MediaItem.locked` + pending phone-only; source is `GalleryModel.allEntries`).
+    case locked
 
     var title: String {
         switch self {
@@ -57,7 +59,14 @@ enum GalleryFilter: Hashable {
         case .notBackedUp: return "Not backed up"
         case .album(let t, _): return t
         case .matching(let t, _): return t
+        case .locked: return "Locked"
         }
+    }
+
+    /// Filters that read items hidden from the main timeline must use `allEntries`.
+    var needsAllEntries: Bool {
+        if case .locked = self { return true }
+        return false
     }
 
     func matches(_ e: GalleryEntry) -> Bool {
@@ -68,6 +77,7 @@ enum GalleryFilter: Hashable {
         case .cloudOnly: return e.isCloudOnly
         case .notBackedUp: return [.phoneOnly, .waiting, .failed].contains(e.badge)
         case .matching(_, let ids): return ids.contains(e.id)
+        case .locked: return true // caller already restricted the source to locked ids
         case .album(let title, let ids):
             return e.asset.map { ids.contains($0.localIdentifier) } == true || e.item?.albums?.contains(title) == true
         }
@@ -84,6 +94,8 @@ struct GallerySection: Identifiable {
 final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserver {
     @Published private(set) var sections: [GallerySection] = []
     @Published private(set) var entries: [GalleryEntry] = []
+    /// Full timeline including Locked folder items (main `entries` hide those).
+    private(set) var allEntries: [GalleryEntry] = []
     @Published private(set) var loaded = false
     /// Bumped on every reload, so views can recompute derived data without comparing entries.
     @Published private(set) var revision = 0
@@ -119,6 +131,9 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
                 if let ids { self.pending.itemIds.formUnion(ids) } else { self.pending.everything = true }
                 self.scheduleReload()
             }
+        }
+        NotificationCenter.default.addObserver(forName: LockedFolderStore.didChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.refilterLocked() }
         }
         // Photos answering (or not) changes what the timeline can show.
         availabilityObserver = NotificationCenter.default.addObserver(forName: PhotoAvailability.didChange, object: nil, queue: .main) { [weak self] _ in
@@ -216,11 +231,34 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
                           took * 1000, result?.0.count ?? self.entries.count))
         }
         guard let (entries, sections) = result else { return }
-        self.entries = entries
-        self.sections = sections
+        self.allEntries = entries
+        applyLockedFilter(from: entries, sections: sections, grouping: grouping)
         revision += 1
-        sectionsRevision += 1
         loaded = true
+    }
+
+    /// Hides Locked folder items from the main timeline without another Photos/Telegram read.
+    private func refilterLocked() {
+        guard loaded else { return }
+        applyLockedFilter(from: allEntries, sections: nil, grouping: grouping)
+        revision += 1
+    }
+
+    private func applyLockedFilter(from merged: [GalleryEntry], sections: [GallerySection]?, grouping: Grouping) {
+        let folder = LockedFolderStore.shared
+        // A fresh timeline may hold locks from another device: re-read them in the background (it posts `didChange`,
+        // which only refilters, when the set changed). Lock and unlock here update the set themselves, at once.
+        if sections != nil { folder.refreshSyncedLockedIds() }
+        let anyLocked = !folder.syncedLockedIds.isEmpty || !folder.pendingLocalIds.isEmpty
+        let visible = anyLocked ? merged.filter { !folder.hidesFromTimeline($0) } : merged
+        if !anyLocked, let sections {
+            self.entries = visible
+            self.sections = sections
+        } else {
+            self.entries = visible
+            self.sections = Self.group(visible, grouping: grouping)
+        }
+        sectionsRevision += 1
     }
 
     /// The same sections with updated entries, when only the entries' contents changed (an upload finished, a badge

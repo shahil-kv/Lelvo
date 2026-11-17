@@ -21,7 +21,7 @@ struct GalleryView: View {
     @State private var viewerCurrentId: String?
     /// Per-frame scroll values live here, read only by the date scrubber, so nothing else redraws while scrolling.
     @State private var motion = GridMotion()
-    @State private var scrubTarget: String?
+    @State private var scrubFraction: CGFloat = 0
     @State private var scrubToken = 0
     /// Bumped when the filtered timeline is recomputed, so the grid knows its data changed.
     @State private var filteredVersion = 0
@@ -65,6 +65,7 @@ struct GalleryView: View {
         // Like Photos: once something is picked, the tabs make way for the selection buttons.
         .toolbar(hasSelection ? .hidden : .visible, for: .tabBar)
         .sheet(isPresented: $showLegend) { BadgeLegendView() }
+        .sheet(isPresented: $showProPaywall) { ProPaywallView() }
         .safeAreaInset(edge: .bottom) {
             if hasSelection { selectionBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
@@ -79,11 +80,22 @@ struct GalleryView: View {
         }
         .task { if !model.loaded { await model.reload() } }
         .task(id: FilterKey(revision: model.revision, grouping: grouping, size: filterSize)) {
-            let source = model.entries
             let filter = self.filter
+            let folder = LockedFolderStore.shared
+            let source: [GalleryEntry] = {
+                if filter?.needsAllEntries == true {
+                    return model.allEntries.filter { folder.hidesFromTimeline($0) }
+                }
+                return model.entries
+            }()
             let grouping = self.grouping
             let result = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection], [String: Int]) in
-                let list = filter.map { f in source.filter(f.matches) } ?? source
+                let list: [GalleryEntry]
+                if case .locked = filter {
+                    list = source
+                } else {
+                    list = filter.map { f in source.filter(f.matches) } ?? source
+                }
                 var positions: [String: Int] = [:]
                 positions.reserveCapacity(list.count)
                 for (i, e) in list.enumerated() { positions[e.id] = i }
@@ -104,6 +116,38 @@ struct GalleryView: View {
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
         .sheet(isPresented: $addingToAlbum) {
             AddToAlbumView(count: selection.count) { id, title in Task { await addToAlbum(id, title) } }
+        }
+        .confirmationDialog(
+            "Move \(pendingMoveToLocked?.count.formatted() ?? "") to Locked Folder?",
+            isPresented: Binding(
+                get: { pendingMoveToLocked != nil },
+                set: { if !$0 { pendingMoveToLocked = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Move") {
+                guard let pending = pendingMoveToLocked else { return }
+                Task { await moveToLocked(pending) }
+            }
+            Button("Cancel", role: .cancel) { pendingMoveToLocked = nil }
+        } message: {
+            Text("They’ll leave your library, search and memories on every Lelvo device. Unlock Locked Folder with \(BiometricGate.biometryTitle) to see them again. Files stay in your Telegram library.")
+        }
+        .sheet(isPresented: Binding(
+            get: { pendingRemoveFromPhone != nil },
+            set: { if !$0 { pendingRemoveFromPhone = nil } }
+        )) {
+            if let entries = pendingRemoveFromPhone {
+                RemoveFromPhoneAfterLockSheet(
+                    entries: entries,
+                    onKeep: { pendingRemoveFromPhone = nil },
+                    onDeleteFromPhotos: {
+                        let items = RemoveFromPhoneAfterLockSheet.mediaItems(from: entries)
+                        pendingRemoveFromPhone = nil
+                        Task { await removeLockedFromPhone(items) }
+                    }
+                )
+            }
         }
     }
 
@@ -154,7 +198,7 @@ struct GalleryView: View {
 
     private var grid: some View {
         NativePhotoGrid(entries: entries, sections: sections, dataVersion: gridVersion, columns: $columns, grouping: grouping,
-                        selecting: selecting, selection: $selection, scrubTarget: scrubTarget, scrubToken: scrubToken, motion: motion,
+                        selecting: selecting, selection: $selection, scrubFraction: scrubFraction, scrubToken: scrubToken, motion: motion,
                         onLongPress: { entry in
                             Haptics.press()
                             selecting = true
@@ -168,8 +212,8 @@ struct GalleryView: View {
             }
             .overlay(alignment: .trailing) {
                 if sections.count > 3 {
-                    DateScrubber(sections: sections, motion: motion) { id in
-                        scrubTarget = id
+                    DateScrubber(motion: motion) { fraction in
+                        scrubFraction = fraction
                         scrubToken += 1
                     }
                 }
@@ -256,60 +300,80 @@ struct GalleryView: View {
 
     /// Like Photos: three floating buttons over the grid. Share, Back Up (Lelvo's main job, in the brand colour) and
     /// Delete, which asks where in words, from the button itself.
+    /// Google Photos Locked Folder: no share and no trash from inside — only remove from Locked.
     private var selectionBar: some View {
         let chosen = selectedEntries
+        let inLocked = filter == .locked
         let notBackedUp = chosen.filter { $0.asset != nil && [.phoneOnly, .failed, .waiting].contains($0.badge) }
         let deletable = Self.canDelete(chosen)
         return HStack {
-            Button { Task { await shareSelection(chosen) } } label: {
-                Image(systemName: "square.and.arrow.up").frame(width: 50, height: 50)
-            }
-            .glassBackground(Circle())
-            .accessibilityLabel("Share")
-            Spacer(minLength: 12)
-            if notBackedUp.isEmpty {
-                Label("Backed Up", systemImage: "checkmark.icloud")
+            if inLocked {
+                Button { removeFromLocked(chosen) } label: {
+                    Image(systemName: "lock.open").frame(width: 50, height: 50)
+                }
+                .glassBackground(Circle())
+                .accessibilityLabel("Remove from Locked Folder")
+                Spacer(minLength: 12)
+                Label("Hidden", systemImage: "eye.slash")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 22)
                     .frame(height: 50)
                     .glassBackground(Capsule())
-                    .accessibilityLabel("All selected items are backed up")
+                    .accessibilityLabel("Items stay hidden until removed from Locked Folder")
+                Spacer(minLength: 12)
+                Color.clear.frame(width: 50, height: 50)
             } else {
-                Button { backUp(notBackedUp) } label: {
-                    Label("Back Up \(notBackedUp.count.formatted())", systemImage: "icloud.and.arrow.up")
+                Button { Task { await shareSelection(chosen) } } label: {
+                    Image(systemName: "square.and.arrow.up").frame(width: 50, height: 50)
+                }
+                .glassBackground(Circle())
+                .accessibilityLabel("Share")
+                Spacer(minLength: 12)
+                if notBackedUp.isEmpty {
+                    Label("Backed Up", systemImage: "checkmark.icloud")
                         .font(.body.weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal, 22)
                         .frame(height: 50)
-                        .background(Color.accentColor, in: Capsule())
-                        .contentShape(Capsule())
+                        .glassBackground(Capsule())
+                        .accessibilityLabel("All selected items are backed up")
+                } else {
+                    Button { backUp(notBackedUp) } label: {
+                        Label("Back Up \(notBackedUp.count.formatted())", systemImage: "icloud.and.arrow.up")
+                            .font(.body.weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 22)
+                            .frame(height: 50)
+                            .background(Color.accentColor, in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .accessibilityLabel("Back up \(notBackedUp.count) to your Telegram library")
                 }
-                .accessibilityLabel("Back up \(notBackedUp.count) to your Telegram library")
-            }
-            Spacer(minLength: 12)
-            Button(role: .destructive) { confirmDelete = true } label: {
-                Image(systemName: "trash").frame(width: 50, height: 50)
-            }
-            .glassBackground(Circle())
-            .disabled(!deletable)
-            .accessibilityLabel("Delete")
-            // On the button, so on iOS 26 it opens from the trash like Photos instead of floating mid-screen.
-            .confirmationDialog(deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
-                let onDevice = chosen.filter { $0.asset != nil }
-                let backedUp = chosen.compactMap(\.item).filter { $0.status == .backedUp }
-                if !onDevice.isEmpty {
-                    Button("Remove \(onDevice.count.formatted()) from This iPhone", role: .destructive) { Task { await deleteFromDevice(onDevice) } }
+                Spacer(minLength: 12)
+                Button(role: .destructive) { confirmDelete = true } label: {
+                    Image(systemName: "trash").frame(width: 50, height: 50)
                 }
-                // Keeps any copy on this iPhone: the only way to take something out of the backup but keep it here.
-                if !backedUp.isEmpty && !onDevice.isEmpty {
-                    Button("Delete \(backedUp.count.formatted()) from Backup Only", role: .destructive) { Task { await deleteFromBackup(backedUp) } }
+                .glassBackground(Circle())
+                .disabled(!deletable)
+                .accessibilityLabel("Delete")
+                // On the button, so on iOS 26 it opens from the trash like Photos instead of floating mid-screen.
+                .confirmationDialog(deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
+                    let onDevice = chosen.filter { $0.asset != nil }
+                    let backedUp = chosen.compactMap(\.item).filter { $0.status == .backedUp }
+                    if !onDevice.isEmpty {
+                        Button("Remove \(onDevice.count.formatted()) from This iPhone", role: .destructive) { Task { await deleteFromDevice(onDevice) } }
+                    }
+                    // Keeps any copy on this iPhone: the only way to take something out of the backup but keep it here.
+                    if !backedUp.isEmpty && !onDevice.isEmpty {
+                        Button("Delete \(backedUp.count.formatted()) from Backup Only", role: .destructive) { Task { await deleteFromBackup(backedUp) } }
+                    }
+                    Button("Delete Everywhere", role: .destructive) { Task { await deleteEverywhere() } }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text(deleteMessage(chosen))
                 }
-                Button("Delete Everywhere", role: .destructive) { Task { await deleteEverywhere() } }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(deleteMessage(chosen))
             }
         }
         .buttonStyle(.plain)
@@ -337,32 +401,102 @@ struct GalleryView: View {
                 Label(allPicked ? "Deselect All" : "Select All", systemImage: allPicked ? "circle" : "checkmark.circle")
             }
             Divider()
-            // The second line is the menu item's subtitle: these are in beta until they've had more use.
-            Button { addingToAlbum = true } label: {
-                Text("Add to Album")
-                Text("Beta")
-                Image(systemName: "rectangle.stack.badge.plus")
-            }
-                .disabled(chosen.isEmpty)
-            if !downloadable.isEmpty {
-                Button { Task { await download(downloadable) } } label: {
-                    Label("Save \(downloadable.count.formatted()) to iPhone", systemImage: "square.and.arrow.down")
+            if filter == .locked {
+                // Google Photos: Locked Folder content can't be shared, albumed, saved out or trashed —
+                // only moved back to the library.
+                if !chosen.isEmpty {
+                    Button { removeFromLocked(chosen) } label: {
+                        Label("Remove from Locked Folder", systemImage: "lock.open")
+                    }
                 }
-            }
-            if !chosen.isEmpty {
-                Button { Task { await setFavorite(chosen, !allFavorite) } } label: {
-                    Text(allFavorite ? "Unfavorite" : "Favorite")
+            } else {
+                // The second line is the menu item's subtitle: these are in beta until they've had more use.
+                Button { addingToAlbum = true } label: {
+                    Text("Add to Album")
                     Text("Beta")
-                    Image(systemName: allFavorite ? "heart.slash" : "heart")
+                    Image(systemName: "rectangle.stack.badge.plus")
                 }
+                .disabled(chosen.isEmpty)
+                if !downloadable.isEmpty {
+                    Button { Task { await download(downloadable) } } label: {
+                        Label("Save \(downloadable.count.formatted()) to iPhone", systemImage: "square.and.arrow.down")
+                    }
+                }
+                if !chosen.isEmpty {
+                    Button { Task { await setFavorite(chosen, !allFavorite) } } label: {
+                        Text(allFavorite ? "Unfavorite" : "Favorite")
+                        Text("Beta")
+                        Image(systemName: allFavorite ? "heart.slash" : "heart")
+                    }
+                    Button { pendingMoveToLocked = chosen } label: {
+                        Label("Move to Locked Folder", systemImage: "lock.fill")
+                    }
+                }
+                Divider()
+                Button(role: .destructive) { confirmDelete = true } label: { Label("Delete…", systemImage: "trash") }
+                    .disabled(!Self.canDelete(chosen))
             }
-            Divider()
-            Button(role: .destructive) { confirmDelete = true } label: { Label("Delete…", systemImage: "trash") }
-                .disabled(!Self.canDelete(chosen))
         } label: {
             Image(systemName: "ellipsis")
         }
         .accessibilityLabel("More")
+    }
+
+    @State private var showProPaywall = false
+    /// Google Photos: confirm, then device auth, then hide.
+    @State private var pendingMoveToLocked: [GalleryEntry]?
+    /// After lock: green (backed-up on phone) only — optional Free Up–safe delete from Photos.
+    @State private var pendingRemoveFromPhone: [GalleryEntry]?
+
+    private func moveToLocked(_ entries: [GalleryEntry]) async {
+        guard ProStore.shared.isPro else { showProPaywall = true; return }
+        pendingMoveToLocked = nil
+        do {
+            try await BiometricGate.unlock(reason: "Move to Locked folder")
+            LockedFolderStore.shared.lockEntries(entries)
+            selection.removeAll()
+            selecting = false
+            Haptics.success()
+            let removable = RemoveFromPhoneAfterLockSheet.removable(entries)
+            if !removable.isEmpty { pendingRemoveFromPhone = removable }
+        } catch BiometricGate.Failure.cancelled {
+            // quiet
+        } catch {
+            alert = GalleryAlert(
+                title: "Couldn't move",
+                message: (error as? LocalizedError)?.errorDescription ?? "Couldn't move to Locked folder. Try again."
+            )
+            Haptics.error()
+        }
+    }
+
+    private func removeLockedFromPhone(_ items: [MediaItem]) async {
+        busyMessage = "Deleting from Photos…"
+        defer { busyMessage = nil }
+        do {
+            let gone = try await AppEnvironment.shared.freeUpSpace.delete(items)
+            if gone.isEmpty {
+                ToastCenter.shared.show(.info, "Nothing deleted from Photos",
+                                        detail: "Couldn’t confirm every file in Telegram. Try Free Up Space later.")
+            } else {
+                ToastCenter.shared.show(.success, "Deleted from Photos on this \(Device.name)",
+                                        detail: "Still in Locked Folder and Telegram.")
+                await model.reload()
+            }
+            Haptics.success()
+        } catch {
+            alert = GalleryAlert(
+                title: "Couldn't delete from Photos",
+                message: (error as? LocalizedError)?.errorDescription ?? "Check your connection and try again."
+            )
+            Haptics.error()
+        }
+    }
+
+    private func removeFromLocked(_ entries: [GalleryEntry]) {
+        LockedFolderStore.shared.unlockEntries(entries)
+        selection.removeAll()
+        Haptics.success()
     }
 
     /// Grouping the picked items can take a moment with thousands selected, so it runs off the main actor.
@@ -542,16 +676,14 @@ struct GalleryView: View {
     }
 }
 
-/// The only scroll bar: a thumb that follows the scroll position, appears while scrolling, and can be
-/// dragged to jump through dates with the month shown beside it (like Photos and Google Photos).
+/// The only scroll bar: a slim handle on the trailing edge. It follows the scroll position, and dragging it moves
+/// through the timeline by the same amount, with the date tucked against the handle (like Photos).
 struct DateScrubber: View {
-    let sections: [GallerySection]
     let motion: GridMotion
-    let jump: (String) -> Void
+    let jump: (CGFloat) -> Void
     @State private var dragging = false
     @State private var dragFraction: CGFloat = 0
-    @State private var label = ""
-    @State private var lastId = ""
+    @State private var lastTitle = ""
     @State private var visible = false
     @State private var hideTask: Task<Void, Never>?
 
@@ -559,53 +691,58 @@ struct DateScrubber: View {
 
     var body: some View {
         GeometryReader { geo in
-            let track = max(geo.size.height - thumbHeight - 16, 1)
+            // The grid draws under the tab bar. Keep the handle in the area above it.
+            let bottom = max(geo.safeAreaInsets.bottom, 8)
+            let track = max(geo.size.height - thumbHeight - 8 - bottom, 1)
             let f = dragging ? dragFraction : min(max(motion.fraction, 0), 1)
-            ZStack(alignment: .topTrailing) {
-                HStack(spacing: 8) {
-                    if dragging {
-                        Text(label)
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 12).padding(.vertical, 7)
-                            .background(.regularMaterial, in: Capsule())
-                            .transition(.opacity.combined(with: .move(edge: .trailing)))
-                    }
-                    Capsule()
-                        .fill(.regularMaterial)
-                        .overlay(Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary))
-                        .frame(width: 26, height: thumbHeight)
-                        .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-                }
-                .padding(.trailing, 4)
-                .offset(y: 8 + f * track)
-                .opacity(visible || dragging ? 1 : 0)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .contentShape(Rectangle().inset(by: 0))
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { v in
-                        guard visible || dragging else { return }
-                        if !dragging { withAnimation(.easeOut(duration: 0.15)) { dragging = true } }
-                        dragFraction = min(max((v.location.y - 8 - thumbHeight / 2) / track, 0), 1)
-                        let s = sections[min(sections.count - 1, Int(dragFraction * CGFloat(sections.count)))]
-                        label = s.title
-                        if s.id != lastId {
-                            lastId = s.id
-                            jump(s.id)
-                            Haptics.selection()
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { v in
+                            guard visible || dragging else { return }
+                            if !dragging { dragging = true }
+                            // Finger position on the edge. The handle used to grow sideways to fit the date, which
+                            // moved this coordinate and jumped the grid.
+                            dragFraction = min(max((v.location.y - 8 - thumbHeight / 2) / track, 0), 1)
+                            jump(dragFraction)
                         }
+                        .onEnded { _ in
+                            dragging = false
+                            scheduleHide()
+                        }
+                )
+                .overlay(alignment: .topTrailing) {
+                    HStack(spacing: 8) {
+                        if dragging, !motion.topTitle.isEmpty {
+                            Text(motion.topTitle)
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 12).padding(.vertical, 7)
+                                .background(.regularMaterial, in: Capsule())
+                                .transition(.opacity)
+                        }
+                        Capsule()
+                            .fill(.regularMaterial)
+                            .overlay(Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary))
+                            .frame(width: 26, height: thumbHeight)
+                            .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
                     }
-                    .onEnded { _ in
-                        withAnimation(.easeOut(duration: 0.2)) { dragging = false }
-                        scheduleHide()
-                    }
-            )
-            .allowsHitTesting(visible || dragging)
+                    .padding(.trailing, 4)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .offset(y: 8 + f * track)
+                    .opacity(visible || dragging ? 1 : 0)
+                    .allowsHitTesting(false)
+                }
+                .allowsHitTesting(visible || dragging)
         }
-        .frame(width: dragging ? 220 : 44)
+        .frame(width: 44)
         .onChange(of: motion.isScrolling) { _, now in
             if now { hideTask?.cancel(); withAnimation(.easeOut(duration: 0.15)) { visible = true } } else { scheduleHide() }
+        }
+        .onChange(of: motion.topTitle) { _, title in
+            guard dragging, !title.isEmpty, title != lastTitle else { return }
+            lastTitle = title
+            Haptics.selection()
         }
         .accessibilityLabel("Date scrubber")
         .accessibilityHint("Drag to jump to a date")
@@ -625,6 +762,8 @@ struct DateScrubber: View {
 @Observable final class GridMotion {
     var fraction: CGFloat = 0
     var isScrolling = false
+    /// The date at the top of the grid. The scrubber shows it while the handle is dragged.
+    var topTitle = ""
 }
 
 /// Grey tiles in the grid's own layout while the library loads, so the screen doesn't jump when photos arrive. Shown

@@ -76,8 +76,10 @@ body:
     attributes:
       label: Log
       description: |
-        Settings → Logs → Share, then drag the file here. Phone numbers, keys and IDs are removed automatically,
-        but please read it before posting. Never paste your api_hash, login code, password or passphrase.
+        Settings → Report a problem (email / Telegram) attaches Lelvo-log.txt, or Settings → Logs → Share and drag
+        the file here. It helps debug. Phone numbers, login codes, passwords, keys, channel IDs and file IDs are
+        removed automatically; photo file names may still appear. Read it before posting. Never paste your api_hash,
+        login code, password or passphrase.
   - type: checkboxes
     id: contribute
     attributes:

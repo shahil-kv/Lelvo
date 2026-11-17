@@ -2,6 +2,7 @@ package app.lelvo.data
 
 import android.content.Context
 import app.lelvo.core.support.AppLog
+import app.lelvo.telegram.TelegramException
 import app.lelvo.core.crypto.Argon2id
 import app.lelvo.core.crypto.E2EKeys
 import app.lelvo.core.crypto.RecoveryKey
@@ -91,7 +92,9 @@ class LibraryService(
             if (!sg.isChannel) continue
             val group = runCatching { td.send(TdApi.GetSupergroup(sg.supergroupId)) }.getOrNull() ?: continue
             if (group.status !is TdApi.ChatMemberStatusCreator && group.status !is TdApi.ChatMemberStatusAdministrator) continue
-            val found = readHeader(id)
+            // One unreadable channel shouldn't hide the rest; it's listed, and opening it reads the header again.
+            // No waiting here: one slowed-down channel would hold the whole list for minutes. Opening it waits.
+            val found = try { readHeader(id, waitOutFlood = false) } catch (e: TelegramException) { HeaderResult.Damaged }
             val h = (found as? HeaderResult.Found)?.header
             val isLibrary = found !is HeaderResult.Missing
             out += ChannelChoice(id, LibraryNames.plain(chat.title), isLibrary, h?.encrypted == true)
@@ -146,18 +149,47 @@ class LibraryService(
     }
 
     /** The pinned header message first, then the channel description (CLOUD_FORMAT.md §1). */
-    suspend fun readHeader(chatId: Long): HeaderResult {
+    /**
+     * Missing only when Telegram answered and the channel has no header. A failed read (FLOOD_WAIT, no network)
+     * throws: read as Missing, it called a library "not a library" and could send a second header.
+     */
+    suspend fun readHeader(chatId: Long, waitOutFlood: Boolean = true): HeaderResult {
         runCatching { td.send(TdApi.OpenChat(chatId)) }
-        val pinned = runCatching { td.send(TdApi.GetChatPinnedMessage(chatId)) }.getOrNull()
+        val pinned = pinnedMessage(chatId, waitOutFlood)
         val text = (pinned?.content as? TdApi.MessageText)?.text?.text
         if (text != null) {
             val r = LibraryHeader.parse(text)
             if (r !is HeaderResult.Missing) return r
         }
-        val chat = runCatching { td.send(TdApi.GetChat(chatId)) }.getOrNull()
-        val sg = chat?.type as? TdApi.ChatTypeSupergroup ?: return HeaderResult.Missing
-        val info = runCatching { td.send(TdApi.GetSupergroupFullInfo(sg.supergroupId)) }.getOrNull() ?: return HeaderResult.Missing
+        val chat = waitingOutFlood(waitOutFlood) { td.send(TdApi.GetChat(chatId)) }
+        val sg = chat.type as? TdApi.ChatTypeSupergroup ?: return HeaderResult.Missing
+        val info = waitingOutFlood(waitOutFlood) { td.send(TdApi.GetSupergroupFullInfo(sg.supergroupId)) }
         return LibraryHeader.parse(info.description)
+    }
+
+    /** The pinned message, or null when there is none (TDLib answers 404). Other errors throw. */
+    private suspend fun pinnedMessage(chatId: Long, waitOutFlood: Boolean = true): TdApi.Message? = try {
+        waitingOutFlood(waitOutFlood) { td.send(TdApi.GetChatPinnedMessage(chatId)) }
+    } catch (e: TelegramException) {
+        if (e.code == 404) null else throw e
+    }
+
+    /**
+     * Waits out a short FLOOD_WAIT exactly as asked and reads again, up to three times. A long one, or a fourth,
+     * throws so the screen says how long to wait instead of spinning.
+     */
+    private suspend fun <T> waitingOutFlood(enabled: Boolean = true, read: suspend () -> T): T {
+        var waits = if (enabled) 0 else 3
+        while (true) {
+            try {
+                return read()
+            } catch (e: TelegramException) {
+                val wait = app.lelvo.core.session.TelegramErrors.floodWaitSeconds(e.message)?.takeIf { it <= 60 && waits < 3 } ?: throw e
+                waits++
+                AppLog.warn("Telegram asked to wait $wait s before reading the library header")
+                kotlinx.coroutines.delay(wait * 1000L)
+            }
+        }
     }
 
     /**
@@ -299,7 +331,8 @@ class LibraryService(
         try {
             td.send(TdApi.SetChatDescription(chat, "Lelvo Library · do not edit\n" + new.line))
             val content = TdApi.InputMessageText(TdApi.FormattedText(new.messageText, emptyArray()), null, false)
-            val pinned = runCatching { td.send(TdApi.GetChatPinnedMessage(chat)) }.getOrNull()
+            // A failed read must not look like "no pinned header": that sent a second header and left the old one readable.
+            val pinned = pinnedMessage(chat)
             val pinnedText = (pinned?.content as? TdApi.MessageText)?.text?.text
             if (pinned != null && pinnedText != null && LibraryHeader.parse(pinnedText) !is HeaderResult.Missing) {
                 td.send(TdApi.EditMessageText(chat, pinned.id, null, content))

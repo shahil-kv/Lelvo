@@ -3,6 +3,7 @@ package app.lelvo.android.collections
 import kotlinx.coroutines.flow.conflate
 
 import app.lelvo.android.timeline.throttled
+import app.lelvo.android.timeline.visibleGallery
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -60,7 +61,6 @@ import app.lelvo.android.shell.LelvoTopBar
 import app.lelvo.core.index.Collections
 import app.lelvo.core.index.GalleryEntry
 import app.lelvo.core.index.GalleryFilter
-import app.lelvo.core.index.ItemStatus
 import app.lelvo.data.DemoMode
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
@@ -83,13 +83,20 @@ sealed interface CollectionPage {
     data class All(val title: String, val rows: List<Collections.Row>, val list: Boolean = false) : CollectionPage
     data object RecentlyDeleted : CollectionPage
     data class MemoryList(val cards: List<MemoryCard>, val byId: Map<String, GalleryEntry>) : CollectionPage
-    /** A memory playing: the photos it plays, and every photo of it for Show all. */
-    data class Story(val card: MemoryCard, val entries: List<GalleryEntry>, val allIds: Set<String>) : CollectionPage
+    /** A memory playing. [playlist] is every memory, so a sideways swipe moves to the next one. */
+    data class Story(
+        val card: MemoryCard,
+        val entries: List<GalleryEntry>,
+        val allIds: Set<String>,
+        val playlist: List<MemoryCard> = emptyList(),
+        val byId: Map<String, GalleryEntry> = emptyMap(),
+    ) : CollectionPage
     data object MemorySettings : CollectionPage
     /** The map of every photo with a location (iOS `PhotoMapView`). */
     data class Places(val entries: List<GalleryEntry>) : CollectionPage
     /** Extra copies and similar photos, also on the Backup tab (iOS lists it under Utilities in Albums). */
     data object Duplicates : CollectionPage
+    data object Locked : CollectionPage
 }
 
 /** Everything Collections shows, made together off the main thread. */
@@ -122,14 +129,18 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
         // Albums and folders read every photo: during a backup they're counted again at most every 10 s.
         // Memories are not. A backup only changes upload status, which memories don't use.
         var memories: MemoryCache? = null
-        app.model.gallery(isDemo).throttled(10_000)
+        app.visibleGallery(isDemo).throttled(10_000)
             .combine(memorySettings) { entries, _ -> entries }
             // New places and place names (read for search) change memories and their titles.
             .combine(app.search.revision) { entries, rev -> entries to rev }
+            .combine(app.pro.isPro) { pair, isPro -> Triple(pair.first, pair.second, isPro) }
             .conflate()
-            .map { (entries, rev) ->
+            .map { (entries, rev, isPro) ->
                 val inputs = MemoryInputs.of(entries)
-                val kinds = app.prefs.memoryKinds
+                // Themes are Lelvo Pro (#16E); On This Day / recent / trips stay free.
+                val kinds = app.prefs.memoryKinds.let { k ->
+                    if (isPro) k else k - Memories.KindFilter.Themes
+                }
                 val previous = memories
                 val forced = previous != null && (previous.rev != rev || previous.kinds != kinds)
                 val cards = if (MemoryInputs.changed(previous?.inputs, inputs, forced)) {
@@ -146,19 +157,28 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
             .collect { value = it }
     }
     val trashed by produceState(0, isDemo) {
-        app.store.items().map { all -> all.count { it.status == ItemStatus.Trashed } }.flowOn(Dispatchers.Default).collect { value = it }
+        app.store.trashedCountFlow().collect { value = it }
     }
     val scroll = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
         modifier = modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = { LelvoTopBar("Collections", app.demo, onSettings, scroll) },
     ) { padding ->
-        val st = state ?: return@Scaffold
+        val st = state
+        if (st == null) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    androidx.compose.material3.CircularProgressIndicator()
+                    Text("Loading your photos", style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+            return@Scaffold
+        }
         val c = st.content
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = 24.dp + padding.calculateBottomPadding())) {
             if (st.memories.isNotEmpty()) item("memories") {
                 Section("Memories", seeAll = { onOpen(CollectionPage.MemoryList(st.memories, st.byId)) }) {
-                    MemoriesRow(st.memories.take(SHOWN), st.byId, app, onOpen)
+                    MemoriesRow(st.memories.take(SHOWN), st.byId, app, onOpen, playlist = st.memories)
                 }
             }
             if (c.days.isNotEmpty()) item("days") {
@@ -188,7 +208,8 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
             }
             item("utilities") {
                 Section("Utilities") {
-                    LinkRow("Duplicates and similar", R.drawable.ic_content_copy, null) { onOpen(CollectionPage.Duplicates) }
+                    LinkRow("Locked folder", R.drawable.ic_lock, null, pro = true) { onOpen(CollectionPage.Locked) }
+                    LinkRow("Smart Cleanup", R.drawable.ic_auto_awesome, null, pro = true) { onOpen(CollectionPage.Duplicates) }
                     LinkRow("Recently Deleted", R.drawable.ic_delete, trashed) { onOpen(CollectionPage.RecentlyDeleted) }
                 }
             }
@@ -205,6 +226,7 @@ private fun iconFor(f: GalleryFilter): Int = when (f) {
     is GalleryFilter.Folder -> R.drawable.ic_folder
     is GalleryFilter.Matching -> R.drawable.ic_calendar
     is GalleryFilter.Album -> R.drawable.ic_photo_library
+    GalleryFilter.Locked -> R.drawable.ic_lock
 }
 
 private val countFormat: NumberFormat = NumberFormat.getIntegerInstance()
@@ -270,16 +292,27 @@ internal fun Cover(entry: GalleryEntry?, app: LelvoApp, icon: Int, modifier: Mod
     }
 }
 
-/** A plain list row: icon, title, count. */
+/** A plain list row: icon, title, optional gold PRO pill, count. */
 @Composable
-internal fun LinkRow(title: String, icon: Int, count: Int?, onClick: () -> Unit) {
+internal fun LinkRow(title: String, icon: Int, count: Int?, pro: Boolean = false, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 56.dp).padding(horizontal = 16.dp)
-            .semantics(mergeDescendants = true) { contentDescription = if (count != null) "$title, $count items" else title },
+            .semantics(mergeDescendants = true) {
+                contentDescription = buildString {
+                    append(title)
+                    if (pro) append(", Pro")
+                    if (count != null) append(", $count items")
+                }
+            },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(painterResource(icon), null, tint = MaterialTheme.colorScheme.primary)
-        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 24.dp).weight(1f))
+        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 24.dp))
+        if (pro) {
+            androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+            app.lelvo.android.ui.ProBadge()
+        }
+        androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
         if (count != null) Text(countFormat.format(count), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

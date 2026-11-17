@@ -33,6 +33,8 @@ data class ItemRow(
     val duration: Double?,
     @androidx.room.ColumnInfo(name = "file_size") val fileSize: Long,
     val favorite: Boolean,
+    /** Locked Folder (#129). Default false for AutoMigration 3→4. */
+    @ColumnInfo(defaultValue = "0") val locked: Boolean = false,
     val hidden: Boolean,
     val latitude: Double?,
     val longitude: Double?,
@@ -41,6 +43,23 @@ data class ItemRow(
     val extras: String,
 )
 
+/** A queued row's id and the phone photo it belongs to. No extras: tens of thousands of these stay small. */
+data class IdAndLocal(val id: String, @ColumnInfo(name = "local_id") val localId: String)
+
+/** A backed-up row, enough to say whether its photo is still on this phone and where it sits in time. */
+data class BackedUpRef(
+    val id: String,
+    @ColumnInfo(name = "local_id") val localId: String?,
+    val hidden: Boolean,
+    @ColumnInfo(name = "created_at") val createdAt: Long?,
+)
+
+/** A backed-up row linked to a phone photo, with its favorite: enough to match favorites with the phone. */
+data class FavoriteRef(val id: String, @ColumnInfo(name = "local_id") val localId: String, val favorite: Boolean)
+
+/** A photo's place in the cloud index, without the rest of the row. */
+data class LatLon(val latitude: Double, val longitude: Double)
+
 @Dao
 interface ItemDao {
     @Upsert suspend fun upsert(rows: List<ItemRow>)
@@ -48,13 +67,64 @@ interface ItemDao {
     @Query("SELECT * FROM items WHERE id = :id") suspend fun item(id: String): ItemRow?
     @Query("SELECT COUNT(*) FROM items WHERE status = 'backedUp'") suspend fun backedUpCount(): Int
     @Query("DELETE FROM items") suspend fun deleteAll()
-    @Query("SELECT * FROM items") suspend fun allNow(): List<ItemRow>
-    @Query("SELECT * FROM items WHERE id IN (:ids)") suspend fun items(ids: List<String>): List<ItemRow>
+    @Transaction @Query("SELECT * FROM items") suspend fun allNow(): List<ItemRow>
+    @Transaction @Query("SELECT * FROM items WHERE id IN (:ids)") suspend fun items(ids: List<String>): List<ItemRow>
+    @Query("SELECT * FROM items WHERE local_id IN (:localIds)") suspend fun withLocalIds(localIds: List<String>): List<ItemRow>
     @Query("DELETE FROM items WHERE id = :id") suspend fun delete(id: String)
-    @Query("SELECT * FROM items WHERE status = :status") suspend fun withStatus(status: String): List<ItemRow>
+    @Transaction @Query("SELECT * FROM items WHERE status = :status") suspend fun withStatus(status: String): List<ItemRow>
+    // Light reads for work that runs on its own (launch, every backup, every sync). A list of whole rows here is
+    // tens of megabytes on a large library, and a cursor that long can throw while a backup writes to the table.
+    @Query("SELECT id FROM items") suspend fun ids(): List<String>
+    @Query("SELECT id FROM items WHERE locked = 1") suspend fun lockedIds(): List<String>
+    @Query("SELECT local_id FROM items WHERE locked = 1 AND local_id IS NOT NULL") suspend fun lockedLocalIds(): List<String>
+    @Query("SELECT * FROM items WHERE locked = 1 AND status IN ('backedUp', 'trashed')") suspend fun lockedInCloud(): List<ItemRow>
+    @Query("SELECT * FROM items WHERE status = 'backedUp' AND local_id IS NULL") suspend fun unlinkedBackedUp(): List<ItemRow>
+    @Query("SELECT local_id FROM items WHERE status = 'backedUp' AND local_id IS NOT NULL") suspend fun linkedLocalIds(): List<String>
+    @Query("SELECT id, local_id, favorite FROM items WHERE status = 'backedUp' AND local_id IS NOT NULL")
+    suspend fun favoriteRefs(): List<FavoriteRef>
+    @Query("SELECT COUNT(*) FROM items WHERE instr(extras, CAST(x'2270223A7B22' AS TEXT)) > 0") suspend fun withPartsCount(): Int
+    @Query("SELECT * FROM items WHERE status = 'backedUp' AND local_id IS NOT NULL AND id > :after ORDER BY id LIMIT :limit")
+    suspend fun backedUpOnPhonePage(after: String, limit: Int): List<ItemRow>
+    @Query("SELECT COUNT(*) FROM items") suspend fun countAll(): Int
+    @Query("SELECT COUNT(*) FROM items WHERE status = 'trashed'") suspend fun trashedCount(): Int
+    @Query("SELECT COUNT(*) FROM items WHERE status = 'failed'") suspend fun failedCount(): Int
+    // The extras markers [app.lelvo.core.backup.UploadOrder] looks for, written as hex so the SQL parser never sees
+    // a quote inside a quote: `"p":{"` parts, `"res"` a resume point, `"ch":1` chosen.
+    /** Failed rows a retry can send again: a photo is still on this phone, or nothing of it reached the channel. */
+    @Query("SELECT COUNT(*) FROM items WHERE status = 'failed' AND (local_id IS NOT NULL OR instr(extras, CAST(x'2270223A7B22' AS TEXT)) = 0)")
+    suspend fun retryableFailedCount(): Int
+    /** Queued or uploading, excluding a cloud fragment with no photo on this phone. */
+    @Query("SELECT COUNT(*) FROM items WHERE status IN ('queued', 'uploading') AND NOT (local_id IS NULL AND instr(extras, CAST(x'2270223A7B22' AS TEXT)) > 0)")
+    suspend fun uploadableCount(): Int
+    @Query("SELECT COUNT(*) FROM items WHERE status IN ('queued', 'uploading') AND local_id IS NULL AND instr(extras, CAST(x'2270223A7B22' AS TEXT)) > 0")
+    suspend fun strandedCount(): Int
+    @Query("SELECT COUNT(*) FROM items WHERE status IN ('queued', 'uploading') AND instr(extras, CAST(x'226368223A31' AS TEXT)) > 0 AND NOT (local_id IS NULL AND instr(extras, CAST(x'2270223A7B22' AS TEXT)) > 0)")
+    suspend fun chosenUploadableCount(): Int
+    @Query("SELECT COUNT(*) FROM items WHERE status = 'queued' AND local_id IS NOT NULL")
+    suspend fun queuedWithPhoneCount(): Int
+    @Query("SELECT COUNT(*) FROM items WHERE status = 'queued' AND local_id IS NOT NULL AND instr(extras, CAST(x'226368223A31' AS TEXT)) > 0")
+    suspend fun chosenQueuedCount(): Int
+    /**
+     * Ids still waiting, in upload order: a half-done item, then photos, then videos, newest first. The rank matches
+     * [app.lelvo.core.backup.UploadOrder]. Null dates sort last, as they do in memory.
+     */
+    @Query("SELECT id FROM items WHERE status = 'queued' AND local_id IS NOT NULL ORDER BY CASE WHEN instr(extras, CAST(x'2272657322' AS TEXT)) > 0 OR instr(extras, CAST(x'2270223A7B22' AS TEXT)) > 0 THEN 0 WHEN kind = 'video' THEN 2 ELSE 1 END, created_at IS NULL, created_at DESC")
+    suspend fun queuedIdsInOrder(): List<String>
+    @Query("SELECT id FROM items WHERE status = 'queued' AND local_id IS NOT NULL AND instr(extras, CAST(x'226368223A31' AS TEXT)) > 0 ORDER BY CASE WHEN instr(extras, CAST(x'2272657322' AS TEXT)) > 0 OR instr(extras, CAST(x'2270223A7B22' AS TEXT)) > 0 THEN 0 WHEN kind = 'video' THEN 2 ELSE 1 END, created_at IS NULL, created_at DESC")
+    suspend fun chosenQueuedIdsInOrder(): List<String>
+    @Query("SELECT id, local_id FROM items WHERE status = 'queued' AND local_id IS NOT NULL")
+    suspend fun queuedLocalIds(): List<IdAndLocal>
+    @Query("SELECT * FROM items WHERE status = 'queued' AND local_id IS NULL")
+    suspend fun queuedWithoutPhone(): List<ItemRow>
+    @Query("SELECT local_id FROM items WHERE status = 'trashed' AND local_id IS NOT NULL")
+    suspend fun trashedLocalIds(): List<String>
+    @Query("SELECT id, local_id, hidden, created_at FROM items WHERE status = 'backedUp'")
+    suspend fun backedUpRefs(): List<BackedUpRef>
+    @Query("SELECT latitude, longitude FROM items WHERE latitude IS NOT NULL AND longitude IS NOT NULL")
+    suspend fun coordinates(): List<LatLon>
     @Query("SELECT * FROM items WHERE sha256 = :sha256") suspend fun withHash(sha256: String): List<ItemRow>
     @Query("SELECT * FROM items WHERE local_id = :localId LIMIT 1") suspend fun withLocalId(localId: String): ItemRow?
-    @Query("SELECT local_id FROM items WHERE local_id IS NOT NULL") suspend fun localIds(): List<String>
+    @Transaction @Query("SELECT local_id FROM items WHERE local_id IS NOT NULL") suspend fun localIds(): List<String>
     @Query("DELETE FROM items WHERE id = :id AND status = 'queued'") suspend fun deleteIfQueued(id: String): Int
 
     /** One transaction, so the timeline never sees the index half replaced. */
@@ -153,10 +223,15 @@ interface NotesDao {
         ItemRow::class, TrashNoteRow::class, MetaNoteRow::class, MetaRow::class, NoBackupRow::class,
         TrashOutboxRow::class, MetaOutboxRow::class, PhoneFavoriteRow::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
     // 2 → 3: the outboxes and the phone's last-seen favorites (Phase L), new tables only.
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
+    // 3 → 4: Locked Folder flag on items (#129).
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2),
+        AutoMigration(from = 2, to = 3),
+        AutoMigration(from = 3, to = 4),
+    ],
 )
 abstract class IndexDatabase : RoomDatabase() {
     abstract fun items(): ItemDao

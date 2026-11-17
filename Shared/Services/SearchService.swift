@@ -32,20 +32,33 @@ final class SearchService: @unchecked Sendable {
 
     // MARK: - Query
 
+    /// Free words (dates, places, filenames, albums, kinds) and the full index including Vision text/things (#16D).
+    struct Indexes: Sendable {
+        let free: SearchIndex
+        let full: SearchIndex
+    }
+
     /// The inverted index of every entry's words, built once per library change so typing is a lookup.
-    func index(for entries: [GalleryEntry]) -> SearchIndex {
+    func index(for entries: [GalleryEntry]) -> Indexes {
         let indexed = (try? store.searchWords()) ?? [:]
         let places = loadPlaces()
-        return SearchIndex(entries: entries.map { e in
-            var known = SearchMatcher.dateWords(e.date)
-            if let words = indexed[e.id] { known += words.split(separator: " ").map(String.init) }
-            if let cell = Self.cell(e), let place = places[cell] { known += SearchMatcher.words(place) }
+        var freePairs: [(id: String, words: [String])] = []
+        var fullPairs: [(id: String, words: [String])] = []
+        freePairs.reserveCapacity(entries.count)
+        fullPairs.reserveCapacity(entries.count)
+        for e in entries {
+            var free = SearchMatcher.dateWords(e.date)
+            if let cell = Self.cell(e), let place = places[cell] { free += SearchMatcher.words(place) }
             if let item = e.item {
-                known += SearchMatcher.words(((item.albums ?? []) + [item.filename]).joined(separator: " "))
+                free += SearchMatcher.words(((item.albums ?? []) + [item.filename]).joined(separator: " "))
             }
-            known += Self.kindWords(e)
-            return (e.id, known)
-        })
+            free += Self.kindWords(e)
+            var full = free
+            if let words = indexed[e.id] { full += words.split(separator: " ").map(String.init) }
+            freePairs.append((e.id, free))
+            fullPairs.append((e.id, full))
+        }
+        return Indexes(free: SearchIndex(entries: freePairs), full: SearchIndex(entries: fullPairs))
     }
 
     /// Suggestions under an empty search field, like Ente's: the places with the most photos, and recent months.

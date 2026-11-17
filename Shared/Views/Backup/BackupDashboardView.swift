@@ -25,11 +25,12 @@ final class BackupStatsModel: ObservableObject {
         }
     }
 
-    /// The store changes constantly during a backup; recount at most every 2 s.
+    /// The store changes constantly during a backup; recount at most every 2 s, every 5 s on a large library.
     func scheduleRefresh() {
         guard pendingRefresh == nil else { return }
+        let seconds: UInt64 = lastTotal > 10_000 ? 5 : 2
         pendingRefresh = Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
             pendingRefresh = nil
             refresh()
         }
@@ -38,7 +39,14 @@ final class BackupStatsModel: ObservableObject {
     deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
 
     /// Accurate counts: verified items only count as backed up (#17).
+    /// One recount at a time: on a large library one can take longer than the gap between two.
+    private var refreshing = false
+    private var refreshAgain = false
+    private var lastTotal = 0
+
     func refresh() {
+        guard !refreshing else { refreshAgain = true; return }
+        refreshing = true
         let env = AppEnvironment.shared
         Task.detached {
             // Photos deleted in the Photos app while queued would otherwise count as left to back up.
@@ -47,7 +55,8 @@ final class BackupStatsModel: ObservableObject {
             let queued = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
             let failedItems = (try? env.store.items(status: .failed)) ?? []
             let autoBackup = Prefs.autoBackup
-            let all = (try? env.store.items(status: .backedUp)) ?? []
+            // Ids only: decoding every backed-up item here every few seconds kept a large library busy during a backup.
+            let all = (try? env.store.localIdentifiers(status: .backedUp)) ?? []
             var onDevice = 0, cloudOnly = 0, removed = 0
             var work: BackupCounts
             if DemoMode.isActive {
@@ -62,8 +71,8 @@ final class BackupStatsModel: ObservableObject {
                 work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: env.photos.backupCandidates().map(\.localIdentifier),
                                             known: (try? env.store.knownLocalIdentifiers()) ?? [],
                                             offBackup: (try? env.store.offBackupLocalIdentifiers()) ?? [], autoBackup: autoBackup)
-                let present = env.photos.existingIdentifiers(all.compactMap(\.localIdentifier))
-                cloudOnly = all.filter { $0.localIdentifier.map { !present.contains($0) } ?? true }.count
+                let present = env.photos.existingIdentifiers(all.compactMap { $0 })
+                cloudOnly = all.filter { $0.map { !present.contains($0) } ?? true }.count
                 removed = RemovedFromBackupModel.photos().count
             } else {
                 work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup)
@@ -80,6 +89,9 @@ final class BackupStatsModel: ObservableObject {
                 self.notQueued = result.notQueued
                 self.left = result.left
                 self.removedFromBackup = removedCount
+                self.lastTotal = counts.values.reduce(0, +)
+                self.refreshing = false
+                if self.refreshAgain { self.refreshAgain = false; self.scheduleRefresh() }
             }
         }
     }
@@ -321,6 +333,11 @@ struct BackupDashboardView: View {
         return stats.failed > 0 ? .completeWithFailures : .complete
     }
 
+    /// Shared with the Mac card: the photos deleted from the library that stay on this device.
+    static func removedLine(_ n: Int, device: String) -> String {
+        "\(n.formatted()) \(n == 1 ? "photo" : "photos") deleted from your Telegram library \(n == 1 ? "stays" : "stay") on this \(device) and \(n == 1 ? "isn't" : "aren't") backed up again. See Removed from backup."
+    }
+
     /// Mirrors Google Photos: "Backup complete" when nothing is left, failures called out separately.
     private var statusHeader: some View {
         // A run that is still listing its photos has no total yet: the photos it's about to queue count, not "0 left".
@@ -359,7 +376,11 @@ struct BackupDashboardView: View {
                     Image(systemName: icon).foregroundStyle(tint)
                 }
             }
-            Text(state == .complete ? "Everything\(stats.removedFromBackup > 0 ? " else" : "") on this \(Device.name) is backed up"
+            // Photos deleted from the library on another device stay here and aren't sent again. Say so: "Everything else"
+            // alone read like a bug next to their crossed-out cloud badges in the grid.
+            Text(state == .complete ? (stats.removedFromBackup > 0
+                    ? "Everything else on this \(Device.name) is backed up. \(Self.removedLine(stats.removedFromBackup, device: Device.name))"
+                    : "Everything on this \(Device.name) is backed up")
                  : state == .notBackedUp ? "Back up now uploads them all, or choose photos in Photos and tap Back up."
                  : "To your Telegram library")
                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
@@ -492,9 +513,10 @@ struct FailedThumbnail: View {
     }
 }
 
-/// Review duplicates: extra copies in Telegram (same upload twice, or the same content as two items)
-/// and identical photos on this iPhone. Nothing is removed without a tap; the first copy always stays.
+/// Smart cleanup: exact duplicates (free), plus similar / screenshots / large videos / blurry (Lelvo Pro).
+/// Shows estimated space before pay. Free Up Space stays a separate free tool. Nothing deletes without a tap.
 struct DuplicatesView: View {
+    @ObservedObject private var pro = ProStore.shared
     @State private var messageDuplicates: [Int64] = []
     @State private var cloudGroups: [BackupEngine.CloudDuplicateGroup] = []
     @State private var phoneGroups: [BackupEngine.PhoneDuplicateGroup] = []
@@ -504,13 +526,69 @@ struct DuplicatesView: View {
     @State private var alert: GalleryAlert?
     @State private var confirmCloud = false
     @State private var similar: [SimilarPhotosService.Group] = []
+    /// Bytes of the similar shots after the best one, worked out off the main actor when the groups arrive.
+    @State private var similarExtraBytes: Int64 = 0
     @State private var similarProgress: (done: Int, total: Int)?
     @State private var selectedSimilar = Set<String>()
     @State private var confirmSimilar = false
+    @State private var showProPaywall = false
+    @State private var smart = SmartCleanupService.Report()
+    @State private var selectedSmart = Set<String>()
+    @State private var confirmSmart: SmartBucket?
     private var env: AppEnvironment { AppEnvironment.shared }
+
+    private enum SmartBucket: String, Identifiable {
+        case screenshots, largeVideos, blurry
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .screenshots: return "screenshots"
+            case .largeVideos: return "large videos"
+            case .blurry: return "low-quality photos"
+            }
+        }
+    }
+
+    /// Rough space sitting in exact Telegram extras (what we can count without opening every similar group).
+    private var telegramExtraBytes: Int64 {
+        cloudGroups.reduce(0) { $0 + $1.wastedBytes }
+    }
+
+    /// Pro teaser: screenshots + large videos + blurry + burst estimate (or real similar extras once scanned).
+    private var proEstimateBytes: Int64 {
+        // Read in the view body: no PhotoKit here, only numbers worked out when the lists arrived.
+        let similarBytes: Int64 = pro.isPro && !similar.isEmpty ? similarExtraBytes : smart.burstBytes
+        return smart.screenshots.reduce(0) { $0 + $1.bytes }
+            + smart.largeVideos.reduce(0) { $0 + $1.bytes }
+            + smart.blurry.reduce(0) { $0 + $1.bytes }
+            + similarBytes
+    }
 
     var body: some View {
         Form {
+            if telegramExtraBytes > 0 || !phoneGroups.isEmpty || proEstimateBytes > 0 || !smart.isEmpty {
+                Section {
+                    if telegramExtraBytes > 0 {
+                        LabeledContent("Extra copies in Telegram", value: Format.bytes(telegramExtraBytes))
+                    }
+                    if !phoneGroups.isEmpty {
+                        LabeledContent("Identical copies on this \(Device.name)", value: "\(phoneGroups.flatMap(\.copies).count)")
+                    }
+                    if proEstimateBytes > 0 {
+                        LabeledContent(pro.isPro ? "Smart cleanup" : "About this much with Pro",
+                                       value: Format.bytes(proEstimateBytes))
+                    }
+                    if !pro.isPro, proEstimateBytes > 0 {
+                        Button { showProPaywall = true } label: {
+                            Label("Unlock Smart Cleanup", systemImage: "sparkles")
+                        }
+                    }
+                } header: { Text("Space you can free") } footer: {
+                    Text(pro.isPro
+                         ? "Exact copies are free. Similar shots, screenshots, large videos and low-quality photos are included with Lelvo Pro."
+                         : "Exact copies are free. The estimate above includes similar bursts, screenshots, large videos and low-quality photos — unlock with Lelvo Pro to review and delete.")
+                }
+            }
 
             if !messageDuplicates.isEmpty || !cloudGroups.isEmpty {
                 Section {
@@ -578,24 +656,35 @@ struct DuplicatesView: View {
             }
 
             similarSection
+            smartBucketSection(.screenshots, items: smart.screenshots, symbol: "camera.viewfinder")
+            smartBucketSection(.largeVideos, items: smart.largeVideos, symbol: "film")
+            smartBucketSection(.blurry, items: smart.blurry, symbol: "eye.slash")
         }
         .platformGroupedForm()
         .overlay {
             if loading {
-                ProgressView("Looking for duplicates…")
-            } else if messageDuplicates.isEmpty && cloudGroups.isEmpty && phoneGroups.isEmpty && similar.isEmpty && similarProgress == nil {
-                EmptyStateView(systemImage: "checkmark.circle", title: "No Duplicates",
-                               message: "Nothing is stored twice in your library or on this \(Device.name).")
+                ProgressView("Looking for cleanup…")
+            } else if messageDuplicates.isEmpty && cloudGroups.isEmpty && phoneGroups.isEmpty
+                        && similar.isEmpty && similarProgress == nil && smart.isEmpty {
+                EmptyStateView(systemImage: "checkmark.circle", title: "Looking Good",
+                               message: "No extra copies, screenshots pile-up, large videos or low-quality shots stood out.")
             }
         }
-        .navigationTitle("Duplicates")
+        .navigationTitle("Smart Cleanup")
         .disabled(busy != nil)
         .overlay {
             if let busy { ProgressView(busy).padding(20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) }
         }
+        .sheet(isPresented: $showProPaywall) { ProPaywallView() }
         .task { await load() }
-        .task { await findSimilar() }
-        .refreshable { await load(); await findSimilar() }
+        .task(id: pro.isPro) { if pro.isPro { await findSimilar() } else { similar = []; similarProgress = nil } }
+        .refreshable {
+            await load()
+            if pro.isPro { await findSimilar() }
+        }
+        .onChange(of: pro.isPro) { _, on in
+            if on { Task { await findSimilar() } }
+        }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
         .alert("Delete \(selectedSimilar.count) similar photos?", isPresented: $confirmSimilar) {
             Button("Cancel", role: .cancel) {}
@@ -606,6 +695,15 @@ struct DuplicatesView: View {
             Text(unsafe > 0
                  ? "\(unsafe) of these are not backed up yet and are lost once Recently Deleted in Photos is emptied."
                  : "Photos on this \(Device.name) go to Recently Deleted in Photos; photos only in your Telegram library go to Recently Deleted in Lelvo.")
+        }
+        .alert("Delete \(selectedSmart.count) \(confirmSmart?.title ?? "items") from Photos?", isPresented: Binding(
+            get: { confirmSmart != nil },
+            set: { if !$0 { confirmSmart = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { confirmSmart = nil }
+            Button("Delete from Photos", role: .destructive) { deleteSmart() }
+        } message: {
+            Text("They move to Recently Deleted in Photos. Your Telegram library is not changed.")
         }
         .alert("Remove extra copies?", isPresented: $confirmCloud) {
             Button("Cancel", role: .cancel) {}
@@ -618,20 +716,41 @@ struct DuplicatesView: View {
     private func load() async {
         loading = true
         let env = self.env
-        let (m, c, p) = await Task.detached {
-            (env.library.duplicateMessageIds, env.engine.cloudDuplicateGroups(), env.engine.phoneDuplicateGroups())
+        // Locked Folder photos never show in the cleanup lists: they'd be seen there without Face ID, and could be deleted.
+        let pendingLocked = LockedFolderStore.shared.pendingLocalIds
+        let (m, c, p, report) = await Task.detached {
+            let locked = pendingLocked.union(((try? env.store.lockedItems()) ?? []).compactMap(\.localIdentifier))
+            return (env.library.duplicateMessageIds, env.engine.cloudDuplicateGroups(), env.engine.phoneDuplicateGroups(),
+                    env.smartCleanup.scan(excluding: locked))
         }.value
         messageDuplicates = m
         cloudGroups = c
         phoneGroups = p
+        smart = report
         selectedCopies = selectedCopies.intersection(Set(p.flatMap(\.copies)))
+        let smartIds = Set(report.screenshots.map(\.id) + report.largeVideos.map(\.id) + report.blurry.map(\.id))
+        selectedSmart = selectedSmart.intersection(smartIds)
         loading = false
     }
 
-    // MARK: - Similar photos (#15)
+
+    // MARK: - Similar photos (#15) — Lelvo Pro
 
     @ViewBuilder private var similarSection: some View {
-        if let p = similarProgress {
+        if !pro.isPro {
+            Section {
+                if smart.burstExtras > 0 {
+                    LabeledContent("Possible burst extras", value: "\(smart.burstExtras) · \(Format.bytes(smart.burstBytes))")
+                }
+                Button { showProPaywall = true } label: {
+                    Label("Review similar photos with Pro", systemImage: "sparkles")
+                }
+            } header: {
+                HStack { Text("Similar Photos"); ProBadge() }
+            } footer: {
+                Text("Bursts and near-duplicates, with a Best pick to keep. Exact copies above stay free.")
+            }
+        } else if let p = similarProgress {
             Section("Similar Photos") {
                 ProgressView(value: Double(p.done), total: Double(max(p.total, 1))) {
                     Text("Comparing photos taken close together…")
@@ -661,9 +780,102 @@ struct DuplicatesView: View {
                         .disabled(selectedSimilar.isEmpty)
                 }
                 .buttonStyle(.borderless)
-            } header: { Text("Similar Photos") } footer: {
+            } header: {
+                HStack { Text("Similar Photos"); ProBadge() }
+            } footer: {
                 Text("Photos taken moments apart that look almost the same. The suggested one to keep is marked Best. Photos on this \(Device.name) go to Recently Deleted in Photos; photos only in your Telegram library go to Recently Deleted in Lelvo.")
             }
+        }
+    }
+
+    // MARK: - Screenshots / large videos / blurry — Lelvo Pro
+
+    @ViewBuilder private func smartBucketSection(_ bucket: SmartBucket, items: [SmartCleanupService.Item],
+                                                 symbol: String) -> some View {
+        if items.isEmpty { EmptyView() }
+        else if !pro.isPro {
+            Section {
+                LabeledContent("\(items.count) items", value: Format.bytes(items.reduce(0) { $0 + $1.bytes }))
+                Button { showProPaywall = true } label: {
+                    Label("Review with Pro", systemImage: "sparkles")
+                }
+            } header: {
+                HStack { Label(header(for: bucket), systemImage: symbol); ProBadge() }
+            }
+        } else {
+            Section {
+                ForEach(items.prefix(40)) { item in
+                    let selected = selectedSmart.contains(item.id)
+                    Button {
+                        if selected { selectedSmart.remove(item.id) } else { selectedSmart.insert(item.id) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selected ? Color.accentColor : .secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.asset.creationDate.map { Format.date($0) } ?? "Photo")
+                                    .foregroundStyle(.primary)
+                                Text(item.subtitle).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+                if items.count > 40 {
+                    Text("Showing 40 of \(items.count). Delete some, then pull to refresh.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button("Select all") { selectedSmart.formUnion(items.map(\.id)) }
+                    Spacer()
+                    Button(role: .destructive) { confirmSmart = bucket } label: {
+                        Text("Delete \(items.filter { selectedSmart.contains($0.id) }.count)")
+                    }
+                    .disabled(items.filter { selectedSmart.contains($0.id) }.isEmpty)
+                }
+                .buttonStyle(.borderless)
+            } header: {
+                HStack { Label(header(for: bucket), systemImage: symbol); ProBadge() }
+            } footer: {
+                Text(footer(for: bucket))
+            }
+        }
+    }
+
+    private func header(for bucket: SmartBucket) -> String {
+        switch bucket {
+        case .screenshots: return "Screenshots"
+        case .largeVideos: return "Large Videos"
+        case .blurry: return "Low Quality"
+        }
+    }
+
+    private func footer(for bucket: SmartBucket) -> String {
+        switch bucket {
+        case .screenshots:
+            return "Screenshots on this \(Device.name). Deleting moves them to Recently Deleted in Photos."
+        case .largeVideos:
+            return "Videos over \(Int(SmartCleanupService.largeVideoSeconds / 60)) minutes or \(Format.bytes(SmartCleanupService.largeVideoBytes)). Your Telegram library is not changed."
+        case .blurry:
+            return "Photos Vision marked as low quality on this \(Device.name). Available after Search has read them."
+        }
+    }
+
+    private func deleteSmart() {
+        let ids = Array(selectedSmart)
+        confirmSmart = nil
+        guard !ids.isEmpty else { return }
+        Task {
+            do {
+                try await env.photos.deleteAssets(ids)
+                Haptics.success()
+                selectedSmart.removeAll()
+            } catch let error as NSError where error.domain == PHPhotosErrorDomain && error.code == PHPhotosError.userCancelled.rawValue {
+            } catch {
+                AppLog.shared.error("Smart cleanup delete failed: \(error.localizedDescription)")
+                alert = GalleryAlert(title: "Couldn't delete", message: error.localizedDescription)
+            }
+            await load()
         }
     }
 
@@ -701,6 +913,11 @@ struct DuplicatesView: View {
         let found = await env.similar.find { done, total in Task { @MainActor in if similarProgress != nil { similarProgress = (done, total) } } }
         similarProgress = nil
         guard !Task.isCancelled else { return }
+        similarExtraBytes = await Task.detached(priority: .utility) {
+            found.reduce(Int64(0)) { sum, g in
+                sum + g.entries.filter { $0.id != g.best }.compactMap(\.asset).reduce(0) { $0 + SmartCleanupService.bytes(of: $1) }
+            }
+        }.value
         similar = found
         selectedSimilar = selectedSimilar.intersection(Set(similar.flatMap { $0.entries.map(\.id) }))
     }

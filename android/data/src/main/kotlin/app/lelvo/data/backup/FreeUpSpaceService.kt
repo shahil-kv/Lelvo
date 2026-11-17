@@ -24,7 +24,7 @@ class FreeUpSpaceService(
 ) {
     /** Backed-up items still on the phone and unchanged since their backup. */
     suspend fun candidates(): List<LibraryItem> = withContext(Dispatchers.IO) {
-        val items = store.items(ItemStatus.BackedUp).filter(FreeUpSpace::isCandidate)
+        val items = store.items(ItemStatus.BackedUp).filter(FreeUpSpace::isFreeUpOffer)
         val files = phone.files(items.mapNotNull { it.localId })
         items.filter { item -> files[item.localId]?.let { !FreeUpSpace.mayHaveChanged(item, it.size, it.modifiedAt) } ?: false }
     }

@@ -6,7 +6,9 @@ import androidx.compose.ui.draw.clip
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.onStart
 import app.lelvo.data.media.PhotoAccess
+import app.lelvo.core.index.date
 import app.lelvo.core.index.GalleryFilter
 import app.lelvo.core.index.GalleryEntry
 import app.lelvo.core.index.Gallery
@@ -134,11 +136,55 @@ fun TimelineScreen(
     // A new filter (search results change with each letter) only filters again; the phone isn't listed again.
     val filterState = androidx.compose.runtime.rememberUpdatedState(filter)
     val model = (LocalContext.current.applicationContext as app.lelvo.android.LelvoApp).model
-    val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(null, store, grouping, isDemo) {
-        model.gallery(isDemo)
-            .combine(snapshotFlow { filterState.value }) { all, f -> Timeline.groupEntries(f?.let { all.filter(it::matches) } ?: all, grouping, ZoneId.systemDefault(), LocalDate.now()) }
+    val app = LocalContext.current.applicationContext as app.lelvo.android.LelvoApp
+    val syncedLocked by app.lockedFolder.syncedLockedIds.collectAsState()
+    val pendingLocked by app.lockedFolder.pendingLocalIds.collectAsState()
+    // The Photos tab grows a page at a time. A filter or a collection needs its own set, so it reads the whole list.
+    var pageLimit by rememberSaveable { mutableIntStateOf(FIRST_PAGE) }
+    // Where the visible page starts in the whole library. The scrubber moves this instead of asking the grid to
+    // lay out every row up to an old date, which is what made the handle stick.
+    var windowStart by remember { mutableIntStateOf(0) }
+    var pendingSkip by remember { mutableIntStateOf(0) }
+    var scrubbing by remember { mutableStateOf(false) }
+    val paging = collection == null && filter == null
+    val dates by produceState(LongArray(0), paging, isDemo, photos) {
+        if (!paging || isDemo) {
+            value = LongArray(0)
+            return@produceState
+        }
+        photos.changes().collect { value = photos.dates() }
+    }
+    // The date label follows the finger. The page loads when the finger lifts. Loading it during the drag
+    // replaced hundreds of photos on the main thread, so the handle sat still on this phone.
+    LaunchedEffect(pendingSkip, scrubbing) {
+        if (scrubbing) return@LaunchedEffect
+        if (pendingSkip != windowStart) {
+            pageLimit = FIRST_PAGE
+            windowStart = pendingSkip
+        }
+    }
+    var galleryComplete by remember { mutableStateOf(false) }
+    var galleryLoaded by remember { mutableIntStateOf(0) }
+    val sections by produceState<List<Timeline.Section<GalleryEntry>>?>(
+        null, store, grouping, isDemo, syncedLocked, pendingLocked, pageLimit, paging, windowStart,
+    ) {
+        val raw = if (paging) galleryWindow(store, photos, isDemo, pageLimit, windowStart)
+        else model.gallery(isDemo).map { GalleryWindow(it, complete = true, loaded = Int.MAX_VALUE) }
+        raw.combine(snapshotFlow { Triple(filterState.value, syncedLocked, pendingLocked) }) { window, (f, _, _) ->
+                fun hidden(e: GalleryEntry) = app.lockedFolder.hidesFromTimeline(e)
+                val list = when (f) {
+                    is GalleryFilter.Locked -> window.entries.filter(::hidden)
+                    null -> window.entries.filter { !hidden(it) }
+                    else -> window.entries.filter { !hidden(it) }.filter(f::matches)
+                }
+                Triple(window.complete, window.loaded, Timeline.groupEntries(list, grouping, ZoneId.systemDefault(), LocalDate.now()))
+            }
             .flowOn(Dispatchers.Default)
-            .collect { value = it }
+            .collect { (complete, loaded, grouped) ->
+                galleryComplete = complete
+                galleryLoaded = loaded
+                value = grouped
+            }
     }
     val backup by demo.backup.collectAsState()
     val scope = rememberCoroutineScope()
@@ -217,7 +263,12 @@ fun TimelineScreen(
     ) { padding ->
         val list = sections
         when {
-            list == null -> Unit
+            list == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    androidx.compose.material3.CircularProgressIndicator()
+                    Text("Loading your photos", style = MaterialTheme.typography.bodyLarge)
+                }
+            }
             list.isEmpty() -> if (filter != null) Text(
                 "Nothing here.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(padding).padding(32.dp),
@@ -232,12 +283,27 @@ fun TimelineScreen(
                     val all = list.flatMap { it.items }
                     onOpen(all, all.indexOf(entry))
                 },
+                onNearEnd = {
+                    // One more page per finished load, so a short screen can't jump straight to the whole library.
+                    if (paging && !galleryComplete && galleryLoaded == pageLimit) pageLimit += FIRST_PAGE
+                },
+                dates = dates,
+                windowStart = windowStart,
+                onScrub = { index, dragging ->
+                    pendingSkip = index
+                    scrubbing = dragging
+                },
             )
         }
         if (selecting) {
             val byId = remember(list) { list.orEmpty().flatMap { it.items }.associateBy { it.id } }
             Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding()), contentAlignment = Alignment.BottomCenter) {
-                SelectionActions(selection.mapNotNull(byId::get), onDone = { selection = emptySet() }, album = (collection as? GalleryFilter.Album)?.name)
+                SelectionActions(
+                    selection.mapNotNull(byId::get),
+                    onDone = { selection = emptySet() },
+                    album = (collection as? GalleryFilter.Album)?.name,
+                    inLockedFolder = collection is GalleryFilter.Locked,
+                )
             }
         }
     }
@@ -270,6 +336,14 @@ fun TimelineScreen(
  * Phone photos and cloud items in one newest-first list, again whenever either side changes (iOS `GalleryModel`).
  * The demo shows only its sample library.
  */
+/** Main timeline / search / memories: hide Locked Folder membership (iOS `GalleryModel.entries`). */
+fun app.lelvo.android.LelvoApp.visibleGallery(isDemo: Boolean): kotlinx.coroutines.flow.Flow<List<GalleryEntry>> =
+    model.gallery(isDemo)
+        .combine(lockedFolder.syncedLockedIds) { entries, _ -> entries }
+        .combine(lockedFolder.pendingLocalIds) { entries, _ ->
+            entries.filter { !lockedFolder.hidesFromTimeline(it) }
+        }
+
 fun galleryEntries(store: LibraryStore, photos: PhotoAccess, isDemo: Boolean): kotlinx.coroutines.flow.Flow<List<GalleryEntry>> {
     // The first listing starts with the newest photos only, so the timeline draws at once on a big phone; the full
     // list follows. Later changes always list everything.
@@ -279,14 +353,16 @@ fun galleryEntries(store: LibraryStore, photos: PhotoAccess, isDemo: Boolean): k
         photos.changes().collect {
             if (first) {
                 first = false
-                val newest = photos.assets(limit = FIRST_PAGE)
+                // The newest files, before the full library is ordered. Collections stays blank until this emits.
+                val newest = photos.assetsRecent(FIRST_PAGE)
                 if (newest.size == FIRST_PAGE) emit(PhonePage(newest, complete = false))
             }
             emit(PhonePage(photos.assets(), complete = true))
         }
     }
     // The index updates at most twice a second (LibraryStore.items), so a backup doesn't re-merge 30,000 photos per upload.
-    val items = store.items()
+    // An empty list first: Collections was blank until every indexed photo had been read.
+    val items = store.items().let { if (isDemo) it else it.onStart { emit(emptyList()) } }
     return combine(items, phone) { items, page ->
         val merged = Gallery.merge(page.assets, items, if (isDemo) emptyMap() else store.aliases())
         if (page.complete) merged
@@ -299,6 +375,68 @@ fun galleryEntries(store: LibraryStore, photos: PhotoAccess, isDemo: Boolean): k
 }
 
 private class PhonePage(val assets: List<app.lelvo.core.index.PhoneAsset>, val complete: Boolean)
+
+/** [preliminary] is the newest files only, shown while the whole library is still being ordered. */
+private class PhoneSlice(val assets: List<app.lelvo.core.index.PhoneAsset>, val onPhone: Set<String>, val preliminary: Boolean)
+
+/** The photos loaded so far. [complete] when scrolling further would add nothing. */
+internal class GalleryWindow(val entries: List<GalleryEntry>, val complete: Boolean, val loaded: Int)
+
+/**
+ * The newest [limit] phone photos, plus the cloud items that belong in that same stretch of time. Grows when the
+ * grid asks for more, instead of following the first screen with the whole library.
+ */
+internal fun galleryWindow(store: LibraryStore, photos: PhotoAccess, isDemo: Boolean, limit: Int, skip: Int = 0): kotlinx.coroutines.flow.Flow<GalleryWindow> {
+    if (isDemo) return galleryEntries(store, photos, true).map { GalleryWindow(it, complete = true, loaded = limit) }
+    // The phone page is read again only when the phone gallery changes. A backup rewrites the index constantly;
+    // that must refresh badges, not list 30,000 photos again.
+    val phone = kotlinx.coroutines.flow.flow {
+        photos.changes().collect {
+            if (skip == 0 && !photos.ranked()) {
+                val fast = photos.assetsRecent(limit)
+                emit(PhoneSlice(fast, fast.map { it.localId }.toSet(), preliminary = true))
+            }
+            emit(PhoneSlice(photos.assets(limit = limit, skip = skip), photos.localIds(), preliminary = false))
+        }
+    }
+    return kotlinx.coroutines.flow.flow {
+        kotlinx.coroutines.flow.combine(phone, store.changes()) { page, _ -> page }.collect { slice ->
+            if (slice.preliminary) {
+                emit(GalleryWindow(Gallery.merge(slice.assets, emptyList(), emptyMap()), complete = false, slice.assets.size))
+                return@collect
+            }
+            val assets = slice.assets
+            val onPhone = slice.onPhone
+            val phoneDone = assets.size < limit
+            val oldest = assets.minOfOrNull { it.date ?: Long.MIN_VALUE } ?: Long.MIN_VALUE
+            val newest = assets.maxOfOrNull { it.date ?: Long.MIN_VALUE } ?: Long.MAX_VALUE
+            val aliases = store.aliases()
+            // A copy on the phone of a backed-up item: that item is on the phone too.
+            val aliasOnPhone = aliases.filterKeys { it in onPhone }.values.toHashSet()
+            val linked = store.itemsForPhone(assets.map { it.localId }) + store.items(assets.mapNotNull { aliases[it.localId] })
+            // Blue is "only in the cloud". A photo still on the phone must not get it just because this page
+            // hasn't reached that photo yet.
+            val cloudRefs = store.backedUpRefs().filter { ref ->
+                if (ref.hidden) return@filter false
+                val local = ref.localId
+                if (local != null && local in onPhone) return@filter false
+                if (ref.id in aliasOnPhone) return@filter false
+                if (assets.isNotEmpty() && !phoneDone) {
+                    val created = ref.createdAt ?: Long.MIN_VALUE
+                    // A page in the middle of the library only keeps cloud items from that same stretch of time.
+                    if (created < oldest || created > newest) return@filter false
+                }
+                true
+            }
+            val shown = if (assets.isEmpty() || phoneDone) {
+                cloudRefs.sortedByDescending { it.createdAt ?: Long.MIN_VALUE }.take(limit)
+            } else cloudRefs
+            val cloud = store.items(shown.map { it.id })
+            val complete = if (assets.isEmpty()) cloudRefs.size <= limit else phoneDone && cloudRefs.size <= limit
+            emit(GalleryWindow(Gallery.merge(assets, linked + cloud, aliases), complete, limit))
+        }
+    }.flowOn(Dispatchers.Default)
+}
 
 private const val FIRST_PAGE = 600
 
@@ -341,6 +479,10 @@ private fun EmptyState(modifier: Modifier) {
 private fun Grid(
     sections: List<Timeline.Section<GalleryEntry>>, columns: Int, grouping: Timeline.Grouping, padding: PaddingValues,
     photos: PhotoAccess, selection: Set<String>, onSelection: (Set<String>) -> Unit, onZoom: (Int) -> Unit, onOpen: (GalleryEntry) -> Unit,
+    onNearEnd: () -> Unit = {},
+    dates: LongArray = LongArray(0),
+    windowStart: Int = 0,
+    onScrub: (index: Int, dragging: Boolean) -> Unit = { _, _ -> },
 ) {
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val order = remember(sections) { sections.flatMap { s -> s.items.map { it.id } } }
@@ -351,6 +493,16 @@ private fun Grid(
     val edge = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
     val side = LocalConfiguration.current.screenWidthDp.dp / columns
     val state = rememberLazyGridState()
+    val nearEnd by androidx.compose.runtime.rememberUpdatedState(onNearEnd)
+    // Restart when a new page arrives, so staying at the bottom loads the page after that too.
+    LaunchedEffect(state, sections) {
+        snapshotFlow {
+            val info = state.layoutInfo
+            val total = info.totalItemsCount
+            val last = info.visibleItemsInfo.lastOrNull()?.index ?: return@snapshotFlow false
+            total > 0 && last >= total - 8
+        }.collect { if (it) nearEnd() }
+    }
     val titles = rememberTitles()
     // New items land above the newest section. A lazy grid keeps its place by key, so they would arrive off screen;
     // someone looking at the top keeps seeing the top, like Photos. Only the user's own scrolling moves the pin.
@@ -360,7 +512,11 @@ private fun Grid(
             .collect { if (state.isScrollInProgress) pinnedTop = it }
     }
     val newest = sections.firstOrNull()?.items?.firstOrNull()?.id
-    LaunchedEffect(newest) { if (pinnedTop) state.scrollToItem(0) }
+    // A new photo at the real top stays in view. A scrubbed page must not be pulled back there.
+    LaunchedEffect(newest) { if (pinnedTop && windowStart == 0) state.scrollToItem(0) }
+    // The page under the finger changed: put that date at the top. Index 0 is already on screen, so this doesn't
+    // walk the whole library the way a jump to an old row did.
+    LaunchedEffect(newest) { if (windowStart > 0) state.requestScrollToItem(0) }
     // Where each section's header sits in the grid: a header, then its tiles.
     val scrub = remember(sections, titles) {
         var index = 0
@@ -397,7 +553,23 @@ private fun Grid(
             }
         }
     }
-    DateScrubber(state, scrub, Modifier.align(Alignment.TopEnd).padding(padding))
+    var liveTitle by remember { mutableStateOf("") }
+    DateScrubber(
+        state, scrub, Modifier.align(Alignment.TopEnd).padding(padding),
+        libraryStart = windowStart,
+        libraryCount = dates.size,
+        loadedCount = sections.sumOf { it.items.size }.coerceAtLeast(1),
+        title = liveTitle,
+        onFraction = if (dates.isEmpty()) null else { fraction, dragging ->
+            val i = (fraction * (dates.size - 1)).toInt().coerceIn(0, dates.lastIndex)
+            val next = titles.forEpoch(dates[i], grouping)
+            if (next != liveTitle) {
+                liveTitle = next
+                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
+            }
+            onScrub(i, dragging)
+        },
+    )
     EdgeScroll(state, edgeSpeed)
     }
 }
@@ -486,6 +658,23 @@ private class Titles(locale: Locale) {
         is Timeline.Title.Month -> month.format(LocalDate.of(t.year, t.month, 1))
         is Timeline.Title.Year -> t.year.toString()
         Timeline.Title.Unknown -> "Unknown date"
+    }
+
+    /** The scrubber's date, in the same words as the section header. */
+    fun forEpoch(epochMs: Long, grouping: Timeline.Grouping): String {
+        if (epochMs <= 0L) return title(Timeline.Title.Unknown)
+        val date = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).toLocalDate()
+        val today = LocalDate.now()
+        val heading = when (grouping) {
+            Timeline.Grouping.Day -> when (date) {
+                today -> Timeline.Title.Today
+                today.minusDays(1) -> Timeline.Title.Yesterday
+                else -> Timeline.Title.Day(date)
+            }
+            Timeline.Grouping.Month -> Timeline.Title.Month(date.year, date.monthValue)
+            Timeline.Grouping.Year -> Timeline.Title.Year(date.year)
+        }
+        return title(heading)
     }
 
     fun describe(entry: GalleryEntry): String {

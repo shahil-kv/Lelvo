@@ -94,6 +94,9 @@ sealed class GalleryFilter(val title: String) : java.io.Serializable {
     /** A fixed set of timeline entries by id: a day, a memory, search results. */
     data class Matching(val name: String, val ids: Set<String>) : GalleryFilter(name)
 
+    /** Locked folder (ids live in `LockedFolderStore`; caller supplies the filtered list). */
+    data object Locked : GalleryFilter("Locked") { private fun readResolve(): Any = Locked }
+
     fun matches(e: GalleryEntry): Boolean = when (this) {
         Videos -> e.isVideo
         LivePhotos -> e.isLive
@@ -103,6 +106,7 @@ sealed class GalleryFilter(val title: String) : java.io.Serializable {
         is Album -> e.item?.albums?.contains(name) == true
         is Folder -> e.asset?.bucketId == bucketId
         is Matching -> e.id in ids
+        Locked -> true
     }
 
     companion object {

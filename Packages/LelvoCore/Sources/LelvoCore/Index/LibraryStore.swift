@@ -385,6 +385,27 @@ public final class LibraryStore: @unchecked Sendable {
         try withReadStatement("SELECT json FROM items ORDER BY creation_date DESC;", readItems)
     }
 
+    /// Items in the Locked Folder. SQLite skips every row whose JSON has no `"locked"` key, so a large library decodes
+    /// a handful of rows instead of all of them. The decoded value decides, whatever the JSON spacing.
+    public func lockedItems() throws -> [MediaItem] {
+        try withReadStatement(#"SELECT json FROM items WHERE CAST(json AS TEXT) LIKE '%"locked"%';"#, readItems)
+            .filter { $0.locked == true }
+    }
+
+    /// The device photo ids of the items with this status, nil for an item without one. No JSON is decoded.
+    public func localIdentifiers(status: ItemStatus) throws -> [String?] {
+        try withReadStatement("SELECT local_id FROM items WHERE status = ?;", bind: { bindText($0, 1, status.rawValue) }) { s in
+            var out: [String?] = []
+            while sqlite3_step(s) == SQLITE_ROW { out.append(sqlite3_column_text(s, 0).map { String(cString: $0) }) }
+            return out
+        }
+    }
+
+    /// How many items the index holds, without decoding them.
+    public func itemCount() throws -> Int {
+        try withReadStatement("SELECT COUNT(*) FROM items;") { s in sqlite3_step(s) == SQLITE_ROW ? Int(sqlite3_column_int64(s, 0)) : 0 }
+    }
+
     /// All local identifiers the store knows, for fast scanning.
     public func knownLocalIdentifiers() throws -> Set<String> {
         try withReadStatement("SELECT local_id FROM items WHERE local_id IS NOT NULL UNION SELECT local_id FROM aliases;") { s in

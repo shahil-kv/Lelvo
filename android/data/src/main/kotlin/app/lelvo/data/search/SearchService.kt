@@ -14,7 +14,11 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.MediaStore
 import app.lelvo.core.index.PhoneAsset
+import app.lelvo.core.search.SearchCorpus
 import app.lelvo.core.search.SearchMatcher
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import app.lelvo.core.support.AppLog
 import app.lelvo.data.index.LibraryStore
 import app.lelvo.data.media.PhotoAccess
@@ -84,6 +88,33 @@ class SearchService(context: Context, private val store: LibraryStore, private v
 
     /** Every known area name: cell → "City, State, Country". */
     fun placeNames(): Map<String, String> = loadPlaces()
+
+    /**
+     * Places and months from what is already on disk, so Search can draw before the full index exists.
+     * Places come from the location cache. Months come from the newest photos' dates.
+     */
+    suspend fun preview(): SearchCorpus.Suggestions = withContext(Dispatchers.IO) {
+        val names = loadPlaces()
+        val counts = HashMap<String, Int>()
+        val covers = HashMap<String, String>()
+        for ((id, loc) in loadLocations()) {
+            if (loc.lat.isNaN()) continue
+            val name = names[SearchMatcher.placeCell(loc.lat, loc.lon)]?.substringBefore(',')?.trim()?.takeIf { it.isNotEmpty() } ?: continue
+            counts.merge(name, 1, Int::plus)
+            covers.putIfAbsent(name, id)
+        }
+        val places = counts.entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .take(10)
+            .map { SearchCorpus.Place(it.key, it.value, covers.getValue(it.key)) }
+        val month = DateTimeFormatter.ofPattern("LLLL yyyy", Locale.getDefault())
+        val months = LinkedHashSet<String>()
+        for (date in photos.newestDates(2_000)) {
+            if (months.size >= 10) break
+            months += month.format(Instant.ofEpochMilli(date).atZone(ZoneId.systemDefault()))
+        }
+        SearchCorpus.Suggestions(places, months.toList())
+    }
 
     /** The name of a `placeCell` (its first part, e.g. the city), if it was looked up. */
     fun placeName(cell: String): String? = loadPlaces()[cell]?.substringBefore(',')?.trim()?.takeIf { it.isNotEmpty() }
@@ -207,10 +238,8 @@ class SearchService(context: Context, private val store: LibraryStore, private v
             if (cell !in centres) centres[cell] = cell.substringBefore(',').toDouble() to cell.substringAfter(',').toDouble()
         }
         for (l in loadLocations().values) if (!l.lat.isNaN()) add(l.lat, l.lon)
-        for (i in store.allItems()) {
-            val lat = i.latitude ?: continue
-            val lon = i.longitude ?: continue
-            if (!(lat == 0.0 && lon == 0.0)) add(lat, lon)
+        for (p in store.coordinates()) {
+            if (!(p.latitude == 0.0 && p.longitude == 0.0)) add(p.latitude, p.longitude)
         }
         val known = HashMap(loadPlaces())
         val missing = centres.keys.filter { it !in known }

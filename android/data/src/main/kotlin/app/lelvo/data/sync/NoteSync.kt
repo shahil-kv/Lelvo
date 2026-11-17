@@ -1,5 +1,6 @@
 package app.lelvo.data.sync
 
+import app.lelvo.data.index.FavoriteRef
 import android.content.Context
 import app.lelvo.core.crypto.FileCrypto
 import app.lelvo.core.crypto.Hashing
@@ -108,7 +109,11 @@ class NoteSync(
         if (ids.isEmpty()) return 0
         val chatId = noteChatId
         store.changeMeta(ids, key, value, chatId)
-        if (chatId != null) metaPacer.schedule()
+        if (chatId != null) {
+            // Paced like favorites, Locked Folder too: a lock sent at once per call meant one unpaced note per photo
+            // as a backup promoted them, which invites FLOOD_WAIT.
+            metaPacer.schedule()
+        }
         return ids.size
     }
 
@@ -243,7 +248,7 @@ class NoteSync(
     suspend fun emptyExpiredTrash() {
         if (isDemo()) {
             val now = System.currentTimeMillis()
-            runCatching { deletePermanently(CloudTrash.items(store.allItems()).filter { CloudTrash.isExpired(it, now) }, now) }
+            runCatching { deletePermanently(CloudTrash.items(store.items(ItemStatus.Trashed)).filter { CloudTrash.isExpired(it, now) }, now) }
             return
         }
         if (!ready) return
@@ -535,7 +540,7 @@ class NoteSync(
             val notes = store.trashNotes()
             if (notes.isEmpty() || scanner.needsFullScan()) return
             val chatId = library.chatId ?: return
-            val known = store.allItems().map { it.id }.toHashSet()
+            val known = store.allIds()
             deleteNotes(chatId, TrashLog.notesToRemove(notes, known).map { it.messageId }, "Recently Deleted") { store.removeTrashNotes(it) }
         } finally {
             trashCleaning.unlock()
@@ -552,7 +557,7 @@ class NoteSync(
             val now = System.currentTimeMillis() / 1000
             // The whole index only when a note is old enough for its items to have been deleted for good.
             val anyOld = notes.any { now - it.date > MetaLog.GONE_AFTER_SECONDS }
-            val known = if (anyOld) store.allItems().map { it.id }.toHashSet().takeIf { it.isNotEmpty() } else null
+            val known = if (anyOld) store.allIds().takeIf { it.isNotEmpty() } else null
             deleteNotes(chatId, MetaLog.notesToRemove(notes, known, now).map { it.messageId }, "favorites and albums") { store.removeMetaNotes(it) }
         } finally {
             metaCleaning.unlock()
@@ -589,7 +594,7 @@ class NoteSync(
             // Read the newest messages right before, so a change another device just sent is part of the state written.
             runCatching { scanner.scan(full = false) }.getOrNull() ?: return
             val notes = store.metaNotes()
-            val known = store.allItems().map { it.id }.toHashSet()
+            val known = store.allIds()
             if (known.isEmpty()) return
             val fresh = MetaLog.compacted(notes, known)
             // Only when it really shrinks the channel, and not after skipping a note this version can't read.
@@ -627,17 +632,18 @@ class NoteSync(
         if (!ready || scanner.needsFullScan()) return 0
         val chatId = library.chatId ?: return 0
         val phoneFavorites = photos.favoriteIds() ?: return 0
-        val items = store.items(ItemStatus.BackedUp).filter { it.localId != null }
+        // Ids and favorites only: this runs on every open, and whole rows of a large library ran a phone out of memory.
+        val items = store.favoriteRefs()
         val lastSeen = store.phoneFavorites()
         val latest = MetaLog.latest(store.metaNotes())
         val waiting = store.queuedMetaChanges(chatId)
         val remember = HashMap<String, Boolean?>()
         val linked = items.map { it.id }.toHashSet()
         lastSeen.keys.filter { it !in linked }.forEach { remember[it] = null }
-        val toPhone = HashMap<Boolean, MutableList<LibraryItem>>()
-        val toNote = HashMap<Boolean, MutableList<LibraryItem>>()
+        val toPhone = HashMap<Boolean, MutableList<FavoriteRef>>()
+        val toNote = HashMap<Boolean, MutableList<FavoriteRef>>()
         for (item in items) {
-            val phone = item.localId!! in phoneFavorites
+            val phone = item.localId in phoneFavorites
             val noteDecides = latest[item.id]?.containsKey(MetaLog.Key.Favorite) == true || waiting[item.id]?.containsKey(MetaLog.Key.Favorite) == true
             when (val d = PhotosFavorite.decide(phone, lastSeen[item.id], PhotosFavorite.libraryValue(item.favorite, noteDecides), noteDecides)) {
                 PhotosFavorite.Decision.Remember -> if (lastSeen[item.id] != phone) remember[item.id] = phone
@@ -648,18 +654,18 @@ class NoteSync(
         var sent = 0
         for ((value, group) in toNote) {
             // Only photos really on the phone with that value: a link to a photo that's gone must not unfavorite it everywhere.
-            val current = photos.favorites(group.mapNotNull { it.localId })
+            val current = photos.favorites(group.map { it.localId })
             val ready = group.filter { current[it.localId] == value }
             if (ready.isEmpty()) continue
-            change(ready, MetaLog.Key.Favorite, value)
+            change(store.items(ready.map { it.id }), MetaLog.Key.Favorite, value)
             ready.forEach { remember[it.id] = value }
             sent += ready.size
         }
         store.setPhoneFavorites(remember)
         val requests = toPhone.mapNotNull { (value, group) ->
-            val current = photos.favorites(group.mapNotNull { it.localId })
+            val current = photos.favorites(group.map { it.localId })
             val ready = group.filter { current[it.localId] == !value }
-            if (ready.isEmpty()) null else PhoneFavoriteRequest(value, ready.mapNotNull { it.localId }, ready.map { it.id })
+            if (ready.isEmpty()) null else PhoneFavoriteRequest(value, ready.map { it.localId }, ready.map { it.id })
         }
         // Declined once since Lelvo started: not again until the next start, or it would ask on every open.
         _phoneRequests.value = if (phoneDeclined) emptyList() else requests

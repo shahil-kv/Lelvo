@@ -23,7 +23,17 @@ class FeedbackTest {
         val text = Feedback.draft(Feedback.Kind.Bug, "Lelvo", "Shahil", env)
         assertTrue(text.startsWith("Hi Shahil,"))
         assertTrue(text.contains("What happened instead:"))
+        assertTrue(text.contains("Lelvo-log.txt"))
+        assertTrue(text.contains("removed automatically"))
         assertTrue(text.endsWith("Lelvo 0.1.0 (12), Pixel 9, Android 16"))
+    }
+
+    @Test
+    fun logNotesExplainHelpAndPrivacyWithoutSecrets() {
+        assertTrue(Feedback.LOG_HELP_NOTE.contains("helps"))
+        assertTrue(Feedback.LOG_PRIVACY_NOTE.contains("Phone numbers"))
+        assertTrue(Feedback.LOG_PRIVACY_NOTE.contains("removed"))
+        assertFalse(Feedback.LOG_PRIVACY_NOTE.lowercase().contains("api_hash"))
     }
 
     @Test
@@ -73,9 +83,12 @@ class FeedbackTest {
         val bug = Feedback.groupPost(Feedback.Kind.Bug, "Lelvo", env)
         assertTrue(bug.startsWith("🐞 Bug\n\nWhat I did:"))
         assertTrue("What happened instead:" in bug)
-        assertTrue(bug.endsWith("Phone: Google Pixel 8, Android 16\nLelvo version: 0.2.0 (7) (Android)"))
+        assertTrue("Lelvo-log.txt" in bug)
+        assertTrue("removed" in bug)
+        assertTrue("Phone: Google Pixel 8, Android 16\nLelvo version: 0.2.0 (7) (Android)" in bug)
         val idea = Feedback.groupPost(Feedback.Kind.Idea, "Lelvo", env)
         assertTrue(idea.startsWith("💡 Feature idea\n\nWhat I'd like Lelvo to do:"))
         assertTrue(idea.endsWith("Lelvo 0.2.0 (7) (Android), Google Pixel 8"))
+        assertFalse("Lelvo-log.txt" in idea)
     }
 }

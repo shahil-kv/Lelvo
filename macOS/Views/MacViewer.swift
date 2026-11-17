@@ -56,6 +56,8 @@ struct MacViewer: View {
     let entries: [GalleryEntry]
     @Binding var currentId: String?
     let onClose: () -> Void
+    /// Right-click actions for the item on screen (same set as the grid, without Open).
+    var menu: (GalleryEntry) -> [GridMenuItem] = { _ in [] }
 
     @State private var zoomed = false
     @State private var hoverEdge: HorizontalEdge?
@@ -87,7 +89,7 @@ struct MacViewer: View {
             ZStack {
                 Color.black.opacity(expanded ? 1 : 0)
                 if let current {
-                    MacViewerPage(entry: current, isCurrent: true, zoomed: $zoomed)
+                    MacViewerPage(entry: current, isCurrent: true, zoomed: $zoomed, menu: { menu(current) })
                         .environmentObject(videos)
                         .id(current.id)
                         .transition(.asymmetric(
@@ -310,6 +312,7 @@ struct MacViewerPage: View {
     let entry: GalleryEntry
     let isCurrent: Bool
     @Binding var zoomed: Bool
+    var menu: () -> [GridMenuItem] = { [] }
 
     enum Content {
         case loading(PlatformImage?)
@@ -328,9 +331,10 @@ struct MacViewerPage: View {
     @State private var liveControl = LiveControl()
     @State private var showSpinner = false
 
-    init(entry: GalleryEntry, isCurrent: Bool, zoomed: Binding<Bool>) {
+    init(entry: GalleryEntry, isCurrent: Bool, zoomed: Binding<Bool>, menu: @escaping () -> [GridMenuItem] = { [] }) {
         self.entry = entry
         self.isCurrent = isCurrent
+        self.menu = menu
         _zoomed = zoomed
         // Start from the grid tile's image, so the page is never black while the full image loads.
         let tile = ThumbnailPipeline.shared.cached(entry)?.image
@@ -345,12 +349,12 @@ struct MacViewerPage: View {
                 if let placeholder { Image(platformImage: placeholder).resizable().scaledToFit() }
                 if showSpinner { spinner.transition(.opacity) }
             case .image(let image):
-                ZoomableImage(image: image, entry: entry, zoomed: isCurrent ? $zoomed : .constant(false))
+                ZoomableImage(image: image, entry: entry, zoomed: isCurrent ? $zoomed : .constant(false), menu: menu)
             case .live(let live, _):
-                MacLivePhotoView(livePhoto: live, control: liveControl)
+                MacLivePhotoView(livePhoto: live, control: liveControl, menu: menu)
                     .overlay(alignment: .topLeading) { LiveBadge(control: liveControl).padding(16) }
             case .video(let player):
-                MacPlayerView(player: player) { videoReady = true }
+                MacPlayerView(player: player, menu: menu) { videoReady = true }
                     .overlay {
                         if !videoReady {
                             ZStack {
@@ -395,6 +399,25 @@ struct MacViewerPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Fallback for loading / unavailable; AppKit photo and video views supply their own menu(for:).
+        .contextMenu {
+            ForEach(Array(menu().enumerated()), id: \.offset) { _, item in
+                if item.isSeparator {
+                    Divider()
+                } else {
+                    Button {
+                        item.action()
+                    } label: {
+                        if let symbol = item.symbol {
+                            Label(item.title, systemImage: symbol)
+                        } else {
+                            Text(item.title)
+                        }
+                    }
+                    .disabled(!item.enabled)
+                }
+            }
+        }
         .task(id: entry.id) { await load() }
         .task(id: entry.id) {
             // Only slow loads get a spinner; fast ones would just flicker.
@@ -567,6 +590,7 @@ struct ZoomableImage: NSViewRepresentable {
     /// What a drag out of the photo carries (the original, or the edit when there is one).
     let entry: GalleryEntry
     @Binding var zoomed: Bool
+    var menu: () -> [GridMenuItem] = { [] }
 
     func makeCoordinator() -> Coordinator { Coordinator(zoomed: $zoomed) }
 
@@ -589,6 +613,7 @@ struct ZoomableImage: NSViewRepresentable {
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.animates = true
         imageView.setAccessibilityLabel("Photo")
+        imageView.menuBuilder = menu
         scroll.documentView = imageView
         let doubleClick = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleClicked(_:)))
         doubleClick.numberOfClicksRequired = 2
@@ -599,7 +624,9 @@ struct ZoomableImage: NSViewRepresentable {
 
     func updateNSView(_ scroll: ZoomScrollView, context: Context) {
         if let iv = scroll.documentView as? NSImageView, iv.image !== image { iv.image = image }
-        (scroll.documentView as? DraggableImageView)?.entry = entry
+        let drag = scroll.documentView as? DraggableImageView
+        drag?.entry = entry
+        drag?.menuBuilder = menu
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ZoomScrollView, context: Context) -> CGSize? {
@@ -635,8 +662,15 @@ struct ZoomableImage: NSViewRepresentable {
 /// The viewer's photo: drag it into Finder, Mail, Messages, ChatGPT or a browser, like a photo in Preview.
 final class DraggableImageView: NSImageView {
     var entry: GalleryEntry?
+    /// Right-click menu from the gallery (Share, Download, Delete…).
+    var menuBuilder: (() -> [GridMenuItem])?
     private var downEvent: NSEvent?
     private var dragging = false
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let items = menuBuilder?(), !items.isEmpty else { return super.menu(for: event) }
+        return items.makeNSMenu()
+    }
 
     override func mouseDown(with event: NSEvent) {
         downEvent = event
@@ -725,16 +759,26 @@ final class CenteringClipView: NSClipView {
 /// AVPlayerView with the floating QuickTime controls: scrubbing, AirPlay, speed.
 struct MacPlayerView: NSViewRepresentable {
     let player: AVPlayer
+    var menu: () -> [GridMenuItem] = { [] }
     var onReadyForDisplay: () -> Void = {}
 
     final class Coordinator {
         var observation: NSKeyValueObservation?
     }
 
+    /// Right-click must land on this subclass; AVPlayerView's own menu would otherwise win.
+    final class MenuPlayerView: AVPlayerView {
+        var menuBuilder: (() -> [GridMenuItem])?
+        override func menu(for event: NSEvent) -> NSMenu? {
+            guard let items = menuBuilder?(), !items.isEmpty else { return super.menu(for: event) }
+            return items.makeNSMenu()
+        }
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
+    func makeNSView(context: Context) -> MenuPlayerView {
+        let view = MenuPlayerView()
         view.player = player
         view.controlsStyle = .floating
         view.videoGravity = .resizeAspect
@@ -742,6 +786,7 @@ struct MacPlayerView: NSViewRepresentable {
         view.showsFullScreenToggleButton = true
         view.allowsMagnification = true
         view.updatesNowPlayingInfoCenter = true
+        view.menuBuilder = menu
         let ready = onReadyForDisplay
         context.coordinator.observation = view.observe(\.isReadyForDisplay, options: [.initial, .new]) { v, _ in
             if v.isReadyForDisplay { DispatchQueue.main.async { ready() } }
@@ -749,16 +794,17 @@ struct MacPlayerView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: AVPlayerView, context: Context) {
+    func updateNSView(_ view: MenuPlayerView, context: Context) {
         if view.player !== player { view.player = player }
+        view.menuBuilder = menu
     }
 
     /// AVPlayerView reports the video's pixel size as its intrinsic size; always take exactly the page instead.
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: AVPlayerView, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: MenuPlayerView, context: Context) -> CGSize? {
         proposal.replacingUnspecifiedDimensions()
     }
 
-    static func dismantleNSView(_ view: AVPlayerView, coordinator: Coordinator) {
+    static func dismantleNSView(_ view: MenuPlayerView, coordinator: Coordinator) {
         coordinator.observation = nil
         view.player?.pause()
     }
@@ -776,11 +822,27 @@ final class LiveControl {
 struct MacLivePhotoView: NSViewRepresentable {
     let livePhoto: PHLivePhoto
     let control: LiveControl
+    var menu: () -> [GridMenuItem] = { [] }
 
     /// PHLivePhotoView reports the photo's pixel size as its intrinsic size; a plain container fills the page instead.
     final class Container: NSView {
-        let live = PHLivePhotoView()
+        let live = MenuLivePhotoView()
+        var menuBuilder: (() -> [GridMenuItem])? {
+            get { live.menuBuilder }
+            set { live.menuBuilder = newValue }
+        }
         override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric) }
+        override func menu(for event: NSEvent) -> NSMenu? {
+            live.menu(for: event) ?? super.menu(for: event)
+        }
+    }
+
+    final class MenuLivePhotoView: PHLivePhotoView {
+        var menuBuilder: (() -> [GridMenuItem])?
+        override func menu(for event: NSEvent) -> NSMenu? {
+            guard let items = menuBuilder?(), !items.isEmpty else { return super.menu(for: event) }
+            return items.makeNSMenu()
+        }
     }
 
     func makeNSView(context: Context) -> Container {
@@ -790,6 +852,7 @@ struct MacLivePhotoView: NSViewRepresentable {
         container.live.frame = container.bounds
         container.live.autoresizingMask = [.width, .height]
         container.live.setAccessibilityLabel("Live Photo. Point at LIVE to play.")
+        container.menuBuilder = menu
         container.addSubview(container.live)
         control.view = container.live
         return container
@@ -797,6 +860,7 @@ struct MacLivePhotoView: NSViewRepresentable {
 
     func updateNSView(_ container: Container, context: Context) {
         if container.live.livePhoto !== livePhoto { container.live.livePhoto = livePhoto }
+        container.menuBuilder = menu
         control.view = container.live
     }
 

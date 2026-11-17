@@ -249,6 +249,33 @@ class BackupCountsTest {
         assertEquals(0, c.left); assertEquals(3, c.failed); assertEquals(0, c.retryable)
     }
 
+    @Test fun countsFromTotalsMatchTheLists() {
+        val queued = listOf(item(chosen = true), item(), item(local = null, cloud = true))
+        val failed = listOf(item(status = ItemStatus.Failed), item(local = null, status = ItemStatus.Failed, cloud = true))
+        val fromLists = compute(queued = queued, failed = failed, candidates = listOf("B", "A"), known = setOf("A"), auto = false)
+        val uploadable = queued.filter { !it.isStrandedInCloud }
+        val fromTotals = BackupCounts.fromParts(
+            uploadable = uploadable.size, chosenUploadable = uploadable.count { it.chosen },
+            stranded = queued.count { it.isStrandedInCloud }, failed = failed.size,
+            retryableFailed = failed.count { !it.isStrandedInCloud }, newOnPhone = 1, autoBackup = false,
+        )
+        assertEquals(fromLists, fromTotals)
+    }
+
+    @Test fun queueMarksInTheExtrasMatchTheItem() {
+        val plain = item()
+        assertFalse(UploadOrder.extrasMarkInProgress(ItemExtras.encode(plain)))
+        assertFalse(UploadOrder.extrasMarkChosen(ItemExtras.encode(plain)))
+        assertEquals(1, UploadOrder.rank(plain))
+        assertTrue(UploadOrder.extrasMarkChosen(ItemExtras.encode(item(chosen = true))))
+        val half = item(cloud = true)
+        assertTrue(UploadOrder.extrasMarkInProgress(ItemExtras.encode(half)))
+        assertEquals(0, UploadOrder.rank(half))
+        assertEquals(2, UploadOrder.rank(item(kind = ItemKind.Video)))
+        val resumed = plain.copy(uploadResume = mapOf("o" to FileCrypto.ResumePoint(0, 1024, ByteArray(16), null, "ab")))
+        assertTrue(UploadOrder.extrasMarkInProgress(ItemExtras.encode(resumed)))
+    }
+
     private fun removed(trashed: List<LibraryItem> = emptyList(), offBackup: Set<String> = emptySet(), known: Set<String> = emptySet(), present: Set<String>) =
         BackupCounts.removedFromBackup(trashed, offBackup, known, present)
 
@@ -350,6 +377,9 @@ class FreeUpSpaceTest {
         assertTrue(FreeUpSpace.isCandidate(done()))
         assertFalse(FreeUpSpace.isCandidate(done().copy(localId = null)))
         assertFalse(FreeUpSpace.isCandidate(done().copy(status = ItemStatus.Trashed)))
+        // Locked Folder (#129): Free Up’s list excludes locked; safety check still allows an explicit remove-after-lock.
+        assertTrue(FreeUpSpace.isCandidate(done().copy(locked = true)))
+        assertFalse(FreeUpSpace.isFreeUpOffer(done().copy(locked = true)))
         // Encrypted with no thumbnail in the cloud: not complete.
         assertFalse(FreeUpSpace.isCandidate(done().copy(parts = done().parts - "t")))
     }

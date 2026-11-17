@@ -7,6 +7,8 @@ enum KeychainStore {
     enum Key: String, CaseIterable {
         case botToken, chatId, passphrase, fileKeySalt, fileMasterKey
         case tdApiId, tdApiHash, tdDatabaseKey, e2eMasterKey
+        /// JSON blob of Locked folder membership per library (ids only — never file bytes).
+        case lockedFolderIds
     }
 
     /// The Mac test app (`LelvoMacTestApp`) resets itself on every run. A Mac's keychain is shared between apps, so

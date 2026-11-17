@@ -63,7 +63,11 @@ struct AlbumsView: View {
                     }
                     if !content.media.isEmpty { mediaSection }
                     groupedSection("Utilities") {
-                        linkRow("Duplicates and Similar", symbol: "square.on.square") { DuplicatesView() }
+                        linkRow("Locked Folder", symbol: "lock.fill", pro: true) {
+                            LockedFolderView()
+                        }
+                        Divider().padding(.leading, 52)
+                        linkRow("Smart Cleanup", symbol: "wand.and.stars", pro: true) { DuplicatesView() }
                         if let docs = content.documents {
                             Divider().padding(.leading, 52)
                             linkRow(docs.filter.title, symbol: docs.symbol, count: docs.count) { GalleryView(filter: docs.filter, embedInNavigation: false) }
@@ -78,10 +82,16 @@ struct AlbumsView: View {
             .navigationTitle("Collections")
             .settingsButton()
             .fullScreenCover(item: $playing) { card in
-                MemoryStoryView(card: card, entries: card.memory.ids.compactMap { memories.entries[$0] }) {
-                    playing = nil
-                    showingAll = card
-                }
+                MemoryStoryView(
+                    cards: memories.cards,
+                    start: memories.cards.firstIndex(of: card) ?? 0,
+                    entriesFor: { c in c.memory.ids.compactMap { memories.entries[$0] } },
+                    onClose: { playing = nil },
+                    showAll: { current in
+                        playing = nil
+                        showingAll = current
+                    }
+                )
             }
             .navigationDestination(item: $showingAll) { card in
                 GalleryView(filter: .matching(title: card.title, ids: Set(card.memory.allIds)), embedInNavigation: false)
@@ -181,12 +191,13 @@ struct AlbumsView: View {
         }
     }
 
-    private func linkRow<Destination: View>(_ title: String, symbol: String, count: Int? = nil,
+    private func linkRow<Destination: View>(_ title: String, symbol: String, count: Int? = nil, pro: Bool = false,
                                             @ViewBuilder destination: @escaping () -> Destination) -> some View {
         NavigationLink(destination: destination) {
             HStack(spacing: 14) {
                 Image(systemName: symbol).font(.body).foregroundStyle(.tint).frame(width: 24)
                 Text(title).foregroundStyle(.primary)
+                if pro { ProBadge() }
                 Spacer()
                 if let count { Text(count.formatted()).foregroundStyle(.secondary).monospacedDigit() }
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
@@ -196,7 +207,7 @@ struct AlbumsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(count.map { "\(title), \($0) items" } ?? title)
+        .accessibilityLabel(count.map { "\(title)\(pro ? ", Pro" : ""), \($0) items" } ?? "\(title)\(pro ? ", Pro" : "")")
     }
 
     // MARK: - Data

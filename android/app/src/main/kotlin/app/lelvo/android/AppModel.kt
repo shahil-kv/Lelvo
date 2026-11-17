@@ -103,6 +103,8 @@ class AppModel(private val app: LelvoApp) {
         // Waiting changes belong to the library being left: they get a moment to go first.
         app.sync.sendBeforeLeaving()
         app.library.switchTo(opened)
+        app.lockedFolder.reloadForLibrary(opened.chatId)
+        app.lockedFolder.refreshSynced(app.store)
     }
 
     /** Reads the whole library again (Settings → Library → Re-scan), then links what it found to this phone's photos. */

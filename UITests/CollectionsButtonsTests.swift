@@ -58,9 +58,9 @@ final class CollectionsButtonsTests: XCTestCase {
         pause.tap()
         XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 5), "Pause pauses")
         screenshot("memory-paused")
-        XCTAssertTrue(app.buttons["Next photo"].exists || app.otherElements["Next photo"].exists, "Tap areas exist")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        // Memories page by swiping, like Photos' highlights.
+        app.swipeLeft()
+        app.swipeRight()
         app.buttons["Play"].tap()
         XCTAssertTrue(pause.waitForExistence(timeout: 5), "Play plays")
         app.buttons["Close"].tap()
@@ -162,8 +162,8 @@ final class CollectionsButtonsTests: XCTestCase {
     // MARK: Utilities
 
     func testDuplicatesOpens() {
-        open("Duplicates and Similar")
-        XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 10))
+        open("Smart Cleanup")
+        XCTAssertTrue(app.navigationBars["Smart Cleanup"].waitForExistence(timeout: 10))
         sleep(5)
         screenshot("duplicates")
     }
