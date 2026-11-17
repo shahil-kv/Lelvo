@@ -114,10 +114,10 @@ final class CollectionsTests: XCTestCase {
     func testDuplicatesAndSimilar() {
         app.buttons["Collections"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Collections"].waitForExistence(timeout: 20))
-        let duplicates = app.buttons["Duplicates and Similar"].firstMatch
+        let duplicates = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Smart Cleanup")).firstMatch
         for _ in 0..<8 where !duplicates.isHittable { app.swipeUp() }
         duplicates.tap()
-        XCTAssertTrue(app.navigationBars["Duplicates"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Smart Cleanup"].waitForExistence(timeout: 10))
         settle(4)
         shot("duplicates")
     }
