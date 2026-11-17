@@ -57,6 +57,12 @@ enum TDServiceError: LocalizedError {
         return message.contains("API_ID_INVALID") || message.contains("API_ID_PUBLISHED_FLOOD")
     }
 
+    /// TDLib refused a sign-in call in its current state ("Call to setAuthenticationPhoneNumber unexpected").
+    var isUnexpectedAuthCall: Bool {
+        guard case .telegram(let code, let message) = self else { return false }
+        return code == 400 && message.localizedCaseInsensitiveContains("unexpected")
+    }
+
     /// Classification used by the backup job machine.
     var kind: TelegramErrorKind {
         switch self {
@@ -505,6 +511,16 @@ final class TDService: @unchecked Sendable {
         await waitUntilClosed(old)
         lock.withLock { if client === old { client = nil } }
         start()
+    }
+
+    /// [switchAccount], then waits (at most 15 s) until the new TDLib asks for a phone number, so a number sent next
+    /// doesn't reach a client still starting.
+    func startSignInAgain() async {
+        await switchAccount()
+        for _ in 0..<150 {
+            if lock.withLock({ _auth }) == .waitPhone { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
     }
 
     /// Days of inactivity after which Telegram deletes the account (and the library channel with it).
