@@ -25,11 +25,12 @@ final class BackupStatsModel: ObservableObject {
         }
     }
 
-    /// The store changes constantly during a backup; recount at most every 2 s.
+    /// The store changes constantly during a backup; recount at most every 2 s, every 5 s on a large library.
     func scheduleRefresh() {
         guard pendingRefresh == nil else { return }
+        let seconds: UInt64 = lastTotal > 10_000 ? 5 : 2
         pendingRefresh = Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
             pendingRefresh = nil
             refresh()
         }
@@ -38,7 +39,14 @@ final class BackupStatsModel: ObservableObject {
     deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
 
     /// Accurate counts: verified items only count as backed up (#17).
+    /// One recount at a time: on a large library one can take longer than the gap between two.
+    private var refreshing = false
+    private var refreshAgain = false
+    private var lastTotal = 0
+
     func refresh() {
+        guard !refreshing else { refreshAgain = true; return }
+        refreshing = true
         let env = AppEnvironment.shared
         Task.detached {
             // Photos deleted in the Photos app while queued would otherwise count as left to back up.
@@ -47,7 +55,8 @@ final class BackupStatsModel: ObservableObject {
             let queued = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
             let failedItems = (try? env.store.items(status: .failed)) ?? []
             let autoBackup = Prefs.autoBackup
-            let all = (try? env.store.items(status: .backedUp)) ?? []
+            // Ids only: decoding every backed-up item here every few seconds kept a large library busy during a backup.
+            let all = (try? env.store.localIdentifiers(status: .backedUp)) ?? []
             var onDevice = 0, cloudOnly = 0, removed = 0
             var work: BackupCounts
             if DemoMode.isActive {
@@ -62,8 +71,8 @@ final class BackupStatsModel: ObservableObject {
                 work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: env.photos.backupCandidates().map(\.localIdentifier),
                                             known: (try? env.store.knownLocalIdentifiers()) ?? [],
                                             offBackup: (try? env.store.offBackupLocalIdentifiers()) ?? [], autoBackup: autoBackup)
-                let present = env.photos.existingIdentifiers(all.compactMap(\.localIdentifier))
-                cloudOnly = all.filter { $0.localIdentifier.map { !present.contains($0) } ?? true }.count
+                let present = env.photos.existingIdentifiers(all.compactMap { $0 })
+                cloudOnly = all.filter { $0.map { !present.contains($0) } ?? true }.count
                 removed = RemovedFromBackupModel.photos().count
             } else {
                 work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup)
@@ -80,6 +89,9 @@ final class BackupStatsModel: ObservableObject {
                 self.notQueued = result.notQueued
                 self.left = result.left
                 self.removedFromBackup = removedCount
+                self.lastTotal = counts.values.reduce(0, +)
+                self.refreshing = false
+                if self.refreshAgain { self.refreshAgain = false; self.scheduleRefresh() }
             }
         }
     }

@@ -147,13 +147,13 @@ enum LibraryRescan {
         defer { isRunning = false }
         let env = AppEnvironment.shared
         if DemoMode.isActive {
-            let count = await Task.detached { (try? env.store.allItems().count) ?? 0 }.value
+            let count = await Task.detached { (try? env.store.itemCount()) ?? 0 }.value
             let report = RescanReport(itemsBefore: count, itemsAfter: count, incomplete: 0, duplicates: 0)
             toast.show(.success, report.title, detail: report.detail)
             Haptics.success()
             return
         }
-        let before = await Task.detached { (try? env.store.allItems().count) ?? 0 }.value
+        let before = await Task.detached { (try? env.store.itemCount()) ?? 0 }.value
         do {
             let summary = try await env.library.scan(full: true) { read in
                 // A late hop must not replace the result.
@@ -165,7 +165,7 @@ enum LibraryRescan {
             let (after, favorites) = await Task.detached {
                 env.engine.relinkRestoredItems()
                 let favorites = await TrashSync.shared.afterCatchUp()
-                return ((try? env.store.allItems().count) ?? 0, favorites)
+                return ((try? env.store.itemCount()) ?? 0, favorites)
             }.value
             let report = RescanReport(itemsBefore: before, itemsAfter: after, incomplete: summary.incomplete, duplicates: summary.orphans.count,
                                       favoritesMatched: favorites)

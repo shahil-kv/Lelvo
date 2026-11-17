@@ -43,6 +43,26 @@ import LelvoCore
         #expect(reopened.meta("k") == "v")
     }
 
+    /// The light reads the screens use on a large library agree with decoding every item.
+    @Test func lightReadsMatchFullReads() throws {
+        let url = tempURL()
+        defer { remove(url) }
+        let store = try LibraryStore(url: url)
+        var items = (0..<300).map { item($0) }
+        for n in [3, 50, 299] { items[n].locked = true }
+        items[50].status = .trashed
+        items[7].locked = false
+        items[8].localIdentifier = nil
+        try store.upsert(items)
+        #expect(Set(try store.lockedItems().map(\.id)) == Set(try store.allItems().filter { $0.locked == true }.map(\.id)))
+        #expect(try store.lockedItems().count == 3)
+        #expect(try store.itemCount() == 300)
+        let ids = try store.localIdentifiers(status: .backedUp)
+        #expect(ids.count == 299)
+        #expect(ids.filter { $0 == nil }.count == 1)
+        #expect(Set(ids.compactMap { $0 }) == Set(try store.items(status: .backedUp).compactMap(\.localIdentifier)))
+    }
+
     /// Reads go through the second connection and must see every committed write at once, through cached statements.
     @Test func readsSeeWritesAtOnce() throws {
         let url = tempURL()
