@@ -517,6 +517,8 @@ struct DuplicatesView: View {
     @State private var alert: GalleryAlert?
     @State private var confirmCloud = false
     @State private var similar: [SimilarPhotosService.Group] = []
+    /// Bytes of the similar shots after the best one, worked out off the main actor when the groups arrive.
+    @State private var similarExtraBytes: Int64 = 0
     @State private var similarProgress: (done: Int, total: Int)?
     @State private var selectedSimilar = Set<String>()
     @State private var confirmSimilar = false
@@ -545,12 +547,8 @@ struct DuplicatesView: View {
 
     /// Pro teaser: screenshots + large videos + blurry + burst estimate (or real similar extras once scanned).
     private var proEstimateBytes: Int64 {
-        let similarBytes: Int64 = {
-            guard pro.isPro, !similar.isEmpty else { return smart.burstBytes }
-            return similar.reduce(0) { sum, g in
-                sum + g.entries.filter { $0.id != g.best }.compactMap(\.asset).reduce(0) { $0 + Self.assetBytes($1) }
-            }
-        }()
+        // Read in the view body: no PhotoKit here, only numbers worked out when the lists arrived.
+        let similarBytes: Int64 = pro.isPro && !similar.isEmpty ? similarExtraBytes : smart.burstBytes
         return smart.screenshots.reduce(0) { $0 + $1.bytes }
             + smart.largeVideos.reduce(0) { $0 + $1.bytes }
             + smart.blurry.reduce(0) { $0 + $1.bytes }
@@ -709,9 +707,12 @@ struct DuplicatesView: View {
     private func load() async {
         loading = true
         let env = self.env
+        // Locked Folder photos never show in the cleanup lists: they'd be seen there without Face ID, and could be deleted.
+        let pendingLocked = LockedFolderStore.shared.pendingLocalIds
         let (m, c, p, report) = await Task.detached {
-            (env.library.duplicateMessageIds, env.engine.cloudDuplicateGroups(), env.engine.phoneDuplicateGroups(),
-             env.smartCleanup.scan())
+            let locked = pendingLocked.union(((try? env.store.lockedItems()) ?? []).compactMap(\.localIdentifier))
+            return (env.library.duplicateMessageIds, env.engine.cloudDuplicateGroups(), env.engine.phoneDuplicateGroups(),
+                    env.smartCleanup.scan(excluding: locked))
         }.value
         messageDuplicates = m
         cloudGroups = c
@@ -723,11 +724,6 @@ struct DuplicatesView: View {
         loading = false
     }
 
-    private static func assetBytes(_ asset: PHAsset) -> Int64 {
-        PHAssetResource.assetResources(for: asset).reduce(0) {
-            $0 + (($1.value(forKey: "fileSize") as? NSNumber)?.int64Value ?? 0)
-        }
-    }
 
     // MARK: - Similar photos (#15) — Lelvo Pro
 
@@ -908,6 +904,11 @@ struct DuplicatesView: View {
         let found = await env.similar.find { done, total in Task { @MainActor in if similarProgress != nil { similarProgress = (done, total) } } }
         similarProgress = nil
         guard !Task.isCancelled else { return }
+        similarExtraBytes = await Task.detached(priority: .utility) {
+            found.reduce(Int64(0)) { sum, g in
+                sum + g.entries.filter { $0.id != g.best }.compactMap(\.asset).reduce(0) { $0 + SmartCleanupService.bytes(of: $1) }
+            }
+        }.value
         similar = found
         selectedSimilar = selectedSimilar.intersection(Set(similar.flatMap { $0.entries.map(\.id) }))
     }

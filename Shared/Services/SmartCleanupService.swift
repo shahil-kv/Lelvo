@@ -48,7 +48,8 @@ final class SmartCleanupService: @unchecked Sendable {
     }
 
     /// Scans the phone library off the main thread. Safe to call often; Photos fetch is the cost.
-    func scan() -> Report {
+    /// [excluding]: device photo ids that never show here (Locked Folder).
+    func scan(excluding: Set<String> = []) -> Report {
         guard PhotoLibraryService.hasAccess else { return Report() }
         var report = Report()
         let facts = (try? store.photoFacts()) ?? [:]
@@ -59,6 +60,7 @@ final class SmartCleanupService: @unchecked Sendable {
         options.includeHiddenAssets = false
         PHAsset.fetchAssets(with: options).enumerateObjects { asset, _, _ in
             let id = asset.localIdentifier
+            if excluding.contains(id) { return }
             let bytes = Self.bytes(of: asset)
             sizes[id] = bytes
 
@@ -105,7 +107,7 @@ final class SmartCleanupService: @unchecked Sendable {
         return report
     }
 
-    private static func bytes(of asset: PHAsset) -> Int64 {
+    static func bytes(of asset: PHAsset) -> Int64 {
         let resources = PHAssetResource.assetResources(for: asset)
         var total: Int64 = 0
         for r in resources {

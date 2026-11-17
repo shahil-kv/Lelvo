@@ -147,7 +147,8 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
         cloud = service.cloudGroups()
         phone = service.phoneGroups()
         selected = selected intersect phone.flatMap { g -> g.copies.map { it.localId } }.toSet()
-        smart = app.smartCleanup.scan()
+        // Locked Folder photos never show in the cleanup lists: they'd be seen there without unlocking, and could be deleted.
+        smart = app.smartCleanup.scan(excluding = app.lockedFolder.pendingLocalIds.value + app.store.lockedLocalIds())
         val smartIds = (smart.screenshots + smart.largeVideos).map { it.localId }.toSet()
         selectedSmart = selectedSmart intersect smartIds
         loading = false

@@ -33,7 +33,8 @@ class SmartCleanupService(private val app: Context) {
         const val LARGE_VIDEO_BYTES = 50_000_000L
     }
 
-    suspend fun scan(): Report = withContext(Dispatchers.IO) {
+    /** [excluding]: phone photo ids that never show here (Locked Folder). */
+    suspend fun scan(excluding: Set<String> = emptySet()): Report = withContext(Dispatchers.IO) {
         val screenshots = ArrayList<Item>()
         val largeVideos = ArrayList<Item>()
         val sizes = HashMap<String, Long>()
@@ -67,6 +68,7 @@ class SmartCleanupService(private val app: Context) {
             while (c.moveToNext()) {
                 val id = c.getLong(iId)
                 val localId = id.toString()
+                if (localId in excluding) continue
                 val bytes = c.getLong(iSize).coerceAtLeast(0)
                 sizes[localId] = bytes
                 val video = c.getInt(iType) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
