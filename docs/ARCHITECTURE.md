@@ -134,3 +134,5 @@ the processing task runs off the charger unless "Only while charging" is on and 
 photos wait; and a Shortcuts "Camera closed" automation runs the App Intent for about 25 s. Every run goes through
 `BackupEngine.run` (two uploads at most, FLOOD_WAIT honoured) and is recorded as a `RunRecord` (counts only). Local
 notifications (opt-in) carry a morning summary and a reminder after 2, 6, 14 days of waiting. No server is involved.
+
+On Android the same engine runs inside the app process, scheduled by WorkManager. A MediaStore trigger notices new photos and has no network or charging constraint. The upload is a separate job that stops itself at 9 minutes and books another 15 minutes later, so a backlog finishes on battery. Overnight work still waits for the charger and then reads photos for search. Opening the app starts a backup when something is waiting and does not cancel a run already going. Telegram's wait is stored, so a new process does not send early. Opt-in notifications use a second low-importance channel and show counts only.

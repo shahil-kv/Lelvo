@@ -22,6 +22,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import app.lelvo.android.LelvoApp
+import app.lelvo.core.backup.BackgroundIssue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.lelvo.android.R
 import app.lelvo.android.backup.SecondCopyScreen
 import app.lelvo.android.collections.MemoriesSettingsScreen
@@ -38,6 +41,7 @@ data class SettingsInfo(val account: String, val library: String)
 /** The pages under Settings, newest last; Back closes the top one. */
 private sealed interface Page {
     data object BackupOptions : Page
+    data object Background : Page
     data object Albums : Page
     data object Memories : Page
     data object Pro : Page
@@ -60,19 +64,20 @@ private const val MAX_TTL_DAYS = 730
 @Composable
 fun SettingsScreen(
     app: LelvoApp, real: Boolean, info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit,
-    onCoreCheck: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
+    onCoreCheck: (() -> Unit)?, onBackgroundLab: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
 ) {
     var pages by remember { mutableStateOf(emptyList<Page>()) }
     val open = { p: Page -> pages = pages + p }
     val back = { pages = pages.dropLast(1) }
 
-    Main(app, real, info, onClose, onSignOut, onCoreCheck, onLibrary, onBackupRulesChanged, open, visible = pages.isEmpty())
+    Main(app, real, info, onClose, onSignOut, onCoreCheck, onBackgroundLab, onLibrary, onBackupRulesChanged, open, visible = pages.isEmpty())
     pages.forEachIndexed { i, page ->
         // Each page stays composed under the next, so Back returns to the same place.
         key(i, page) {
             Surface(Modifier.fillMaxSize()) {
                 when (page) {
                     Page.BackupOptions -> BackupOptionsScreen(app.prefs, onAlbums = { open(Page.Albums) }, onRulesChanged = onBackupRulesChanged, onBack = back)
+                    Page.Background -> BackgroundBackupScreen(app, onBack = back)
                     Page.Albums -> AlbumPickerScreen(app, onChanged = { onBackupRulesChanged(false) }, onBack = back)
                     Page.Memories -> MemoriesSettingsScreen(app, onBack = back)
                     Page.Pro -> ProSettingsScreen(app, onBack = back)
@@ -92,7 +97,7 @@ fun SettingsScreen(
 @Composable
 private fun Main(
     app: LelvoApp, real: Boolean, info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit,
-    onCoreCheck: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
+    onCoreCheck: (() -> Unit)?, onBackgroundLab: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
     open: (Page) -> Unit, visible: Boolean,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -118,8 +123,13 @@ private fun Main(
         if (real) {
             SectionDivider()
             SectionHeader("Backup")
+            val backgroundIssue by androidx.compose.runtime.produceState(BackgroundIssue.None, real) {
+                value = if (!real) BackgroundIssue.None
+                else withContext(Dispatchers.IO) { BackgroundStatus.issue(app, app.backup.readyCount()) }
+            }
+            SettingRow("Background backup", BackgroundStatus.label(backgroundIssue), icon = R.drawable.ic_tune) { open(Page.Background) }
             ToggleRow("Back up new photos automatically",
-                if (auto) "New photos are backed up on their own, including overnight while charging."
+                if (auto) "Lelvo backs up soon after you take photos, and when you open it."
                 else "Nothing uploads on its own: use Back up now on the Backup tab, or Back up on the photos you choose.",
                 auto, icon = R.drawable.ic_cloud_upload) { auto = it; app.prefs.autoBackup = it; onBackupRulesChanged(false) }
             SettingRow("Backup options", summary, icon = R.drawable.ic_tune) { open(Page.BackupOptions) }
@@ -153,6 +163,7 @@ private fun Main(
             SectionDivider()
             SectionHeader("Developer")
             SettingRow("Core check", "Proves Android reads your library like the iPhone", onClick = onCoreCheck)
+            if (onBackgroundLab != null) SettingRow("Background lab", "Run each backup job and see why it stopped", onClick = onBackgroundLab)
         }
 
         SectionDivider()

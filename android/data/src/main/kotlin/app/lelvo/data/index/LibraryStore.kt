@@ -65,6 +65,19 @@ class LibraryStore(private val db: IndexDatabase) {
     suspend fun backedUpCount(): Int = dao.backedUpCount()
     suspend fun allItems(): List<LibraryItem> = dao.allNow().map(::toItem)
 
+    /**
+     * Backed-up items linked to a phone photo, [pageSize] rows at a time, until [block] returns false. A large
+     * library (tens of thousands of rows with their parts) never sits in memory at once.
+     */
+    suspend fun forEachBackedUpOnPhone(pageSize: Int = 500, block: suspend (List<LibraryItem>) -> Boolean) {
+        var after = ""
+        while (true) {
+            val page = dao.backedUpOnPhonePage(after, pageSize)
+            if (page.isEmpty() || !block(page.map(::toItem))) return
+            after = page.last().id
+        }
+    }
+
     /** Chunked: Android 10's SQLite allows 999 values in one query. */
     suspend fun items(ids: Collection<String>): List<LibraryItem> = ids.chunked(500).flatMap { dao.items(it) }.map(::toItem)
 

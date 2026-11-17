@@ -6,7 +6,6 @@ import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import app.lelvo.android.LelvoApp
-import app.lelvo.core.index.ItemStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -70,7 +69,7 @@ class BackupTileService : TileService() {
             c.failed > 0 && pending > 0 -> "$pending waiting, ${c.failed} failed"
             c.failed > 0 -> "${c.failed} failed"
             pending > 0 -> "$pending waiting"
-            else -> "${"%,d".format(runCatching { app.store.items(ItemStatus.BackedUp).size }.getOrDefault(0))} backed up"
+            else -> "${"%,d".format(runCatching { app.store.backedUpCount() }.getOrDefault(0))} backed up"
         }
     }
 

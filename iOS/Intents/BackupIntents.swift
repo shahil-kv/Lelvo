@@ -30,6 +30,7 @@ struct BackUpNewPhotosIntent: AppIntent {
         while env.engine.isRunning, Date() < deadline.addingTimeInterval(-10) {
             try? await Task.sleep(for: .milliseconds(500))
         }
+        Prefs.markRunStarted(.shortcut, at: started)
         let summary = await env.engine.run(deadline: deadline, includeNew: true, shortRun: true)
         recordRun(.shortcut, started: started, summary: summary)
         BackgroundTasks.scheduleAll()

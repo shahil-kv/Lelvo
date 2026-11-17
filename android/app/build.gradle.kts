@@ -69,6 +69,13 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
 }
 
 dependencies {
@@ -91,4 +98,8 @@ dependencies {
     implementation(libs.maplibre)
     implementation(libs.work.runtime)
     debugImplementation(libs.compose.ui.tooling)
+
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.launcher)
 }

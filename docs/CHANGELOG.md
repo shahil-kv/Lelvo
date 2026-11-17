@@ -5,6 +5,8 @@ What's new in Lelvo for iPhone and Mac, newest first. Downloads for each version
 
 ## Unreleased
 
+- **Mac backs up new photos within a minute:** while Lelvo is open, even with its window closed, new photos are backed up about a minute after they reach Photos, not once an hour. Turn on **Open at login** in Settings so this continues after a restart.
+- **Android backs up new photos on its own:** new photos are noticed without waiting for Wi-Fi or the charger, and the upload continues in short runs, including on battery. Opening Lelvo starts a backup when photos are waiting. If the phone is blocking background backup, the Backup tab says so and opens the setting that fixes it. A long backup that Android stops continues in the background. An optional morning note and a stuck reminder show counts only.
 - **Backup runs without opening Lelvo:** opening Lelvo starts backing up new photos at once, and iPhone's short
   background moments upload new photos and small videos. Overnight, Lelvo backs up everything still waiting, also
   when the iPhone isn't charging (unless Only while charging is on).

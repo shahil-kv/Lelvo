@@ -70,6 +70,14 @@ class JobMachineTest {
         assertEquals(JobState.Pending, JobMachine.reduce(up, JobEvent.Interrupted, now).state)
     }
 
+    @Test fun anInterruptedUploadKeepsConfirmedParts() {
+        val uploading = item(status = ItemStatus.Uploading, cloud = true)
+        val back = uploading.reduced(JobEvent.Interrupted)
+        assertEquals(ItemStatus.Queued, back.status)
+        assertEquals(uploading.parts, back.parts)
+        assertEquals(uploading.uploadResume, back.uploadResume)
+    }
+
     @Test fun errorClassification() {
         val c = TelegramErrorClassifier
         assertEquals(TelegramErrorKind.FloodWait(17), c.classify(429, "Too Many Requests: retry after 17"))

@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.lelvo.android.debug.BackgroundLabScreen
 import app.lelvo.android.debug.CoreCheckScreen
 import app.lelvo.android.library.LibraryScreen
 import app.lelvo.android.library.PhotosStepScreen
@@ -85,6 +86,8 @@ class MainActivity : ComponentActivity() {
     private val signInPreview = mutableStateOf<AuthStep?>(null)
     private val libraryPreview = mutableStateOf<String?>(null)
     private val mapPreview = mutableStateOf(false)
+    /** `--ez lelvo.backgroundLab true` opens the Debug background lab. */
+    internal val backgroundLabRequest = mutableStateOf(false)
 
     private fun previewStep(name: String): AuthStep? = when (name) {
         "code-telegram" -> AuthStep.WaitCode("We've sent the code to the Telegram app on your other device.", 5, app.lelvo.telegram.CodeDelivery.Telegram, null)
@@ -139,6 +142,7 @@ class MainActivity : ComponentActivity() {
         // `--ez lelvo.map true` shows the map with sample places (and the details sheet's small map under it), so it
         // can be checked signed out or on a library without locations. Nothing is read or written.
         if (intent.getBooleanExtra("lelvo.map", false)) { mapPreview.value = true; return }
+        if (intent.getBooleanExtra("lelvo.backgroundLab", false)) { backgroundLabRequest.value = true; return }
         // `--ez lelvo.labels true` reads places and things in this phone's photos now and logs a few photos' labels.
         if (intent.getBooleanExtra("lelvo.labels", false)) {
             val app = application as LelvoApp
@@ -294,6 +298,10 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
     var open by remember { mutableStateOf<Pair<List<GalleryEntry>, Int>?>(null) }
     var settings by rememberSaveable { mutableStateOf(false) }
     var checking by rememberSaveable { mutableStateOf(false) }
+    var backgroundLab by rememberSaveable { mutableStateOf(false) }
+    val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+    val labRequest by activity.backgroundLabRequest
+    LaunchedEffect(labRequest) { if (labRequest) backgroundLab = true }
     var libraries by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) { app.model.actionOpened.collect { settings = false; libraries = false; checking = false } }
     // Pages opened from Collections, newest last; Back closes the top one.
@@ -365,15 +373,20 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                 onSignOut = { settings = false; app.model.reset() },
                 // Debug builds only: proves the base against the real library before features are built on it.
                 onCoreCheck = if (BuildConfig.DEBUG && real) ({ checking = true }) else null,
+                onBackgroundLab = if (BuildConfig.DEBUG) ({ backgroundLab = true }) else null,
                 onLibrary = if (real) ({ libraries = true }) else null,
                 onBackupRulesChanged = { rules -> BackupScheduler.schedule(app, app.prefs, rulesChanged = rules) },
             )
             if (libraries) LibrariesScreen(app, onClose = { libraries = false })
         }
         if (checking) CoreCheckScreen(app.coreCheck, onClose = { checking = false })
+        if (backgroundLab) BackgroundLabScreen(app, onClose = {
+            backgroundLab = false
+            activity.backgroundLabRequest.value = false
+        })
         // One host over everything, so a message shows whichever screen is on top; above the tab bar or the viewer's
         // action row while they show.
-        val overTabs = open == null && !settings && !checking && pages.isEmpty()
+        val overTabs = open == null && !settings && !checking && !backgroundLab && pages.isEmpty()
         MessageHost(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (overTabs) NavigationBarHeight else if (open != null) 72.dp else 0.dp))
     }
 }

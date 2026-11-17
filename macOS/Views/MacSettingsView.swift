@@ -1,5 +1,6 @@
 import SwiftUI
 import LelvoCore
+import ServiceManagement
 
 /// Lelvo → Settings… (⌘,): one pane per topic, like the system apps.
 struct MacSettingsView: View {
@@ -38,7 +39,21 @@ private struct MacGeneralSettings: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
     @State private var error: String?
+    /// Off until the person turns it on: a login item needs their consent (App Store guideline 2.4.5).
+    @State private var openAtLogin = SMAppService.mainApp.status == .enabled
     private var env: AppEnvironment { AppEnvironment.shared }
+
+    private func setOpenAtLogin(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            error = nil
+        } catch {
+            AppLog.shared.warn("Open at login not changed: \(error.localizedDescription)")
+            self.error = on ? "Lelvo couldn't be added to your login items. Add it in System Settings > General > Login Items."
+                            : "Lelvo couldn't be removed from your login items. Remove it in System Settings > General > Login Items."
+        }
+        openAtLogin = SMAppService.mainApp.status == .enabled
+    }
 
     var body: some View {
         Form {
@@ -67,8 +82,9 @@ private struct MacGeneralSettings: View {
             Section {
                 Toggle("Back up new photos automatically", isOn: $autoBackup)
                 Toggle("Show Lelvo in the menu bar", isOn: $showMenuBarExtra)
+                Toggle("Open at login", isOn: Binding(get: { openAtLogin }, set: setOpenAtLogin))
             } header: { Text("Backup") } footer: {
-                Text(autoBackup ? "While Lelvo is open (even with its window closed), new photos are backed up every hour."
+                Text(autoBackup ? "While Lelvo is open (even with its window closed), new photos are backed up about a minute after they reach Photos. Turn on Open at login so this continues after a restart."
                                 : "Nothing uploads on its own: use Back Up Now, or Back Up on the photos you choose.")
             }
             Section {

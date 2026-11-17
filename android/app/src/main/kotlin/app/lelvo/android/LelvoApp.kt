@@ -1,6 +1,7 @@
 package app.lelvo.android
 
 import android.app.Application
+import app.lelvo.android.background.AutoStart
 import app.lelvo.android.background.BackupScheduler
 import app.lelvo.android.background.BackupTileService
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -33,6 +34,7 @@ import kotlinx.coroutines.withContext
 
 /** Creates the services once per process; screens and background work share them (like iOS AppEnvironment). */
 class LelvoApp : Application(), SingletonImageLoader.Factory {
+    private val io = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     lateinit var secrets: SecretStore private set
     lateinit var telegram: TdClient private set
     lateinit var library: LibraryService private set
@@ -105,6 +107,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         store = LibraryStore(IndexDatabase.open(this))
         demo = DemoMode(this, store)
         prefs = Prefs(this)
+        // A run that never wrote its record was ended with the process (Android's kill, a force stop): count it.
+        prefs.recordKilledRuns().takeIf { it > 0 }?.let { AppLog.info("Backup runs ended with the last process: $it") }
         pro = app.lelvo.data.ProStore(this)
         lockedFolder = app.lelvo.data.LockedFolderStore(this).also { it.reloadForLibrary(library.chatId) }
         files = TdFiles(telegram)
@@ -152,7 +156,10 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
                 // Lelvo comes to the front (iOS scene `.active`): follow the other devices, send what's waiting.
                 if (startedActivities++ == 0) {
                     lockedFolder.noteBecameActive()
-                    if (library.setupFinished) sync.onOpen { linker.relink() }
+                    if (library.setupFinished) {
+                        sync.onOpen { linker.relink() }
+                        AutoStart.onForeground(this@LelvoApp)
+                    }
                 }
             }
             override fun onActivityStopped(activity: android.app.Activity) {
@@ -161,6 +168,11 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
                 if (startedActivities == 0) {
                     lockedFolder.noteEnteredBackground()
                     sync.onBackground()
+                    // No handler on this scope: a throw from the index would end the process, so it is caught here.
+                    if (library.setupFinished) io.launch {
+                        runCatching { BackupScheduler.bookReminder(this@LelvoApp, prefs, backup.readyCount()) }
+                            .onFailure { AppLog.warn("Backup reminder not booked (${it.javaClass.simpleName})") }
+                    }
                 }
             }
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
