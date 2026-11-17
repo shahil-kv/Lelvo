@@ -5,6 +5,17 @@
 Only what the code can't tell you. Area rules load from `.claude/rules/` when you touch those files; procedures live
 in `.claude/skills/`. Personal settings go in `CLAUDE.local.md` (ignored by git).
 
+## Priorities (owner, 2026-11-17)
+
+- **Stability first, Pro later.** Backup, sync, counts, sign-in, gallery and video must be stable, fast and smooth
+  before any Pro feature work. Don't spend effort on Pro (Locked Folder, Smart cleanup, paywall, memory themes)
+  unless the owner asks, except to fix a crash, data risk or slowdown it causes.
+- **One app on three platforms.** A bug found on iPhone, Mac or Android is checked and fixed on the other two in the
+  same change. Every feature ships on all three.
+- **Polished-product bar.** No main-thread work, no whole-library reads in automatic paths (launch, every backup,
+  every sync), no stutter on a 40k-photo library. Every Telegram call honours `FLOOD_WAIT`.
+- **Code reviews run at low effort** (`/code-review low`) unless the owner asks for more.
+
 ## Check your work
 
 - Core tests, seconds: `Scripts/build.sh test`. One suite: `cd Packages/LelvoCore && swift test --filter FormatTests`
