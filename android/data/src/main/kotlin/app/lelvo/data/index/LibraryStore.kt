@@ -33,11 +33,16 @@ class LibraryStore(private val db: IndexDatabase) {
      */
     private val shared: Flow<List<LibraryItem>> = db.invalidationTracker.createFlow("items")
         .throttled(500)
+        .conflate()
         .transform {
             // A failed read used to kill the app: Android throws from the cursor while a backup is also holding
             // every queued row, and that exception reached the screen. Keep the last good list instead.
             try {
-                emit(dao.allNow().map(::toItem))
+                val rows = dao.allNow().map(::toItem)
+                emit(rows)
+                // A backup changes the index every second or two. Re-reading tens of thousands of rows twice a second
+                // kept the CPU and garbage collector busy and made scrolling stutter; a large library refreshes less often.
+                if (rows.size > LARGE_LIBRARY) kotlinx.coroutines.delay(1_500)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -64,6 +69,14 @@ class LibraryStore(private val db: IndexDatabase) {
     suspend fun upsert(items: List<LibraryItem>) = dao.upsert(items.map(::toRow))
     suspend fun backedUpCount(): Int = dao.backedUpCount()
     suspend fun allItems(): List<LibraryItem> = dao.allNow().map(::toItem)
+    suspend fun allIds(): Set<String> = dao.ids().toHashSet()
+    suspend fun lockedIds(): Set<String> = dao.lockedIds().toHashSet()
+    suspend fun lockedInCloud(): List<LibraryItem> = dao.lockedInCloud().map(::toItem)
+    suspend fun lockedLocalIds(): Set<String> = dao.lockedLocalIds().toHashSet()
+    suspend fun unlinkedBackedUp(): List<LibraryItem> = dao.unlinkedBackedUp().map(::toItem)
+    suspend fun linkedLocalIds(): Set<String> = dao.linkedLocalIds().toHashSet()
+    suspend fun favoriteRefs(): List<FavoriteRef> = dao.favoriteRefs()
+    suspend fun hasCloudParts(): Boolean = dao.withPartsCount() > 0
 
     /**
      * Backed-up items linked to a phone photo, [pageSize] rows at a time, until [block] returns false. A large
@@ -277,7 +290,10 @@ class LibraryStore(private val db: IndexDatabase) {
     suspend fun meta(key: String): String? = notes.meta(key)
     suspend fun setMeta(key: String, value: String?) = if (value == null) notes.removeMeta(key) else notes.setMeta(MetaRow(key, value))
 
-    private companion object { const val ALIAS = "alias:" }
+    private companion object {
+        const val ALIAS = "alias:"
+        const val LARGE_LIBRARY = 10_000
+    }
 
     private fun encodeIds(ids: List<String>) = NoteIds.encode(ids)
     private fun decodeIds(text: String) = NoteIds.decode(text)

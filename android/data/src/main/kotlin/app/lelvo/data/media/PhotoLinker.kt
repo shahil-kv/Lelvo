@@ -21,10 +21,10 @@ class PhotoLinker(private val store: LibraryStore, private val photos: PhotoAcce
         gate.withLock {
             val status = photos.status()
             if (status != PhotoAccess.Status.Full && status != PhotoAccess.Status.Partial) return@withLock 0
-            val all = store.allItems()
-            val unlinked = all.filter { it.status == ItemStatus.BackedUp && it.localId == null }
+            // SQL picks the few rows this needs; it runs on every launch and every backup run.
+            val unlinked = store.unlinkedBackedUp()
             if (unlinked.isEmpty()) return@withLock 0
-            val linked = all.filter { it.status == ItemStatus.BackedUp }.mapNotNull { it.localId }.toHashSet()
+            val linked = store.linkedLocalIds()
             val started = System.currentTimeMillis()
             val assets = photos.assetKeys().filter { it.localId !in linked }
             val links = RestoreLinker.match(unlinked, assets)
@@ -32,7 +32,7 @@ class PhotoLinker(private val store: LibraryStore, private val photos: PhotoAcce
             if (links.isEmpty()) return@withLock 0
             // Waiting to upload a photo that turns out to be backed up already: that queue entry goes.
             val linkedAssets = links.values.toHashSet()
-            val duplicates = all.filter { it.status != ItemStatus.BackedUp && it.status != ItemStatus.Uploading && it.localId?.let(linkedAssets::contains) == true }
+            val duplicates = store.itemsForPhone(linkedAssets).filter { it.status != ItemStatus.BackedUp && it.status != ItemStatus.Uploading }
             duplicates.forEach { store.delete(it.id) }
             store.upsert(unlinked.mapNotNull { item -> links[item.id]?.let { item.copy(localId = it) } })
             AppLog.info("Relinked ${links.size} of ${unlinked.size} restored items to photos on this phone (${duplicates.size} queued duplicates removed)")

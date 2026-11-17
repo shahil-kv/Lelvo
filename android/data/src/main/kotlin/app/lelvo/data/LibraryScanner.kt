@@ -110,7 +110,7 @@ class LibraryScanner(
         files.ensureChat(chatId)
         val stopAt = if (full) 0L else store.meta(LAST_SCAN)?.toLongOrNull() ?: 0L
         // A phone with an empty index (new phone, reinstall) can take everything older than the newest snapshot from it.
-        val allowSnapshot = full && store.allItems().none { it.hasCloudParts }
+        val allowSnapshot = full && !store.hasCloudParts()
         var fromSnapshot: IndexSnapshot.Body? = null
         var s = Summary()
         val cloud = ArrayList<CloudMessage>()

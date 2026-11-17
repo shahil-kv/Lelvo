@@ -787,6 +787,8 @@ class BackupEngine(
     private suspend fun writeSnapshotIfDue() {
         val chatId = library.chatId ?: return
         val keys = library.keys ?: return
+        // Reading the whole index costs a large library seconds and tens of megabytes: only after a run that sent parts.
+        if (partsThisRun.get() == 0) return
         val items = store.allItems()
         val messages = items.filter { it.hasCloudParts }.flatMap { LibraryIndexer.knownMessages(it, emptySet()) }
         val upto = messages.maxOfOrNull { it.messageId } ?: return
