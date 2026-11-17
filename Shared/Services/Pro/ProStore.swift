@@ -55,7 +55,7 @@ final class ProStore: ObservableObject {
             case .success(let verification):
                 let transaction = try check(verification)
                 await transaction.finish()
-                refreshEntitlement()
+                await updateEntitlement()
             case .userCancelled, .pending:
                 break
             @unknown default:
@@ -73,7 +73,8 @@ final class ProStore: ObservableObject {
         defer { busy = false }
         do {
             try await AppStore.sync()
-            refreshEntitlement()
+            // Awaited: read before it finished, isPro was still false and a real purchase showed as "not found".
+            await updateEntitlement()
             if !isPro { errorMessage = "No Pro purchase found for this Apple ID." }
         } catch {
             errorMessage = "Couldn't restore purchases. Try again."
@@ -82,24 +83,25 @@ final class ProStore: ObservableObject {
     }
 
     func refreshEntitlement() {
-        let debug = debugUnlocked
-        Task {
-            var entitled = debug
-            for await result in Transaction.currentEntitlements {
-                guard case .verified(let t) = result, Self.productIds.contains(t.productID) else { continue }
-                if t.revocationDate != nil { continue }
-                entitled = true
-                break
-            }
-            isPro = entitled
+        Task { await updateEntitlement() }
+    }
+
+    func updateEntitlement() async {
+        var entitled = debugUnlocked
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let t) = result, Self.productIds.contains(t.productID) else { continue }
+            if t.revocationDate != nil { continue }
+            entitled = true
+            break
         }
+        isPro = entitled
     }
 
     private func listenForTransactions() async {
         for await update in Transaction.updates {
             if case .verified(let t) = update {
                 await t.finish()
-                refreshEntitlement()
+                await updateEntitlement()
             }
         }
     }

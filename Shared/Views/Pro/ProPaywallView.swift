@@ -99,8 +99,7 @@ struct ProPaywallView: View {
             }
             #if os(iOS)
             .offerCodeRedemption(isPresented: $showRedeem) { _ in
-                pro.refreshEntitlement()
-                if pro.isPro { dismiss() }
+                Task { await pro.updateEntitlement(); if pro.isPro { dismiss() } }
             }
             #endif
             .task { await pro.loadProducts() }
