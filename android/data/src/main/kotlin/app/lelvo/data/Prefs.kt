@@ -107,6 +107,25 @@ class Prefs(context: Context) {
         runRecords = BackgroundRuns.appending(r, runRecords)
     }
 
+    /** Runs started and not yet ended in this process (see [BackgroundRuns.killedRuns]). */
+    private val runMarks: Set<String> get() = p.getStringSet("runMarks", null).orEmpty()
+
+    @Synchronized fun markRunStarted(mark: String) {
+        p.edit().putStringSet("runMarks", runMarks + mark).apply()
+    }
+
+    @Synchronized fun markRunEnded(mark: String) {
+        p.edit().putStringSet("runMarks", runMarks - mark).apply()
+    }
+
+    /** Call once per process, before any run starts: turns marks left by a killed process into records. */
+    @Synchronized fun recordKilledRuns(): Int {
+        val killed = BackgroundRuns.killedRuns(runMarks)
+        if (killed.isNotEmpty()) runRecords = killed.fold(runRecords) { list, r -> BackgroundRuns.appending(r, list) }
+        p.edit().remove("runMarks").apply()
+        return killed.size
+    }
+
     /** Settings → Storage limits in MB, iOS keys and defaults. */
     var cacheCapMB: Int
         get() = p.getInt("cacheCapMB", 1000)

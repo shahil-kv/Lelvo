@@ -54,6 +54,7 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 return result
             }
             ran = true
+            app.prefs.markRunStarted(mark(started))
             when (kind) {
                 BackupScheduler.USER -> summary = userRun()
                 BackupScheduler.NEW_PHOTOS -> newPhotos()
@@ -105,6 +106,7 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                     refreshReminder()
                 }
                 record(started, summary, cancelled != null)
+                app.prefs.markRunEnded(mark(started))
                 // Android got there first. Book the next run before this process is torn down. No network.
                 if (!handedOff && isStopped && kind in HANDOFF) bookNextAfterStop()
                 if (kind == BackupScheduler.USER && isStopped &&
@@ -144,6 +146,8 @@ class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         AppLog.info(String.format("Run (%s): %.0f s, uploaded %d, %,d waiting, %s",
             record.source, record.seconds, record.uploaded, record.remaining, record.stop ?: "finished"))
     }
+
+    private fun mark(started: Long) = BackgroundRuns.mark(sourceOf(), started)
 
     private fun sourceOf(): RunSource = when (kind) {
         BackupScheduler.USER -> if (inputData.getBoolean(FROM_APP, false)) RunSource.App else RunSource.User

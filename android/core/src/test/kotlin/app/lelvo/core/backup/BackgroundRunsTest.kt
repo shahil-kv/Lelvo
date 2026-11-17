@@ -151,4 +151,17 @@ class BackgroundRunsTest {
         assertTrue(charging.batteryNotLow)
         assertTrue(charging.requiresCharging)
     }
+
+    @Test fun marksLeftByAKilledProcessBecomeRecords() {
+        val marks = listOf(
+            BackgroundRuns.mark(RunSource.AutoRun, 2_000),
+            BackgroundRuns.mark(RunSource.User, 1_000),
+            "Nonsense:12", "AutoRun:", "broken",
+        )
+        val killed = BackgroundRuns.killedRuns(marks)
+        assertEquals(listOf(RunSource.User, RunSource.AutoRun), killed.map { it.source })
+        assertEquals(listOf(1_000L, 2_000L), killed.map { it.startedAt })
+        assertTrue(killed.all { it.stop == BackgroundRuns.KILLED && it.uploaded == 0 })
+        assertTrue(BackgroundRuns.killedRuns(emptyList()).isEmpty())
+    }
 }

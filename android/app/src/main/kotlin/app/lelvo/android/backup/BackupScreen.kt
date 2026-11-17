@@ -164,8 +164,10 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
             lanes = d.current.withIndex().associate { (i, n) -> "$i" to BackupActivity.Lane(n, 0, 0) })
     } ?: activity
     val waiting = stats.counts.pending(app.prefs.autoBackup)
-    val backgroundIssue by produceState(BackgroundIssue.None, waiting) {
-        value = withContext(Dispatchers.IO) { BackgroundStatus.issue(app, waiting) }
+    // Keyed on "anything waiting", not the count: the count changes with every upload during a backup.
+    val anyWaiting = waiting > 0
+    val backgroundIssue by produceState(BackgroundIssue.None, anyWaiting) {
+        value = withContext(Dispatchers.IO) { BackgroundStatus.issue(app, if (anyWaiting) 1 else 0) }
     }
     var hideForceStop by remember { mutableStateOf(app.prefs.forceStopNoteDismissed) }
     Scaffold(modifier, topBar = { LelvoTopBar("Backup", app.demo, onSettings) }) { padding ->

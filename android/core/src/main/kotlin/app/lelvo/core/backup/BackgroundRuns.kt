@@ -46,6 +46,22 @@ object BackgroundRuns {
     private const val DAY_MS = 86_400_000L
     private val REMINDER_DAYS = intArrayOf(2, 4, 8)
 
+    /** The stop text for a run whose process ended before it could write its own record. */
+    const val KILLED = "ended with the process"
+
+    /**
+     * Runs still marked as started when a new process begins. A run clears its mark when it ends, and only one
+     * process exists at a time, so a mark left behind means Android (or a force stop) ended the process mid-run.
+     * Marks are `"Source:startedAt"`; a damaged one is dropped.
+     */
+    fun killedRuns(marks: Collection<String>): List<RunRecord> = marks.mapNotNull { mark ->
+        val source = runCatching { RunSource.valueOf(mark.substringBefore(':')) }.getOrNull() ?: return@mapNotNull null
+        val startedAt = mark.substringAfter(':', "").toLongOrNull() ?: return@mapNotNull null
+        RunRecord(source, startedAt, seconds = 0.0, uploaded = 0, remaining = 0, stop = KILLED)
+    }.sortedBy { it.startedAt }
+
+    fun mark(source: RunSource, startedAt: Long): String = "${source.name}:$startedAt"
+
     /** Keeps the newest [limit] records. */
     fun appending(r: RunRecord, list: List<RunRecord>, limit: Int = 200): List<RunRecord> {
         val all = list + r

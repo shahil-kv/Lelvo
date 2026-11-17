@@ -104,6 +104,8 @@ class LelvoApp : Application(), SingletonImageLoader.Factory {
         store = LibraryStore(IndexDatabase.open(this))
         demo = DemoMode(this, store)
         prefs = Prefs(this)
+        // A run that never wrote its record was ended with the process (Android's kill, a force stop): count it.
+        prefs.recordKilledRuns().takeIf { it > 0 }?.let { AppLog.info("Backup runs ended with the last process: $it") }
         files = TdFiles(telegram)
         scanner = LibraryScanner(files, library, store, telegram).also { it.follow() }
         coreCheck = CoreCheck(files, library, scanner, store)
