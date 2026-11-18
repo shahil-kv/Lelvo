@@ -296,7 +296,7 @@ class BackupEngine(
     /** What the Backup tab shows. Counts and id sets only: the queue itself stays in the database. */
     data class Snapshot(
         val counts: BackupCounts, val onPhone: Int, val backedUp: Int, val cloudOnly: Int,
-        val removed: Int, val failedItems: List<LibraryItem>,
+        val removed: Int, val skipped: Int, val failedItems: List<LibraryItem>,
     )
 
     suspend fun snapshot(): Snapshot = withContext(Dispatchers.IO) {
@@ -328,6 +328,7 @@ class BackupEngine(
             ),
             onPhone = phoneIds.size, backedUp = backedOnPhone, cloudOnly = cloudOnly,
             removed = BackupCounts.removedFromBackup(trashed, off, known, phoneIds).size,
+            skipped = store.ignoredAssets().size,
             failedItems = failedItems,
         )
     }

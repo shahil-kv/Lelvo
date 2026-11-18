@@ -16,6 +16,8 @@ final class BackupStatsModel: ObservableObject {
     @Published var retryable = 0
     /// Photos here that the user deleted from the backup.
     @Published var removedFromBackup = 0
+    /// Photos set aside as unreadable (ignore list).
+    @Published var skipped = 0
     private var observer: NSObjectProtocol?
     private var pendingRefresh: Task<Void, Never>?
 
@@ -55,6 +57,7 @@ final class BackupStatsModel: ObservableObject {
             let queued = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
             let failedItems = (try? env.store.items(status: .failed)) ?? []
             let ignored = (try? env.store.ignoredAmong(failedItems)) ?? []
+            let skippedCount = (try? env.store.ignoredAssets().count) ?? 0
             let autoBackup = Prefs.autoBackup
             // Ids only: decoding every backed-up item here every few seconds kept a large library busy during a backup.
             let all = (try? env.store.localIdentifiers(status: .backedUp)) ?? []
@@ -90,6 +93,7 @@ final class BackupStatsModel: ObservableObject {
                 self.notQueued = result.notQueued
                 self.left = result.left
                 self.removedFromBackup = removedCount
+                self.skipped = skippedCount
                 self.lastTotal = counts.values.reduce(0, +)
                 self.refreshing = false
                 if self.refreshAgain { self.refreshAgain = false; self.scheduleRefresh() }
@@ -271,6 +275,11 @@ struct BackupDashboardView: View {
                     statRow("Waiting to upload", stats.pending, BackupBadge.waiting.symbol, .secondary)
                     NavigationLink { FailedItemsView() } label: {
                         statRow("Failed", stats.failed, "exclamationmark.icloud.fill", stats.failed > 0 ? .red : .secondary)
+                    }
+                    if stats.skipped > 0 {
+                        NavigationLink { SkippedPhotosView() } label: {
+                            statRow("Skipped photos", stats.skipped, "eye.slash", .secondary)
+                        }
                     }
                     if stats.removedFromBackup > 0 {
                         NavigationLink { RemovedFromBackupView() } label: {

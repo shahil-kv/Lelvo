@@ -68,6 +68,7 @@ import app.lelvo.android.ui.theme.Lelvo
 import app.lelvo.core.backup.BackupCounts
 import app.lelvo.core.index.LibraryItem
 import app.lelvo.data.backup.BackupActivity
+import app.lelvo.data.index.IgnoredAssetRow
 import app.lelvo.data.media.PhotoAccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
@@ -79,7 +80,7 @@ import java.text.DateFormat
 /** What the Backup tab counts (iOS `BackupStats`). */
 private data class Stats(
     val onPhone: Int = 0, val backedUp: Int = 0, val cloudOnly: Int = 0, val counts: BackupCounts = BackupCounts(),
-    val failedItems: List<LibraryItem> = emptyList(), val removed: Int = 0, val ready: Boolean = false,
+    val failedItems: List<LibraryItem> = emptyList(), val removed: Int = 0, val skipped: Int = 0, val ready: Boolean = false,
 )
 
 /**
@@ -114,7 +115,7 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                     // Demo: the sample items waiting for "Back up now" stand in for this phone's photos.
                     if (isDemo) Stats(counts = BackupCounts(notQueued = app.demo.pendingItems().size), ready = true)
                     else engine.snapshot().let { s ->
-                        Stats(s.onPhone, s.backedUp, s.cloudOnly, s.counts, s.failedItems, s.removed, ready = true)
+                        Stats(s.onPhone, s.backedUp, s.cloudOnly, s.counts, s.failedItems, s.removed, s.skipped, ready = true)
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
@@ -140,6 +141,7 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
         Page.Failed -> return FailedScreen(app, stats.failedItems, onBack = back, onRetry = {
             scope.launch { if (engine.retryFailed() > 0) app.startBackup(includeNew = false) }
         }, modifier = modifier)
+        Page.Skipped -> return SkippedScreen(app, onBack = back, modifier = modifier)
         Page.FreeUp -> return FreeUpSpaceScreen(app, back, modifier)
         Page.SaveAll -> return SaveAllScreen(app, back, modifier)
         Page.Removed -> return RemovedScreen(app, back, modifier)
@@ -246,6 +248,8 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                 if (stats.counts.failed > 0) {
                     StatRow("Failed", stats.counts.failed, R.drawable.ic_error, Lelvo.colors.red, onClick = { page = Page.Failed })
                 }
+                if (stats.skipped > 0) StatRow("Skipped photos", stats.skipped, R.drawable.ic_visibility_off, MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = { page = Page.Skipped })
                 if (stats.removed > 0) StatRow("Removed from backup", stats.removed, R.drawable.ic_cloud_off, MaterialTheme.colorScheme.onSurfaceVariant,
                     onClick = { page = Page.Removed })
             }
@@ -389,7 +393,7 @@ private fun RunProgress(a: BackupActivity) {
     }
 }
 
-private enum class Page { Main, Failed, FreeUp, SaveAll, Removed, Duplicates, SecondCopy }
+private enum class Page { Main, Failed, Skipped, FreeUp, SaveAll, Removed, Duplicates, SecondCopy }
 
 @Composable
 private fun ToolRow(title: String, icon: Int, onClick: () -> Unit) {
@@ -482,6 +486,74 @@ private fun FailedScreen(app: LelvoApp, items: List<LibraryItem>, onBack: () -> 
                                 }
                             }) { Icon(painterResource(R.drawable.ic_delete), contentDescription = "Delete from this phone") }
                         }
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** Photos set aside as unreadable (iOS `SkippedPhotosView`). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SkippedScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier) {
+    BackHandler(onBack = onBack)
+    val scope = rememberCoroutineScope()
+    var rows by remember { mutableStateOf<List<IgnoredAssetRow>>(emptyList()) }
+    var loaded by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    val format = remember { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT) }
+    LaunchedEffect(Unit) {
+        rows = withContext(Dispatchers.IO) { app.store.ignoredAssets() }
+        loaded = true
+    }
+    fun tryAgain(chosen: List<IgnoredAssetRow>) {
+        busy = true
+        scope.launch {
+            val ids = chosen.map { it.localId }
+            withContext(Dispatchers.IO) {
+                ids.forEach { app.store.unignoreAsset(it) }
+                app.backup.enqueue(ids)
+            }
+            app.startBackup(includeNew = false)
+            Messages.show(Messages.Style.Info, "Trying ${ids.size} photo${if (ids.size == 1) "" else "s"} again", "Progress is on the Backup page.")
+            rows = withContext(Dispatchers.IO) { app.store.ignoredAssets() }
+            busy = false
+        }
+    }
+    Scaffold(modifier, topBar = {
+        TopAppBar(
+            title = { Text("Skipped photos") },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") } },
+        )
+    }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            if (rows.isNotEmpty()) item("retry") {
+                OutlinedButton(onClick = { tryAgain(rows) }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("Try all again")
+                }
+                Text(
+                    "These photos couldn't be read, so automatic backup and Retry skip them until they change. Try again if you fixed the file.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            if (loaded && rows.isEmpty()) item("empty") {
+                Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Nothing skipped", style = MaterialTheme.typography.titleMedium)
+                    Text("When a photo on this phone can't be read, Lelvo sets it aside here instead of failing forever.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
+            }
+            items(rows, key = { it.localId }) { row ->
+                ListItem(
+                    headlineContent = { Text(row.reason) },
+                    supportingContent = {
+                        Text(format.format(java.util.Date(row.ignoredAt * 1000)), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    },
+                    trailingContent = {
+                        TextButton(onClick = { tryAgain(listOf(row)) }, enabled = !busy) { Text("Try again") }
                     },
                 )
             }
