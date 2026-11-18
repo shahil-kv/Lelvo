@@ -231,6 +231,7 @@ interface NotesDao {
     @Query("DELETE FROM no_backup") suspend fun clearNoBackup()
     @Upsert suspend fun ignoreAsset(row: IgnoredAssetRow)
     @Query("SELECT * FROM ignored_assets ORDER BY ignored_at DESC") suspend fun ignoredAssets(): List<IgnoredAssetRow>
+    @Query("SELECT count(*) FROM ignored_assets") suspend fun ignoredAssetCount(): Int
     @Query("SELECT modified FROM ignored_assets WHERE local_id = :localId") suspend fun ignoredModified(localId: String): String?
     @Query("DELETE FROM ignored_assets WHERE local_id = :localId") suspend fun unignoreAsset(localId: String)
     @Query("DELETE FROM ignored_assets") suspend fun unignoreAllAssets()

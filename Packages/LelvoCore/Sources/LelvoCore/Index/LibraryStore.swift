@@ -685,6 +685,13 @@ public final class LibraryStore: @unchecked Sendable {
         }
     }
 
+    /// How many photos are set aside, without reading them: the Backup tab asks on every refresh.
+    public func ignoredAssetCount() throws -> Int {
+        try withReadStatement("SELECT count(*) FROM ignored_assets;") { s in
+            sqlite3_step(s) == SQLITE_ROW ? Int(sqlite3_column_int64(s, 0)) : 0
+        }
+    }
+
     /// Whether this photo is set aside and unchanged since. A photo that changed is not ignored: it is tried again.
     public func isIgnored(localIdentifier: String, modifiedAt: Date?) throws -> Bool {
         let now = Self.seconds(modifiedAt)

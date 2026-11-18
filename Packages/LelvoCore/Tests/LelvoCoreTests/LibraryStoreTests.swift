@@ -156,6 +156,17 @@ import LelvoCore
         sqlite3_close(check)
     }
 
+    @Test func ignoredAssetCountMatchesTheSetAsidePhotos() throws {
+        let url = tempURL()
+        defer { remove(url) }
+        let store = try LibraryStore(url: url)
+        #expect(try store.ignoredAssetCount() == 0)
+        try store.ignoreAsset(localIdentifier: "A", reason: "Can't be read", modifiedAt: nil)
+        try store.ignoreAsset(localIdentifier: "B", reason: "Can't be read", modifiedAt: nil)
+        #expect(try store.ignoredAssetCount() == 2)
+        #expect(try store.ignoredAssets().count == 2)
+    }
+
     @Test func ignoredAmongFindsOnlyUnchangedSetAsidePhotos() throws {
         let store = try LibraryStore(url: nil)
         var a = item(1, status: .failed), b = item(2, status: .failed), c = item(3, status: .failed)

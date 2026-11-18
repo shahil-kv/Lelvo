@@ -57,7 +57,7 @@ final class BackupStatsModel: ObservableObject {
             let queued = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
             let failedItems = (try? env.store.items(status: .failed)) ?? []
             let ignored = (try? env.store.ignoredAmong(failedItems)) ?? []
-            let skippedCount = (try? env.store.ignoredAssets().count) ?? 0
+            let skippedCount = (try? env.store.ignoredAssetCount()) ?? 0
             let autoBackup = Prefs.autoBackup
             // Ids only: decoding every backed-up item here every few seconds kept a large library busy during a backup.
             let all = (try? env.store.localIdentifiers(status: .backedUp)) ?? []

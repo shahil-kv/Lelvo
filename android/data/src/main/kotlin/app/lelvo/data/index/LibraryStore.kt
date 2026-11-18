@@ -170,6 +170,8 @@ class LibraryStore(private val db: IndexDatabase) {
 
     suspend fun ignoredAssets(): List<IgnoredAssetRow> = notes.ignoredAssets()
 
+    suspend fun ignoredAssetCount(): Int = notes.ignoredAssetCount()
+
     /** True when the photo is set aside and hasn't changed since: one that changed is tried again. */
     suspend fun isIgnored(localId: String, modifiedAt: Long?): Boolean =
         notes.ignoredModified(localId)?.let { it == (modifiedAt?.toString() ?: "") } ?: false

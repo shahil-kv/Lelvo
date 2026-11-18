@@ -328,7 +328,7 @@ class BackupEngine(
             ),
             onPhone = phoneIds.size, backedUp = backedOnPhone, cloudOnly = cloudOnly,
             removed = BackupCounts.removedFromBackup(trashed, off, known, phoneIds).size,
-            skipped = store.ignoredAssets().size,
+            skipped = store.ignoredAssetCount(),
             failedItems = failedItems,
         )
     }

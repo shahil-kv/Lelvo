@@ -16,9 +16,9 @@ public enum JumpToDate {
 
     /// The month/year wheels' range from the library (inclusive). Empty → current year only.
     public static func yearRange(in dates: [Date], calendar: Calendar = .current, now: Date = Date()) -> ClosedRange<Int> {
-        let years = dates.compactMap { calendar.component(.year, from: $0) }
+        // Compare dates, then ask the calendar twice: a calendar call per date took tens of milliseconds at 40,000 items.
         let thisYear = calendar.component(.year, from: now)
-        guard let lo = years.min(), let hi = years.max() else { return thisYear...thisYear }
-        return min(lo, thisYear)...max(hi, thisYear)
+        guard let oldest = dates.min(), let newest = dates.max() else { return thisYear...thisYear }
+        return min(calendar.component(.year, from: oldest), thisYear)...max(calendar.component(.year, from: newest), thisYear)
     }
 }
