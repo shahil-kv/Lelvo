@@ -12,32 +12,32 @@ Where Lelvo is already ahead: counts (one shared function), verified Free Up Spa
 reinstall, snapshot restore, native grids (iOS, Mac), pinch, swipe-select, thumbnail cache, streaming, seek, preload,
 quality fallback, exact FLOOD_WAIT.
 
-## Status (2026-11-18, nothing committed yet, nothing run on a device)
+## Status (2026-11-18, updated later the same day)
 
 | Item | State |
 |---|---|
-| 1 Halt on session ended / channel unusable | Written on iPhone, Mac, Android. Classifier tested (`RunStopTests`, `RunStopTest`). Engine wiring compiled only. |
-| 2 Halt on OS disk-full | Written. Stops the run only when under 200 MB is free; one huge file that doesn't fit fails alone, so photos behind it still upload. |
-| 3 Vanished-items guard | Written. `ScanPaging` (tested) follows TDLib's end signal; a scan that stops early marks nothing missing and does not mark the index repaired. |
-| 4 Ignore list for unreadable photos | Not started. Needs a stored field on each item; held back to avoid a schema change for the 5 current users. Retry still resets the attempt count. |
-| 5 Export returns the true original | Audited, no change needed: `PHAssetResourceManager` writes the unedited `.photo` bytes; RAW alternates and edit data go as extra parts. |
-| 6 iCloud progress and temp cleanup | Not started. |
-| 7 Whole-library reads | Recent-scan merge now reads only touched items (iPhone, Mac, Android). Still whole-library on each backup run: `relinkRestoredItems` (`BackupEngine.swift:468`) and `writeSnapshotIfDue` (`LibraryService.swift:890`); not measured. |
-| 8 Android drag-select | Done: index built once per drag, repeat tiles skipped. |
-| 9 Mac memory trim | Done: memory-pressure source trims the same caches as iPhone. |
-| 10 Hash cancellation | Not checked. |
+| 1 Halt on session ended / channel unusable | Written on iPhone, Mac, Android. Classifier tested (`RunStopTests`, `RunStopTest`). |
+| 2 Halt on OS disk-full | Written. Stops the run only when under 200 MB is free; one huge file that doesn't fit fails alone. |
+| 3 Vanished-items guard | Written. `ScanPaging` (tested) follows TDLib's end signal. |
+| 4 Ignore list for unreadable photos | Done in store + engine. Skipped photos screen added (Backup tab). |
+| 5 Export returns the true original | Audited, no change needed. |
+| 6 iCloud progress and temp cleanup | Temp cleanup audited (defer). Download progress for iCloud-only photos not started. |
+| 7 Whole-library reads | Recent-scan merge reads only touched items. Still whole-library on some backup paths; not measured. |
+| 8 Android drag-select | Done: index built once per drag. |
+| 9 Mac memory trim | Done. |
+| 10 Hash cancellation | Done (`72a5e56`): checks every 1 MB chunk on iPhone, Mac and Android. |
 
-### Tier 3 status (2026-11-18, built on all three, not run on a device, no database changes)
+### Tier 3 status (2026-11-18, updated later)
 
 | Item | State |
 |---|---|
-| 11 Retry on viewer errors | Done: "Try again" on iPhone, Mac and Android (photo and video). On iPhone and Mac it also shows for "can't be previewed" and "not fully in your library yet", where it just shows the same message again. |
-| 12 Player failure fallback | Done on iPhone and Mac: a failed video reopens once on its own, a second failure shows "Try again" (no loop). Android already surfaced the error; its Try again calls `prepare()` again. Not done: switching a failed original to the fast version automatically. |
-| 15 Android drag haptic | Done (tick per tile). Mac marquee select not done: it is a new capability. |
-| 16 Android keep-screen-on | Done. HDR colour mode not done (needs a device with an HDR clip). Loop-video setting and download ring not done: new settings and UI. |
-| 17 Live swipe check | Audited, no bug: Live plays only on long press or the chip and resets when the page leaves. |
-| 13 Jump to date, 14 scrubber ticks, idle fade, per-month haptic | Not done: new UI, preview and approval first. |
-| ThumbHash | Not done: needs an approved issue (caption format). |
+| 11 Retry on viewer errors | Done on iPhone, Mac and Android. |
+| 12 Player failure fallback | Done on iPhone and Mac. Not done: auto-switch failed original to fast version. |
+| 15 Android drag haptic; Mac marquee | Done (marquee wired in `MacPhotoGrid`). |
+| 16 Loop videos; keep-screen-on; download ring | Loop videos done (all three). Android keep-screen-on done. Download ring done on iPhone, Mac and Android (`VideoDownloadRing` / Exo buffer). |
+| 17 Live swipe check | Audited, no bug. |
+| 13 Jump to date; 14 scrubber ticks | Scrubber year ticks exist. Jump to date done on iPhone, Mac and Android (sheet → scrubber fraction / date index). Date index on Apple is schema 8→9 (`fa494f4`); Android already indexed `created_at`. |
+| ThumbHash | Maths + optional `th` + makers + placeholder drawing done. Writes stay **off** until every user has this build. **Backfill dropped** (not worth it at 100k edits). |
 
 ## Tier 1: data trust (fix first, all three platforms, with unit tests)
 
@@ -143,14 +143,17 @@ and Clear has an obvious effect), iOS, Android and Mac parity (one change fixes 
 | Drawing the placeholder, writing `th` for new uploads | Not started. Writing waits until readers have shipped to every user. |
 | Fling deferral (iPhone, Mac) | Done: loads that haven't started wait while the grid flings faster than 3000 pt/s and resume below 1800; a watchdog releases them 0.2 s after scroll events stop. |
 | Fling deferral + prefetch ahead (Android) | Done: same thresholds; prefetches about 2 screens ahead on Wi-Fi, at most 2 at once, inside the existing cap of 8 thumbnail downloads. |
-| Not done | Apple `prefetchCount` wiring, Android scroll benchmark, local-index date index and lighter full reload (needs a local migration), ignore-list table. |
+| Date index | Done on Apple (schema 8→9). Android already had `created_at`. |
+| Scroll measure | Debug Settings can load a 10k / 40k synthetic scroll library. `Scripts/android-jank.sh` exists. Blind Apple `prefetchCount` tuning held until a measured run. |
+| Not done | Blind Apple prefetchCount change; ThumbHash writes still off. |
 
-## Ignore list and ThumbHash write path (2026-11-18, later; built on all three, tested at logic level, nothing committed)
+## Ignore list and ThumbHash write path (2026-11-18, updated later)
 
 | Piece | State |
 |---|---|
-| Ignore-list table | Done. iPhone/Mac schema 7 to 8, Android Room 4 to 5, one new table each (`ignored_assets`), nothing else changed. A test upgrades a real version-7 file with items; the new Android build was installed over the emulator's live version-4 database (36 items) and opened with all items intact and the table present. |
-| Ignore-list behaviour | Done: a photo with no original file is set aside when it fails; Retry skips it until the photo changes; it stays under Failed with its reason; the "retryable" count leaves it out. Only that one definite case is set aside (other failures, which may be temporary, keep today's behaviour). No new screen. Android's store lookup has no JVM test (Room). |
-| ThumbHash write path | Written on both, behind an off switch (`ThumbHashRollout.writesToCaptions`, `ThumbHash.WRITES_TO_CAPTIONS`). With the switch off, uploads are byte-for-byte as before. The glue that makes a hash from the upload's thumbnail (`ThumbHashMaker`) has no automated test; verify it on the "Android test" library when switching on. |
-| Placeholder drawing | Written on iPhone, Mac and Android: shown only for cloud-only tiles that have a hash and no thumbnail yet; inert today because no item has a hash. Not seen on screen. |
-| Switching on | Not done: wait until every user has this build, then turn the switch on, upload one test photo, check the caption has `th`, then plan the paced backfill. |
+| Ignore-list table | Done. iPhone/Mac schema 7→8 then 8→9 (date index), Android Room; `ignored_assets`. |
+| Ignore-list behaviour | Done: unreadable original is set aside; Retry skips until the photo changes; retryable count excludes it. |
+| Skipped photos screen | Done on Backup tab (iPhone, Mac, Android): list reason, Try again / Try all again (unignore + enqueue). |
+| ThumbHash write path | Behind off switch. **Backfill will not ship** (too many Telegram edits for a brief placeholder). New uploads only, after every user has a reader build. |
+| Placeholder drawing | Written; inert until writes are on. |
+| Switching on | Wait until every user has this build, then turn writes on for new uploads only. No backfill. |
