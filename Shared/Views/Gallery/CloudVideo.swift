@@ -385,14 +385,55 @@ extension AVPlayerItem {
     }
 }
 
-/// Spinner over a video while it switches quality (the new version is loading at the same moment).
+extension AVPlayer {
+    /// Loaded end / duration when both are known; otherwise nil (indeterminate ring).
+    var bufferProgress: Double? {
+        guard let item = currentItem else { return nil }
+        let d = item.duration.seconds
+        guard d.isFinite, d > 0 else { return nil }
+        let end = item.loadedTimeRanges.map(\.timeRangeValue.end.seconds).filter(\.isFinite).max() ?? 0
+        guard end > 0 else { return nil }
+        return min(1, max(0, end / d))
+    }
+}
+
+/// Thin ring over a video while it buffers or switches quality (preview: download ring).
+struct VideoDownloadRing: View {
+    /// 0…1 when known; nil spins quietly.
+    var progress: Double?
+    var body: some View {
+        ZStack {
+            if let progress, progress.isFinite {
+                Circle()
+                    .stroke(Color.white.opacity(0.18), lineWidth: 3)
+                    .frame(width: 44, height: 44)
+                Circle()
+                    .trim(from: 0, to: min(1, max(0, progress)))
+                    .stroke(Color.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: 44, height: 44)
+                Text("\(Int((min(1, max(0, progress)) * 100).rounded()))%")
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+            } else {
+                ProgressView().tint(.white)
+            }
+        }
+        .padding(14)
+        .background(.black.opacity(0.35), in: Circle())
+        .allowsHitTesting(false)
+        .accessibilityLabel(progress.map { "Loading \(Int(($0 * 100).rounded())) percent" } ?? "Loading")
+    }
+}
+
+/// Ring over a video while it switches quality (the new version is loading at the same moment).
 struct VideoSwitchingOverlay: View {
     @ObservedObject var session: CloudVideoSession
 
     var body: some View {
         if session.switching {
-            ProgressView().tint(.white).padding(14).background(.black.opacity(0.35), in: Circle())
-                .allowsHitTesting(false)
+            VideoDownloadRing(progress: nil)
         }
     }
 }

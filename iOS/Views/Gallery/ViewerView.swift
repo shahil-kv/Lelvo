@@ -417,7 +417,7 @@ struct ViewerPage: View {
             switch content {
             case .loading(let placeholder):
                 if let placeholder { Image(uiImage: placeholder).resizable().scaledToFit() }
-                ProgressView().tint(.white).padding(14).background(.black.opacity(0.35), in: Circle())
+                VideoDownloadRing(progress: nil)
             case .image(let image):
                 ZoomableImageView(image: image, entry: entry, zoomed: $zoomed)
             case .live(let live):
@@ -430,9 +430,12 @@ struct ViewerPage: View {
                             ZStack {
                                 Color.black
                                 if let poster { Image(uiImage: poster).resizable().scaledToFit() }
-                                ProgressView().tint(.white).padding(14).background(.black.opacity(0.35), in: Circle())
+                                VideoDownloadRing(progress: player.bufferProgress)
                             }
                             .allowsHitTesting(false)
+                        } else if !(session?.switching ?? false) {
+                            // Mid-play stall: ring over the last frame (no black cover).
+                            VideoBufferingRing(player: player)
                         }
                     }
                     .overlay { if let session { VideoSwitchingOverlay(session: session) } }
@@ -1260,6 +1263,22 @@ private struct SkipFeedback: View {
     }
 }
 
+/// Center ring while AVPlayer is waiting for data after the first frame.
+private struct VideoBufferingRing: View {
+    let player: AVPlayer
+    @StateObject private var state = PlaybackState()
+
+    var body: some View {
+        Group {
+            if state.isBuffering {
+                VideoDownloadRing(progress: state.bufferProgress)
+            }
+        }
+        .onAppear { state.attach(player) }
+        .onDisappear { state.detach() }
+    }
+}
+
 @MainActor
 final class PlaybackState: ObservableObject {
     @Published var current: Double = 0
@@ -1267,6 +1286,8 @@ final class PlaybackState: ObservableObject {
     @Published var isPlaying = false
     /// Waiting for data (slow network): shown as a spinner instead of the play/pause icon.
     @Published var isBuffering = false
+    /// How much of the file is loaded (0…1), when the duration is known.
+    @Published var bufferProgress: Double?
     @Published var isMuted = false
     private var timeObserver: Any?
     private var statusObservation: NSKeyValueObservation?
@@ -1284,14 +1305,17 @@ final class PlaybackState: ObservableObject {
                 guard t.isValid, t.isNumeric, t.seconds.isFinite, t.seconds >= 0 else { return }
                 self.current = t.seconds
                 if let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
+                self.bufferProgress = player.bufferProgress
             }
         }
         statusObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] p, _ in
             let playing = p.timeControlStatus != .paused
             let buffering = p.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            let progress = p.bufferProgress
             Task { @MainActor in
                 self?.isPlaying = playing
                 self?.isBuffering = buffering
+                self?.bufferProgress = progress
             }
         }
     }

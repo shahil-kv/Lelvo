@@ -363,7 +363,7 @@ struct MacViewerPage: View {
                             ZStack {
                                 Color.black
                                 if let poster { Image(platformImage: poster).resizable().scaledToFit() }
-                                spinner
+                                VideoDownloadRing(progress: player.bufferProgress)
                             }
                             .allowsHitTesting(false)
                         }

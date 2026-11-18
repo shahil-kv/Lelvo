@@ -456,11 +456,13 @@ internal fun VideoPage(
                 )
             }.semantics { contentDescription = "Video" },
         )
-        if ((session.buffering || session.switching) && session.wantsPlay && !session.playing && session.error == null) {
-            CircularProgressIndicator(
-                color = Color.White, strokeWidth = 3.dp,
-                modifier = Modifier.align(Alignment.Center).size(64.dp).background(Color.Black.copy(alpha = 0.35f), CircleShape).padding(16.dp),
-            )
+        if ((session.buffering || session.switching) && session.error == null &&
+            (session.switching || (session.wantsPlay && !session.playing) || !session.firstFrame)
+        ) {
+            // Download ring: determinate when ExoPlayer reports buffered end, else quiet spin (iOS `VideoDownloadRing`).
+            val loaded = session.buffered.takeIf { it > 0f && session.duration > 0f }
+                ?.let { (it / session.duration).coerceIn(0f, 1f) }
+            VideoDownloadRing(progress = loaded, modifier = Modifier.align(Alignment.Center))
         } else if (chrome && session.error == null && (!session.wantsPlay || session.ended)) {
             // Only while paused, like Google Photos: a playing video keeps its picture clear.
             IconButton(
@@ -475,6 +477,32 @@ internal fun VideoPage(
             SkipFeedback(side, Modifier.align(if (side < 0) Alignment.CenterStart else Alignment.CenterEnd))
         }
         session.error?.let { ViewerNotice(it, Modifier.align(Alignment.Center), onRetry = session::retry) }
+    }
+}
+
+/** Thin ring while a cloud video buffers (iOS `VideoDownloadRing`). */
+@Composable
+private fun VideoDownloadRing(progress: Float?, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(64.dp).background(Color.Black.copy(alpha = 0.35f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (progress != null) {
+            CircularProgressIndicator(
+                progress = { progress },
+                color = Color.White,
+                trackColor = Color.White.copy(alpha = 0.18f),
+                strokeWidth = 3.dp,
+                modifier = Modifier.size(44.dp),
+            )
+            Text(
+                "${(progress * 100).toInt().coerceIn(0, 100)}%",
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        } else {
+            CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
+        }
     }
 }
 
