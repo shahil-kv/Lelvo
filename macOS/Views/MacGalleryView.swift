@@ -216,7 +216,8 @@ struct MacGalleryView: View {
                      onMagnify: { amount in tileSize = min(Self.tileRange.upperBound, max(Self.tileRange.lowerBound, tileSize * (1 + amount))) },
                      dragEntries: { entry in selecting && selection.contains(entry.id) ? selectedEntries : [entry] },
                      onColumns: { columns = $0 },
-                     onBackgroundClick: { if !selecting { cursorId = nil } })
+                     onBackgroundClick: { if !selecting { cursorId = nil } },
+                     onMarquee: { selecting = true; selection = $0 })
     }
 
     @ViewBuilder private var emptyState: some View {

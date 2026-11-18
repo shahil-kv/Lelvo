@@ -38,6 +38,8 @@ struct MacPhotoGrid: NSViewRepresentable {
     var dragEntries: (GalleryEntry) -> [GalleryEntry]
     var onColumns: (Int) -> Void
     var onBackgroundClick: () -> Void
+    /// Drag-to-select: the complete new selection while the band is dragged. The owner should also enter Select mode.
+    var onMarquee: (Set<String>) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -136,7 +138,20 @@ struct MacPhotoGrid: NSViewRepresentable {
             }
         }
 
+        private var speedMeter = ScrollSpeedMeter()
+        private var speedResetTask: Task<Void, Never>?
+
         private func scrolled() {
+            if let clip = collectionView?.enclosingScrollView?.contentView {
+                speedMeter.sample(offset: Double(clip.bounds.origin.y), time: CACurrentMediaTime())
+            }
+            // No more bounds changes means the scroll stopped: release held-back loads.
+            speedResetTask?.cancel()
+            speedResetTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 120_000_000)
+                guard !Task.isCancelled else { return }
+                self?.speedMeter.stop()
+            }
             VisibleVideoPreloader.shared.cancel()
             settleTask?.cancel()
             settleTask = Task { [weak self] in
@@ -267,6 +282,23 @@ struct MacPhotoGrid: NSViewRepresentable {
         func key(_ key: GridKey, _ modifiers: NSEvent.ModifierFlags) { parent.onKey(key, modifiers) }
         func magnify(_ amount: CGFloat) { parent.onMagnify(amount) }
         func backgroundClick() { parent.onBackgroundClick() }
+
+        // MARK: Drag to select
+
+        var currentSelection: Set<String> { parent.selection }
+
+        /// Ids of the tiles whose frames touch `rect` (content coordinates). Asks the layout for just that rect,
+        /// so the cost follows the band, not the library size.
+        func ids(touching rect: CGRect) -> Set<String> {
+            guard let layout, let ds = dataSource else { return [] }
+            var out = Set<String>()
+            for attrs in layout.layoutAttributesForElements(in: rect) where attrs.representedElementCategory == .item {
+                if let ip = attrs.indexPath, let id = ds.itemIdentifier(for: ip) { out.insert(id) }
+            }
+            return out
+        }
+
+        func marquee(_ selection: Set<String>) { parent.onMarquee(selection) }
 
         // MARK: Prefetching
 
@@ -419,13 +451,113 @@ final class GridCollectionView: NSCollectionView {
         coordinator?.key(.copy, [])
     }
 
+    // MARK: Drag to select (rubber band)
+    // Only presses that reach this view start a band: tiles handle their own mouse events (click, drag to Finder),
+    // so empty space, the gaps between tiles and date headers land here.
+
+    private let band = MarqueeBandView()
+    private var bandOrigin: CGPoint?
+    private var bandActive = false
+    private var bandToggle = false
+    private var bandBase: Set<String> = []
+    private var bandTouched: Set<String> = []
+    private var bandTimer: Timer?
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         coordinator?.backgroundClick()
+        bandOrigin = convert(event.locationInWindow, from: nil)
+        bandActive = false
+        bandToggle = !event.modifierFlags.intersection([.shift, .command]).isEmpty
+        bandBase = coordinator?.currentSelection ?? []
+        bandTouched = []
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let origin = bandOrigin else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        if !bandActive {
+            // A small movement is still a click on empty space.
+            guard hypot(point.x - origin.x, point.y - origin.y) > 3 else { return }
+            bandActive = true
+            addSubview(band, positioned: .above, relativeTo: nil)
+            // The pointer may rest at an edge without moving; a timer keeps the scroll going.
+            let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.bandTick() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            bandTimer = timer
+        }
+        updateBand(to: point)
+    }
+
+    override func mouseUp(with event: NSEvent) { endBand() }
+
+    private func bandTick() {
+        guard bandActive, let window, let clip = enclosingScrollView?.contentView else { return }
+        let pointer = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        let visible = clip.bounds
+        let step = MarqueeSelection.autoScrollStep(pointerY: pointer.y, visibleMinY: visible.minY, visibleMaxY: visible.maxY)
+        if step != 0 {
+            let maxY = max(0, frame.height - visible.height)
+            let y = min(max(0, visible.origin.y + step), maxY)
+            if y != visible.origin.y {
+                clip.scroll(to: NSPoint(x: visible.origin.x, y: y))
+                enclosingScrollView?.reflectScrolledClipView(clip)
+            }
+        }
+        // The rectangle keeps growing in content coordinates even when only the scroll position moved.
+        updateBand(to: pointer)
+    }
+
+    private func updateBand(to point: CGPoint) {
+        guard let origin = bandOrigin else { return }
+        let rect = MarqueeSelection.rect(from: origin, to: point, within: bounds)
+        band.frame = rect
+        guard let coordinator else { return }
+        let touched = coordinator.ids(touching: rect)
+        guard touched != bandTouched else { return }
+        bandTouched = touched
+        coordinator.marquee(MarqueeSelection.result(base: bandBase, touched: touched, toggle: bandToggle))
+    }
+
+    private func endBand() {
+        bandTimer?.invalidate()
+        bandTimer = nil
+        band.removeFromSuperview()
+        bandOrigin = nil
+        bandActive = false
+        bandTouched = []
     }
 
     override func magnify(with event: NSEvent) {
         coordinator?.magnify(event.magnification)
+    }
+}
+
+/// The translucent rubber band: accent colour at low alpha with a 1 pt accent border. Never takes mouse events.
+final class MarqueeBandView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.borderWidth = 1
+        refreshColors()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshColors()
+    }
+
+    private func refreshColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.18).cgColor
+            layer?.borderColor = NSColor.controlAccentColor.cgColor
+        }
     }
 }
 
@@ -465,6 +597,7 @@ final class ThumbnailView: NSView {
     private var mouseDownEvent: NSEvent?
     private var dragging = false
     private var hasImage = false
+    private var placeholderTask: Task<Void, Never>?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -515,6 +648,8 @@ final class ThumbnailView: NSView {
         super.prepareForReuse()
         loadTask?.cancel()
         loadTask = nil
+        placeholderTask?.cancel()
+        placeholderTask = nil
         entryId = nil
         loadedPixels = 0
         hasImage = false
@@ -531,6 +666,7 @@ final class ThumbnailView: NSView {
                 loadedPixels = cached.pixels
             }
         }
+        if !hasImage, placeholderTask == nil, let hash = entry.placeholderHash { showPlaceholder(hash, for: entry.id) }
         if loadedPixels < pixels && loadTask == nil { load(entry, pixels: pixels) }
 
         if entry.isVideo, let d = entry.duration, side >= 56 {
@@ -554,6 +690,25 @@ final class ThumbnailView: NSView {
         needsLayout = true
     }
 
+    /// Blurred ThumbHash picture until the real thumbnail arrives; `hasImage` stays false so `setImage` cross-fades.
+    private func showPlaceholder(_ hash: String, for id: String) {
+        if let blur = ThumbHashImages.shared.cached(hash) {
+            drawPlaceholder(blur)
+        } else if !ThumbHashImages.shared.isResolved(hash) {
+            placeholderTask = Task { @MainActor [weak self] in
+                let blur = await ThumbHashImages.shared.image(for: hash)
+                guard let self, !Task.isCancelled, self.entryId == id else { return }
+                self.placeholderTask = nil
+                if let blur, !self.hasImage { self.drawPlaceholder(blur) }
+            }
+        }
+    }
+
+    private func drawPlaceholder(_ image: PlatformImage) {
+        var rect = CGRect(origin: .zero, size: image.size)
+        imageLayer.contents = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) ?? image
+    }
+
     private func load(_ entry: GalleryEntry, pixels: Int) {
         loadTask = Task { @MainActor [weak self] in
             for await image in ThumbnailPipeline.shared.images(for: entry, pixels: pixels) {
@@ -567,7 +722,7 @@ final class ThumbnailView: NSView {
     }
 
     private func setImage(_ image: PlatformImage, animated: Bool) {
-        if animated {
+        if animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             let fade = CATransition()
             fade.type = .fade
             fade.duration = 0.15

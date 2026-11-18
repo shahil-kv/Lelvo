@@ -2,7 +2,17 @@ import SwiftUI
 import LelvoCore
 
 final class MacAppDelegate: NSObject, NSApplicationDelegate {
+    /// macOS has no memory-warning callback; this is the same trim iPhone does in `applicationDidReceiveMemoryWarning`.
+    private var memoryPressure: DispatchSourceMemoryPressure?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        pressure.setEventHandler {
+            AppEnvironment.shared.media.trimMemory()
+            ThumbnailPipeline.shared.clearMemory()
+        }
+        pressure.resume()
+        memoryPressure = pressure
         #if DEBUG
         DebugHooks.install()
         #endif

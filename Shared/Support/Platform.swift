@@ -135,6 +135,15 @@ extension Image {
 }
 
 extension Color {
+    /// The plain screen background: black in dark mode, white in light mode.
+    static var screenBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color(.systemBackground)
+        #endif
+    }
+
     /// Placeholder behind thumbnails that haven't loaded yet.
     static var tileBackground: Color {
         #if os(macOS)
@@ -297,3 +306,74 @@ extension View {
         #endif
     }
 }
+
+// MARK: - One-time code field
+
+/// The hidden field under the login-code boxes. On iPhone it is a real `UITextField`: a nearly transparent SwiftUI
+/// `TextField` showed the keyboard's "From Telegram 12345" suggestion, but tapping it filled nothing. UIKit fields
+/// take that insert reliably. The field stays fully opaque with clear text and caret, because AutoFill skips fields
+/// it judges invisible.
+struct OneTimeCodeField: View {
+    @Binding var text: String
+    @Binding var focused: Bool
+    #if !os(iOS)
+    @FocusState private var hasFocus: Bool
+    #endif
+
+    var body: some View {
+        #if os(iOS)
+        CodeTextField(text: $text, focused: focused) { focused = $0 }
+            .accessibilityLabel("Login code")
+        #else
+        TextField("", text: $text)
+            .textContentType(.oneTimeCode)
+            .focused($hasFocus)
+            .opacity(0.02)
+            .accessibilityLabel("Login code")
+            .onAppear { hasFocus = focused }
+            .onChange(of: focused) { _, v in hasFocus = v }
+            .onChange(of: hasFocus) { _, v in focused = v }
+        #endif
+    }
+}
+
+#if os(iOS)
+private struct CodeTextField: UIViewRepresentable {
+    @Binding var text: String
+    let focused: Bool
+    let setFocused: (Bool) -> Void
+
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField()
+        field.keyboardType = .numberPad
+        field.textContentType = .oneTimeCode
+        field.textColor = .clear
+        field.tintColor = .clear
+        field.backgroundColor = .clear
+        field.delegate = context.coordinator
+        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return field
+    }
+
+    func updateUIView(_ field: UITextField, context: Context) {
+        context.coordinator.parent = self
+        if field.text != text { field.text = text }
+        // Becoming first responder while the view is still off-window does nothing; try again on the next turn.
+        if focused, !field.isFirstResponder { DispatchQueue.main.async { field.becomeFirstResponder() } }
+        if !focused, field.isFirstResponder { DispatchQueue.main.async { field.resignFirstResponder() } }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: CodeTextField
+        init(_ parent: CodeTextField) { self.parent = parent }
+
+        @objc func changed(_ field: UITextField) { parent.text = field.text ?? "" }
+        func textFieldDidBeginEditing(_ field: UITextField) { if !parent.focused { parent.setFocused(true) } }
+        func textFieldDidEndEditing(_ field: UITextField) { if parent.focused { parent.setFocused(false) } }
+    }
+}
+#endif

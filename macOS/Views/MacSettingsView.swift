@@ -23,7 +23,8 @@ struct MacSettingsView: View {
             Tab("Logs", systemImage: "doc.text.magnifyingglass") { NavigationStack { LogsView() } }
             Tab("About", systemImage: "info.circle") { NavigationStack { AboutView() } }
         }
-        .frame(width: 620, height: 520)
+        // Wide enough for all ten tabs: at 620 pt the last ones (About) went into an overflow menu.
+        .frame(width: 860, height: 520)
         .disabled(!app.onboardingComplete)
     }
 }

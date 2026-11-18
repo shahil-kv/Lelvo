@@ -25,7 +25,7 @@ enum AppLinks {
 
 /// Third-party code shipped inside the app, with the license each one is under.
 enum Acknowledgement: CaseIterable, Identifiable {
-    case tdlib, tdlibKit, tdlibFramework, openssl, argon2
+    case tdlib, tdlibKit, tdlibFramework, openssl, argon2, thumbHash
 
     var id: Self { self }
 
@@ -36,6 +36,7 @@ enum Acknowledgement: CaseIterable, Identifiable {
         case .tdlibFramework: return "TDLibFramework"
         case .openssl: return "OpenSSL"
         case .argon2: return "Argon2"
+        case .thumbHash: return "ThumbHash"
         }
     }
 
@@ -46,6 +47,7 @@ enum Acknowledgement: CaseIterable, Identifiable {
         case .tdlibFramework: return "TDLib packaged for Apple platforms, © 2024 Sergey Akentev. MIT License."
         case .openssl: return "Cryptography used by TDLib, © The OpenSSL Project Authors. Apache License 2.0."
         case .argon2: return "Passphrase key derivation, © 2015 Daniel Dinu, Dmitry Khovratovich, Jean-Philippe Aumasson and Samuel Neves. CC0 1.0 or Apache License 2.0."
+        case .thumbHash: return "Placeholder previews, © 2023 Evan Wallace. MIT License."
         }
     }
 
@@ -56,6 +58,7 @@ enum Acknowledgement: CaseIterable, Identifiable {
         case .tdlibFramework: return .literal("https://github.com/Swiftgram/TDLibFramework/blob/main/LICENSE")
         case .openssl: return .literal("https://www.openssl.org/source/license.html")
         case .argon2: return .literal("https://github.com/P-H-C/phc-winner-argon2/blob/master/LICENSE")
+        case .thumbHash: return .literal("https://github.com/evanw/thumbhash/blob/main/LICENSE.md")
         }
     }
 }

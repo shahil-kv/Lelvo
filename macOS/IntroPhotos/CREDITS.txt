@@ -1,0 +1,2 @@
+Sample photos in this folder are from Unsplash (https://unsplash.com/license), via picsum.photos, resized.
+They are copies of iOS/DemoLibrary/photo01–24, used only for the intro's photo wall on the Mac.

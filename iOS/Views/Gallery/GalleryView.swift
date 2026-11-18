@@ -220,15 +220,24 @@ struct GalleryView: View {
             }
     }
 
+    /// The whole banner is the button, with the same two choices Apple's apps give: pick more, or allow all.
     private var limitedBanner: some View {
-        HStack {
-            Label("Lelvo can only see the photos you selected.", systemImage: "photo.badge.exclamationmark")
-                .font(.footnote)
-            Spacer()
-            Button("Manage") { presentLimitedPicker() }.font(.footnote.bold())
+        Menu {
+            Button("Select More Photos", systemImage: "photo.badge.plus") { presentLimitedPicker() }
+            Button("Allow Full Access", systemImage: "gear") { PlatformActions.openPhotoSettings() }
+        } label: {
+            HStack {
+                Label("Lelvo can only see the photos you selected.", systemImage: "photo.badge.exclamationmark")
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text("Manage").font(.footnote.bold())
+            }
+            .padding(10)
+            .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
         }
-        .padding(10)
-        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityHint("Select more photos or allow full access in Settings")
     }
 
     @ViewBuilder private var emptyState: some View {
@@ -686,6 +695,8 @@ struct DateScrubber: View {
     @State private var lastTitle = ""
     @State private var visible = false
     @State private var hideTask: Task<Void, Never>?
+    /// Year labels for the current marks and track height, made once per change rather than per frame.
+    @State private var ticks: [ScrubberMark] = []
 
     private let thumbHeight: CGFloat = 44
 
@@ -697,6 +708,29 @@ struct DateScrubber: View {
             let f = dragging ? dragFraction : min(max(motion.fraction, 0), 1)
             Color.clear
                 .contentShape(Rectangle())
+                .overlay(alignment: .topTrailing) {
+                    // Only the trailing edge: ticks and years sit left of the handle, never over the photos' centre.
+                    ZStack(alignment: .topTrailing) {
+                        ForEach(ticks, id: \.year) { mark in
+                            HStack(spacing: 3) {
+                                Text(String(mark.year))
+                                    .font(.caption2)
+                                    .foregroundStyle(Color(uiColor: .secondaryLabel))
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                Capsule().fill(Color(uiColor: .tertiaryLabel)).frame(width: 6, height: 1.5)
+                            }
+                            .offset(y: 8 + thumbHeight / 2 + CGFloat(mark.fraction) * track - 8)
+                        }
+                    }
+                    .padding(.trailing, 34)
+                    .opacity(visible || dragging ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+                .onAppear { ticks = makeTicks(track) }
+                .onChange(of: track) { _, t in ticks = makeTicks(t) }
+                .onChange(of: motion.yearMarks) { _, _ in ticks = makeTicks(track) }
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { v in
@@ -748,10 +782,14 @@ struct DateScrubber: View {
         .accessibilityHint("Drag to jump to a date")
     }
 
+    private func makeTicks(_ track: CGFloat) -> [ScrubberMark] {
+        ScrubberTicks.make(marks: motion.yearMarks, maxLabels: Int(track / 28))
+    }
+
     private func scheduleHide() {
         hideTask?.cancel()
         hideTask = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: 800_000_000)
             guard !Task.isCancelled, !dragging else { return }
             withAnimation(Motion.exit) { visible = false }
         }
@@ -764,6 +802,9 @@ struct DateScrubber: View {
     var isScrolling = false
     /// The date at the top of the grid. The scrubber shows it while the handle is dragged.
     var topTitle = ""
+    /// One mark per section (top first) with its scroll fraction; empty for a library under 8 screens. Set only when
+    /// the data or layout changes.
+    var yearMarks: [ScrubberMark] = []
 }
 
 /// Grey tiles in the grid's own layout while the library loads, so the screen doesn't jump when photos arrive. Shown

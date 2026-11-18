@@ -27,7 +27,7 @@ struct BackUpNewPhotosIntent: AppIntent {
         let deadline = started.addingTimeInterval(25)
         // The Camera-opened run may still be going when Camera closes. Its list was made before the new photos, so
         // wait for it to end and run again rather than stop with "already running".
-        while env.engine.isRunning, Date() < deadline.addingTimeInterval(-10) {
+        while env.engine.isRunning, !env.engine.hasFrozenRun, Date() < deadline.addingTimeInterval(-10) {
             try? await Task.sleep(for: .milliseconds(500))
         }
         Prefs.markRunStarted(.shortcut, at: started)

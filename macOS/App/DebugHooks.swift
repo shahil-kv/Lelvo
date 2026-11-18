@@ -8,6 +8,11 @@ import SwiftUI
 ///   action:   post "app.lelvo.mac.debug.action" with object = "go:library|go:backup|open:<n>|key:left|key:right|key:escape"
 enum DebugHooks {
     @MainActor static func install() {
+        // `-UITestAppearance light|dark`: screen tours check both looks whatever this Mac is set to.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-UITestAppearance"), i + 1 < args.count {
+            NSApp.appearance = NSAppearance(named: args[i + 1] == "dark" ? .darkAqua : .aqua)
+        }
         let center = DistributedNotificationCenter.default()
         center.addObserver(forName: .init("app.lelvo.mac.debug.snapshot"), object: nil, queue: .main) { note in
             guard let path = note.object as? String else { return }

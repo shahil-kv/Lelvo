@@ -111,6 +111,10 @@ targets:
       Release: Config/App.xcconfig
     sources:
       - path: macOS
+        excludes: [IntroPhotos]
+      # The intro's photo wall (the iPhone app gets them from its demo library), as one folder.
+      - path: macOS/IntroPhotos
+        type: folder
       - path: Shared
     dependencies:
       - package: LelvoCore
@@ -157,6 +161,9 @@ targets:
       Release: Config/App.xcconfig
     sources:
       - path: macOS
+        excludes: [IntroPhotos]
+      - path: macOS/IntroPhotos
+        type: folder
       - path: Shared
     dependencies:
       - package: LelvoCore

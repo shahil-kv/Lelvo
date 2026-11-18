@@ -54,6 +54,7 @@ final class BackupStatsModel: ObservableObject {
             let counts = (try? env.store.counts()) ?? [:]
             let queued = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
             let failedItems = (try? env.store.items(status: .failed)) ?? []
+            let ignored = (try? env.store.ignoredAmong(failedItems)) ?? []
             let autoBackup = Prefs.autoBackup
             // Ids only: decoding every backed-up item here every few seconds kept a large library busy during a backup.
             let all = (try? env.store.localIdentifiers(status: .backedUp)) ?? []
@@ -61,7 +62,7 @@ final class BackupStatsModel: ObservableObject {
             var work: BackupCounts
             if DemoMode.isActive {
                 // App Review demo: the sample items waiting for "Back up now" stand in for this iPhone's photos.
-                work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup)
+                work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup, ignored: ignored)
                 work.notQueued = DemoMode.pendingItems().count
                 onDevice = work.notQueued
                 cloudOnly = all.count
@@ -70,12 +71,12 @@ final class BackupStatsModel: ObservableObject {
                 onDevice = assets.count
                 work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: env.photos.backupCandidates().map(\.localIdentifier),
                                             known: (try? env.store.knownLocalIdentifiers()) ?? [],
-                                            offBackup: (try? env.store.offBackupLocalIdentifiers()) ?? [], autoBackup: autoBackup)
+                                            offBackup: (try? env.store.offBackupLocalIdentifiers()) ?? [], autoBackup: autoBackup, ignored: ignored)
                 let present = env.photos.existingIdentifiers(all.compactMap { $0 })
                 cloudOnly = all.filter { $0.map { !present.contains($0) } ?? true }.count
                 removed = RemovedFromBackupModel.photos().count
             } else {
-                work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup)
+                work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup, ignored: ignored)
                 cloudOnly = all.count
             }
             let (onDeviceCount, cloudOnlyCount, removedCount, result) = (onDevice, cloudOnly, removed, work)
