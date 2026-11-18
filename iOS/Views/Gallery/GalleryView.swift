@@ -23,6 +23,7 @@ struct GalleryView: View {
     @State private var motion = GridMotion()
     @State private var scrubFraction: CGFloat = 0
     @State private var scrubToken = 0
+    @State private var showJumpToDate = false
     /// Bumped when the filtered timeline is recomputed, so the grid knows its data changed.
     @State private var filteredVersion = 0
     /// "Show Selected", like Photos: the items picked when it was tapped. Kept fixed while selecting, so unticking one
@@ -66,6 +67,12 @@ struct GalleryView: View {
         .toolbar(hasSelection ? .hidden : .visible, for: .tabBar)
         .sheet(isPresented: $showLegend) { BadgeLegendView() }
         .sheet(isPresented: $showProPaywall) { ProPaywallView() }
+        .sheet(isPresented: $showJumpToDate) {
+            JumpToDateSheet(datesNewestFirst: entries.compactMap(\.date)) { fraction in
+                scrubFraction = fraction
+                scrubToken += 1
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if hasSelection { selectionBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
@@ -212,7 +219,7 @@ struct GalleryView: View {
             }
             .overlay(alignment: .trailing) {
                 if sections.count > 3 {
-                    DateScrubber(motion: motion) { fraction in
+                    DateScrubber(motion: motion, onJumpToDate: { showJumpToDate = true }) { fraction in
                         scrubFraction = fraction
                         scrubToken += 1
                     }
@@ -299,6 +306,9 @@ struct GalleryView: View {
                         ForEach([2, 3, 4, 5, 6, 8, 10], id: \.self) { Text("\($0) columns").tag($0) }
                     }
                     Divider()
+                    if entries.count > 1 {
+                        Button { showJumpToDate = true } label: { Label("Jump to date", systemImage: "calendar") }
+                    }
                     Button { showLegend = true } label: { Label("What the icons mean", systemImage: "info.circle") }
                 } label: { Image(systemName: "square.grid.3x3") }
                 .accessibilityLabel("Grid size")
@@ -689,6 +699,7 @@ struct GalleryView: View {
 /// through the timeline by the same amount, with the date tucked against the handle (like Photos).
 struct DateScrubber: View {
     let motion: GridMotion
+    var onJumpToDate: (() -> Void)? = nil
     let jump: (CGFloat) -> Void
     @State private var dragging = false
     @State private var dragFraction: CGFloat = 0
@@ -745,6 +756,13 @@ struct DateScrubber: View {
                             dragging = false
                             scheduleHide()
                         }
+                )
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                        guard let onJumpToDate else { return }
+                        Haptics.press()
+                        onJumpToDate()
+                    }
                 )
                 .overlay(alignment: .topTrailing) {
                     HStack(spacing: 8) {

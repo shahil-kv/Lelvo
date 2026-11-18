@@ -225,6 +225,40 @@ import LelvoCore
     }
 }
 
+@Suite struct JumpToDateTests {
+    private let cal = Calendar(identifier: .gregorian)
+
+    private func day(_ y: Int, _ m: Int, _ d: Int = 15) -> Date {
+        cal.date(from: DateComponents(year: y, month: m, day: d))!
+    }
+
+    @Test func emptyAndSingleStayAtTop() {
+        #expect(JumpToDate.fraction(target: day(2023, 3), datesNewestFirst: []) == 0)
+        #expect(JumpToDate.fraction(target: day(2023, 3), datesNewestFirst: [day(2024, 1)]) == 0)
+    }
+
+    @Test func newestFirstMapsTargetToScrubberFraction() {
+        let dates = [day(2024, 6), day(2023, 6), day(2022, 6), day(2021, 6)]
+        #expect(JumpToDate.fraction(target: day(2024, 6), datesNewestFirst: dates) == 0)
+        #expect(JumpToDate.fraction(target: day(2023, 6), datesNewestFirst: dates) == 1.0 / 3)
+        #expect(JumpToDate.fraction(target: day(2021, 6), datesNewestFirst: dates) == 1)
+        // Between 2023 and 2022: lands on the first date at or older than the target.
+        #expect(JumpToDate.fraction(target: day(2022, 12), datesNewestFirst: dates) == 2.0 / 3)
+    }
+
+    @Test func olderThanLibraryGoesToBottom() {
+        let dates = [day(2024, 1), day(2023, 1)]
+        #expect(JumpToDate.fraction(target: day(2010, 1), datesNewestFirst: dates) == 1)
+    }
+
+    @Test func yearRangeSpansLibraryAndToday() {
+        let dates = [day(2020, 1), day(2018, 6)]
+        let range = JumpToDate.yearRange(in: dates, calendar: cal, now: day(2024, 5))
+        #expect(range == 2018...2024)
+        #expect(JumpToDate.yearRange(in: [], calendar: cal, now: day(2024, 5)) == 2024...2024)
+    }
+}
+
 @Suite struct ScrollLoadPolicyTests {
     @Test func defersAtThresholdAndResumesBelowLowerOne() {
         var p = ScrollLoadPolicy()

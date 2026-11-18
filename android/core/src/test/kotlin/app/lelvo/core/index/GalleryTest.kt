@@ -162,3 +162,36 @@ class ScrubberTicksTest {
         kotlin.test.assertFalse(ScrubberTicks.isLongEnough(8000.0, 0.0))
     }
 }
+
+class JumpToDateTest {
+    private fun day(y: Int, m: Int): Long {
+        val c = java.util.Calendar.getInstance()
+        c.clear()
+        c.set(y, m - 1, 15)
+        return c.timeInMillis
+    }
+
+    @kotlin.test.Test fun emptyAndSingleStayAtTop() {
+        kotlin.test.assertEquals(0.0, JumpToDate.fraction(day(2023, 3), longArrayOf()))
+        kotlin.test.assertEquals(0.0, JumpToDate.fraction(day(2023, 3), longArrayOf(day(2024, 1))))
+    }
+
+    @kotlin.test.Test fun newestFirstMapsTargetToScrubberFraction() {
+        val dates = longArrayOf(day(2024, 6), day(2023, 6), day(2022, 6), day(2021, 6))
+        kotlin.test.assertEquals(0.0, JumpToDate.fraction(day(2024, 6), dates))
+        kotlin.test.assertEquals(1.0 / 3, JumpToDate.fraction(day(2023, 6), dates), 1e-9)
+        kotlin.test.assertEquals(1.0, JumpToDate.fraction(day(2021, 6), dates))
+        kotlin.test.assertEquals(2.0 / 3, JumpToDate.fraction(day(2022, 12), dates), 1e-9)
+    }
+
+    @kotlin.test.Test fun olderThanLibraryGoesToBottom() {
+        val dates = longArrayOf(day(2024, 1), day(2023, 1))
+        kotlin.test.assertEquals(1.0, JumpToDate.fraction(day(2010, 1), dates))
+    }
+
+    @kotlin.test.Test fun yearRangeSpansLibraryAndToday() {
+        val dates = longArrayOf(day(2020, 1), day(2018, 6))
+        kotlin.test.assertEquals(2018..2024, JumpToDate.yearRange(dates, day(2024, 5)))
+        kotlin.test.assertEquals(2024..2024, JumpToDate.yearRange(longArrayOf(), day(2024, 5)))
+    }
+}

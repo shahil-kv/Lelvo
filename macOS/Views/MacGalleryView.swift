@@ -39,6 +39,7 @@ struct MacGalleryView: View {
     @State private var dataVersion = 0
     @State private var photoCount = 0
     @State private var videoCount = 0
+    @State private var showJumpToDate = false
     static let tileRange: ClosedRange<Double> = 64...380
 
     private var grouping: GalleryModel.Grouping { tileSize >= 110 ? .day : (tileSize >= 76 ? .month : .year) }
@@ -143,6 +144,12 @@ struct MacGalleryView: View {
             AddToAlbumView(count: entries.count) { id, title in
                 Task { await MacActions.addToAlbum(entries, albumId: id, title: title, toast: toast) }
             }
+        }
+        .sheet(isPresented: $showJumpToDate) {
+            JumpToDateSheet(datesNewestFirst: flat.compactMap(\.date)) { fraction in
+                jumpToFraction(fraction)
+            }
+            .frame(minWidth: 360, minHeight: 320)
         }
         .sheet(isPresented: Binding(get: { !pendingRemoveFromPhone.isEmpty }, set: { if !$0 { pendingRemoveFromPhone = [] } })) {
             RemoveFromPhoneAfterLockSheet(
@@ -365,6 +372,10 @@ struct MacGalleryView: View {
             if viewerId == nil {
                 ZoomControl(tileSize: $tileSize, range: Self.tileRange)
                 Spacer()
+                if flat.count > 1 {
+                    Button { showJumpToDate = true } label: { Label("Jump to date", systemImage: "calendar") }
+                        .help("Jump to a month in the timeline")
+                }
                 Button(selecting ? "Done" : "Select") { selecting ? endSelecting() : startSelecting() }
                     .help(selecting ? "Stop selecting (Esc)" : "Select several photos")
                     .disabled(flat.isEmpty)
@@ -613,6 +624,13 @@ struct MacGalleryView: View {
     private func scroll(to id: String) {
         scrollRequest = id
         scrollToken += 1
+    }
+
+    /// Same newest-first fraction the iOS scrubber uses; scrolls the grid to that spot.
+    private func jumpToFraction(_ fraction: CGFloat) {
+        guard flat.count > 1 else { return }
+        let i = min(max(Int((fraction * CGFloat(flat.count - 1)).rounded(.towardZero)), 0), flat.count - 1)
+        scroll(to: flat[i].id)
     }
 
     private func handle(_ key: GridKey, modifiers: NSEvent.ModifierFlags) {

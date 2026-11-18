@@ -132,6 +132,7 @@ fun TimelineScreen(
     var menuFilter by rememberSaveable { mutableStateOf<GalleryFilter?>(null) }
     val filter = collection ?: menuFilter
     var legend by remember { mutableStateOf(false) }
+    var showJumpToDate by remember { mutableStateOf(false) }
     // Read again on every return, so the banner goes away once full access is allowed in Settings.
     var partialAccess by remember { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) { partialAccess = photos.status() == PhotoAccess.Status.Partial; onPauseOrDispose {} }
@@ -254,6 +255,11 @@ fun TimelineScreen(
                             trailingIcon = { if (filter == f) Icon(painterResource(R.drawable.ic_check_circle), null) },
                             onClick = { menu = false; menuFilter = f },
                         )
+                        if (dates.size > 1) DropdownMenuItem(
+                            text = { Text("Jump to date") },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_calendar), contentDescription = null) },
+                            onClick = { menu = false; showJumpToDate = true },
+                        )
                         DropdownMenuItem(text = { Text("What the icons mean") }, onClick = { menu = false; legend = true })
                     }
                 }
@@ -265,7 +271,8 @@ fun TimelineScreen(
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                 }
-                if (collection == null && filter == null && !isDemo && partialAccess) LimitedAccessBanner()
+                // This branch is only when `collection == null` (see topBar when above).
+                if (filter == null && !isDemo && partialAccess) LimitedAccessBanner()
                 backup?.takeIf { it.running }?.let { BackupProgress(it) }
             }
         },
@@ -302,6 +309,7 @@ fun TimelineScreen(
                     pendingSkip = index
                     scrubbing = dragging
                 },
+                onJumpToDate = if (dates.size > 1) ({ showJumpToDate = true }) else null,
             )
         }
         if (selecting) {
@@ -322,6 +330,17 @@ fun TimelineScreen(
         if (selection.any { it !in ids }) selection = selection.filterTo(HashSet()) { it in ids }
     }
     if (legend) BadgeLegend(onDismiss = { legend = false })
+    if (showJumpToDate && dates.size > 1) {
+        JumpToDateSheet(
+            datesNewestFirst = dates,
+            onDismiss = { showJumpToDate = false },
+            onJump = { fraction ->
+                val i = (fraction * (dates.size - 1)).toInt().coerceIn(0, dates.lastIndex)
+                pendingSkip = i
+                scrubbing = false
+            },
+        )
+    }
     (collection as? GalleryFilter.Album)?.let { album ->
         if (deletingAlbum) {
             val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as LelvoApp
@@ -492,6 +511,7 @@ private fun Grid(
     dates: LongArray = LongArray(0),
     windowStart: Int = 0,
     onScrub: (index: Int, dragging: Boolean) -> Unit = { _, _ -> },
+    onJumpToDate: (() -> Unit)? = null,
 ) {
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val order = remember(sections) { sections.flatMap { s -> s.items.map { it.id } } }
@@ -586,6 +606,7 @@ private fun Grid(
             }
             onScrub(i, dragging)
         },
+        onJumpToDate = onJumpToDate,
     )
     EdgeScroll(state, edgeSpeed)
     }

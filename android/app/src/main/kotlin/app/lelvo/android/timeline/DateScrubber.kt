@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -79,6 +80,8 @@ internal fun DateScrubber(
     yearMarks: List<ScrubberMark> = emptyList(),
     /** Fraction along the whole library. When set, the grid is not asked to scroll: that jump is what stuck the handle. */
     onFraction: ((fraction: Float, dragging: Boolean) -> Unit)? = null,
+    /** Long-press the handle opens Jump to date (iOS scrubber long-press). */
+    onJumpToDate: (() -> Unit)? = null,
 ) {
     if (onFraction == null && sections.size < 2) return
     val haptics = LocalHapticFeedback.current
@@ -89,6 +92,7 @@ internal fun DateScrubber(
     val latest by rememberUpdatedState(sections)
     val grid by rememberUpdatedState(state)
     val jump by rememberUpdatedState(onFraction)
+    val openJump by rememberUpdatedState(onJumpToDate)
 
     LaunchedEffect(state.isScrollInProgress, dragging) {
         if (state.isScrollInProgress || dragging) visible = true else { delay(1_500); visible = false }
@@ -182,7 +186,17 @@ internal fun DateScrubber(
                 shape = RoundedCornerShape(13.dp),
                 tonalElevation = 6.dp,
                 shadowElevation = 3.dp,
-                modifier = Modifier.padding(end = 4.dp).size(width = 26.dp, height = thumb),
+                modifier = Modifier
+                    .padding(end = 4.dp)
+                    .size(width = 26.dp, height = thumb)
+                    .then(
+                        if (onJumpToDate != null) Modifier.pointerInput(Unit) {
+                            detectTapGestures(onLongPress = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                openJump?.invoke()
+                            })
+                        } else Modifier,
+                    ),
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(painterResource(R.drawable.ic_unfold), contentDescription = null, modifier = Modifier.size(16.dp))
