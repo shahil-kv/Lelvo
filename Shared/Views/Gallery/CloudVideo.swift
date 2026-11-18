@@ -427,6 +427,70 @@ struct VideoDownloadRing: View {
     }
 }
 
+/// What a video's ring shows: how much of it has loaded, and whether the player is waiting for data. It watches the
+/// player and its item (`loadedTimeRanges` changes while the player is stalled, where a clock tick would not come).
+@MainActor
+final class VideoLoadProgress: ObservableObject {
+    @Published private(set) var progress: Double?
+    @Published private(set) var isWaiting = false
+    private var observations: [NSKeyValueObservation] = []
+    private var itemObservations: [NSKeyValueObservation] = []
+
+    func attach(_ player: AVPlayer) {
+        detach()
+        refresh(player)
+        observations.append(player.observe(\.timeControlStatus, options: [.new]) { [weak self, weak player] _, _ in
+            Task { @MainActor in if let player { self?.refresh(player) } }
+        })
+        observations.append(player.observe(\.currentItem, options: [.new]) { [weak self, weak player] _, _ in
+            Task { @MainActor in if let player { self?.observeItem(of: player) } }
+        })
+        observeItem(of: player)
+    }
+
+    func detach() {
+        observations = []
+        itemObservations = []
+    }
+
+    private func observeItem(of player: AVPlayer) {
+        itemObservations = []
+        refresh(player)
+        guard let item = player.currentItem else { return }
+        itemObservations.append(item.observe(\.loadedTimeRanges, options: [.new]) { [weak self, weak player] _, _ in
+            Task { @MainActor in if let player { self?.refresh(player) } }
+        })
+        itemObservations.append(item.observe(\.duration, options: [.new]) { [weak self, weak player] _, _ in
+            Task { @MainActor in if let player { self?.refresh(player) } }
+        })
+    }
+
+    private func refresh(_ player: AVPlayer) {
+        let value = player.bufferProgress
+        if progress != value { progress = value }
+        let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+        if isWaiting != waiting { isWaiting = waiting }
+    }
+}
+
+/// The ring for a player: a percentage once the length is known, otherwise a quiet spinner. With `onlyWhileWaiting` it
+/// shows only while the player is stalled (after the first frame), otherwise always (before the first frame).
+struct VideoLoadingRing: View {
+    let player: AVPlayer
+    var onlyWhileWaiting = false
+    @StateObject private var model = VideoLoadProgress()
+
+    var body: some View {
+        Group {
+            if !onlyWhileWaiting || model.isWaiting {
+                VideoDownloadRing(progress: model.progress)
+            }
+        }
+        .onAppear { model.attach(player) }
+        .onDisappear { model.detach() }
+    }
+}
+
 /// Ring over a video while it switches quality (the new version is loading at the same moment).
 struct VideoSwitchingOverlay: View {
     @ObservedObject var session: CloudVideoSession

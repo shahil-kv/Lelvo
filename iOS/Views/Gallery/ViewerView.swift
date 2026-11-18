@@ -430,12 +430,12 @@ struct ViewerPage: View {
                             ZStack {
                                 Color.black
                                 if let poster { Image(uiImage: poster).resizable().scaledToFit() }
-                                VideoDownloadRing(progress: player.bufferProgress)
+                                VideoLoadingRing(player: player)
                             }
                             .allowsHitTesting(false)
                         } else if !(session?.switching ?? false) {
                             // Mid-play stall: ring over the last frame (no black cover).
-                            VideoBufferingRing(player: player)
+                            VideoLoadingRing(player: player, onlyWhileWaiting: true)
                         }
                     }
                     .overlay { if let session { VideoSwitchingOverlay(session: session) } }
@@ -1260,22 +1260,6 @@ private struct SkipFeedback: View {
             if side < 0 { Spacer() }
         }
         .transition(.opacity)
-    }
-}
-
-/// Center ring while AVPlayer is waiting for data after the first frame.
-private struct VideoBufferingRing: View {
-    let player: AVPlayer
-    @StateObject private var state = PlaybackState()
-
-    var body: some View {
-        Group {
-            if state.isBuffering {
-                VideoDownloadRing(progress: state.bufferProgress)
-            }
-        }
-        .onAppear { state.attach(player) }
-        .onDisappear { state.detach() }
     }
 }
 

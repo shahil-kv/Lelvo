@@ -363,9 +363,12 @@ struct MacViewerPage: View {
                             ZStack {
                                 Color.black
                                 if let poster { Image(platformImage: poster).resizable().scaledToFit() }
-                                VideoDownloadRing(progress: player.bufferProgress)
+                                VideoLoadingRing(player: player)
                             }
                             .allowsHitTesting(false)
+                        } else if !(session?.switching ?? false) {
+                            // Mid-play stall: ring over the last frame, as on iPhone.
+                            VideoLoadingRing(player: player, onlyWhileWaiting: true)
                         }
                     }
                     .overlay { if let session { VideoSwitchingOverlay(session: session) } }
