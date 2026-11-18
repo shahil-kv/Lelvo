@@ -258,9 +258,14 @@ struct AboutView: View {
                 LabeledContent("Version", value: Bundle.main.displayVersion)
                 Text("Lelvo backs up your photos to a private channel in your own Telegram account. No servers, no analytics, no ads.")
             }
-            #if DEBUG && os(iOS)
+            #if DEBUG
             // Developer builds only, kept out of the main Settings list.
-            Section("Developer") { NavigationLink("Background lab") { BackgroundLabView() } }
+            Section("Developer") {
+                #if os(iOS)
+                NavigationLink("Background lab") { BackgroundLabView() }
+                #endif
+                NavigationLink("Scroll library") { ScrollLibraryLabView() }
+            }
             #endif
             Section {
                 Link(destination: AppLinks.faq) { Label("Questions and answers", systemImage: "questionmark.circle") }

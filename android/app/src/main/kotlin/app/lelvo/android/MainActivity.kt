@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.lelvo.android.debug.BackgroundLabScreen
 import app.lelvo.android.debug.CoreCheckScreen
+import app.lelvo.android.debug.ScrollLibraryLabScreen
 import app.lelvo.android.library.LibraryScreen
 import app.lelvo.android.library.PhotosStepScreen
 import app.lelvo.android.library.FirstBackupScreen
@@ -308,6 +309,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
     var settings by rememberSaveable { mutableStateOf(false) }
     var checking by rememberSaveable { mutableStateOf(false) }
     var backgroundLab by rememberSaveable { mutableStateOf(false) }
+    var scrollLab by rememberSaveable { mutableStateOf(false) }
     val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
     val labRequest by activity.backgroundLabRequest
     LaunchedEffect(labRequest) { if (labRequest) backgroundLab = true }
@@ -383,6 +385,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                 // Debug builds only: proves the base against the real library before features are built on it.
                 onCoreCheck = if (BuildConfig.DEBUG && real) ({ checking = true }) else null,
                 onBackgroundLab = if (BuildConfig.DEBUG) ({ backgroundLab = true }) else null,
+                onScrollLab = if (BuildConfig.DEBUG) ({ scrollLab = true }) else null,
                 onLibrary = if (real) ({ libraries = true }) else null,
                 onBackupRulesChanged = { rules -> BackupScheduler.schedule(app, app.prefs, rulesChanged = rules) },
             )
@@ -393,9 +396,10 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
             backgroundLab = false
             activity.backgroundLabRequest.value = false
         })
+        if (scrollLab) ScrollLibraryLabScreen(app, onClose = { scrollLab = false })
         // One host over everything, so a message shows whichever screen is on top; above the tab bar or the viewer's
         // action row while they show.
-        val overTabs = open == null && !settings && !checking && !backgroundLab && pages.isEmpty()
+        val overTabs = open == null && !settings && !checking && !backgroundLab && !scrollLab && pages.isEmpty()
         MessageHost(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (overTabs) NavigationBarHeight else if (open != null) 72.dp else 0.dp))
     }
 }
