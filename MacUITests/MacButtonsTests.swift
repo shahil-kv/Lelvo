@@ -182,7 +182,7 @@ final class MacButtonsTests: XCTestCase {
 
     func testBackupPageControls() {
         open("Backup")
-        for title in ["Free Up Space", "Save All to Photos", "Duplicates"] {
+        for title in ["Free Up Space", "Save All to Photos", "Smart Cleanup"] {
             let row = labelled(title)
             XCTAssertTrue(row.waitForExistence(timeout: 10), "\(title) is on the Backup page")
             row.click()

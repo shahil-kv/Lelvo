@@ -56,7 +56,7 @@ final class MacScaleTests: XCTestCase {
         }
         timed("Backup") {
             row("Backup").click()
-            let duplicates = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR value == %@", "Duplicates", "Duplicates")).firstMatch
+            let duplicates = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR value == %@", "Smart Cleanup", "Smart Cleanup")).firstMatch
             XCTAssertTrue(duplicates.waitForExistence(timeout: 60))
         }
         let shot = XCTAttachment(screenshot: app.screenshot())
