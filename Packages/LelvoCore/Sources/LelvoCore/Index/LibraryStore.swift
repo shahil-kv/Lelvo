@@ -122,6 +122,9 @@ public final class LibraryStore: @unchecked Sendable {
         // up skips them until the photo changes, so Retry doesn't try the same unreadable file again and again. `modified` is
         // the photo's modification time in whole seconds when it was set aside (empty when unknown). Only adds a table.
         "CREATE TABLE IF NOT EXISTS ignored_assets (local_id TEXT PRIMARY KEY, reason TEXT NOT NULL, modified TEXT NOT NULL, ignored_at TEXT NOT NULL);",
+        // 8 → 9: an index on the capture date, which the timeline sorts by and jump-to-date and the scrubber read. Android
+        // has had one on `created_at` from the start. Only adds an index; the index rebuilds from the channel like all of it.
+        "CREATE INDEX IF NOT EXISTS idx_items_date ON items(creation_date);",
     ]
 
     /// The database's schema version (`PRAGMA user_version`).

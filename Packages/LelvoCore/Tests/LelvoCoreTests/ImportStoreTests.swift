@@ -29,7 +29,7 @@ import Testing
     /// A new store is version 7; a file left at version 6 grows the import tables on open.
     @Test func testMigrationCreatesImportTables() throws {
         let fresh = try LibraryStore(url: nil)
-        #expect(fresh.schemaVersion == 8)
+        #expect(fresh.schemaVersion == 9)
 
         let url = tempURL()
         defer { remove(url) }
@@ -52,7 +52,7 @@ import Testing
         sqlite3_close(db)
 
         let store = try LibraryStore(url: url)
-        #expect(store.schemaVersion == 8)
+        #expect(store.schemaVersion == 9)
         try store.addImportSource(source("A"))
         #expect(try store.importSources() == [source("A")])
         try store.removeImportSource(id: "A")

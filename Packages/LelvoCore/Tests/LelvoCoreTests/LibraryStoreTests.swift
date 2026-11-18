@@ -120,7 +120,7 @@ import LelvoCore
         sqlite3_close(db)
 
         let upgraded = try LibraryStore(url: url)
-        #expect(upgraded.schemaVersion == 8)
+        #expect(upgraded.schemaVersion == 9)
         #expect(try upgraded.allItems().map(\.filename).sorted() == ["IMG_1.HEIC", "IMG_2.HEIC", "IMG_3.HEIC"])
         #expect(upgraded.meta("k") == "v")
         #expect(try upgraded.photosFavorites() == ["x": true])
@@ -128,8 +128,32 @@ import LelvoCore
         try upgraded.ignoreAsset(localIdentifier: "L3", reason: "Can't be read", modifiedAt: Date(timeIntervalSince1970: 1_700_000_000))
         // And it keeps working after another open.
         let reopened = try LibraryStore(url: url)
-        #expect(reopened.schemaVersion == 8)
+        #expect(reopened.schemaVersion == 9)
         #expect(try reopened.ignoredAssets().map(\.localIdentifier) == ["L3"])
+    }
+
+    @Test func aVersion8DatabaseGainsTheDateIndexAndKeepsItsItems() throws {
+        let url = tempURL()
+        defer { remove(url) }
+        do {
+            let store = try LibraryStore(url: url)
+            try store.upsert([item(1), item(2)])
+        }
+        var db: OpaquePointer?
+        #expect(sqlite3_open(url.path, &db) == SQLITE_OK)
+        #expect(sqlite3_exec(db, "DROP INDEX idx_items_date; PRAGMA user_version = 8;", nil, nil, nil) == SQLITE_OK)
+        sqlite3_close(db)
+
+        let upgraded = try LibraryStore(url: url)
+        #expect(upgraded.schemaVersion == 9)
+        #expect(try upgraded.allItems().count == 2)
+        var check: OpaquePointer?
+        #expect(sqlite3_open(url.path, &check) == SQLITE_OK)
+        var stmt: OpaquePointer?
+        sqlite3_prepare_v2(check, "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_items_date';", -1, &stmt, nil)
+        #expect(sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 1)
+        sqlite3_finalize(stmt)
+        sqlite3_close(check)
     }
 
     @Test func ignoredAmongFindsOnlyUnchangedSetAsidePhotos() throws {
@@ -170,7 +194,7 @@ import LelvoCore
         let url = tempURL()
         defer { remove(url) }
         let store = try LibraryStore(url: url)
-        #expect(store.schemaVersion == 8)
+        #expect(store.schemaVersion == 9)
         try store.setSearch(key: "A", stamp: "1", words: "beach sunset", things: ["beach", "sunset_sunrise"], score: 0.4)
         try store.setSearch(key: "C", stamp: "1", words: "receipt", utility: true)
         #expect(try store.photoFacts()["A"] == .init(things: ["beach", "sunset_sunrise"], score: 0.4, utility: false))
