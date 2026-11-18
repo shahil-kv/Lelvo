@@ -62,6 +62,7 @@ class TdUploads(private val td: TdClient, private val files: TdFiles) {
         chatId: Long, file: File, caption: String, thumbnail: Triple<File, Int, Int>? = null,
         progress: (Long, Long) -> Unit = { _, _ -> },
     ): TdApi.Message = withContext(Dispatchers.IO) {
+        FaultInjection.beforeSend()
         files.ensureChat(chatId)
         val content = TdApi.InputMessageDocument(
             TdApi.InputDocument(
@@ -74,6 +75,9 @@ class TdUploads(private val td: TdClient, private val files: TdFiles) {
         val options = TdApi.MessageSendOptions(null, true, true, false, false, 0, false, null, 0, 0, false)
         val pending = td.send(TdApi.SendMessage(chatId, null, null, options, null, content))
         val fileId = (pending.content as? TdApi.MessageDocument)?.document?.document?.id
+        // Start/end lines let Scripts/check-log.py prove the two-upload limit and that FLOOD_WAIT pauses were kept.
+        AppLog.info("Send started (message ${pending.id})")
+        var sendOK = false
         try {
             coroutineScope {
                 val stall = UploadStall(System.currentTimeMillis())
@@ -109,7 +113,7 @@ class TdUploads(private val td: TdClient, private val files: TdFiles) {
                     }
                 }
                 try {
-                    td.awaitSent(pending.id)
+                    td.awaitSent(pending.id).also { sendOK = true }
                 } finally {
                     watcher?.cancel()
                     watchdog.cancel()
@@ -118,6 +122,8 @@ class TdUploads(private val td: TdClient, private val files: TdFiles) {
         } catch (e: CancellationException) {
             withContext(NonCancellable) { runCatching { td.send(TdApi.DeleteMessages(chatId, longArrayOf(pending.id), true)) } }
             throw e
+        } finally {
+            AppLog.info("Send ended (message ${pending.id}, ${if (sendOK) "ok" else "failed"})")
         }
     }
 

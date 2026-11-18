@@ -134,6 +134,15 @@ class MainActivity : ComponentActivity() {
      */
     private fun debugMessage(intent: android.content.Intent) {
         // `--ei lelvo.intro N` opens the intro on page N over a signed-in app, so it can be checked without signing out.
+        // `--es lelvo.faults "flood 3 30"|"fail 3 2"|"offline 3 60"|"slow 2000"|off`: test plan A2 faults on file sends.
+        intent.getStringExtra("lelvo.faults")?.let { app.lelvo.telegram.FaultInjection.spec = it; return }
+        // `--ez lelvo.demo true`: opens the review demo (no Telegram) for timing tests on a seeded phone. Only when not
+        // signed in, since entering the demo replaces this phone's index.
+        if (intent.getBooleanExtra("lelvo.demo", false)) {
+            val app = application as LelvoApp
+            if (!app.library.isConfigured) lifecycleScope.launch { app.demo.enter() } else AppLog.info("Debug: demo refused, signed in")
+            return
+        }
         if (intent.hasExtra("lelvo.intro")) { introPreview.value = intent.getIntExtra("lelvo.intro", 0); return }
         // `--es lelvo.signin code-telegram|code-sms|password` shows that sign-in step without signing out (nothing is sent).
         intent.getStringExtra("lelvo.signin")?.let { signInPreview.value = previewStep(it); return }

@@ -67,6 +67,7 @@ internal fun BackupOptionsScreen(prefs: Prefs, onAlbums: () -> Unit, onRulesChan
     var charging by remember { mutableStateOf(prefs.chargingOnly) }
     var fast by remember { mutableStateOf(prefs.streamingCopies) }
     var quality by remember { mutableStateOf(prefs.videoQuality) }
+    var loop by remember { mutableStateOf(prefs.loopVideos) }
     var picking by remember { mutableStateOf<String?>(null) }
     // Changed on the Albums page, which opens over this one.
     val albumMode by produceState(prefs.albumMode) { prefs.changes().collect { value = prefs.albumMode } }
@@ -101,6 +102,7 @@ internal fun BackupOptionsScreen(prefs: Prefs, onAlbums: () -> Unit, onRulesChan
         SectionHeader("Videos")
         ToggleRow("Make fast versions of videos", null, fast) { fast = it; prefs.streamingCopies = it }
         SettingRow("Play cloud videos", quality.label) { picking = "quality" }
+        ToggleRow("Loop videos", null, loop) { loop = it; prefs.loopVideos = it }
         Footnote(
             "A fast version is a small copy (about a tenth of the size) made while a video is backed up, so it plays at once " +
                 "from your Telegram library. The original is always kept. Automatic plays the fast version when the " +

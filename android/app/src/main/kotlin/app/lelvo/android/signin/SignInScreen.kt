@@ -78,6 +78,7 @@ import app.lelvo.android.onboarding.OnboardingField
 import app.lelvo.android.onboarding.OnboardingPage
 import app.lelvo.android.onboarding.PrimaryButton
 import app.lelvo.android.ui.theme.Lelvo
+import app.lelvo.core.support.PhoneInput
 import app.lelvo.data.DemoMode
 import app.lelvo.telegram.AuthStep
 import app.lelvo.telegram.CodeDelivery
@@ -234,10 +235,10 @@ private fun PhoneStep(
                     BasicTextField(
                         number,
                         { v ->
-                            // Autofill gives the whole number with the country code: split it.
-                            val d = v.filter { it.isDigit() }
-                            val match = if (v.trimStart().startsWith("+")) Countries.matchPrefixOf(d) else null
-                            setNumber(if (match != null) { setDial(match.dialCode); d.removePrefix(match.dialCode) } else d.take(Countries.lengths(dial).last))
+                            // Autofill and keyboard chips give the number in many shapes: split it.
+                            val s = PhoneInput.split(v, dial, { Countries.matchPrefixOf(it)?.dialCode }, Countries::lengths)
+                            if (s.dialCode != dial) setDial(s.dialCode)
+                            setNumber(s.national)
                         },
                         singleLine = true, textStyle = mono, cursorBrush = SolidColor(Lelvo.colors.accent),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),

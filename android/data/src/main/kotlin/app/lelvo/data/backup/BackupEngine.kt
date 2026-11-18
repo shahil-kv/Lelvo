@@ -9,9 +9,12 @@ import app.lelvo.core.backup.BackupCounts
 import app.lelvo.core.backup.Dedupe
 import app.lelvo.core.backup.JobEvent
 import app.lelvo.core.backup.PhotoChangeScan
+import app.lelvo.core.backup.RunStopCause
+import app.lelvo.core.backup.RunStopClassifier
 import app.lelvo.core.backup.ScreenCopyPolicy
 import app.lelvo.core.backup.TelegramErrorClassifier
 import app.lelvo.core.backup.TelegramErrorKind
+import app.lelvo.core.format.ThumbHash
 import app.lelvo.core.backup.TransferRate
 import app.lelvo.core.backup.UploadNames
 import app.lelvo.core.backup.UploadSlots
@@ -158,6 +161,9 @@ class BackupEngine(
     private val partsThisRun = java.util.concurrent.atomic.AtomicInteger(0)
     /** Set when a lane stops because a rule (Wi-Fi, power, offline) held for two minutes. */
     private val blockedThisRun = java.util.concurrent.atomic.AtomicReference<StopReason?>(null)
+
+    /** Set by the first file that hits an error every file would hit (signed out, channel gone, disk full); iOS `runStopCause`. */
+    private val stopCause = java.util.concurrent.atomic.AtomicReference<RunStopCause?>(null)
     private var running = false
     private var waitingLanes = 0
     @Volatile private var pauseRequested = false
@@ -277,7 +283,11 @@ class BackupEngine(
 
     /** Moves every failed item that a retry can help back to the queue (the Retry button). */
     suspend fun retryFailed(): Int {
-        val failed = store.items(ItemStatus.Failed).filter { !it.isStrandedInCloud && it.localId != null }
+        val all = store.items(ItemStatus.Failed).filter { !it.isStrandedInCloud && it.localId != null }
+        // A photo with no original file fails the same way every time: it stays under Failed with its reason and is tried
+        // again only when the photo changes.
+        val setAside = store.ignoredAmong(all)
+        val failed = all.filter { it.localId !in setAside }
         store.upsert(failed.map { it.reduced(JobEvent.Retry).copy(chosen = true) })
         return failed.size
     }
@@ -307,14 +317,17 @@ class BackupEngine(
         val trashed = store.trashedLocalIds().map {
             LibraryItem(id = it, localId = it, sha256 = "", filename = "", kind = ItemKind.Photo, createdAt = null, fileSize = 0, status = ItemStatus.Trashed)
         }
+        val failedItems = store.items(ItemStatus.Failed).sortedByDescending { it.createdAt ?: 0 }
+        val setAside = store.ignoredAmong(failedItems)
         Snapshot(
             counts = BackupCounts.fromParts(
-                totals.uploadable, totals.chosenUploadable, totals.stranded, totals.failed, totals.retryableFailed,
+                totals.uploadable, totals.chosenUploadable, totals.stranded, totals.failed,
+                totals.retryableFailed - failedItems.count { it.localId in setAside && !it.isStrandedInCloud },
                 newOnPhone = fresh, autoBackup = prefs.autoBackup,
             ),
             onPhone = phoneIds.size, backedUp = backedOnPhone, cloudOnly = cloudOnly,
             removed = BackupCounts.removedFromBackup(trashed, off, known, phoneIds).size,
-            failedItems = store.items(ItemStatus.Failed).sortedByDescending { it.createdAt ?: 0 },
+            failedItems = failedItems,
         )
     }
 
@@ -374,6 +387,7 @@ class BackupEngine(
         pauseRequested = false
         partsThisRun.set(0)
         blockedThisRun.set(null)
+        stopCause.set(null)
         try {
             _activity.update { it.copy(isRunning = true, message = "Connecting to Telegram…", lanes = emptyMap(), notice = null) }
             // Anything sent before an interruption is found first, so it isn't uploaded twice.
@@ -434,10 +448,11 @@ class BackupEngine(
             val snap = counter.snapshot()
             val left = store.remainingQueued(onlyChosen)
             val blocked = blockedThisRun.get()
+            val stopped = stopCause.get()
             val summary = Summary(
                 uploaded = snap.first, alreadyBackedUp = snap.second, failed = snap.third, remaining = left,
-                error = blocked?.text, uploadedVideos = counter.videos, partsSaved = partsThisRun.get(),
-                stoppedByTime = stoppedByTime.get(), blockedByRule = blocked != null,
+                error = stopped?.message ?: blocked?.text, uploadedVideos = counter.videos, partsSaved = partsThisRun.get(),
+                stoppedByTime = stoppedByTime.get(), blockedByRule = blocked != null || stopped != null,
             )
             if (summary.uploaded > 0) prefs.lastBackupAt = System.currentTimeMillis()
             AppLog.info("Backup run finished: ${summary.text}")
@@ -475,6 +490,10 @@ class BackupEngine(
             if (!BackgroundRuns.mayTakeNextItem(deadlineMs, System.currentTimeMillis())) {
                 stoppedByTime.set(true)
                 break
+            }
+            stopCause.get()?.let { cause ->
+                if (queueLock.withLock { queue.isNotEmpty().also { queue.clear() } }) AppLog.info("Backup stopped: ${cause.message}")
+                return
             }
             val id = queueLock.withLock { queue.removeFirstOrNull() } ?: break
             val item = store.item(id) ?: continue
@@ -585,10 +604,15 @@ class BackupEngine(
         }
     }
 
-    private fun holdFor(seconds: Int) = synchronized(gate) {
-        // The later deadline wins, and it is written down: a new process must not send during Telegram's wait.
-        pausedUntil = BackgroundRuns.laterDeadline(pausedUntil, System.currentTimeMillis() + seconds * 1000L)
-        prefs.floodUntil = pausedUntil
+    private fun holdFor(seconds: Int) {
+        val until = synchronized(gate) {
+            // The later deadline wins, and it is written down: a new process must not send during Telegram's wait.
+            pausedUntil = BackgroundRuns.laterDeadline(pausedUntil, System.currentTimeMillis() + seconds * 1000L)
+            prefs.floodUntil = pausedUntil
+            pausedUntil
+        }
+        // Scripts/check-log.py checks that no send starts before this time.
+        AppLog.info("FLOOD_WAIT $seconds s: uploads paused until ${java.time.Instant.ofEpochMilli(until)}")
     }
 
     /** Null when the backup may go on; waits up to [patienceMs] for a condition to clear and says what it waits for. */
@@ -716,8 +740,10 @@ class BackupEngine(
             thumbFile.parentFile?.mkdirs()
             thumbFile.writeBytes(thumb.first)
             val thumbHash = PhoneFiles.hex(java.security.MessageDigest.getInstance("SHA-256").digest(thumb.first))
+            // The placeholder other devices show before this thumbnail downloads; nothing happens while the switch is off.
+            val placeholder = if (ThumbHash.WRITES_TO_CAPTIONS) ThumbHashMaker.fromJpeg(thumb.first) else null
             val resources = listOf(
-                Resource("o", size, captionMeta(item, Role.ORIGINAL, hash, item.filename, size)) { phone.openOriginal(file) },
+                Resource("o", size, captionMeta(item, Role.ORIGINAL, hash, item.filename, size).copy(th = placeholder)) { phone.openOriginal(file) },
                 Resource("t", thumb.first.size.toLong(), captionMeta(item, Role.THUMBNAIL, thumbHash, "thumb.jpg", thumb.first.size.toLong())
                     .copy(wh = listOf(thumb.second, thumb.third), m = "image/jpeg")) { thumbFile.inputStream() },
             )
@@ -738,7 +764,7 @@ class BackupEngine(
                 item = (store.item(itemId) ?: item).withParts(r.role, parts, parts.size)
                 before += r.size
             }
-            item = item.copy(roleHashes = item.roleHashes + mapOf("o" to hash, "t" to thumbHash))
+            item = item.copy(roleHashes = item.roleHashes + mapOf("o" to hash, "t" to thumbHash), thumbHash = placeholder ?: item.thumbHash)
                 .reduced(JobEvent.Sent(sizeMatches = item.isCompleteInCloud)).copy(uploadedAt = System.currentTimeMillis())
             store.upsert(listOf(item))
             if (item.status != ItemStatus.BackedUp) return Outcome.Failed
@@ -984,11 +1010,37 @@ class BackupEngine(
         AppLog.warn("No screen copy for ${item.filename}${if (e is ScreenCopyUnreadable) "" else " yet"}: ${e::class.simpleName}")
     }
 
+    private fun deviceIsNearlyFull(): Boolean =
+        runCatching { StatFs(staging.apply { mkdirs() }.path).availableBytes < UploadNames.SPACE_MARGIN }.getOrDefault(false)
+
+    /** Telegram says the session or channel is unusable, or the OS says the disk is full (also as a cause). */
+    private fun runStopCause(e: Throwable): RunStopCause? {
+        if (e is TelegramException) RunStopClassifier.cause(e.code, e.message)?.let { return it }
+        var t: Throwable? = e
+        var depth = 0
+        while (t != null && depth < 4) {
+            val errno = (t as? android.system.ErrnoException)?.errno
+            if (RunStopClassifier.isDiskFull(errno, t.message)) return RunStopCause.DeviceStorageFull
+            t = t.cause
+            depth++
+        }
+        return null
+    }
+
     private suspend fun fail(start: LibraryItem, e: Exception): Outcome {
         var item = store.item(start.id) ?: start
         if (e is CancellationException) {
             withContext(kotlinx.coroutines.NonCancellable) { store.upsert(listOf(item.reduced(JobEvent.Interrupted))) }
             throw e
+        }
+        // An error every file would hit: stop the run and keep this file waiting, with no attempt used.
+        // Disk full stops the run only when the device is nearly out of room. One huge file that doesn't fit would
+        // otherwise block every photo behind it, run after run.
+        runStopCause(e)?.takeIf { it != RunStopCause.DeviceStorageFull || deviceIsNearlyFull() }?.let { cause ->
+            stopCause.compareAndSet(null, cause)
+            store.upsert(listOf(item.reduced(JobEvent.Interrupted)))
+            AppLog.warn("Backup run will stop: ${cause.message}")
+            return Outcome.Skipped
         }
         val kind: TelegramErrorKind = when (e) {
             is TelegramException -> TelegramErrorClassifier.classify(e.code, e.message)
@@ -1010,6 +1062,7 @@ class BackupEngine(
         }
         store.upsert(listOf(item))
         return if (item.status == ItemStatus.Failed) {
+            if (e is OriginalUnavailableException && item.localId != null) store.ignoreAsset(item.localId!!, reason, item.assetModifiedAt)
             AppLog.error("Upload of ${item.filename} failed: ${e::class.simpleName}: $reason")
             Outcome.Failed
         } else {

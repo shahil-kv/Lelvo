@@ -9,6 +9,7 @@ import app.lelvo.core.format.TrashLog
 import app.lelvo.core.index.ItemStatus
 import app.lelvo.core.index.LibraryIndexer
 import app.lelvo.core.index.LibraryItem
+import app.lelvo.core.index.ScanPaging
 import app.lelvo.core.support.AppLog
 import app.lelvo.data.index.LibraryStore
 import app.lelvo.telegram.TdClient
@@ -118,6 +119,8 @@ class LibraryScanner(
         val meta = ArrayList<FoundNote>()
         var from = 0L
         var newest = 0L
+        val paging = ScanPaging()
+        var reachedEnd = false
         scan@ while (true) {
             val page = files.documents(chatId, from)
             for (message in page.messages) {
@@ -147,9 +150,16 @@ class LibraryScanner(
                 }
             }
             progress(s.messages)
-            if (page.nextFromMessageId == 0L || page.messages.isEmpty()) break
-            from = page.nextFromMessageId
+            when (val step = paging.step(from, page.nextFromMessageId, page.messages.isEmpty())) {
+                is ScanPaging.Step.Next -> from = step.from
+                ScanPaging.Step.Finished -> { reachedEnd = true; break@scan }
+                ScanPaging.Step.GaveUp -> break@scan
+            }
         }
+        // Only a scan that reached Telegram's end may decide that something is gone from the channel. One that stopped
+        // early treats itself as a recent scan, and the next one starts again from the top.
+        val covered = full && reachedEnd
+        if (full && !reachedEnd && fromSnapshot == null) AppLog.info("Library scan stopped before the end of the channel; nothing was marked missing")
         s = s.copy(trashNotes = trash.size, metaNotes = meta.size)
 
         // Before the scan position moves: a note that couldn't be downloaded is read again by the next scan.
@@ -175,8 +185,8 @@ class LibraryScanner(
             return s.copy(fromSnapshot = true)
         }
 
-        s = merge(cloud, full, s)
-        if (full) {
+        s = merge(cloud, covered, s)
+        if (covered) {
             store.setMeta(LAST_FULL_SCAN_AT, System.currentTimeMillis().toString())
             // Notes no longer in the channel: removed by a device whose 30 days were over, or in the Telegram app. Only
             // up to where this scan read: a note sent during the scan is newer, and dropping it would undo that delete.
@@ -185,12 +195,12 @@ class LibraryScanner(
             val metaIn = meta.map { it.messageId }.toHashSet()
             store.removeMetaNotes(store.metaNotes().map { it.messageId }.filter { it !in metaIn && it <= newest })
         }
-        applyTrashNotes(messagesSeen = full)
+        applyTrashNotes(messagesSeen = covered)
         // After the merge, which takes favorites and albums from the captions: notes go on top. A recent scan only
         // touches the items it read and the items in new notes; a full scan checks every one.
         applyMetaNotes(only = if (full) null else newMetaIds + cloud.map { it.meta.id })
         if (newest > 0) store.setMeta(LAST_SCAN, newest.toString())
-        if (full) {
+        if (covered) {
             store.setMeta(REPAIRED, "1")
             lastFull = Triple(chatId, System.currentTimeMillis(), s)
         }
@@ -200,12 +210,13 @@ class LibraryScanner(
 
     /** Merges scanned items into the index, keeping what only this phone knows (iOS `merge`). */
     private suspend fun merge(cloud: List<CloudMessage>, full: Boolean, summary: Summary): Summary {
-        val existing = store.allItems().associateBy { it.id }
+        // Only a full scan needs every item (to find the ones gone from the channel). A recent scan runs on every backup
+        // and sync, so it reads just the items its messages belong to: not 40k rows each time.
+        val existing = (if (full) store.allItems() else store.items(cloud.map { it.meta.id }.toHashSet())).associateBy { it.id }
         // A recent scan only sees new messages; combine them with the parts already known.
         val messages = if (full) cloud else {
-            val ids = cloud.map { it.meta.id }.toHashSet()
             val scanned = cloud.map { it.messageId }.toHashSet()
-            cloud + existing.values.filter { it.id in ids }.flatMap { LibraryIndexer.knownMessages(it, scanned) }
+            cloud + existing.values.flatMap { LibraryIndexer.knownMessages(it, scanned) }
         }
         val result = LibraryIndexer.build(messages)
         val merged = ArrayList<LibraryItem>(result.items.size)

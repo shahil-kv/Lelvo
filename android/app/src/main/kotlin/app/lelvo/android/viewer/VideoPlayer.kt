@@ -234,6 +234,16 @@ internal class VideoSession(
                 AppLog.warn("Video: ${source()} failed: ${e.errorCodeName}")
             }
         })
+        // "Loop videos" in Backup options: start again instead of stopping on the last frame.
+        player.repeatMode = if (app.prefs.loopVideos) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        player.prepare()
+        player.playWhenReady = true
+    }
+
+    /** "Try again" after an error: ExoPlayer stays failed until it is prepared again, with the same source. */
+    fun retry() {
+        error = null
+        wantsPlay = true
         player.prepare()
         player.playWhenReady = true
     }
@@ -382,6 +392,12 @@ internal fun VideoPage(
         onSession(session)
         onDispose { onSession(null); session.release() }
     }
+    // Without this the screen dimmed and locked in the middle of a film.
+    val view = androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(view, session.playing) {
+        view.keepScreenOn = session.playing
+        onDispose { view.keepScreenOn = false }
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, session) {
         val observer = LifecycleEventObserver { _, e ->
@@ -458,7 +474,7 @@ internal fun VideoPage(
             LaunchedEffect(id) { delay(600); skipped = null }
             SkipFeedback(side, Modifier.align(if (side < 0) Alignment.CenterStart else Alignment.CenterEnd))
         }
-        session.error?.let { ViewerNotice(it, Modifier.align(Alignment.Center)) }
+        session.error?.let { ViewerNotice(it, Modifier.align(Alignment.Center), onRetry = session::retry) }
     }
 }
 

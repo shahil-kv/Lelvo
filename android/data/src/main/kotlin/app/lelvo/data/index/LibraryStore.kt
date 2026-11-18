@@ -164,9 +164,32 @@ class LibraryStore(private val db: IndexDatabase) {
     /** The user chose to back it up after all (iOS `allowBackup`). */
     suspend fun allowBackup(localId: String) = notes.removeNoBackup("l:$localId")
 
+    /** A phone photo set aside as unreadable, as it was when its file changed last ([modifiedAt], the same value the item keeps; null when unknown). Replaces an earlier entry. */
+    suspend fun ignoreAsset(localId: String, reason: String, modifiedAt: Long?, now: Long = System.currentTimeMillis()) =
+        notes.ignoreAsset(IgnoredAssetRow(localId, reason, modifiedAt?.toString() ?: "", now / 1000))
+
+    suspend fun ignoredAssets(): List<IgnoredAssetRow> = notes.ignoredAssets()
+
+    /** True when the photo is set aside and hasn't changed since: one that changed is tried again. */
+    suspend fun isIgnored(localId: String, modifiedAt: Long?): Boolean =
+        notes.ignoredModified(localId)?.let { it == (modifiedAt?.toString() ?: "") } ?: false
+
+    /** The phone ids among [items] whose photo is set aside and hasn't changed since, from one read (iOS `ignoredAmong`). */
+    suspend fun ignoredAmong(items: List<LibraryItem>): Set<String> {
+        val stored = notes.ignoredAssets().associate { it.localId to it.modified }
+        if (stored.isEmpty()) return emptySet()
+        return items.mapNotNull { item ->
+            val id = item.localId ?: return@mapNotNull null
+            id.takeIf { stored[it] == (item.assetModifiedAt?.toString() ?: "") }
+        }.toHashSet()
+    }
+
+    suspend fun unignoreAsset(localId: String) = notes.unignoreAsset(localId)
+    suspend fun unignoreAllAssets() = notes.unignoreAllAssets()
+
     /** Everything in the index: items, notes, meta and the off-backup list (a new library or a reset). */
     suspend fun deleteAll() = db.withTransaction {
-        dao.deleteAll(); notes.clearTrashNotes(); notes.clearMetaNotes(); notes.clearMeta(); notes.clearNoBackup()
+        dao.deleteAll(); notes.clearTrashNotes(); notes.clearMetaNotes(); notes.clearMeta(); notes.clearNoBackup(); notes.unignoreAllAssets()
         notes.clearTrashOutbox(); notes.clearMetaOutbox(); notes.clearPhoneFavorites()
     }
 
