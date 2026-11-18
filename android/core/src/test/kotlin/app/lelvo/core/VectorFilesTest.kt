@@ -218,3 +218,106 @@ class NoteVectorsTest {
         assertEquals(body, TrashLog.read(document, caption))
     }
 }
+
+/** docs/test-vectors/thumbhash1.json, made with the reference algorithm; iOS must match too. */
+class ThumbHashVectorTest {
+    private val json = kotlinx.serialization.json.Json.parseToJsonElement(
+        java.io.File(System.getProperty("lelvo.vectors"), "thumbhash1.json").readText(),
+    ).let { it as kotlinx.serialization.json.JsonObject }
+    private val vectors = (json.getValue("vectors") as kotlinx.serialization.json.JsonArray).map { it as kotlinx.serialization.json.JsonObject }
+
+    private fun str(v: kotlinx.serialization.json.JsonObject, k: String) = (v.getValue(k) as kotlinx.serialization.json.JsonPrimitive).content
+    private fun num(v: kotlinx.serialization.json.JsonObject, k: String) = str(v, k).toInt()
+
+    private fun pixels(v: kotlinx.serialization.json.JsonObject): ByteArray {
+        val w = num(v, "w"); val h = num(v, "h"); val seed = num(v, "seed"); val alpha = str(v, "alpha") == "true"
+        val out = ByteArray(w * h * 4)
+        var i = 0
+        for (y in 0 until h) for (x in 0 until w) {
+            out[i++] = ((x * 37 + y * 11 + seed * 53) % 256).toByte()
+            out[i++] = ((x * 5 + y * 29 + seed * 91) % 256).toByte()
+            out[i++] = ((x * y + seed * 17) % 256).toByte()
+            out[i++] = (if (alpha) ((x + y) * 8) % 256 else 255).toByte()
+        }
+        return out
+    }
+
+    @Test
+    fun encodingMatchesTheReferenceExactly() {
+        for (v in vectors) {
+            val hash = assertNotNull(app.lelvo.core.format.ThumbHash.encode(num(v, "w"), num(v, "h"), pixels(v)), str(v, "name"))
+            assertEquals(str(v, "hash"), hex(hash), str(v, "name"))
+        }
+    }
+
+    @Test
+    fun decodingMatchesTheReferenceWithinOneLevel() {
+        for (v in vectors) {
+            val image = assertNotNull(app.lelvo.core.format.ThumbHash.decode(unhex(str(v, "hash"))), str(v, "name"))
+            assertEquals(num(v, "decodedWidth"), image.width, str(v, "name"))
+            assertEquals(num(v, "decodedHeight"), image.height, str(v, "name"))
+            val expected = Base64.getDecoder().decode(str(v, "decodedRGBA"))
+            assertEquals(expected.size, image.rgba.size)
+            val worst = expected.indices.maxOf { kotlin.math.abs((expected[it].toInt() and 0xFF) - (image.rgba[it].toInt() and 0xFF)) }
+            assertTrue(worst <= 1, "${str(v, "name")} differs by $worst")
+        }
+    }
+}
+
+class ThumbHashTest {
+    private fun gradient(w: Int, h: Int, alpha: Boolean = false): ByteArray {
+        val out = ByteArray(w * h * 4)
+        var i = 0
+        for (y in 0 until h) for (x in 0 until w) {
+            val fx = x.toDouble() / maxOf(1, w - 1); val fy = y.toDouble() / maxOf(1, h - 1)
+            out[i++] = (220 - 160 * fx).toInt().toByte(); out[i++] = (120 + 40 * fy).toInt().toByte()
+            out[i++] = (60 + 160 * fx).toInt().toByte(); out[i++] = (if (alpha) 255 * (1 - 0.5 * fy) else 255.0).toInt().toByte()
+        }
+        return out
+    }
+
+    @Test
+    fun aHashIsAboutTwentyFiveBytes() {
+        for ((w, h) in listOf(100 to 100, 100 to 56, 56 to 100, 4 to 3, 1 to 1)) {
+            val hash = assertNotNull(app.lelvo.core.format.ThumbHash.encode(w, h, gradient(w, h)))
+            assertTrue(hash.size in 5..25, "${w}x$h gave ${hash.size} bytes")
+        }
+        assertTrue(assertNotNull(app.lelvo.core.format.ThumbHash.encode(64, 48, gradient(64, 48, alpha = true))).size <= 28)
+    }
+
+    @Test
+    fun decodingKeepsTheColoursAndTheShape() {
+        val hash = assertNotNull(app.lelvo.core.format.ThumbHash.encode(100, 56, gradient(100, 56)))
+        val image = assertNotNull(app.lelvo.core.format.ThumbHash.decode(hash))
+        assertTrue(image.width == 32 && image.height in 1..31, "landscape stays landscape")
+        assertEquals(image.width * image.height * 4, image.rgba.size)
+        assertTrue(kotlin.math.abs(assertNotNull(app.lelvo.core.format.ThumbHash.aspectRatio(hash)) - 100.0 / 56.0) < 0.35)
+        val y = image.height / 2
+        val left = y * image.width * 4; val right = (y * image.width + image.width - 1) * 4
+        fun p(i: Int) = image.rgba[i].toInt() and 0xFF
+        assertTrue(p(left) > p(left + 2))
+        assertTrue(p(right + 2) > p(right))
+    }
+
+    @Test
+    fun badInputIsRefusedNotCrashed() {
+        assertNull(app.lelvo.core.format.ThumbHash.encode(0, 10, ByteArray(0)))
+        assertNull(app.lelvo.core.format.ThumbHash.encode(101, 10, ByteArray(101 * 10 * 4)))
+        assertNull(app.lelvo.core.format.ThumbHash.encode(10, 10, byteArrayOf(1, 2, 3)))
+    }
+
+    @Test
+    fun damagedHashesReturnNullAndNeverCrash() {
+        val good = assertNotNull(app.lelvo.core.format.ThumbHash.encode(64, 64, gradient(64, 64)))
+        assertNull(app.lelvo.core.format.ThumbHash.decode(ByteArray(0)))
+        assertNull(app.lelvo.core.format.ThumbHash.decode(byteArrayOf(1, 2, 3, 4)))
+        assertNull(app.lelvo.core.format.ThumbHash.decode(good.copyOf(good.size - 3)), "a cut-off hash")
+        assertNull(app.lelvo.core.format.ThumbHash.aspectRatio(byteArrayOf(9)))
+        val random = java.util.Random(42)
+        for (length in 0 until 40) {
+            val image = app.lelvo.core.format.ThumbHash.decode(ByteArray(length).also { random.nextBytes(it) }) ?: continue
+            assertTrue(image.width in 1..32 && image.height in 1..32)
+            assertEquals(image.width * image.height * 4, image.rgba.size)
+        }
+    }
+}

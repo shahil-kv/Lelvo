@@ -94,6 +94,9 @@ data class LibraryItem(
     val streamingCopySkipped: Boolean = false,
     /** Per role: where an interrupted encrypted upload stopped, so a retry sends only the missing parts. */
     val uploadResume: Map<String, FileCrypto.ResumePoint> = emptyMap(),
+    /** ThumbHash (Base64) from the caption's `th`: a blurred placeholder before the thumbnail has downloaded. Lives in the
+     *  extras column, so rows saved before it existed read as null and no database migration is needed. */
+    val thumbHash: String? = null,
 ) {
     /** Roles that must be in the cloud, as iOS `requiredCaptionRoles`: the thumbnail for encrypted items, the edit when declared. */
     val requiredRoles: List<String>
@@ -133,6 +136,8 @@ data class LibraryItem(
         uploadResume = local.uploadResume,
         // Locked Folder is MetaLog-only (not in captions). Keep across scan merge like iOS (#129).
         locked = if (local.locked) true else locked,
+        // A hash this phone made stays until a caption brings one.
+        thumbHash = thumbHash ?: local.thumbHash,
     )
 
     /** [files] as the parts of [role], with the resume point kept only while the role is incomplete (iOS `setParts`). */
@@ -180,6 +185,7 @@ object ItemExtras {
         val screenCopySkipped: Boolean = false,
         val streamingCopySkipped: Boolean = false,
         val uploadResume: Map<String, FileCrypto.ResumePoint> = emptyMap(),
+        val thumbHash: String? = null,
     )
 
     private fun strings(map: Map<String, String>): JsonElement? = map.takeIf { it.isNotEmpty() }?.let { m -> JsonObject(m.mapValues { JsonIO.str(it.value)!! }) }
@@ -213,6 +219,7 @@ object ItemExtras {
         "rh" to strings(item.roleHashes),
         "rn" to strings(item.roleNames),
         "ta" to JsonIO.num(item.trashedAt),
+        "th" to JsonIO.str(item.thumbHash),
         "tz" to JsonIO.num(item.tzOffsetMinutes),
     ).toString()
 
@@ -238,6 +245,7 @@ object ItemExtras {
             assetModifiedAt = f.longOrNull("am"), screenCopySkipped = f.intOrNull("scs") == 1,
             streamingCopySkipped = f.intOrNull("sps") == 1,
             uploadResume = f.objOrNull("res")?.mapNotNull { (role, v) -> decodeResume(v)?.let { role to it } }?.toMap() ?: emptyMap(),
+            thumbHash = f.stringOrNull("th"),
         )
     } catch (_: FieldException) {
         Extras()
@@ -251,6 +259,7 @@ object ItemExtras {
         editedName = e.editedName, editedSize = e.editedSize, lastError = e.lastError, trashedAt = e.trashedAt,
         attempts = e.attempts, notBefore = e.notBefore, chosen = e.chosen, assetModifiedAt = e.assetModifiedAt,
         screenCopySkipped = e.screenCopySkipped, streamingCopySkipped = e.streamingCopySkipped, uploadResume = e.uploadResume,
+        thumbHash = e.thumbHash,
     )
 
     private fun hexOf(b: ByteArray) = b.joinToString("") { "%02x".format(it) }

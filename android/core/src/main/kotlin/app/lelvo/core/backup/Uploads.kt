@@ -145,8 +145,10 @@ data class BackupCounts(val activeQueue: Int = 0, val notQueued: Int = 0, val fa
          */
         fun compute(
             queued: List<LibraryItem>, failed: List<LibraryItem>, candidates: Collection<String>, known: Set<String>,
-            offBackup: Set<String>, autoBackup: Boolean,
+            offBackup: Set<String>, autoBackup: Boolean, ignored: Set<String> = emptySet(),
         ): BackupCounts {
+            // [ignored]: failed photos set aside as unreadable and unchanged since. They stay under Failed with their reason,
+            // but a retry can't help them, so they are not retryable (iOS `BackupCounts.compute`).
             // Nothing can upload an incomplete item with no photo on this phone: it belongs under Failed.
             val uploadable = queued.filter { !it.isStrandedInCloud }
             return fromParts(
@@ -154,7 +156,7 @@ data class BackupCounts(val activeQueue: Int = 0, val notQueued: Int = 0, val fa
                 chosenUploadable = uploadable.count { it.chosen },
                 stranded = queued.count { it.isStrandedInCloud },
                 failed = failed.size,
-                retryableFailed = failed.count { !it.isStrandedInCloud },
+                retryableFailed = failed.count { !it.isStrandedInCloud && it.localId !in ignored },
                 newOnPhone = candidates.count { it !in known && it !in offBackup },
                 autoBackup = autoBackup,
             )

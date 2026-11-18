@@ -222,8 +222,17 @@ class TransferRateTest {
 class BackupCountsTest {
     private fun compute(
         queued: List<LibraryItem> = emptyList(), failed: List<LibraryItem> = emptyList(), candidates: List<String> = emptyList(),
-        known: Set<String> = emptySet(), offBackup: Set<String> = emptySet(), auto: Boolean = false,
-    ) = BackupCounts.compute(queued, failed, candidates, known, offBackup, auto)
+        known: Set<String> = emptySet(), offBackup: Set<String> = emptySet(), auto: Boolean = false, ignored: Set<String> = emptySet(),
+    ) = BackupCounts.compute(queued, failed, candidates, known, offBackup, auto, ignored)
+
+    @Test fun aPhotoSetAsideStaysUnderFailedButARetryCantHelpIt() {
+        val setAside = item(local = "A", status = ItemStatus.Failed)
+        val other = item(local = "Z", status = ItemStatus.Failed, name = "Z.HEIC")
+        val c = compute(failed = listOf(setAside, other), ignored = setOf("A"))
+        assertEquals(2, c.failed, "still shown as failed, with its reason")
+        assertEquals(1, c.retryable, "only the other one can be helped by Retry")
+        assertEquals(2, compute(failed = listOf(setAside, other)).retryable, "nothing set aside: both retryable as before")
+    }
 
     @Test fun nothingIsCountedTwiceWithAutomaticBackupOn() {
         val c = compute(queued = listOf(item()), candidates = listOf("B", "C"), auto = true)
@@ -416,5 +425,42 @@ class CloudDuplicateTest {
         assertEquals(listOf("a", "c"), groups[0].extras.map { it.id })
         assertEquals(20, groups[0].wastedBytes)
         assertEquals("a", CloudDuplicateGroup.find(listOf(up("c", "h", null, 3), up("a", "h", "Q", 1)), emptySet())[0].keep.id)
+    }
+}
+
+class RunStopTest {
+    @Test fun revokedSessionStopsTheRun() {
+        assertEquals(RunStopCause.SessionEnded, RunStopClassifier.cause(401, "SESSION_REVOKED"))
+        assertEquals(RunStopCause.SessionEnded, RunStopClassifier.cause(401, "Unauthorized"))
+        assertEquals(RunStopCause.SessionEnded, RunStopClassifier.cause(400, "AUTH_KEY_UNREGISTERED"))
+    }
+
+    @Test fun unusableChannelStopsTheRun() {
+        assertEquals(RunStopCause.ChannelUnavailable, RunStopClassifier.cause(403, "CHAT_WRITE_FORBIDDEN"))
+        assertEquals(RunStopCause.ChannelUnavailable, RunStopClassifier.cause(400, "CHANNEL_PRIVATE"))
+        assertEquals(RunStopCause.ChannelUnavailable, RunStopClassifier.cause(403, "USER_BANNED_IN_CHANNEL"))
+    }
+
+    @Test fun fileLevelAndTemporaryErrorsDoNotStopTheRun() {
+        assertNull(RunStopClassifier.cause(429, "Too Many Requests: retry after 30"))
+        assertNull(RunStopClassifier.cause(400, "FLOOD_WAIT_30"))
+        assertNull(RunStopClassifier.cause(500, "Internal Server Error"))
+        assertNull(RunStopClassifier.cause(400, "FILE_PARTS_INVALID"))
+        assertNull(RunStopClassifier.cause(-1, "Connection timeout"))
+    }
+
+    @Test fun diskFullIsRecognised() {
+        assertTrue(RunStopClassifier.isDiskFull(28, null))
+        assertTrue(RunStopClassifier.isDiskFull(null, "write failed: ENOSPC (No space left on device)"))
+        assertTrue(RunStopClassifier.isDiskFull(null, "No space left on device"))
+        assertFalse(RunStopClassifier.isDiskFull(2, "No such file or directory"))
+        assertFalse(RunStopClassifier.isDiskFull(null, null))
+    }
+
+    @Test fun everyCauseHasAPlainMessage() {
+        for (c in RunStopCause.values()) {
+            assertTrue(c.message.isNotEmpty())
+            assertFalse(c.message.contains("!"))
+        }
     }
 }

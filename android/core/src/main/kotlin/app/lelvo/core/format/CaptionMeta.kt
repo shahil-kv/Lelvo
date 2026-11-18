@@ -65,6 +65,9 @@ data class CaptionMeta(
     val ed: Int? = null,
     /** 1 when the item was hidden in Photos: not shown in the timeline, restored hidden. */
     val hid: Int? = null,
+    /** ThumbHash of the photo (`ThumbHash`), standard Base64: a blurred placeholder to show before the thumbnail has
+     *  downloaded. Optional, and the first field dropped when a caption is too long. Readers that don't know it ignore it. */
+    val th: String? = null,
 ) {
     data class Part(val index: Int, val count: Int, val size: Long)
 
@@ -121,7 +124,7 @@ object CaptionCodec {
         "t" to JsonIO.num(meta.t), "tz" to JsonIO.num(meta.tz), "g" to JsonIO.doubles(meta.g), "wh" to JsonIO.ints(meta.wh),
         "d" to JsonIO.num(meta.d), "c" to JsonIO.str(meta.c), "hdr" to JsonIO.num(meta.hdr), "a" to JsonIO.strings(meta.a),
         "fav" to JsonIO.num(meta.fav), "p" to JsonIO.longs(meta.p), "e" to JsonIO.num(meta.e), "src" to JsonIO.str(meta.src),
-        "l" to JsonIO.str(meta.l), "ed" to JsonIO.num(meta.ed), "hid" to JsonIO.num(meta.hid),
+        "l" to JsonIO.str(meta.l), "ed" to JsonIO.num(meta.ed), "hid" to JsonIO.num(meta.hid), "th" to JsonIO.str(meta.th),
     )
 
     /**
@@ -129,7 +132,8 @@ object CaptionCodec {
      * resource (`ExtraMetadata`) instead of letting `encode` drop them.
      */
     fun keepsAlbums(meta: CaptionMeta, captionKey: ByteArray): Boolean =
-        meta.a == null || render(meta, captionKey, null).length <= MAX_LENGTH
+        // `th` goes first when a caption is too long, so it must not be the reason the albums are moved out.
+        meta.a == null || render(meta.copy(th = null), captionKey, null).length <= MAX_LENGTH
 
     /**
      * Builds the caption of a resource in an encrypted library, dropping optional fields until it fits in
@@ -142,14 +146,15 @@ object CaptionCodec {
         require(meta.e == 1) { "Every file of an encrypted library is CGFE: e must be 1" }
         require(meta.v == LelvoFormat.CAPTION_VERSION)
         var m = meta.copy(id = meta.id.lowercase())
-        for (step in 0..4) {
+        for (step in 0..5) {
             val caption = render(m, captionKey, nonce)
             if (caption.length <= MAX_LENGTH) return caption
             m = when (step) {
-                0 -> m.copy(a = null)
-                1 -> m.copy(c = null)
-                2 -> m.copy(l = null)
-                3 -> m.copy(n = truncatedName(m.n, caption.length - MAX_LENGTH + 8))
+                0 -> m.copy(th = null)
+                1 -> m.copy(a = null)
+                2 -> m.copy(c = null)
+                3 -> m.copy(l = null)
+                4 -> m.copy(n = truncatedName(m.n, caption.length - MAX_LENGTH + 8))
                 // Telegram refuses a longer caption, and the upload with it; say so here instead.
                 else -> throw CaptionException.TooLong()
             }
@@ -224,6 +229,7 @@ object CaptionCodec {
             l = f.stringOrNull("l"),
             ed = f.intOrNull("ed"),
             hid = f.intOrNull("hid"),
+            th = f.stringOrNull("th"),
         )
     }
 }
