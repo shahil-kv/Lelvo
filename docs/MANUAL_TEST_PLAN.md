@@ -743,6 +743,24 @@ Moved into the main plan: Mac runs every row that applies, plus Phase M.
 
 Newest first. **By:** `Auto` = Claude ran it (simulator, emulator, scripts), `Shahil` = by hand on a device.
 
+### 2026-11-18 (later) — Auto, upgrade safety, scroll benchmark, comparison fixes
+
+**By:** `Auto` = Claude ran it. Nothing here was run on a physical device by hand.
+
+| Run | Result | Notes |
+| --- | --- | --- |
+| Core tests (Swift 548, Android core 57 files), iPhone + Mac + Android builds, no new warnings | ☑ | After every step; full run again before the commits. |
+| Local database upgrade, iPhone and Mac schema 7 to 8 (new table `ignored_assets`) | ☑ | `LibraryStoreTests`: a real version-7 file with items, a setting and a favorite opens in the new version and keeps every row. |
+| Local database upgrade, Android Room 4 to 5 on a live old database | ☑ | Pixel_9 emulator: copied the version-4 database (36 items), installed the new APK with `adb install -r`, opened the app. No crash; schema 5; all 36 items; `ignored_assets` present and empty. Schema diff 4.json vs 5.json: one added table, no changed table. |
+| Item field `thumbHash` (iPhone JSON, Android extras JSON) | ☑ unit | Old rows read as none; an old build ignores the new key; a locally made hash survives a rescan. No migration. |
+| Caption field `th`, optional | ☑ unit | Plain and encrypted round trip; dropped first when over 1000 characters; never pushes albums out; a reader that doesn't know it ignores it. **Nothing writes it yet** (switch off). |
+| ThumbHash port against the reference (6 synthetic images) | ☑ | Swift and Kotlin both match the hash exactly and decode within 1 level. |
+| Scroll benchmark `-autoScrollTest`, "Lelvo 40k" simulator, with and without fling deferral (`-noFlingDeferral`) | ⚠ not 40k | The app showed only 145 items (demo-size library, no local photos loaded), so this is **not** a 40k result. On those 145 items: 60 fps both ways (avg 16.7 ms, 0 to 3 hitches, max 56 ms cold); memory 367 to 437 MB with deferral, 518 to 519 MB without (one run each). A real 40k run needs the real-account `RealAccountScaleTests` harness or a device. |
+| Revoked session / channel loss / disk-full stops (`RunStop`) | ☐ device | Logic and classifier unit-tested; the engine wiring only compiled. Test with the fault-injection launch arguments on the "Lelvo QA" simulator and the "Android test" library. |
+| Full scan guard (`ScanPaging`) | ☐ device | Unit-tested; whether TDLib ever returns an empty page before the end is unverified. |
+| Ignore list (photo with no original file) | ☐ device | Counts unit-tested on both platforms; the engine path (set aside, Retry skips) not run. |
+| Year marks on the scrubber, Mac drag-select, Loop videos, viewer Try again, ThumbHash placeholder | ☐ device | Built on all three, never seen on a screen. Check a library that starts in 2015 shows 2015 at the bottom. |
+
 ### 2026-11-18 — Auto, fault injection + 40k seed
 
 | Run | Result | Notes |
