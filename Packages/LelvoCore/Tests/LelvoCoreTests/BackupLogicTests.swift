@@ -517,8 +517,17 @@ import LelvoCore
     }
 
     func compute(queued: [MediaItem] = [], failed: [MediaItem] = [], candidates: [String] = [], known: Set<String> = [],
-                 offBackup: Set<String> = [], auto: Bool = false) -> BackupCounts {
-        BackupCounts.compute(queued: queued, failed: failed, candidates: candidates, known: known, offBackup: offBackup, autoBackup: auto)
+                 offBackup: Set<String> = [], auto: Bool = false, ignored: Set<String> = []) -> BackupCounts {
+        BackupCounts.compute(queued: queued, failed: failed, candidates: candidates, known: known, offBackup: offBackup, autoBackup: auto, ignored: ignored)
+    }
+
+    @Test func aPhotoSetAsideStaysUnderFailedButARetryCantHelpIt() {
+        let setAside = item(.failed)
+        let other = MediaItem(localIdentifier: "Z", sha256: "z", filename: "z.jpg", kind: .photo, creationDate: Date(), fileSize: 1, status: .failed)
+        let c = compute(failed: [setAside, other], ignored: [setAside.localIdentifier!])
+        #expect(c.failed == 2, "still shown as failed, with its reason")
+        #expect(c.retryable == 1, "only the other one can be helped by Retry")
+        #expect(compute(failed: [setAside, other]).retryable == 2, "nothing set aside: both retryable as before")
     }
 
     @Test func nothingIsCountedTwiceWithAutomaticBackupOn() {
@@ -899,5 +908,41 @@ import LelvoCore
         #expect(slots.acquireForLane() == false)
         slots.release()
         #expect(slots.acquireForLane() == true)
+    }
+}
+
+@Suite struct RunStopTests {
+    @Test func revokedSessionStopsTheRun() {
+        #expect(RunStopClassifier.cause(code: 401, message: "SESSION_REVOKED") == .sessionEnded)
+        #expect(RunStopClassifier.cause(code: 401, message: "Unauthorized") == .sessionEnded)
+        #expect(RunStopClassifier.cause(code: 400, message: "AUTH_KEY_UNREGISTERED") == .sessionEnded)
+    }
+
+    @Test func unusableChannelStopsTheRun() {
+        #expect(RunStopClassifier.cause(code: 403, message: "CHAT_WRITE_FORBIDDEN") == .channelUnavailable)
+        #expect(RunStopClassifier.cause(code: 400, message: "CHANNEL_PRIVATE") == .channelUnavailable)
+        #expect(RunStopClassifier.cause(code: 403, message: "USER_BANNED_IN_CHANNEL") == .channelUnavailable)
+    }
+
+    @Test func fileLevelAndTemporaryErrorsDoNotStopTheRun() {
+        #expect(RunStopClassifier.cause(code: 429, message: "Too Many Requests: retry after 30") == nil)
+        #expect(RunStopClassifier.cause(code: 400, message: "FLOOD_WAIT_30") == nil)
+        #expect(RunStopClassifier.cause(code: 500, message: "Internal Server Error") == nil)
+        #expect(RunStopClassifier.cause(code: 400, message: "FILE_PARTS_INVALID") == nil)
+        #expect(RunStopClassifier.cause(code: -1, message: "Connection timeout") == nil)
+    }
+
+    @Test func diskFullIsRecognised() {
+        #expect(RunStopClassifier.isDiskFull(domain: "NSCocoaErrorDomain", code: 640))
+        #expect(RunStopClassifier.isDiskFull(domain: "NSPOSIXErrorDomain", code: 28))
+        #expect(!RunStopClassifier.isDiskFull(domain: "NSCocoaErrorDomain", code: 260))
+        #expect(!RunStopClassifier.isDiskFull(domain: "NSPOSIXErrorDomain", code: 2))
+    }
+
+    @Test func everyCauseHasAPlainMessage() {
+        for c in [RunStopCause.sessionEnded, .channelUnavailable, .deviceStorageFull] {
+            #expect(!c.message.isEmpty)
+            #expect(!c.message.contains("!"))
+        }
     }
 }

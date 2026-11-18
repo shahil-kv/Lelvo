@@ -171,3 +171,117 @@ import LelvoCore
         #expect(ordered.items.map(\.id) == sorted.map(\.id))
     }
 }
+
+@Suite struct ScrubberTicksTests {
+    private func marks(_ pairs: [(Int, Double)]) -> [ScrubberMark] { pairs.map { ScrubberMark(year: $0.0, fraction: $0.1) } }
+
+    @Test func aLibraryFrom2015ShowsBothEnds() {
+        // Newest first: 2026 at the top, 2015 at the bottom, with a quiet 2017 to 2019 in between.
+        let m = marks([(2026, 0), (2025, 0.12), (2024, 0.25), (2023, 0.4), (2020, 0.55), (2016, 0.8), (2015, 0.93)])
+        let ticks = ScrubberTicks.make(marks: m, maxLabels: 10)
+        #expect(ticks.first?.year == 2026)
+        #expect(ticks.last?.year == 2015)
+        #expect(ticks.count == 7)
+    }
+
+    @Test func positionsComeFromTheLibraryNotFromEvenTime() {
+        // 2026 holds nearly everything: 2015 sits close to the bottom, not 11 years' worth down an even scale.
+        let ticks = ScrubberTicks.make(marks: marks([(2026, 0), (2015, 0.97)]), maxLabels: 10)
+        #expect(ticks.map(\.year) == [2026, 2015])
+        #expect(ticks[1].fraction == 0.97)
+    }
+
+    @Test func monthsOfOneYearBecomeOneLabelAtTheFirst() {
+        let m = marks([(2024, 0), (2024, 0.1), (2024, 0.2), (2023, 0.5)])
+        #expect(ScrubberTicks.make(marks: m, maxLabels: 10).map(\.year) == [2024, 2023])
+        #expect(ScrubberTicks.make(marks: m, maxLabels: 10)[0].fraction == 0)
+    }
+
+    @Test func crowdedLabelsAreThinnedWithoutLosingTheTop() {
+        let m = marks((0..<12).map { (2026 - $0, Double($0) / 12) })
+        let ticks = ScrubberTicks.make(marks: m, maxLabels: 5)
+        #expect(ticks.count <= 5)
+        #expect(ticks.first?.year == 2026)
+        for pair in zip(ticks, ticks.dropFirst()) { #expect(pair.1.fraction - pair.0.fraction >= 0.2 - 1e-9) }
+    }
+
+    @Test func emptyAndSingleYearAreSafe() {
+        #expect(ScrubberTicks.make(marks: [], maxLabels: 8).isEmpty)
+        #expect(ScrubberTicks.make(marks: marks([(2024, 0)]), maxLabels: 8).map(\.year) == [2024])
+        #expect(ScrubberTicks.make(marks: marks([(2024, 0)]), maxLabels: 0).isEmpty)
+    }
+
+    @Test func badFractionsAreIgnoredOrClamped() {
+        let m = marks([(2024, 0), (2023, .nan), (2022, 1.4)])
+        let ticks = ScrubberTicks.make(marks: m, maxLabels: 10)
+        #expect(ticks.map(\.year) == [2024, 2022])
+        #expect(ticks.allSatisfy { $0.fraction >= 0 && $0.fraction <= 1 })
+    }
+
+    @Test func shortLibrariesGetNoMarks() {
+        #expect(!ScrubberTicks.isLongEnough(contentHeight: 3000, viewportHeight: 800))
+        #expect(ScrubberTicks.isLongEnough(contentHeight: 8000, viewportHeight: 800))
+        #expect(!ScrubberTicks.isLongEnough(contentHeight: 8000, viewportHeight: 0))
+    }
+}
+
+@Suite struct ScrollLoadPolicyTests {
+    @Test func defersAtThresholdAndResumesBelowLowerOne() {
+        var p = ScrollLoadPolicy()
+        #expect(p.update(speedPointsPerSecond: 2999) == false)
+        #expect(p.update(speedPointsPerSecond: 3000) == true)
+        #expect(p.update(speedPointsPerSecond: 2000) == true)
+        #expect(p.update(speedPointsPerSecond: 1800) == true)
+        #expect(p.update(speedPointsPerSecond: 1799) == false)
+        #expect(p.update(speedPointsPerSecond: 2500) == false)
+    }
+
+    @Test func nanAndNegativeCountAsZero() {
+        var p = ScrollLoadPolicy()
+        #expect(p.update(speedPointsPerSecond: .nan) == false)
+        #expect(p.update(speedPointsPerSecond: -5000) == false)
+        #expect(p.update(speedPointsPerSecond: .infinity) == false)
+        _ = p.update(speedPointsPerSecond: 4000)
+        #expect(p.update(speedPointsPerSecond: .nan) == false)
+    }
+
+    @Test func repeatedUpdatesAreStable() {
+        var p = ScrollLoadPolicy()
+        for _ in 0..<5 { #expect(p.update(speedPointsPerSecond: 5000) == true) }
+        for _ in 0..<5 { #expect(p.update(speedPointsPerSecond: 2400) == true) }
+        for _ in 0..<5 { #expect(p.update(speedPointsPerSecond: 0) == false) }
+    }
+
+    @Test func prefetchShrinksWithSpeed() {
+        #expect(ScrollLoadPolicy.prefetchCount(speed: 0) == 30)
+        #expect(ScrollLoadPolicy.prefetchCount(speed: 2000) == 12)
+        #expect(ScrollLoadPolicy.prefetchCount(speed: 3000) == 0)
+        #expect(ScrollLoadPolicy.prefetchCount(speed: .nan) == 30)
+        #expect(ScrollLoadPolicy.prefetchCount(speed: -1) == 30)
+    }
+}
+
+@Suite struct MarqueeSelectionTests {
+    @Test func rectFromAnyCornerAndClamped() {
+        let bounds = CGRect(x: 0, y: 0, width: 100, height: 200)
+        #expect(MarqueeSelection.rect(from: CGPoint(x: 50, y: 60), to: CGPoint(x: 10, y: 20), within: bounds)
+                == CGRect(x: 10, y: 20, width: 40, height: 40))
+        #expect(MarqueeSelection.rect(from: CGPoint(x: 50, y: 60), to: CGPoint(x: 500, y: -30), within: bounds)
+                == CGRect(x: 50, y: 0, width: 50, height: 60))
+    }
+
+    @Test func plainBandReplacesAndModifierToggles() {
+        let base: Set<String> = ["a", "b"]
+        #expect(MarqueeSelection.result(base: base, touched: ["b", "c"], toggle: false) == ["b", "c"])
+        #expect(MarqueeSelection.result(base: base, touched: ["b", "c"], toggle: true) == ["a", "c"])
+        #expect(MarqueeSelection.result(base: base, touched: [], toggle: true) == base)
+    }
+
+    @Test func autoScrollSpeedGrowsNearEdges() {
+        func step(_ y: CGFloat) -> CGFloat { MarqueeSelection.autoScrollStep(pointerY: y, visibleMinY: 0, visibleMaxY: 600) }
+        #expect(step(300) == 0)
+        #expect(step(10) < 0 && step(550) > 0)
+        #expect(abs(step(5)) > abs(step(50)))
+        #expect(step(2000) == 30 && step(-500) == -30)
+    }
+}

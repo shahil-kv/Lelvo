@@ -118,6 +118,10 @@ public final class LibraryStore: @unchecked Sendable {
         CREATE TABLE IF NOT EXISTS import_items (key TEXT PRIMARY KEY, json TEXT NOT NULL, status TEXT NOT NULL,
                                                  item_id TEXT, error TEXT, updated_at REAL NOT NULL);
         """,
+        // 7 → 8: photos this device set aside because they can't be read (a file that is damaged, or gone from iCloud). Backing
+        // up skips them until the photo changes, so Retry doesn't try the same unreadable file again and again. `modified` is
+        // the photo's modification time in whole seconds when it was set aside (empty when unknown). Only adds a table.
+        "CREATE TABLE IF NOT EXISTS ignored_assets (local_id TEXT PRIMARY KEY, reason TEXT NOT NULL, modified TEXT NOT NULL, ignored_at TEXT NOT NULL);",
     ]
 
     /// The database's schema version (`PRAGMA user_version`).
@@ -452,7 +456,7 @@ public final class LibraryStore: @unchecked Sendable {
 
     public func deleteAll() throws {
         lock.lock(); defer { lock.unlock() }
-        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search; DELETE FROM trash_notes; DELETE FROM trash_outbox; DELETE FROM no_backup; DELETE FROM meta_notes; DELETE FROM meta_outbox; DELETE FROM photos_favorite; DELETE FROM import_sources; DELETE FROM import_items;")
+        try exec("DELETE FROM items; DELETE FROM meta; DELETE FROM aliases; DELETE FROM search; DELETE FROM trash_notes; DELETE FROM trash_outbox; DELETE FROM no_backup; DELETE FROM meta_notes; DELETE FROM meta_outbox; DELETE FROM photos_favorite; DELETE FROM import_sources; DELETE FROM import_items; DELETE FROM ignored_assets;")
         notifyChanged(ids: nil)
     }
 
@@ -644,6 +648,69 @@ public final class LibraryStore: @unchecked Sendable {
     public func clearMetaChange(itemIds: some Collection<String>, key: MetaLog.Key, value: Bool) throws {
         try writeAll("DELETE FROM meta_outbox WHERE item_id = ? AND key = ? AND value = ?;",
                      rows: itemIds.map { [$0, key.stored, value ? "1" : "0"] })
+    }
+
+    // MARK: - Photos set aside as unreadable
+
+    public struct IgnoredAsset: Equatable, Sendable {
+        public let localIdentifier: String
+        public let reason: String
+        /// The photo's modification time (whole seconds since 1970) when it was set aside; nil when it wasn't known.
+        public let modifiedAt: Int64?
+        public let ignoredAt: Date
+    }
+
+    private static func seconds(_ date: Date?) -> String { date.map { String(Int64($0.timeIntervalSince1970)) } ?? "" }
+
+    /// Sets a photo aside. Setting it aside again replaces the reason and the time.
+    public func ignoreAsset(localIdentifier: String, reason: String, modifiedAt: Date?, at now: Date = Date()) throws {
+        try writeAll("INSERT OR REPLACE INTO ignored_assets (local_id, reason, modified, ignored_at) VALUES (?, ?, ?, ?);",
+                     rows: [[localIdentifier, reason, Self.seconds(modifiedAt), String(Int64(now.timeIntervalSince1970))]])
+    }
+
+    public func ignoredAssets() throws -> [IgnoredAsset] {
+        try withReadStatement("SELECT local_id, reason, modified, ignored_at FROM ignored_assets ORDER BY ignored_at DESC;") { s in
+            var result: [IgnoredAsset] = []
+            while sqlite3_step(s) == SQLITE_ROW {
+                guard let id = sqlite3_column_text(s, 0), let reason = sqlite3_column_text(s, 1) else { continue }
+                let modified = sqlite3_column_text(s, 2).flatMap { Int64(String(cString: $0)) }
+                let at = sqlite3_column_text(s, 3).flatMap { Int64(String(cString: $0)) } ?? 0
+                result.append(IgnoredAsset(localIdentifier: String(cString: id), reason: String(cString: reason), modifiedAt: modified,
+                                           ignoredAt: Date(timeIntervalSince1970: TimeInterval(at))))
+            }
+            return result
+        }
+    }
+
+    /// Whether this photo is set aside and unchanged since. A photo that changed is not ignored: it is tried again.
+    public func isIgnored(localIdentifier: String, modifiedAt: Date?) throws -> Bool {
+        let now = Self.seconds(modifiedAt)
+        return try withReadStatement("SELECT modified FROM ignored_assets WHERE local_id = ?;", bind: { bindText($0, 1, localIdentifier) }) { s in
+            guard sqlite3_step(s) == SQLITE_ROW else { return false }
+            let stored = sqlite3_column_text(s, 0).map { String(cString: $0) } ?? ""
+            return stored == now
+        }
+    }
+
+    /// The local ids among `items` whose photo is set aside and hasn't changed since (see `isIgnored`), from one read.
+    public func ignoredAmong(_ items: [MediaItem]) throws -> Set<String> {
+        let stored = try ignoredAssets()
+        guard !stored.isEmpty else { return [] }
+        let byId = Dictionary(stored.map { ($0.localIdentifier, $0.modifiedAt) }, uniquingKeysWith: { first, _ in first })
+        var result = Set<String>()
+        for item in items {
+            guard let id = item.localIdentifier, let setAside = byId[id] else { continue }
+            if setAside == item.assetModifiedAt.map({ Int64($0.timeIntervalSince1970) }) { result.insert(id) }
+        }
+        return result
+    }
+
+    public func unignoreAsset(localIdentifier: String) throws {
+        try writeAll("DELETE FROM ignored_assets WHERE local_id = ?;", rows: [[localIdentifier]])
+    }
+
+    public func unignoreAllAssets() throws {
+        try withStatement("DELETE FROM ignored_assets;") { _ = sqlite3_step($0) }
     }
 
     // MARK: - Favorites in Apple Photos (#99)

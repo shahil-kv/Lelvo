@@ -89,6 +89,9 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var locked: Bool?
     /// Hidden in Photos when it was backed up: never shown in the timeline, restored hidden.
     public var hidden: Bool?
+    /// ThumbHash of the photo (`ThumbHash`), Base64, from the caption's `th`: a blurred placeholder for the grid before the
+    /// thumbnail has downloaded. Stored with the item's JSON, so rows saved before it existed simply read as nil.
+    public var thumbHash: String?
     public var mimeType: String?
     /// Job queue: earliest time to retry (FLOOD_WAIT / backoff).
     public var notBefore: Date?

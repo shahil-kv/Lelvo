@@ -22,8 +22,10 @@ public struct BackupCounts: Equatable, Sendable {
     ///   - candidates: the local ids of photos the backup selection covers.
     ///   - known: local ids the index already has, in any state.
     ///   - offBackup: photos deleted from the backup on purpose, which a backup leaves alone.
+    ///   - ignored: local ids of failed photos set aside as unreadable and unchanged since. They stay under Failed, with
+    ///     their reason, but a retry can't help them, so they are not counted as retryable.
     public static func compute(queued: [MediaItem], failed: [MediaItem], candidates: [String], known: Set<String>,
-                               offBackup: Set<String>, autoBackup: Bool) -> BackupCounts {
+                               offBackup: Set<String>, autoBackup: Bool, ignored: Set<String> = []) -> BackupCounts {
         // Nothing can upload an incomplete item with no photo on this device: it belongs under Failed.
         // A Takeout import in flight is the import screen's to show, not backup's.
         let queued = queued.filter { !$0.isImportInFlight }
@@ -34,7 +36,7 @@ public struct BackupCounts: Equatable, Sendable {
         counts.notQueued = candidates.filter { !known.contains($0) && !offBackup.contains($0) }.count + (uploadable.count - active)
         let stranded = queued.filter(\.isStrandedInCloud).count
         counts.failed = failed.count + stranded
-        counts.retryable = failed.filter { !$0.isStrandedInCloud }.count
+        counts.retryable = failed.filter { !$0.isStrandedInCloud && !($0.localIdentifier.map(ignored.contains) ?? false) }.count
         return counts
     }
 
