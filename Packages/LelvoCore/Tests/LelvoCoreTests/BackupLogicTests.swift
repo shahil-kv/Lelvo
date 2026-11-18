@@ -946,3 +946,19 @@ import LelvoCore
         }
     }
 }
+
+@Suite("Hashing cancellation")
+struct HashCancellationTests {
+    @Test func cancelledTaskStopsHashing() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("hash-cancel-\(UUID().uuidString)")
+        try Data(count: 3 << 20).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let task = Task<String, Error> {
+            while !Task.isCancelled { await Task.yield() }
+            return try Deduplicator.sha256(of: url)
+        }
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(try Deduplicator.sha256(of: url).count == 64)
+    }
+}

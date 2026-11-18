@@ -49,6 +49,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -709,7 +710,7 @@ class BackupEngine(
             // A retry of an unchanged file reuses its hash: hashing a 3 GB video again took minutes of battery on iOS.
             val reuse = Dedupe.canReuseHashes(item, file.modifiedAt, file.size, null)
             if (reuse) AppLog.info("Reusing the stored hash of ${item.filename} (unchanged since the last try)")
-            val (hash, size) = if (reuse) item.sha256 to item.fileSize else phone.hash(file)
+            val (hash, size) = if (reuse) item.sha256 to item.fileSize else currentCoroutineContext().let { ctx -> phone.hash(file) { ctx.ensureActive() } }
             if (!item.hasCloudParts) {
                 store.items(hash).firstOrNull { it.id != item.id && it.status == ItemStatus.BackedUp }?.let { twin ->
                     link(item, localId, twin)

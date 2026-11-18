@@ -177,7 +177,7 @@ class PhoneFiles(context: Context) {
     }
 
     /** SHA-256 (hex) and size of the original bytes. */
-    fun hash(file: PhoneFile): Pair<String, Long> {
+    fun hash(file: PhoneFile, ensureActive: () -> Unit = {}): Pair<String, Long> {
         val digest = MessageDigest.getInstance("SHA-256")
         var size = 0L
         openOriginal(file).use { s ->
@@ -185,6 +185,8 @@ class PhoneFiles(context: Context) {
             while (true) {
                 val n = s.read(buffer)
                 if (n < 0) break
+                // A stop request must not wait out a multi-GB video.
+                ensureActive()
                 digest.update(buffer, 0, n)
                 size += n
             }
