@@ -361,10 +361,10 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 
 | #   | Scenario                                     | How to test                                           | iOS | And | Mac | By     | Notes |
 | --- | -------------------------------------------- | ----------------------------------------------------- | --- | --- | --- | ------ | ----- |
-| 6.1 | Search by file name                          | Known name hits                                       | ☐   | ☐   | ☐   |        |       |
-| 6.2 | Search by date / month                       | Chips or typed date                                   | ☐   | ☐   | ☐   |        |       |
-| 6.3 | Search by place                              | City / place string                                   | ☐   | ☐   | ☐   |        |       |
-| 6.4 | Search by album                              | Album name                                            | ☐   | ☐   | ☐   |        |       |
+| 6.1 | Search by file name                          | Known name hits                                       | ☑ sim | ☐   | ☐   | Claude | 'D16-nogps' finds it (real library). Phone-only photos aren't searchable by name |
+| 6.2 | Search by date / month                       | Chips or typed date                                   | ☑ sim | ☐   | ☐   | Claude | 'November' finds 32 (real library) |
+| 6.3 | Search by place                              | City / place string                                   | ☑ sim | ☐   | ☐   | Claude | 'tokyo' finds 2 (real); 'Kochi' finds the demo photos, a made-up word none |
+| 6.4 | Search by album                              | Album name                                            | ☑ sim | ☐   | ☐   | Claude | 'QA Remove 3' finds its 1 photo (real library) |
 | 6.5 | Suggestions chips                            | Recent, places, Try…                                  | ☑ sim demo | ☐   | ☐   | Claude | Suggestions + recent (SearchButtons suite 11-18) |
 | 6.6 | On-device labels (phone photos)              | Label a few local photos; search “dog”/etc.           | ☐   | ☐   | ☐   |        |       |
 | 6.7 | No indexing of Telegram-sourced media for ML | Confirm cloud-only not labelled for upload/ML (terms) | ☐   | ☐   | ☐   |        |       |
