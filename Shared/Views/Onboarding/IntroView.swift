@@ -366,16 +366,21 @@ private struct FeaturesPage: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            screenshot
-            Text("Everything in one app").font(.system(size: 28, weight: .bold))
-            VStack(spacing: 2) {
-                ForEach(Self.features.indices, id: \.self) { i in row(i) }
+        // Scrolls like the other pages: at the largest text sizes the rows are taller than the screen and would push
+        // the Continue button off it (OPEN_ISSUES I16).
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                screenshot
+                Text("Everything in one app").font(.system(size: 28, weight: .bold))
+                VStack(spacing: 2) {
+                    ForEach(Self.features.indices, id: \.self) { i in row(i) }
+                }
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 24)
+            .padding(.top, 4)
+            .padding(.bottom, 12)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 4)
+        .scrollBounceBehavior(.basedOnSize)
         .task {
             guard !reduceMotion else { return }
             while !Task.isCancelled {
@@ -429,7 +434,9 @@ private struct FeaturesPage: View {
                     .background(on ? Color.accentColor : Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(f.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(f.detail).font(.footnote).foregroundStyle(.primary.opacity(0.65))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }

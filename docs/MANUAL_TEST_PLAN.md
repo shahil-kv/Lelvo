@@ -455,7 +455,7 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 10.12 | Privacy policy / FAQ / source / licences | Links open                                                    | ☐   | ☐   | ☐   |        |       |
 | 10.13 | About version                            | Matches store build                                           | ◐ sim | ☐   | ☐   | Claude | About shows 'Version, 0.1.0 (1)'; match with store build at release |
 | 10.14 | Light / dark / system                    | All main tabs                                                 | ☑ sim | ☐   | ☐   | Claude | 7 screens light + dark |
-| 10.15 | Dynamic Type largest (iOS)               | No clipped critical buttons                                   | ✗ sim | —   | —   | Claude | Sign-in Continue unreachable: I16 |
+| 10.15 | Dynamic Type largest (iOS)               | No clipped critical buttons                                   | ◐ sim | —   | —   | Claude | After I16 fix: intro + sign-in reachable at largest size, Continue on screen. Country code shows +…; tabs at that size not walked yet |
 | 10.16 | VoiceOver / TalkBack basics              | Tabs, Back up, viewer close labelled                          | ☐   | ☐   | ☐   |        |       |
 
 ---

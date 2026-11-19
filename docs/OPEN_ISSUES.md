@@ -176,7 +176,7 @@ simulator once, or make the check compare the failed count before and after.
 - **Not fixed 2026-11-19 (skipped):** both observers are registered; nothing in the code shows a bug, and the issue says to
   check on a real phone first (R8). Changing the observer blind risks extra library reads on every change.
 
-### I16 — Largest text size: sign-in "Continue" can't be reached (10.15)
+### I16 — Largest text size: sign-in "Continue" can't be reached (10.15) ✅ fixed 2026-11-19 (intro "Everything in one app" page now scrolls; Android already did)
 
 - **Seen:** 2026-11-18, "CI Clean" simulator, text size accessibility XXXL. On the phone number step the Continue
   button sits below the screen (y 992 of 874) and can't be scrolled into view, so sign-in can't go on.
