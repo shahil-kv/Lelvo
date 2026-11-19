@@ -939,6 +939,10 @@ struct InfoSheet: View {
                         .frame(height: 200)
                         .listRowInsets(EdgeInsets())
                         row("Coordinates", String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
+                        // Like Photos, and Android's Info: the place opens in the Maps app.
+                        Button("Open in Maps") {
+                            MKMapItem(placemark: MKPlacemark(coordinate: coordinate)).openInMaps()
+                        }
                     }
                 }
             }

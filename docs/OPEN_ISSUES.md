@@ -228,6 +228,11 @@ simulator once, or make the check compare the failed count before and after.
   out on every device. No photo is deleted.
 - **Retest:** 5.4, 11.2 (removal reaches the other device).
 
+### I22 — iPhone and Mac couldn't open a photo's place in Maps (Android can) ✅ fixed 2026-11-19
+
+- **Seen:** test plan 4.18. Android's Info opens a `geo:` link; iPhone and Mac Info only showed a small map.
+- **Fix:** "Open in Maps" under Location in Info (iPhone `ViewerView`, Mac `MacInfoPanel`). Retest: 4.18 on Mac.
+
 ## Needs a real phone (owner)
 
 | # | Check | How |
