@@ -44,6 +44,7 @@ import app.lelvo.data.Prefs
 import app.lelvo.data.index.LibraryStore
 import app.lelvo.data.media.PhotoAccess
 import app.lelvo.data.media.PhotoLinker
+import app.lelvo.telegram.FaultInjection
 import app.lelvo.telegram.TelegramException
 import app.lelvo.telegram.TdUploads
 import app.lelvo.telegram.UploadStalledException
@@ -1040,7 +1041,7 @@ class BackupEngine(
         AppLog.warn("No screen copy for ${item.filename}${if (e is ScreenCopyUnreadable) "" else " yet"}: ${e::class.simpleName}")
     }
 
-    private fun deviceIsNearlyFull(): Boolean = RunStopClassifier.diskFullStopsRun(
+    private fun deviceIsNearlyFull(): Boolean = FaultInjection.fakesDeviceFull || RunStopClassifier.diskFullStopsRun(
         runCatching { StatFs(staging.apply { mkdirs() }.path).availableBytes }.getOrNull(), UploadNames.SPACE_MARGIN,
     )
 

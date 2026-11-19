@@ -211,7 +211,7 @@ Start a backup of ~50 items, do the thing, then check: no duplicate, no false "b
 | L.3  | Low Power Mode / Battery Saver on             | ☐   | ☐   | ☐   |        |       |
 | L.4  | Wi‑Fi → cellular → Wi‑Fi switch               | ☑ sim | ☑ emu | ☐   | Claude | Telegram unreachable 40 s mid-run: retries wait 5/10/20/40 s, all 6 backed up after (11-19) |
 | L.5  | Restart the phone                             | ☐   | ☐   | ☐   |        |       |
-| L.6  | Phone storage nearly full                     | ◐ sim | ☐   | ☐   | Claude | Injected out-of-space: run stops 'out of storage', nothing failed, next run backs up. Real full phone: owner |
+| L.6  | Phone storage nearly full                     | ◐ sim | ◐ emu | ☐   | Claude | Injected out-of-space: run stops 'out of storage', nothing failed, next run backs up. Real full phone: owner |
 | L.7  | Photos access revoked in Settings             | ☐   | ☐   | ☐   |        |       |
 | L.8  | Sign out during backup                        | ☐   | ☐   | ☐   |        |       |
 | L.9  | Switch library during backup                  | ☐   | ☐   | ☐   |        |       |
@@ -754,7 +754,7 @@ Newest first. **By:** `Auto` = Claude ran it (simulator, emulator, scripts), `Sh
 | Offline 40 s | ☑ | Run ends "6 still waiting", nothing failed; next run backs up all 6. |
 | Session revoked | ☑ | Run stops "Telegram signed you out…", photos kept waiting; next run backs up all 6. |
 | Channel gone | ☑ | Run stops "can't write to your Telegram library…"; next run backs up all 6. |
-| Disk full | not run | Android has no disk-full fault switch yet. |
+| Disk full (`disk 2`, new switch) | ☑ | Run stops "out of storage… Nothing was lost"; next run backs up all 6. Same as iPhone. |
 
 ### 2026-11-19 (night) — Android emulator, demo library (signed out of Telegram)
 
