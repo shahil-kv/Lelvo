@@ -247,7 +247,7 @@ private fun Suggestions(
                 items(places, key = { it.name }) { p ->
                     Column(
                         Modifier.width(104.dp).clip(RoundedCornerShape(12.dp)).clickable { onChoose(p.name) }
-                            .semantics(mergeDescendants = true) { contentDescription = "${p.name}, ${p.count} items" },
+                            .semantics(mergeDescendants = true) { contentDescription = "${p.name}, ${p.count} ${if (p.count == 1) "item" else "items"}" },
                     ) {
                         Cover(d.byId[p.coverId], app, R.drawable.ic_place, Modifier.size(104.dp))
                         Text(p.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))

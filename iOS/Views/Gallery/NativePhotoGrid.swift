@@ -911,7 +911,7 @@ final class PhotoSectionHeader: UICollectionReusableView {
         title.text = text
         title.font = large ? UIFont.systemFont(ofSize: 20, weight: .bold) : .preferredFont(forTextStyle: .headline)
         count.text = n.formatted()
-        accessibilityLabel = "\(text), \(n) items"
+        accessibilityLabel = "\(text), \(n) \(n == 1 ? "item" : "items")"
         setNeedsLayout()
     }
 

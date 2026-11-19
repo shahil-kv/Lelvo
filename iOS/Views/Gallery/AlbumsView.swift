@@ -148,7 +148,7 @@ struct AlbumsView: View {
                             .frame(width: 130)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("\(row.filter.title), \(row.count) items")
+                        .accessibilityLabel("\(row.filter.title), \(row.count) \(row.count == 1 ? "item" : "items")")
                     }
                 }
             }
@@ -207,7 +207,7 @@ struct AlbumsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(count.map { "\(title)\(pro ? ", Pro" : ""), \($0) items" } ?? "\(title)\(pro ? ", Pro" : "")")
+        .accessibilityLabel(count.map { "\(title)\(pro ? ", Pro" : ""), \($0) \($0 == 1 ? "item" : "items")" } ?? "\(title)\(pro ? ", Pro" : "")")
     }
 
     // MARK: - Data
@@ -322,7 +322,7 @@ private struct AlbumGrid: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(row.filter.title), \(row.count) items")
+                .accessibilityLabel("\(row.filter.title), \(row.count) \(row.count == 1 ? "item" : "items")")
                 .contextMenu {
                     // Only albums people make: not Favorites or the ones Photos keeps (Screenshots).
                     if row.symbol == Self.userAlbumSymbol {

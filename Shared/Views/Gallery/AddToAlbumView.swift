@@ -129,7 +129,7 @@ private struct AlbumRow: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(album.title), \(album.count) items")
+        .accessibilityLabel("\(album.title), \(album.count) \(album.count == 1 ? "item" : "items")")
         .task(id: coverId) {
             guard let coverId else { return }
             cover = await Task.detached(priority: .utility) { () -> PlatformImage? in
