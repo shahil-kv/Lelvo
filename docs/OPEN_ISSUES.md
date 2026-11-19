@@ -254,6 +254,8 @@ simulator once, or make the check compare the failed count before and after.
 | R15 | D.1–D.7, D.9, D.14 | iCloud-optimized photo and video, RAW/ProRAW, HDR/ProRes/Cinematic/slo-mo, Portrait, panorama, burst, file over 4 GB, Android WhatsApp/SD folders. |
 | R16 | 11.6, 11.8 | Back up on one phone while the other is open; the same photo on both phones gives one copy. |
 | R17 | Decision D3 | See the table at the top. |
+| R19 | 4.5, 4.10, 4.19, 4.20 viewer on a phone | Big cloud photo shows soft then sharp; Live Photo plays; next photos open faster on Wi-Fi; airplane mode: a photo you opened before still opens. |
+| R20 | Mac: Remove from Album (5.4), Open in Maps (4.18) | Click each once on the Mac. |
 | R18 | Sign the Android emulator (Pixel_9) back in | Signed out since 2026-11-18. Needed for the Android fault runs (`build/qa/android-faults.sh`) and I4. |
 
 ## Progress of the test plan (2026-11-18)
