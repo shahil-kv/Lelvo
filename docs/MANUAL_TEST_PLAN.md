@@ -337,7 +337,7 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 
 | #    | Scenario                      | How to test                                      | iOS | And | Mac | By     | Notes |
 | ---- | ----------------------------- | ------------------------------------------------ | --- | --- | --- | ------ | ----- |
-| 5.1  | Phone folders listed          | Matches device albums/buckets                    | ☐   | ☐   | ☐   |        |       |
+| 5.1  | Phone folders listed          | Matches device albums/buckets                    | ☑ sim | ☐   | ☐   | Claude | Photos albums 'QA Remove', 'QA Remove 2', 'QA Remove 3' listed in Collections → Albums (AlbumTrashTests). Android buckets: R18 |
 | 5.2  | Lelvo albums listed           | Library albums appear                            | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testAlbumOpens, testAlbumsSeeAll (sim; device check still Shahil) |
 | 5.3  | Create album + add items      | Notes / Telegram consistent                      | ☑ sim | ☐   | ☐   | Claude | New album 'QA Sync' + add, reached the other device (11.2) |
 | 5.4  | Remove from album             | Item leaves album, not library                   | ☑ sim | ☐   | ☐   | Claude | After I21: Remove from Album in an album, photo leaves the open grid at once, album-remove note sent (AlbumTrashTests). Mac not tapped yet |
@@ -350,10 +350,10 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 5.11 | 30-day cleanup                | Item past retention removed (debug retention OK) | ☑ sim demo | ☐   | ☐   | Claude | 20 s debug retention: Recently Deleted 0 items after relaunch (AlbumTrashTests) |
 | 5.12 | Memories cards                | On this day / recent / trips                     | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testMemoriesSeeAllAndShowAllPhotos (sim; device check still Shahil) |
 | 5.13 | Memories story player         | Plays; dismiss (X / swipe) clears cover          | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testMemoryPlaysAndItsButtonsAnswer (sim; device check still Shahil) |
-| 5.14 | Memories settings             | Toggles stick after relaunch                     | ☐   | ☐   | ☐   |        |       |
+| 5.14 | Memories settings             | Toggles stick after relaunch                     | ☑ sim demo | ☐   | ☐   | Claude | Trips toggle kept after relaunch (SettingsPersistTests) |
 | 5.15 | Map with places               | Pins/clusters; tap → items                       | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testMapOpensAndAPinOpensItsPhotos (sim; device check still Shahil) |
-| 5.16 | Map light + dark              | Readable both                                    | ◐ sim demo | ☐   | ☐   | Claude | Map opens (Collections 11-18); dark mode not checked on map |
-| 5.17 | Item without GPS              | Does not fake a place                            | ☐   | ☐   | ☐   |        |       |
+| 5.16 | Map light + dark              | Readable both                                    | ☑ sim demo | ☐   | ☐   | Claude | Dark map: place names, pins and counts readable (screenshot 11-19) |
+| 5.17 | Item without GPS              | Does not fake a place                            | ☑ sim | ☐   | ☐   | Claude | D16-nogps has no location stored (5 other items do); map and info show a place only from real coordinates |
 
 ---
 

@@ -58,4 +58,27 @@ final class SettingsPersistTests: XCTestCase {
         XCTAssertNotEqual(isOn(wifiSwitch(app)), before, "Wi-Fi only kept after relaunch")
         wifiSwitch(app).switches.firstMatch.exists ? wifiSwitch(app).switches.firstMatch.tap() : wifiSwitch(app).tap()
     }
+
+    /// Test plan 5.14: a Memories setting survives a relaunch.
+    func testMemoriesSettingSurvivesRelaunch() {
+        func trips(_ app: XCUIApplication) -> XCUIElement {
+            openSettings(app)
+            let row = app.buttons["Memories"].firstMatch
+            for _ in 0..<6 where !row.isHittable { app.swipeUp() }
+            row.tap()
+            let t = app.switches["Trips"].firstMatch
+            XCTAssertTrue(t.waitForExistence(timeout: 5), "Trips toggle")
+            return t
+        }
+        var app = launch(reset: true)
+        var t = trips(app)
+        let before = isOn(t)
+        (t.switches.firstMatch.exists ? t.switches.firstMatch : t).tap()
+        XCTAssertNotEqual(isOn(t), before, "Toggle changed")
+        app.terminate()
+        app = launch(reset: false)
+        t = trips(app)
+        XCTAssertNotEqual(isOn(t), before, "Trips kept after relaunch")
+        (t.switches.firstMatch.exists ? t.switches.firstMatch : t).tap()
+    }
 }
