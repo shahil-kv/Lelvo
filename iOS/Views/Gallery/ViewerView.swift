@@ -1038,9 +1038,38 @@ struct PlayerView: UIViewRepresentable {
         player.allowsExternalPlayback = true
         let ready = onReadyForDisplay
         context.coordinator.readyObservation = view.playerLayer?.observe(\.isReadyForDisplay, options: [.initial, .new]) { layer, _ in
-            if layer.isReadyForDisplay { DispatchQueue.main.async { ready() } }
+            if layer.isReadyForDisplay {
+                DispatchQueue.main.async {
+                    ready()
+                    Self.logGeometry(layer)
+                }
+            }
         }
         return scroll
+    }
+
+    /// Where a video lands on screen and how the file says it is turned: a picture that shows sideways or lower than
+    /// centre leaves no other trace.
+    @MainActor private static func logGeometry(_ layer: AVPlayerLayer) {
+        guard let item = layer.player?.currentItem else { return }
+        let bounds = layer.bounds, shown = layer.videoRect, size = item.presentationSize
+        let host = layer.superlayer.map { String(format: "%.0fx%.0f at %.0f,%.0f", $0.bounds.width, $0.bounds.height, $0.frame.minX, $0.frame.minY) } ?? "none"
+        Task { @MainActor in
+            var turned = "no tracks"
+            if let tracks = try? await item.asset.load(.tracks) {
+                var parts: [String] = []
+                for track in tracks {
+                    let kind = track.mediaType.rawValue
+                    if track.mediaType == .video, let n = try? await track.load(.naturalSize), let t = try? await track.load(.preferredTransform) {
+                        parts.append(String(format: "video %.0fx%.0f [%.0f %.0f %.0f %.0f]", n.width, n.height, t.a, t.b, t.c, t.d))
+                    } else { parts.append(kind) }
+                }
+                turned = "tracks: " + parts.joined(separator: ", ")
+            }
+            appLog(String(format: "Video layout: layer %.0fx%.0f, picture %.0fx%.0f at %.0f,%.0f, item %.0fx%.0f, view %@, %@, composition %@",
+                          bounds.width, bounds.height, shown.width, shown.height, shown.minX, shown.minY, size.width, size.height, host, turned,
+                          item.videoComposition == nil ? "none" : "set"))
+        }
     }
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {

@@ -330,11 +330,13 @@ struct SidebarBackupCard: View {
 
     private var tint: Color {
         if activity.isRunning { return .accentColor }
+        if activity.lastSummary?.error != nil { return .orange }
         return notBackedUp > 0 ? .orange : .green
     }
 
     private var title: String {
         if activity.isRunning { return "Backing up" }
+        if activity.lastSummary?.error != nil { return "Backup stopped" }
         if paused && notBackedUp > 0 { return "Backup paused" }
         return notBackedUp > 0 ? "\(notBackedUp.formatted()) not backed up" : "Backup complete"
     }
@@ -344,6 +346,7 @@ struct SidebarBackupCard: View {
             if let notice = activity.notice { return notice }
             return activity.total > 0 ? "\(activity.remaining.formatted()) left" : "Preparing…"
         }
+        if let error = activity.lastSummary?.error { return error }
         if let last = UserDefaults.standard.object(forKey: Prefs.Key.lastBackupAt) as? Date {
             return "Last upload \(Format.relative(last))"
         }
