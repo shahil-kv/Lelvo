@@ -6,7 +6,7 @@ import kotlinx.coroutines.delay
 /**
  * Debug-only faults for repeatable tests of Telegram's limits and bad networks (test plan A2), like iOS's launch
  * arguments. Set from a debug intent: `adb shell am start -n app.lelvo.android/.MainActivity --es lelvo.faults "flood 3 30"`
- * (also `fail 3 2`, `offline 3 60`, `slow 2000`, `off`). Counts every file send of this process from 1 and fails the
+ * (also `fail 3 2`, `offline 3 60`, `slow 2000`, `revoke 2`, `channel 2`, `off`). Counts every file send of this process from 1 and fails the
  * chosen ones before anything reaches Telegram, so no message is created. Never set in release builds.
  */
 object FaultInjection {
@@ -31,6 +31,14 @@ object FaultInjection {
             "fail" -> if (n >= a && n < a + (b ?: 1)) {
                 AppLog.info("QA: injected dropped connection on send $n")
                 throw java.io.IOException("QA: connection dropped")
+            }
+            "revoke" -> if (n >= a) {
+                AppLog.info("QA: injected session revoked on send $n")
+                throw TelegramException(401, "SESSION_REVOKED")
+            }
+            "channel" -> if (n >= a) {
+                AppLog.info("QA: injected channel gone on send $n")
+                throw TelegramException(403, "CHAT_WRITE_FORBIDDEN")
             }
             "offline" -> if (n >= a) {
                 val until = synchronized(this) { if (offlineUntil == 0L) offlineUntil = System.currentTimeMillis() + (b ?: 60) * 1000L; offlineUntil }

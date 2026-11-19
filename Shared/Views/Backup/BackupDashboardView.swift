@@ -334,10 +334,12 @@ struct BackupDashboardView: View {
         }
     }
 
-    private enum HeaderState { case running, complete, completeWithFailures, pending, notBackedUp }
+    private enum HeaderState { case running, stopped, complete, completeWithFailures, pending, notBackedUp }
 
     private var headerState: HeaderState {
         if activity.isRunning { return .running }
+        // A run that hit an error every file would hit (signed out, channel gone, disk full) says why, not "complete".
+        if activity.lastSummary?.error != nil { return .stopped }
         if stats.pending > 0 { return .pending }
         if stats.notQueued > 0 { return .notBackedUp }
         return stats.failed > 0 ? .completeWithFailures : .complete
@@ -362,6 +364,8 @@ struct BackupDashboardView: View {
         case .completeWithFailures:
             (icon, tint, title) = ("exclamationmark.icloud.fill", .orange,
                                    "Backup complete, \(stats.failed) item\(stats.failed == 1 ? "" : "s") couldn't be backed up")
+        case .stopped:
+            (icon, tint, title) = ("exclamationmark.icloud.fill", .orange, "Backup stopped")
         case .running, .pending:
             (icon, tint, title) = ("icloud.and.arrow.up", .accentColor, "\(left) item\(left == 1 ? "" : "s") left to back up")
         case .notBackedUp:
@@ -370,7 +374,7 @@ struct BackupDashboardView: View {
         }
         let mark: CatchingMark.Status = switch state {
         case .complete: .complete
-        case .completeWithFailures: .attention
+        case .completeWithFailures, .stopped: .attention
         case .running: .working
         case .pending, .notBackedUp: .idle
         }
@@ -382,7 +386,7 @@ struct BackupDashboardView: View {
                 Text(title).font(.headline).multilineTextAlignment(.center)
                     .contentTransition(.numericText())
             } icon: {
-                if state == .completeWithFailures || state == .notBackedUp {
+                if state == .completeWithFailures || state == .notBackedUp || state == .stopped {
                     Image(systemName: icon).foregroundStyle(tint)
                 }
             }
@@ -391,6 +395,7 @@ struct BackupDashboardView: View {
             Text(state == .complete ? (stats.removedFromBackup > 0
                     ? "Everything else on this \(Device.name) is backed up. \(Self.removedLine(stats.removedFromBackup, device: Device.name))"
                     : "Everything on this \(Device.name) is backed up")
+                 : state == .stopped ? (activity.lastSummary?.error ?? "")
                  : state == .notBackedUp ? "Back up now uploads them all, or choose photos in Photos and tap Back up."
                  : "To your Telegram library")
                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)

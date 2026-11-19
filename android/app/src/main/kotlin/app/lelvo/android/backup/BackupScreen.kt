@@ -311,8 +311,11 @@ private fun StatusHeader(activity: BackupActivity, stats: Stats, lastBackupAt: L
         activity.isRunning -> pending.coerceAtLeast(c.notQueued)
         else -> pending
     }
+    // A run that hit an error every file would hit (signed out, channel gone, disk full) says why, not "complete".
+    val stopReason = activity.lastSummary?.error?.takeIf { !activity.isRunning }
     val (icon, tint, title) = when {
         !stats.ready -> Triple(R.drawable.ic_cloud_upload, Lelvo.colors.accent, "Checking this phone…")
+        stopReason != null -> Triple(R.drawable.ic_error, Lelvo.colors.orange, "Backup stopped")
         activity.isRunning || pending > 0 -> Triple(R.drawable.ic_cloud_upload, Lelvo.colors.accent, "${"%,d".format(left)} item${if (left == 1) "" else "s"} left to back up")
         c.notQueued > 0 -> Triple(R.drawable.ic_cloud_off, MaterialTheme.colorScheme.onSurfaceVariant, "${"%,d".format(c.notQueued)} item${if (c.notQueued == 1) "" else "s"} not in the cloud")
         c.failed > 0 -> Triple(R.drawable.ic_error, Lelvo.colors.orange, "Backup complete, ${"%,d".format(c.failed)} item${if (c.failed == 1) "" else "s"} couldn't be backed up")
@@ -320,6 +323,7 @@ private fun StatusHeader(activity: BackupActivity, stats: Stats, lastBackupAt: L
     }
     val subtitle = when {
         !stats.ready -> "Counting photos. A large library takes a moment."
+        stopReason != null -> stopReason
         activity.isRunning || pending > 0 -> "To your Telegram library"
         c.notQueued > 0 -> "Back up now uploads them all, or choose photos in Photos and tap Back up."
         // Photos deleted from the library on another device stay here and aren't sent again. Say so: "Everything else"
@@ -339,6 +343,7 @@ private fun StatusHeader(activity: BackupActivity, stats: Stats, lastBackupAt: L
         // only marks the states that need a look.
         val mark = when {
             !stats.ready || activity.isRunning -> CatchingStatus.Working
+            stopReason != null -> CatchingStatus.Attention
             pending > 0 || c.notQueued > 0 -> CatchingStatus.Idle
             c.failed > 0 -> CatchingStatus.Attention
             else -> CatchingStatus.Complete

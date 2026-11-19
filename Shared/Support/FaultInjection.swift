@@ -8,6 +8,9 @@ import Foundation
 ///   -QAFailSend <n> [count]   sends n…n+count-1 fail as a dropped connection (default count 1)
 ///   -QAOfflineFor <n> <s>     from send n, every send fails for s seconds, like airplane mode
 ///   -QASlowSend <ms>          each send waits ms first, so a kill or pause lands mid-run
+///   -QARevokeOnSend <n>       from send n, every send fails as Telegram's 401 SESSION_REVOKED (run must stop, nothing marked failed)
+///   -QAChannelGoneOnSend <n>  from send n, every send fails as 403 CHAT_WRITE_FORBIDDEN
+///   -QADiskFullOnSend <n>     from send n, every send fails as the OS's out-of-space error (Cocoa 640)
 enum FaultInjection {
     private static let args = ProcessInfo.processInfo.arguments
     private static let lock = NSLock()
@@ -18,7 +21,7 @@ enum FaultInjection {
         args.firstIndex(of: name).flatMap { args.indices.contains($0 + offset) ? Int(args[$0 + offset]) : nil }
     }
 
-    static var isActive: Bool { args.contains { $0.hasPrefix("-QAFlood") || $0.hasPrefix("-QAFail") || $0.hasPrefix("-QAOffline") || $0 == "-QASlowSend" } }
+    static var isActive: Bool { args.contains { $0.hasPrefix("-QAFlood") || $0.hasPrefix("-QAFail") || $0.hasPrefix("-QAOffline") || $0.hasPrefix("-QARevoke") || $0.hasPrefix("-QAChannelGone") || $0.hasPrefix("-QADiskFull") || $0 == "-QASlowSend" } }
 
     /// Called at the top of every file send. Throws the injected error, or returns after any injected delay.
     static func beforeSend() async throws {
@@ -33,6 +36,18 @@ enum FaultInjection {
         if let at = value("-QAFailSend"), n >= at, n < at + (value("-QAFailSend", 2) ?? 1) {
             appLog("QA: injected dropped connection on send \(n)")
             throw TDServiceError.notReady
+        }
+        if let at = value("-QARevokeOnSend"), n >= at {
+            appLog("QA: injected session revoked on send \(n)")
+            throw TDServiceError.telegram(code: 401, message: "SESSION_REVOKED")
+        }
+        if let at = value("-QAChannelGoneOnSend"), n >= at {
+            appLog("QA: injected channel gone on send \(n)")
+            throw TDServiceError.telegram(code: 403, message: "CHAT_WRITE_FORBIDDEN")
+        }
+        if let at = value("-QADiskFullOnSend"), n >= at {
+            appLog("QA: injected disk full on send \(n)")
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError)
         }
         if let at = value("-QAOfflineFor"), n >= at {
             let until: Date = lock.withLock {
