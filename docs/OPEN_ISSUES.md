@@ -218,11 +218,14 @@ simulator once, or make the check compare the failed count before and after.
   "Not enough space for this file." (no retries).
 - **Retest:** the I8 disk-full rows (`-QADiskFullOnSend`): with the device not nearly full the faulted photos now end under Failed with "Not enough space for this file." instead of being retried, so row "I8 disk full (`-QADiskFullOnSend 2`)" expects that now. iPhone sim, Mac and Android.
 
-### I21 — iPhone and Mac can't remove a photo from an album (Android can)
+### I21 — iPhone and Mac can't remove a photo from an album (Android can) ✅ fixed 2026-11-19 ("ios, mac: Remove from Album, like Android")
 
 - **Seen:** 2026-11-19, test plan 5.4. Android has "Remove from album" in the selection bar inside an album
   (`android/app/.../actions/AlbumActions.kt`, `timeline/Selection.kt`). iPhone and Mac have no such action.
 - **Fix:** add it on iPhone and Mac the same way Android does it (same album note format, no format change).
+- **Done:** "Remove from Album" in the iPhone selection More menu and the Mac selection bar and right-click menu, when
+  viewing a user album. Photos removes it on this device; the same album note Android writes (value false) takes it
+  out on every device. No photo is deleted.
 - **Retest:** 5.4, 11.2 (removal reaches the other device).
 
 ## Needs a real phone (owner)

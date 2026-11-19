@@ -181,6 +181,12 @@ struct MacGalleryView: View {
         }
     }
 
+    /// The user album this view shows, if any. Smart albums (Videos, Live Photos) have no Remove from Album.
+    private var userAlbum: String? {
+        if case .album(let t) = item { return t }
+        return nil
+    }
+
     private var filterSize: Int {
         if case .album(_, let ids)? = filter { return ids.count }
         if case .matching(_, let ids)? = filter { return ids.hashValue }
@@ -311,6 +317,14 @@ struct MacGalleryView: View {
                     .disabled(selection.isEmpty)
                 barButton("Add to Album", "rectangle.stack.badge.plus") { addingToAlbum = selectedEntries }
                     .disabled(selection.isEmpty)
+                if let album = userAlbum {
+                    barButton("Remove from Album", "rectangle.stack.badge.minus") {
+                        let chosen = selectedEntries
+                        endSelecting()
+                        Task { await MacActions.removeFromAlbum(chosen, title: album, toast: toast) }
+                    }
+                    .disabled(selection.isEmpty)
+                }
                 let allFavorite = GalleryActions.allFavorite(selectedEntries)
                 barButton(allFavorite ? "Unfavorite" : "Favorite", allFavorite ? "heart.slash" : "heart") {
                     let chosen = selectedEntries
@@ -350,6 +364,11 @@ struct MacGalleryView: View {
 
     @ViewBuilder private func deleteButtons(_ actions: EntryActions) -> some View {
         Button("Add to Album…", systemImage: "rectangle.stack.badge.plus") { addingToAlbum = actions.entries }
+        if let album = userAlbum {
+            Button("Remove from Album", systemImage: "rectangle.stack.badge.minus") {
+                Task { await MacActions.removeFromAlbum(actions.entries, title: album, toast: toast) }
+            }
+        }
         let allFavorite = GalleryActions.allFavorite(actions.entries)
         Button(allFavorite ? "Unfavorite" : "Favorite", systemImage: allFavorite ? "heart.slash" : "heart") {
             Task { await MacActions.setFavorite(actions.entries, !allFavorite, toast: toast) }
@@ -475,6 +494,11 @@ struct MacGalleryView: View {
                                       symbol: "icloud.and.arrow.up") { Task { await MacActions.backUp(actions.notBackedUp, toast: toast) } })
         }
         items.append(GridMenuItem(title: "Add to Album…", symbol: "rectangle.stack.badge.plus") { addingToAlbum = group })
+        if let album = userAlbum {
+            items.append(GridMenuItem(title: "Remove from Album", symbol: "rectangle.stack.badge.minus") {
+                Task { await MacActions.removeFromAlbum(group, title: album, toast: toast) }
+            })
+        }
         let allFavorite = GalleryActions.allFavorite(group)
         items.append(GridMenuItem(title: allFavorite ? "Unfavorite" : "Favorite", symbol: allFavorite ? "heart.slash" : "heart") {
             Task { await MacActions.setFavorite(group, !allFavorite, toast: toast) }

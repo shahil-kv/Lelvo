@@ -16,6 +16,8 @@ struct GalleryView: View {
     @State private var alert: GalleryAlert?
     @State private var confirmDelete = false
     @State private var addingToAlbum = false
+    /// The album this screen shows, when it's one photos can be taken out of (not a smart album such as Videos).
+    @State private var removableAlbum: String?
     @State private var showLegend = false
     /// The item showing in the viewer (changes as the user swipes).
     @State private var viewerCurrentId: String?
@@ -121,6 +123,12 @@ struct GalleryView: View {
         .onAppear { model.setGrouping(grouping) }
         .sheet(item: $share) { ActivityView(items: $0.urls).presentationDetents([.medium, .large]) }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
+        .task(id: filter?.title) {
+            guard case .album(let title, _)? = filter else { removableAlbum = nil; return }
+            let entries = model.entries
+            let ok = await Task.detached(priority: .utility) { GalleryActions.canRemove(fromAlbum: title, entries: entries) }.value
+            removableAlbum = ok ? title : nil
+        }
         .sheet(isPresented: $addingToAlbum) {
             AddToAlbumView(count: selection.count) { id, title in Task { await addToAlbum(id, title) } }
         }
@@ -433,6 +441,11 @@ struct GalleryView: View {
                     Label("Add to Album", systemImage: "rectangle.stack.badge.plus")
                 }
                 .disabled(chosen.isEmpty)
+                if let album = removableAlbum, !chosen.isEmpty {
+                    Button { Task { await removeFromAlbum(chosen, album) } } label: {
+                        Label("Remove from Album", systemImage: "rectangle.stack.badge.minus")
+                    }
+                }
                 if !downloadable.isEmpty {
                     Button { Task { await download(downloadable) } } label: {
                         Label("Save \(downloadable.count.formatted()) to iPhone", systemImage: "square.and.arrow.down")
@@ -671,6 +684,24 @@ struct GalleryView: View {
         } catch {
             Haptics.error()
             alert = GalleryAlert(title: "Nothing was added", message: error.localizedDescription)
+        }
+    }
+
+    private func removeFromAlbum(_ chosen: [GalleryEntry], _ title: String) async {
+        busyMessage = "Removing from \(title)…"
+        defer { busyMessage = nil }
+        do {
+            let removed = try await GalleryActions.removeFromAlbum(chosen, title: title)
+            Haptics.success()
+            endSelecting()
+            if removed < chosen.count {
+                alert = GalleryAlert(title: "Removed \(removed.formatted()) from “\(title)”",
+                                     message: "The others are still backing up. Remove them once they're in your Telegram library.")
+            }
+        } catch is CancellationError {
+        } catch {
+            Haptics.error()
+            alert = GalleryAlert(title: "Couldn't remove from the album", message: "\(error.localizedDescription) Try again.")
         }
     }
 

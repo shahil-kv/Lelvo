@@ -272,6 +272,36 @@ final class PhotoLibraryService: @unchecked Sendable {
         }
     }
 
+    /// Whether the user has an album with this title that Lelvo can take photos out of. Smart albums (Videos, Live
+    /// Photos) and shared ones can't be changed.
+    func hasEditableAlbum(titled title: String) -> Bool {
+        let wanted = MetaLog.albumName(title) ?? title
+        var found = false
+        PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil).enumerateObjects { c, _, stop in
+            guard let t = c.localizedTitle, (MetaLog.albumName(t) ?? t) == wanted, c.canPerform(.removeContent) else { return }
+            found = true
+            stop.pointee = true
+        }
+        return found
+    }
+
+    /// Takes the assets out of the user's albums with this title, like Remove from Album in Photos. The assets stay in
+    /// the library.
+    func remove(_ identifiers: [String], fromAlbumsTitled title: String) async throws {
+        guard !identifiers.isEmpty else { return }
+        let wanted = MetaLog.albumName(title) ?? title
+        var albums: [PHAssetCollection] = []
+        PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil).enumerateObjects { c, _, _ in
+            guard let t = c.localizedTitle, (MetaLog.albumName(t) ?? t) == wanted, c.canPerform(.removeContent) else { return }
+            albums.append(c)
+        }
+        guard !albums.isEmpty else { return }
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
+        try await PHPhotoLibrary.shared().performChanges {
+            for album in albums { PHAssetCollectionChangeRequest(for: album)?.removeAssets(assets) }
+        }
+    }
+
     func setFavorite(_ identifiers: [String], _ favorite: Bool) async throws {
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
         try await PHPhotoLibrary.shared().performChanges {
