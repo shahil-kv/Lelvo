@@ -461,6 +461,7 @@ struct LibrarySettingsView: View {
                 PrimaryCapsuleButton(title: "Create and switch",
                                      enabled: problem == nil && !newName.trimmingCharacters(in: .whitespaces).isEmpty) { create() }
                     .padding(20)
+                    .background(.bar)  // solid: the warning card scrolls under it, not through it (I6)
             }
             .navigationTitle("New library")
             .inlineNavigationTitle()

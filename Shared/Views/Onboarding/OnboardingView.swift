@@ -712,6 +712,8 @@ private struct LibraryScreen: View {
                         m.createLibrary()
                     }
                     .padding(20)
+                    // Solid, so the warning card scrolls under the button instead of showing through it (I6).
+                    .background(.bar)
                 }
                 .navigationTitle("New library")
                 .inlineNavigationTitle()
@@ -1043,13 +1045,22 @@ struct OnboardingField: View {
     @State private var revealed = false
     @FocusState private var focused: Bool
 
+    /// UI tests can't type into a field the system offers to fill with a strong password, so `-QAPlainFields` turns
+    /// the content type off (test plan 1.4, OPEN_ISSUES I7).
+    private var contentType: UITextContentType? {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-QAPlainFields") { return nil }
+        #endif
+        return content
+    }
+
     var body: some View {
         HStack {
             Group {
                 if secure && !revealed { SecureField(placeholder, text: $text) }
                 else { TextField(placeholder, text: $text).platformKeyboard(keyboard) }
             }
-            .textContentType(content)
+            .textContentType(contentType)
             .textFieldStyle(.plain)
             .focusEffectDisabled()
             .autocorrectionDisabled()
