@@ -42,7 +42,10 @@ struct GalleryView: View {
     private var sections: [GallerySection] { shown?.sections ?? (filter == nil ? model.sections : filtered.sections) }
     @State private var filtered: (entries: [GalleryEntry], sections: [GallerySection]) = ([], [])
 
-    private struct FilterKey: Equatable { let revision: Int; let grouping: GalleryModel.Grouping; let size: Int }
+    private struct FilterKey: Equatable { let revision: Int; let grouping: GalleryModel.Grouping; let size: Int; let takenOut: Int }
+    /// Entries taken out of this album here. The album filter holds the Photos ids it opened with, so without this
+    /// they would stay on screen until the album is opened again.
+    @State private var takenOut: Set<String> = []
 
     var body: some View {
         if embedInNavigation { NavigationStack { content.settingsButton(hidden: selecting) } } else { content }
@@ -88,7 +91,7 @@ struct GalleryView: View {
             }
         }
         .task { if !model.loaded { await model.reload() } }
-        .task(id: FilterKey(revision: model.revision, grouping: grouping, size: filterSize)) {
+        .task(id: FilterKey(revision: model.revision, grouping: grouping, size: filterSize, takenOut: takenOut.count)) {
             let filter = self.filter
             let folder = LockedFolderStore.shared
             let source: [GalleryEntry] = {
@@ -98,12 +101,13 @@ struct GalleryView: View {
                 return model.entries
             }()
             let grouping = self.grouping
+            let takenOut = self.takenOut
             let result = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection], [String: Int]) in
                 let list: [GalleryEntry]
                 if case .locked = filter {
                     list = source
                 } else {
-                    list = filter.map { f in source.filter(f.matches) } ?? source
+                    list = filter.map { f in source.filter { f.matches($0) && !takenOut.contains($0.id) } } ?? source
                 }
                 var positions: [String: Int] = [:]
                 positions.reserveCapacity(list.count)
@@ -694,6 +698,9 @@ struct GalleryView: View {
             let removed = try await GalleryActions.removeFromAlbum(chosen, title: title)
             Haptics.success()
             endSelecting()
+            // Same rule as GalleryActions: on this device, or a library member of the album.
+            let name = MetaLog.albumName(title)
+            takenOut.formUnion(chosen.filter { e in e.asset != nil || name.map { e.item?.albums?.contains($0) == true } == true }.map(\.id))
             if removed < chosen.count {
                 alert = GalleryAlert(title: "Removed \(removed.formatted()) from “\(title)”",
                                      message: "The others are still backing up. Remove them once they're in your Telegram library.")

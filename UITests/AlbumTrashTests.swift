@@ -55,4 +55,43 @@ final class AlbumTrashTests: XCTestCase {
         row.tap()
         XCTAssertTrue(app.staticTexts["No Recently Deleted Items"].waitForExistence(timeout: 15), "Emptied after the retention")
     }
+
+    /// Test plan 5.4 (I21): two backed-up photos into "QA Remove", then one taken out; the other stays.
+    func test5_4_removeFromAlbum() throws {
+        guard ProcessInfo.processInfo.environment["QA_DIR"] != nil else { throw XCTSkip("QA only") }
+        let app = XCUIApplication(); app.launchArguments = []; app.launch()
+        if app.buttons["Not now"].waitForExistence(timeout: 6) { app.buttons["Not now"].tap() }
+        let grid = app.collectionViews["galleryGrid"]
+        XCTAssertTrue(grid.cells.firstMatch.waitForExistence(timeout: 30))
+        app.buttons["Select"].tap()
+        grid.cells.element(boundBy: 0).tap(); grid.cells.element(boundBy: 1).tap()
+        app.buttons["More"].tap()
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Add to Album")).firstMatch.tap()
+        XCTAssertTrue(app.buttons["New Album…"].waitForExistence(timeout: 5)); app.buttons["New Album…"].tap()
+        let alert = app.alerts["New Album"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.textFields.firstMatch.typeText("QA Remove 3")
+        alert.buttons.matching(NSPredicate(format: "label != 'Cancel'")).firstMatch.tap()
+        sleep(4)
+        if app.buttons["Done"].exists { app.buttons["Done"].firstMatch.tap() }
+
+        app.buttons["Collections"].firstMatch.tap()
+        let all = app.buttons.matching(identifier: "See All").element(boundBy: 2)
+        reveal(app, all); if all.exists { all.tap() }
+        let album = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'QA Remove 3, 2'")).firstMatch
+        XCTAssertTrue(album.waitForExistence(timeout: 20), "QA Remove has 2")
+        album.tap()
+        let inner = app.collectionViews["galleryGrid"]
+        XCTAssertTrue(inner.cells.firstMatch.waitForExistence(timeout: 15))
+        app.buttons["Select"].tap(); inner.cells.element(boundBy: 0).tap()
+        app.buttons["More"].tap()
+        let remove = app.buttons["Remove from Album"].firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 5), "Remove from Album offered inside a user album")
+        remove.tap()
+        let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for label in ["Remove", "Allow", "Modify"] where sb.buttons[label].waitForExistence(timeout: 4) { sb.buttons[label].tap(); break }
+        let one = XCTNSPredicateExpectation(predicate: NSPredicate(format: "count == 1"), object: inner.cells)
+        wait(for: [one], timeout: 20)
+        sleep(15) // album note goes out paced
+    }
 }

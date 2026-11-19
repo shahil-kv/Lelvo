@@ -321,7 +321,7 @@ struct MacGalleryView: View {
                     barButton("Remove from Album", "rectangle.stack.badge.minus") {
                         let chosen = selectedEntries
                         endSelecting()
-                        Task { await MacActions.removeFromAlbum(chosen, title: album, toast: toast) }
+                        Task { await MacActions.removeFromAlbum(chosen, title: album, toast: toast); await model.reload() }
                     }
                     .disabled(selection.isEmpty)
                 }
@@ -366,7 +366,7 @@ struct MacGalleryView: View {
         Button("Add to Album…", systemImage: "rectangle.stack.badge.plus") { addingToAlbum = actions.entries }
         if let album = userAlbum {
             Button("Remove from Album", systemImage: "rectangle.stack.badge.minus") {
-                Task { await MacActions.removeFromAlbum(actions.entries, title: album, toast: toast) }
+                Task { await MacActions.removeFromAlbum(actions.entries, title: album, toast: toast); await model.reload() }
             }
         }
         let allFavorite = GalleryActions.allFavorite(actions.entries)
@@ -496,7 +496,7 @@ struct MacGalleryView: View {
         items.append(GridMenuItem(title: "Add to Album…", symbol: "rectangle.stack.badge.plus") { addingToAlbum = group })
         if let album = userAlbum {
             items.append(GridMenuItem(title: "Remove from Album", symbol: "rectangle.stack.badge.minus") {
-                Task { await MacActions.removeFromAlbum(group, title: album, toast: toast) }
+                Task { await MacActions.removeFromAlbum(group, title: album, toast: toast); await model.reload() }
             })
         }
         let allFavorite = GalleryActions.allFavorite(group)

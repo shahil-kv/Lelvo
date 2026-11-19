@@ -340,7 +340,7 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 5.1  | Phone folders listed          | Matches device albums/buckets                    | ☐   | ☐   | ☐   |        |       |
 | 5.2  | Lelvo albums listed           | Library albums appear                            | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testAlbumOpens, testAlbumsSeeAll (sim; device check still Shahil) |
 | 5.3  | Create album + add items      | Notes / Telegram consistent                      | ☑ sim | ☐   | ☐   | Claude | New album 'QA Sync' + add, reached the other device (11.2) |
-| 5.4  | Remove from album             | Item leaves album, not library                   | ✗ | ☐   | ☐   | Claude | iPhone and Mac have no 'Remove from album' (Android does): I21 |
+| 5.4  | Remove from album             | Item leaves album, not library                   | ☑ sim | ☐   | ☐   | Claude | After I21: Remove from Album in an album, photo leaves the open grid at once, album-remove note sent (AlbumTrashTests). Mac not tapped yet |
 | 5.5  | Delete album                  | Album gone; items remain                         | ☑ sim | ☐   | ☐   | Claude | Deleted 'QA Sync': album gone, 293 items before and after, album-remove note sent for 2 items (AlbumTrashTests) |
 | 5.6  | Favorites smart row           | Opens hearted set                                | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testFavoritesOpens (sim; device check still Shahil) |
 | 5.7  | Videos / media-type rows      | Correct filters                                  | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testVideosOpens (sim; device check still Shahil) |
