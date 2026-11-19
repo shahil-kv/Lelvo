@@ -140,15 +140,15 @@ it must say the account has no limits.
 
 | #    | Scenario                           | How to test                                                                  | Breaks if…                                                         | iOS | And | Mac | By     | Notes |
 | ---- | ---------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ | --- | --- | --- | ------ | ----- |
-| T.1  | FLOOD_WAIT under load              | Back up 500+ small photos in one go; read log                                | Any request sent during a wait; wait shorter than told; retry loop | ☑ sim | ☐   | ☐   | Claude | FLOOD_WAIT 25 s injected on send 2: no send inside the wait, ≤2 at once, finished (11-19) |
-| T.2  | Two uploads at most                | Watch log / Backup lanes during T.1                                          | Three or more parts in flight                                      | ☑ sim | ☐   | ☐   | Claude | Never more than 2 in flight during T.1 (log check) |
+| T.1  | FLOOD_WAIT under load              | Back up 500+ small photos in one go; read log                                | Any request sent during a wait; wait shorter than told; retry loop | ☑ sim | ☑ emu | ☐   | Claude | FLOOD_WAIT 25 s injected on send 2: no send inside the wait, ≤2 at once, finished (11-19) |
+| T.2  | Two uploads at most                | Watch log / Backup lanes during T.1                                          | Three or more parts in flight                                      | ☑ sim | ☑ emu | ☐   | Claude | Never more than 2 in flight during T.1 (log check) |
 | T.3  | Quiet launch                       | Cold launch with a big library; count TDLib calls in first minute of log     | Hundreds of history/file calls; full-channel scan on every launch  | ☐   | ☐   | ☐   |        |       |
-| T.4  | Session ended from Telegram        | Telegram → Settings → Devices → end Lelvo session (idle, then mid-backup)    | Spinner forever; crash; local photos or queue wiped                | ◐ sim | ☐   | ☐   | Claude | Injected 401 SESSION_REVOKED: run stops with sign-in message, photos kept waiting, next run backs up all. Real Devices-screen end: R10 |
+| T.4  | Session ended from Telegram        | Telegram → Settings → Devices → end Lelvo session (idle, then mid-backup)    | Spinner forever; crash; local photos or queue wiped                | ◐ sim | ◐ emu | ☐   | Claude | Injected 401 SESSION_REVOKED: run stops with sign-in message, photos kept waiting, next run backs up all. Real Devices-screen end: R10 |
 | T.5  | Lelvo session name                 | Telegram → Devices                                                           | Shows something odd or another app's name                          | ☐   | ☐   | ☐   |        |       |
 | T.6  | Only our channel touched           | Before/after: other chats' unread counts, archive, mute, read marks          | Any other chat marked read, joined, muted or messaged              | ☐   | ☐   | ☐   |        |       |
 | T.7  | Message deleted by hand in channel | Delete one item's message(s) in Telegram → re-scan                           | Still "backed up"; crash; Free Up offers it                        | ☐   | ☐   | ☐   |        |       |
 | T.8  | Junk posted in channel             | Post a text, a sticker and a random photo in the channel → re-scan           | Counted as library items; crash; scan stops                        | ☐   | ☐   | ☐   |        |       |
-| T.9  | Channel deleted or left            | Delete the library channel in Telegram (test account only)                   | Silently makes a new library; claims items backed up               | ◐ sim | ☐   | ☐   | Claude | Injected 403 CHAT_WRITE_FORBIDDEN: run stops, says why, nothing marked failed. Real channel delete: R12 |
+| T.9  | Channel deleted or left            | Delete the library channel in Telegram (test account only)                   | Silently makes a new library; claims items backed up               | ◐ sim | ◐ emu | ☐   | Claude | Injected 403 CHAT_WRITE_FORBIDDEN: run stops, says why, nothing marked failed. Real channel delete: R12 |
 | T.10 | 2 GB vs 4 GB file limit            | File just over 2 GB on a non-Premium account                                 | Upload rejected and retried forever instead of split               | ☐   | ☐   | ☐   |        |       |
 | T.11 | Two devices back up at once        | iPhone + Android same library, both "Back up now"                            | Duplicates; FLOOD_WAIT storm; one device's notes lost              | ☐   | ☐   | ☐   |        |       |
 | T.12 | Long run                           | 2 hours / 2k items unattended                                                | FLOOD waits growing; account limited (@SpamBot); memory climbing   | ☐   | ☐   | ☐   |        |       |
@@ -209,7 +209,7 @@ Start a backup of ~50 items, do the thing, then check: no duplicate, no false "b
 | L.1  | Lock the screen for 10 min                    | ☐   | ☐   | —   |        |       |
 | L.2  | Phone call / FaceTime                         | ☐   | ☐   | —   |        |       |
 | L.3  | Low Power Mode / Battery Saver on             | ☐   | ☐   | ☐   |        |       |
-| L.4  | Wi‑Fi → cellular → Wi‑Fi switch               | ☑ sim | ☐   | ☐   | Claude | Telegram unreachable 40 s mid-run: retries wait 5/10/20/40 s, all 6 backed up after (11-19) |
+| L.4  | Wi‑Fi → cellular → Wi‑Fi switch               | ☑ sim | ☑ emu | ☐   | Claude | Telegram unreachable 40 s mid-run: retries wait 5/10/20/40 s, all 6 backed up after (11-19) |
 | L.5  | Restart the phone                             | ☐   | ☐   | ☐   |        |       |
 | L.6  | Phone storage nearly full                     | ◐ sim | ☐   | ☐   | Claude | Injected out-of-space: run stops 'out of storage', nothing failed, next run backs up. Real full phone: owner |
 | L.7  | Photos access revoked in Settings             | ☐   | ☐   | ☐   |        |       |
@@ -379,9 +379,9 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | ---- | --------------------------------- | ------------------------------------------------------- | --- | --- | --- | ------ | ----- |
 | 7.1  | Back up now                       | Progress, lanes, ETA sensible                           | ☑ sim | ☐   | ☐   | Claude | Back up now (BackupButtons 11-18; real runs 11-19) |
 | 7.2  | Pause / resume                    | Pause holds; resume continues                           | ☑ sim demo | ☐   | ☐   | Claude | Pause holds, resume continues (11-18) |
-| 7.3  | Retry failed                      | Force a fail (airplane) → Retry                         | ☑ sim | ☐   | ☐   | Claude | -QAFailSend 1 2: both retried, all backed up (11-19) |
+| 7.3  | Retry failed                      | Force a fail (airplane) → Retry                         | ☑ sim | ☑ emu | ☐   | Claude | -QAFailSend 1 2: both retried, all backed up (11-19) |
 | 7.4  | At most two parallel uploads      | Watch concurrent jobs                                   | ☑ sim | ☐   | ☐   | Claude | ≤2 in flight, log check during T.1 |
-| 7.5  | FLOOD_WAIT honoured               | If hit, waits exact seconds, then continues             | ☑ sim | ☐   | ☐   | Claude | Injected 25 s FLOOD_WAIT honoured (T.1) |
+| 7.5  | FLOOD_WAIT honoured               | If hit, waits exact seconds, then continues             | ☑ sim | ☑ emu | ☐   | Claude | Injected 25 s FLOOD_WAIT honoured (T.1) |
 | 7.6  | Thumbnail (`t`) written           | Every item has thumb role                               | ☑ sim | ☐   | ☐   | Claude | Index: all 251 backed-up items have t. The 1 without is marked failed 'Incomplete… Tap Retry' (disk-full test cut it after o), not claimed backed up |
 | 7.7  | Screen copy (`d`) for large photo | Big JPEG gets display copy                              | ☑ sim | ☐   | ☐   | Claude | 42 photos ≥3.1 MB have d; smaller ones (0.4–3.4 MB) don't, by size rule |
 | 7.8  | Fast video version                | Created at backup or “Make fast version”                | ☐   | ☐   | ☐   |        |       |
@@ -414,8 +414,8 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 8.4  | Confirm delete               | Phone gone; still in library                      | ☑ sim | ☐   | ☐   | Claude | 220 deleted from phone, all still cloud items |
 | 8.5  | Free Up after airplane       | Does not claim verified offline                   | ☐   | ☐   | ☐   |        |       |
 | 8.6  | Save everything to phone     | Cloud-only set → Photos with date/place           | ☑ sim | ☐   | ☐   | Claude | Killed mid-save; Save all again offered exactly the 184 left; no duplicates |
-| 8.7  | Save single item             | From viewer                                       | ☐   | ☐   | ☐   |        |       |
-| 8.8  | Download a copy              | File usable outside app                           | ☐   | ☐   | ☐   |        |       |
+| 8.7  | Save single item             | From viewer                                       | ☑ sim demo | ☐   | ☐   | Claude | Save from the viewer answers (PhotosButtons testViewerSaveAnswers 11-18) |
+| 8.8  | Download a copy              | File usable outside app                           | ☑ sim demo | ☐   | ☐   | Claude | Share original hands over the file (PhotosButtons testViewerShareOriginal 11-18) |
 | 8.9  | Second copy to folder        | Pick folder; files land; resume if interrupted    | ☐   | ☐   | ☐   |        |       |
 | 8.10 | Low device storage           | Clear message; no corrupt half-files claimed done | ☐   | ☐   | ☐   |        |       |
 
@@ -481,7 +481,7 @@ Do these with **iPhone + Android** (and Mac if ready) on the **same** library wh
 
 | #    | Scenario                                   | How to test                | iOS | And | Mac | By     | Notes |
 | ---- | ------------------------------------------ | -------------------------- | --- | --- | --- | ------ | ----- |
-| 12.1 | Similar / burst groups                     | Real burst set             | ☐   | ☐   | ☐   |        |       |
+| 12.1 | Similar / burst groups                     | Real burst set             | — Pro | ☐   | ☐   | Claude | Smart Cleanup is Pro, parked (owner 2026-11-17); needs real bursts |
 | 12.2 | Pick Best                                  | Marks best                 | ☐   | ☐   | ☐   |        |       |
 | 12.3 | Delete extras on phone                     | Confirms                   | ☐   | ☐   | ☐   |        |       |
 | 12.4 | Delete extras from backup                  | Confirms; Telegram cleaned | ☐   | ☐   | ☐   |        |       |
@@ -744,6 +744,17 @@ Moved into the main plan: Mac runs every row that applies, plus Phase M.
 Open issues, fix plans and owner decisions: [OPEN_ISSUES.md](OPEN_ISSUES.md).
 
 Newest first. **By:** `Auto` = Claude ran it (simulator, emulator, scripts), `Shahil` = by hand on a device.
+
+### 2026-11-19 (late) — Android emulator, real account, "Android Test" library, fault injection
+
+| Fault (`Scripts/qa/android-faults.sh`, 6 new photos each) | Result | Notes |
+|---|---|---|
+| First pass | ✗ test setup | `adb shell` dropped the quotes, so the app got "revoke" without its send number and no fault fired. Fixed in the script. |
+| FLOOD_WAIT 25 s on send 2 | ☑ | Paused 13:34:16 → 13:34:44, nothing sent inside the wait, then all 6 backed up. |
+| Offline 40 s | ☑ | Run ends "6 still waiting", nothing failed; next run backs up all 6. |
+| Session revoked | ☑ | Run stops "Telegram signed you out…", photos kept waiting; next run backs up all 6. |
+| Channel gone | ☑ | Run stops "can't write to your Telegram library…"; next run backs up all 6. |
+| Disk full | not run | Android has no disk-full fault switch yet. |
 
 ### 2026-11-19 (night) — Android emulator, demo library (signed out of Telegram)
 
