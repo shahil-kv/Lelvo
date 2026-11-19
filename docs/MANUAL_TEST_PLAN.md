@@ -365,11 +365,11 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 6.2 | Search by date / month                       | Chips or typed date                                   | ☐   | ☐   | ☐   |        |       |
 | 6.3 | Search by place                              | City / place string                                   | ☐   | ☐   | ☐   |        |       |
 | 6.4 | Search by album                              | Album name                                            | ☐   | ☐   | ☐   |        |       |
-| 6.5 | Suggestions chips                            | Recent, places, Try…                                  | ☐   | ☐   | ☐   |        |       |
+| 6.5 | Suggestions chips                            | Recent, places, Try…                                  | ☑ sim demo | ☐   | ☐   | Claude | Suggestions + recent (SearchButtons suite 11-18) |
 | 6.6 | On-device labels (phone photos)              | Label a few local photos; search “dog”/etc.           | ☐   | ☐   | ☐   |        |       |
 | 6.7 | No indexing of Telegram-sourced media for ML | Confirm cloud-only not labelled for upload/ML (terms) | ☐   | ☐   | ☐   |        |       |
-| 6.8 | Empty results                                | Clear empty state                                     | ☐   | ☐   | ☐   |        |       |
-| 6.9 | Clear query                                  | Returns to suggestions                                | ☐   | ☐   | ☐   |        |       |
+| 6.8 | Empty results                                | Clear empty state                                     | ☑ sim demo | ☐   | ☐   | Claude | No results state shown (11-18) |
+| 6.9 | Clear query                                  | Returns to suggestions                                | ☑ sim demo | ☐   | ☐   | Claude | Typing then clearing returns to suggestions (11-18) |
 
 ---
 
@@ -377,21 +377,21 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 
 | #    | Scenario                          | How to test                                             | iOS | And | Mac | By     | Notes |
 | ---- | --------------------------------- | ------------------------------------------------------- | --- | --- | --- | ------ | ----- |
-| 7.1  | Back up now                       | Progress, lanes, ETA sensible                           | ☐   | ☐   | ☐   |        |       |
-| 7.2  | Pause / resume                    | Pause holds; resume continues                           | ☐   | ☐   | ☐   |        |       |
-| 7.3  | Retry failed                      | Force a fail (airplane) → Retry                         | ☐   | ☐   | ☐   |        |       |
-| 7.4  | At most two parallel uploads      | Watch concurrent jobs                                   | ☐   | ☐   | ☐   |        |       |
-| 7.5  | FLOOD_WAIT honoured               | If hit, waits exact seconds, then continues             | ☐   | ☐   | ☐   |        |       |
-| 7.6  | Thumbnail (`t`) written           | Every item has thumb role                               | ☐   | ☐   | ☐   |        |       |
-| 7.7  | Screen copy (`d`) for large photo | Big JPEG gets display copy                              | ☐   | ☐   | ☐   |        |       |
+| 7.1  | Back up now                       | Progress, lanes, ETA sensible                           | ☑ sim | ☐   | ☐   | Claude | Back up now (BackupButtons 11-18; real runs 11-19) |
+| 7.2  | Pause / resume                    | Pause holds; resume continues                           | ☑ sim demo | ☐   | ☐   | Claude | Pause holds, resume continues (11-18) |
+| 7.3  | Retry failed                      | Force a fail (airplane) → Retry                         | ☑ sim | ☐   | ☐   | Claude | -QAFailSend 1 2: both retried, all backed up (11-19) |
+| 7.4  | At most two parallel uploads      | Watch concurrent jobs                                   | ☑ sim | ☐   | ☐   | Claude | ≤2 in flight, log check during T.1 |
+| 7.5  | FLOOD_WAIT honoured               | If hit, waits exact seconds, then continues             | ☑ sim | ☐   | ☐   | Claude | Injected 25 s FLOOD_WAIT honoured (T.1) |
+| 7.6  | Thumbnail (`t`) written           | Every item has thumb role                               | ☑ sim | ☐   | ☐   | Claude | Index: all 251 backed-up items have t. The 1 without is marked failed 'Incomplete… Tap Retry' (disk-full test cut it after o), not claimed backed up |
+| 7.7  | Screen copy (`d`) for large photo | Big JPEG gets display copy                              | ☑ sim | ☐   | ☐   | Claude | 42 photos ≥3.1 MB have d; smaller ones (0.4–3.4 MB) don't, by size rule |
 | 7.8  | Fast video version                | Created at backup or “Make fast version”                | ☐   | ☐   | ☐   |        |       |
 | 7.9  | Split large video                 | ≥2 GB or over part limit → multi-part; re-scan complete | ☐   | ☐   | ☐   |        |       |
-| 7.10 | HEIC / JPEG / PNG / GIF           | One of each backs up and opens                          | ☐   | ☐   | ☐   |        |       |
+| 7.10 | HEIC / JPEG / PNG / GIF           | One of each backs up and opens                          | ◐ sim | ☐   | ☐   | Claude | JPEG 247, HEIC 1, MP4 4 backed up; PNG and GIF not in the test library yet |
 | 7.11 | Live Photo pair (iOS)             | Photo + video motion preserved                          | ☐   | —   | ☐   |        |       |
 | 7.12 | Motion Photo (Android)            | Single JPEG with embedded video                         | —   | ☐   | —   |        |       |
 | 7.13 | Edited phone photo                | Original bytes as platform stores them                  | ☐   | ☐   | ☐   |        |       |
 | 7.14 | Keep screen on while backing up   | Toggle works                                            | ☐   | ☐   | ☐   |        |       |
-| 7.15 | Dashboard counts                  | Waiting / done / failed match reality                   | ☐   | ☐   | ☐   |        |       |
+| 7.15 | Dashboard counts                  | Waiting / done / failed match reality                   | ☑ sim | ☐   | ☐   | Claude | Counts add up (C.4) |
 | 7.16 | Failed → delete from phone row    | Only after understanding risk                           | ☐   | ☐   | ☐   |        |       |
 | 7.17 | Extra copies in Telegram          | Deduplicator finds extras if present                    | ☐   | ☐   | ☐   |        |       |
 | 7.18 | Removed from backup list          | Accurate; re-backup possible                            | ☐   | ☐   | ☐   |        |       |
