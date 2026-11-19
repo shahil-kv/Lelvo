@@ -927,6 +927,13 @@ import LelvoCore
 }
 
 @Suite struct RunStopTests {
+    @Test func diskFullStopsTheRunOnlyWhenNearlyFull() {
+        #expect(RunStopClassifier.diskFullStopsRun(freeBytes: 10 << 20, margin: 200 << 20))
+        #expect(!RunStopClassifier.diskFullStopsRun(freeBytes: 5 << 30, margin: 200 << 20), "one big file fails alone")
+        #expect(!RunStopClassifier.diskFullStopsRun(freeBytes: nil, margin: 200 << 20))
+        #expect(RunStopClassifier.fileDoesNotFitMessage == "Not enough space for this file.")
+    }
+
     @Test func revokedSessionStopsTheRun() {
         #expect(RunStopClassifier.cause(code: 401, message: "SESSION_REVOKED") == .sessionEnded)
         #expect(RunStopClassifier.cause(code: 401, message: "Unauthorized") == .sessionEnded)

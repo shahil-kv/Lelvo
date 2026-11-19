@@ -479,6 +479,13 @@ class CloudDuplicateTest {
 }
 
 class RunStopTest {
+    @Test fun diskFullStopsTheRunOnlyWhenNearlyFull() {
+        assertTrue(RunStopClassifier.diskFullStopsRun(10L shl 20, 200L shl 20))
+        assertFalse(RunStopClassifier.diskFullStopsRun(5L shl 30, 200L shl 20))
+        assertFalse(RunStopClassifier.diskFullStopsRun(null, 200L shl 20))
+        assertEquals("Not enough space for this file.", RunStopClassifier.FILE_DOES_NOT_FIT)
+    }
+
     @Test fun revokedSessionStopsTheRun() {
         assertEquals(RunStopCause.SessionEnded, RunStopClassifier.cause(401, "SESSION_REVOKED"))
         assertEquals(RunStopCause.SessionEnded, RunStopClassifier.cause(401, "Unauthorized"))

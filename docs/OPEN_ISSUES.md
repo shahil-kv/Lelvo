@@ -192,13 +192,17 @@ simulator once, or make the check compare the failed count before and after.
 - **Fix:** run them through `build/qa/run-faults.sh`, which adds 6 new photos before each test. Better: the test
   fails when the app log shows no "injected" line for the run.
 
-### I20 — Disk full: iPhone/Mac and Android behave differently
+### I20 — Disk full: iPhone/Mac and Android behave differently ✅ fixed 2026-11-19 (I20COMMIT)
 
 - **Seen:** 2026-11-19. iPhone/Mac stop the run on "out of space" only when the device has less than the margin free;
   otherwise the photo is retried 5 times and marked failed (one huge file must not block the rest). Android stops the
   run on any out-of-space error.
 - **Decided 2026-11-19 (owner):** the iPhone rule on all three. Recommendation was: the iPhone rule, and on iPhone make that one file a permanent
   failure with "Not enough space for this file" instead of 5 retries.
+- **Done:** Android already stopped only when nearly full (200 MB margin, as iOS). All three now share
+  `RunStopClassifier.diskFullStopsRun`, and an out-of-space error with room left fails that one file for good with
+  "Not enough space for this file." (no retries).
+- **Retest:** the disk-full fault rows of Phase T/L (`-QAFault diskFull`), on iPhone sim, Mac and Android.
 
 ## Needs a real phone (owner)
 

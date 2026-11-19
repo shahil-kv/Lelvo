@@ -1038,8 +1038,9 @@ class BackupEngine(
         AppLog.warn("No screen copy for ${item.filename}${if (e is ScreenCopyUnreadable) "" else " yet"}: ${e::class.simpleName}")
     }
 
-    private fun deviceIsNearlyFull(): Boolean =
-        runCatching { StatFs(staging.apply { mkdirs() }.path).availableBytes < UploadNames.SPACE_MARGIN }.getOrDefault(false)
+    private fun deviceIsNearlyFull(): Boolean = RunStopClassifier.diskFullStopsRun(
+        runCatching { StatFs(staging.apply { mkdirs() }.path).availableBytes }.getOrNull(), UploadNames.SPACE_MARGIN,
+    )
 
     /** Telegram says the session or channel is unusable, or the OS says the disk is full (also as a cause). */
     private fun runStopCause(e: Throwable): RunStopCause? {
@@ -1064,21 +1065,25 @@ class BackupEngine(
         // An error every file would hit: stop the run and keep this file waiting, with no attempt used.
         // Disk full stops the run only when the device is nearly out of room. One huge file that doesn't fit would
         // otherwise block every photo behind it, run after run.
-        runStopCause(e)?.takeIf { it != RunStopCause.DeviceStorageFull || deviceIsNearlyFull() }?.let { cause ->
-            stopCause.compareAndSet(null, cause)
+        val cause = runStopCause(e)
+        cause?.takeIf { it != RunStopCause.DeviceStorageFull || deviceIsNearlyFull() }?.let {
+            stopCause.compareAndSet(null, it)
             store.upsert(listOf(item.reduced(JobEvent.Interrupted)))
-            AppLog.warn("Backup run will stop: ${cause.message}")
+            AppLog.warn("Backup run will stop: ${it.message}")
             return Outcome.Skipped
         }
-        val kind: TelegramErrorKind = when (e) {
+        // Out of space with room left on the phone: this file alone doesn't fit. Retrying fails the same way.
+        val doesNotFit = cause == RunStopCause.DeviceStorageFull
+        val kind: TelegramErrorKind = if (doesNotFit) TelegramErrorKind.Permanent else when (e) {
             is TelegramException -> TelegramErrorClassifier.classify(e.code, e.message)
             is UploadStalledException -> TelegramErrorKind.Transient
             // A retry in this run would read the file again and fail the same way.
             is NotEnoughSpaceException, is OriginalUnavailableException, is LibraryException, is CryptoException, is SizeMismatchException -> TelegramErrorKind.Permanent
             else -> TelegramErrorKind.Transient
         }
-        val reason = when (e) {
-            is TelegramException -> TelegramErrors.friendly(e.code, e.message)
+        val reason = when {
+            doesNotFit -> RunStopClassifier.FILE_DOES_NOT_FIT
+            e is TelegramException -> TelegramErrors.friendly(e.code, e.message)
             else -> e.message ?: "The upload failed."
         }
         // Changed while it was read: hash it again next time.

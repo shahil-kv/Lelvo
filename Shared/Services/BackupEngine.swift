@@ -1623,12 +1623,20 @@ final class BackupEngine: @unchecked Sendable {
         // An error every file would hit: stop the run and keep this file waiting, with no attempt used.
         // Disk full stops the run only when the device is nearly out of room. One huge file that doesn't fit would
         // otherwise block every photo behind it, run after run.
-        if let cause = Self.runStopCause(for: error), cause != .deviceStorageFull || Self.deviceIsNearlyFull() {
+        let stopCause = Self.runStopCause(for: error)
+        if let cause = stopCause, cause != .deviceStorageFull || Self.deviceIsNearlyFull() {
             gate.withLock { if runStopCause == nil { runStopCause = cause } }
             item.job = JobMachine.reduce(item.job, .interrupted)
             save(item)
             AppLog.shared.warn("Backup run will stop: \(cause.message)")
             return .skipped
+        }
+        // Out of space with room left on the device: this file alone doesn't fit. Five retries would fail the same way.
+        if stopCause == .deviceStorageFull {
+            item.job = JobMachine.reduce(item.job, .error(reason: RunStopClassifier.fileDoesNotFitMessage, transient: false))
+            save(item)
+            AppLog.shared.error("Upload of \(item.filename) failed: it doesn't fit in the free space")
+            return .failed
         }
         let kind: TelegramErrorKind
         if let td = error as? TDServiceError { kind = td.kind }
@@ -1660,8 +1668,8 @@ final class BackupEngine: @unchecked Sendable {
         #if DEBUG
         if FaultInjection.fakesDeviceFull { return true }
         #endif
-        guard let free = CloudUploader.freeSpace(at: FileManager.default.temporaryDirectory) else { return false }
-        return free < CloudUploader.spaceMargin
+        return RunStopClassifier.diskFullStopsRun(freeBytes: CloudUploader.freeSpace(at: FileManager.default.temporaryDirectory),
+                                                  margin: CloudUploader.spaceMargin)
     }
 
     /// Telegram says the session or channel is unusable, or the OS says the disk is full (also as an underlying error).

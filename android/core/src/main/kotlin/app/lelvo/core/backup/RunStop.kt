@@ -30,6 +30,16 @@ object RunStopClassifier {
         return null
     }
 
+    /** The reason on a file that alone doesn't fit while the device still has room (iOS `fileDoesNotFitMessage`). */
+    const val FILE_DOES_NOT_FIT = "Not enough space for this file."
+
+    /**
+     * Out of space: the whole run stops only when the device is nearly full ([freeBytes] under [margin]); otherwise only
+     * that file fails, for good, so one huge file never blocks every photo behind it (I20, the iPhone rule). Unknown
+     * free space counts as room left.
+     */
+    fun diskFullStopsRun(freeBytes: Long?, margin: Long): Boolean = freeBytes != null && freeBytes < margin
+
     /** POSIX `ENOSPC`. */
     const val ENOSPC = 28
 
