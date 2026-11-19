@@ -466,10 +466,10 @@ Do these with **iPhone + Android** (and Mac if ready) on the **same** library wh
 
 | #    | Scenario                                     | How to test                          | Pass | By     | Notes |
 | ---- | -------------------------------------------- | ------------------------------------ | ---- | ------ | ----- |
-| 11.1 | Favorite on A → appears on B after scan/sync |                                      | ☐    |        |       |
-| 11.2 | Album add on A → on B                        |                                      | ☐    |        |       |
-| 11.3 | Delete to Recently Deleted on A → on B       |                                      | ☐    |        |       |
-| 11.4 | Recover on B → gone from trash on A          |                                      | ☐    |        |       |
+| 11.1 | Favorite on A → appears on B after scan/sync |                                      | ☑ iOS sim A↔B | Claude | Arrived on B within a minute of opening |
+| 11.2 | Album add on A → on B                        |                                      | ☑ iOS sim A↔B | Claude | "QA Sync" album arrived (only backed-up photos sync, by design) |
+| 11.3 | Delete to Recently Deleted on A → on B       |                                      | ☑ iOS sim A↔B | Claude | In Recently Deleted on B |
+| 11.4 | Recover on B → gone from trash on A          |                                      | ☑ iOS sim A↔B | Claude | Gone from Recently Deleted on A |
 | 11.5 | Phone favorite sync (platform favorite flag) |                                      | ☐    |        |       |
 | 11.6 | Live updates while both open                 | Backup on A while B open → B updates | ☐    |        |       |
 | 11.7 | 10 s pacing / no flood on meta notes         |                                      | ☐    |        |       |
@@ -741,7 +741,18 @@ Moved into the main plan: Mac runs every row that applies, plus Phase M.
 
 ## Test run log
 
+Open issues, fix plans and owner decisions: [OPEN_ISSUES.md](OPEN_ISSUES.md).
+
 Newest first. **By:** `Auto` = Claude ran it (simulator, emulator, scripts), `Shahil` = by hand on a device.
+
+### 2026-11-19 — Auto, Phase 11 sync, two simulators on "Lelvo QA"
+
+| Check | Result | Notes |
+|---|---|---|
+| 11.1–11.4 favorite, album, delete, recover, A ("Lelvo QA") ↔ B ("Lelvo 40k", backup off) | ☑ | Both ended with 1 favorite, 1 photo in "QA Sync", empty Recently Deleted. B uploaded no photos (its one send was the recover note). |
+| 11.6, 11.8 | not run | Need B to back up; B holds the 40k seed. Real-phone list. |
+| 11.5, 11.7 | not run | |
+| New | I18 | VoiceOver read "Recently Deleted, 1 items". |
 
 ### 2026-11-18 (later) — Auto, upgrade safety, scroll benchmark, comparison fixes
 
@@ -776,6 +787,32 @@ Newest first. **By:** `Auto` = Claude ran it (simulator, emulator, scripts), `Sh
 | A11 iOS scroll hitches (`testP_scrollHitches`) | sim: duration only | Simulator gives scroll duration (2.4 s per fling), not hitch ratio. Run on a device for the real number. |
 | Android frames, 60 Hz, demo library (`Scripts/android-jank.sh`) | ⚠ | Debug build: Pixel_9 emulator 11.5% janky, p99 150 ms; low-memory emulator (2 GB, 720p) 10.9% janky, p99 500 ms, 47 slow UI-thread frames. Emulator GPU inflates this. Real phones needed. |
 | Android low-memory emulator, 40k photos, release build | ✗ blocked (emulator) | 2 GB emulator with 40k photos kept freezing in system apps (Gboard ANR, "Input dispatching timed out"), not in Lelvo. Android demo doesn't read phone photos, so 40k on Android needs a real sign-in. |
+| I8 run stops: session revoked, channel gone (`-QARevokeOnSend 2`, `-QAChannelGoneOnSend 2`) | ☑ engine, ✗ UI | Run stops at once, photo back to waiting, next run backs up the other 5, 0 secrets. Backup card still says "Backup complete" without the reason: OPEN_ISSUES I9. |
+| Phase 3 + 4 demo button suites (Collections, NativeGrid, PhotosButtons, RecentlyDeleted), "CI Clean" sim | ☑ 44/44 | Covers 3.2 pinch/columns, 3.3 scrubber, 3.5 legend, 3.6 videos, 3.8 favorites, 3.9 cloud only, 3.11 swipe-select, 3.12 show selected, 3.14 share, 3.16 add to album, 3.19 delete everywhere + recover, viewer buttons, video controls, info, save, share original. |
+| Phase 4–6 + Backup tab suites (VideoClose, VideoQuality, Search, Collections, BackupButtons), "CI Clean" sim | ☑ 23/23 | 4.15 quality switch (test updated to the new "Original"/"Fast" menu), 4.17 sound stops on close (cloud video; phone video skipped in demo), search suggestions/typing/recent/no results, map, memories, duplicates, Back up now / pause / resume, Failed, Free Up Space, Save all asks first, Shortcuts guide. |
+| 11.1 Favorite on A → B (A = "Lelvo QA" sim, B = "Lelvo 40k" sim, same library) | ☑ | B had it within a minute of opening: "Favorites, albums and Locked Folder synced: 1 items updated". |
+| 11.2 Album on A → B | ☑ | Album "QA Sync" on a backed-up photo shows on B. (On a phone-only photo it only reaches Photos, by design.) |
+| 11.3 Delete to Recently Deleted on A → B | ☑ | "Recently Deleted synced: 1 items updated" on B. |
+| 11.4 Recover on B → gone from trash on A | ☑ | Recover All on B; A's Recently Deleted empty after reopening. Both indexes equal: 1 favorite, 1 in "QA Sync", 0 trashed. |
+| 8.1 Free Up lists only verified (`RealAccountFreeUpTests`, "Lelvo QA" sim) | ☑ | 220 on this iPhone, 220 checked in Telegram as safe, 533.9 MB. |
+| 8.3 Cancel iOS's delete prompt | ☑ | "Don’t Allow": still 220, nothing removed. (The simulator can answer this prompt after all, so 1.20 and 3.17 can be automated too.) |
+| 8.4 Confirm delete | ☑ | "Deleted 220 items from the photo library"; on this iPhone 0; all still in the library as cloud items. |
+| 8.6 Save everything back | ☑ | Offered 211 (220 phone photos map to 211 cloud items: the I11 duplicates). App killed after 27: no auto-resume, but Save all again offered exactly the 184 left and saved them all ("Saved 184 to Photos"), no duplicates. |
+| 10.14 Light / dark, every main tab + Settings (`testMainTabsTour`) | ☑ | Light and dark: 7 screens each, readable, no clipped text. "Beta" badge on Albums: I17. |
+| 10.15 Largest text size | ✗ | Sign-in Continue button unreachable: I16. Tabs not reached at that size yet. |
+| 3.7 Live Photos / 3.10 Not backed up rows | n/a demo | Rows hide when empty (like Photos); the demo has neither. Tests now skip in that case. Needs a library with Live Photos (device, R4). |
+| 3.20 New photo while the app is open (sim, `addmedia`) | ✗ sim | Not shown after 40 s, no scan logged. On next launch it is found. I15; check on a phone (R8). |
+| D.8 1-second and 10-minute video (2 MB) | ☑ backup | Both backed up. A split/streaming check needs a file over 2 GB (D.9, not run yet). |
+| D.10 no EXIF / 1970 / 2031 dates | ☑ | All backed up, no crash; no EXIF falls back to the add date, 1970 and 2031 kept as is. |
+| D.11 taken at +09:00 | ⚠ | Stored with the device offset, not the photo's: I14. |
+| D.12 two `IMG_0001.JPG` from different cameras | ☑ | Both kept, different hashes. |
+| D.13 unicode + emoji name / 228-character name | ☑ / ✗ | Unicode fine. Long name failed with "PHPhotosErrorDomain error -1": I13. |
+| D.15 zero-byte / truncated JPEG | n/a / ☑ | Photos itself refuses a zero-byte file on iOS. Truncated file backed up as is. |
+| D.16 no location | ☑ backup | Backed up; checking that no place is shown needs the info panel. |
+| Library switch keeps backup paused | ✗ | Found while running Phase D: I12. |
+| 1.4 Create a new E2E library from Settings, then switch back (`RealAccountSettingsLibraryTests`) | ☑ | "Lelvo QA Test" created, back on "Lelvo QA" with 202 items. Keyboard-up screenshot shows I6 still open. Full scan found 10 duplicates: I11. |
+| I9 "Backup stopped" header, session revoked + channel gone (faults now hit every send from n, like the real errors) | ☑ | `testI8_sessionRevoked`, `testI8_channelGone` pass: header shows the reason, next good run clears it. |
+| I8 disk full (`-QADiskFullOnSend 2`) | ☑ by design | Device not nearly full, so retried per file; all 6 backed up. |
 | A4 seed: 39,800 photos + 200 videos, dates 2016–2026, 1 in 7 with GPS | ☑ | `Scripts/seed-library.py` into the clean "Lelvo 40k" sim; signed in to "Lelvo QA" with `-autoBackup NO -backupPaused YES`: 0 uploads. |
 
 ### 2026-11-17 — Auto, real account on the "Lelvo QA" simulator (iOS 27)
