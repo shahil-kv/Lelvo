@@ -11,12 +11,19 @@ public struct JobStatus: Codable, Equatable, Sendable {
     public var lastError: String?
     /// Don't start before this time (FLOOD_WAIT / backoff).
     public var notBefore: Date?
+    /// Failed only because every attempt hit a passing error (network, timeout, not ready), so a later run may retry it.
+    public var transientFailure: Bool
+    /// When a run last moved it back to pending on its own (`JobMachine.autoRetry`).
+    public var autoRetriedAt: Date?
 
-    public init(state: JobState = .pending, attempts: Int = 0, lastError: String? = nil, notBefore: Date? = nil) {
+    public init(state: JobState = .pending, attempts: Int = 0, lastError: String? = nil, notBefore: Date? = nil,
+                transientFailure: Bool = false, autoRetriedAt: Date? = nil) {
         self.state = state
         self.attempts = attempts
         self.lastError = lastError
         self.notBefore = notBefore
+        self.transientFailure = transientFailure
+        self.autoRetriedAt = autoRetriedAt
     }
 
     public func isRunnable(at now: Date) -> Bool {
@@ -51,6 +58,7 @@ public enum JobMachine {
             j.notBefore = nil
         case (.uploading, .sent(false)):
             j.state = .failed
+            j.transientFailure = false
             j.attempts += 1
             j.lastError = "Telegram stored a file with a different size than was uploaded."
         case (.uploading, .floodWait(let s)):
@@ -66,6 +74,7 @@ public enum JobMachine {
                 j.notBefore = now.addingTimeInterval(backoff.ceiling(forAttempt: j.attempts - 1))
             } else {
                 j.state = .failed
+                j.transientFailure = transient
             }
         case (.uploading, .interrupted):
             j.state = .pending
@@ -74,9 +83,24 @@ public enum JobMachine {
             j.attempts = 0
             j.notBefore = nil
             j.lastError = nil
+            j.transientFailure = false
         default:
             break // Invalid transitions are ignored; verified is terminal.
         }
+        return j
+    }
+
+    /// Minimum time between two automatic retries of one item.
+    public static let autoRetryInterval: TimeInterval = 24 * 60 * 60
+
+    /// Run start (D1): an item that failed only on passing errors goes back to pending with its attempts reset, at most
+    /// once a day, so a network outage doesn't leave photos waiting for a tap on Retry. Permanent failures stay failed.
+    /// Returns nil when the item is left as it is.
+    public static func autoRetry(_ job: JobStatus, now: Date = Date()) -> JobStatus? {
+        guard job.state == .failed, job.transientFailure else { return nil }
+        if let last = job.autoRetriedAt, now.timeIntervalSince(last) < autoRetryInterval { return nil }
+        var j = reduce(job, .retry, now: now)
+        j.autoRetriedAt = now
         return j
     }
 }

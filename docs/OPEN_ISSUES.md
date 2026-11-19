@@ -33,7 +33,7 @@ Last updated 2026-11-18. Branch with the uncommitted test work: `docs/stability-
   `acquireLaneSlot`. Android already leaves not-due items queued.
 - **Left:** commit it (D4). Add a core unit test that a retried item is not sent before its `notBefore`.
 
-### I2 — Photos that failed in an earlier run need a manual Retry (needs D1)
+### I2 — Photos that failed in an earlier run need a manual Retry ✅ fixed 2026-11-19 (02a8392)
 
 - **Seen:** L.4 follow-up. Attempts carry over between runs; after a network outage, those photos fail at once on the
   next run and stay failed until the user taps Retry.
@@ -42,6 +42,11 @@ Last updated 2026-11-18. Branch with the uncommitted test work: `docs/stability-
   channel gone).
   - iPhone/Mac: `BackupEngine.swift` run start + `JobQueue.swift` (store the last auto-retry date).
   - Android: `android/data/.../backup/BackupEngine.kt`, same rule.
+- **Done:** `JobMachine.autoRetry` (Swift and Kotlin) at run start; the item keeps `transientFailure` and
+  `autoRetriedAt` in its local JSON. Items that failed before this build have no flag and still need one Retry.
+  Tests: `JobMachineTests.autoRetryOnlyTransientOncePerDay`, `backoffKeepsRetryWaiting` (the I1 leftover), Android
+  `JobMachineTest` same names.
+- **Retest:** L.4 (iPhone sim and Android), 1.22, T.1.
 - **Done when:** unit test in `JobQueue` tests; rerun L.4 (`-QAOfflineFor 3 40`) with the outage longer than the
   backoff, kill, reopen: the photos back up without a tap.
 

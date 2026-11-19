@@ -84,6 +84,10 @@ data class LibraryItem(
     val attempts: Int = 0,
     /** Don't start before this time, epoch ms (FLOOD_WAIT or backoff). */
     val notBefore: Long? = null,
+    /** The last failure was a passing error (network, timeout), so a later run may retry it (iOS `transientFailure`). */
+    val transientFailure: Boolean = false,
+    /** When a run last retried it on its own, epoch ms. */
+    val autoRetriedAt: Long? = null,
     /** Queued because the user picked it (Back up, Retry): runs that aren't "Back up now" upload only these. */
     val chosen: Boolean = false,
     /** The file's `DATE_MODIFIED` (epoch ms) when it was hashed, so a retry of an unchanged file reuses the hash. */
@@ -180,6 +184,8 @@ object ItemExtras {
         val trashedAt: Long? = null,
         val attempts: Int = 0,
         val notBefore: Long? = null,
+        val transientFailure: Boolean = false,
+        val autoRetriedAt: Long? = null,
         val chosen: Boolean = false,
         val assetModifiedAt: Long? = null,
         val screenCopySkipped: Boolean = false,
@@ -196,6 +202,8 @@ object ItemExtras {
         "at" to JsonIO.num(item.attempts.takeIf { it > 0 }),
         "ch" to JsonIO.num(if (item.chosen) 1 else null),
         "nb" to JsonIO.num(item.notBefore),
+        "tf" to JsonIO.num(if (item.transientFailure) 1 else null),
+        "ar" to JsonIO.num(item.autoRetriedAt),
         "res" to item.uploadResume.takeIf { it.isNotEmpty() }?.let { m -> JsonObject(m.mapValues { encodeResume(it.value) }) },
         "scs" to JsonIO.num(if (item.screenCopySkipped) 1 else null),
         "sps" to JsonIO.num(if (item.streamingCopySkipped) 1 else null),
@@ -241,7 +249,8 @@ object ItemExtras {
             roleHashes = texts("rh"), roleNames = texts("rn"), pairedVideoName = f.stringOrNull("pn"), pairedVideoSize = f.longOrNull("ps"),
             editedName = f.stringOrNull("en"), editedSize = f.longOrNull("es"), lastError = f.stringOrNull("err"),
             trashedAt = f.longOrNull("ta"),
-            attempts = f.intOrNull("at") ?: 0, notBefore = f.longOrNull("nb"), chosen = f.intOrNull("ch") == 1,
+            attempts = f.intOrNull("at") ?: 0, notBefore = f.longOrNull("nb"),
+            transientFailure = f.intOrNull("tf") == 1, autoRetriedAt = f.longOrNull("ar"), chosen = f.intOrNull("ch") == 1,
             assetModifiedAt = f.longOrNull("am"), screenCopySkipped = f.intOrNull("scs") == 1,
             streamingCopySkipped = f.intOrNull("sps") == 1,
             uploadResume = f.objOrNull("res")?.mapNotNull { (role, v) -> decodeResume(v)?.let { role to it } }?.toMap() ?: emptyMap(),
@@ -257,7 +266,8 @@ object ItemExtras {
         codec = e.codec, hdr = e.hdr, tzOffsetMinutes = e.tzOffsetMinutes, sourceLocalId = e.sourceLocalId, hasEdit = e.hasEdit,
         roleHashes = e.roleHashes, roleNames = e.roleNames, pairedVideoName = e.pairedVideoName, pairedVideoSize = e.pairedVideoSize,
         editedName = e.editedName, editedSize = e.editedSize, lastError = e.lastError, trashedAt = e.trashedAt,
-        attempts = e.attempts, notBefore = e.notBefore, chosen = e.chosen, assetModifiedAt = e.assetModifiedAt,
+        attempts = e.attempts, notBefore = e.notBefore,
+        transientFailure = e.transientFailure, autoRetriedAt = e.autoRetriedAt, chosen = e.chosen, assetModifiedAt = e.assetModifiedAt,
         screenCopySkipped = e.screenCopySkipped, streamingCopySkipped = e.streamingCopySkipped, uploadResume = e.uploadResume,
         thumbHash = e.thumbHash,
     )

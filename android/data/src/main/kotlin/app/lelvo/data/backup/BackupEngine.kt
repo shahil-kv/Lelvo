@@ -9,6 +9,7 @@ import android.os.StatFs
 import app.lelvo.core.backup.BackupCounts
 import app.lelvo.core.backup.Dedupe
 import app.lelvo.core.backup.JobEvent
+import app.lelvo.core.backup.JobMachine
 import app.lelvo.core.backup.PhotoChangeScan
 import app.lelvo.core.backup.RunStopCause
 import app.lelvo.core.backup.RunStopClassifier
@@ -19,7 +20,9 @@ import app.lelvo.core.format.ThumbHash
 import app.lelvo.core.backup.TransferRate
 import app.lelvo.core.backup.UploadNames
 import app.lelvo.core.backup.UploadSlots
+import app.lelvo.core.backup.job
 import app.lelvo.core.backup.reduced
+import app.lelvo.core.backup.withJob
 import app.lelvo.core.crypto.CryptoException
 import app.lelvo.core.format.CaptionMeta
 import app.lelvo.core.format.IndexSnapshot
@@ -410,6 +413,16 @@ class BackupEngine(
             }
             // Left "uploading" by a killed process: back to the queue.
             store.items(ItemStatus.Uploading).takeIf { it.isNotEmpty() }?.let { stale -> store.upsert(stale.map { it.reduced(JobEvent.Interrupted) }) }
+            // Photos that failed only on passing errors (network, timeout) get one more go, at most once a day (D1).
+            val now = System.currentTimeMillis()
+            val retried = store.items(ItemStatus.Failed).mapNotNull { item ->
+                if (item.localId == null || item.isStrandedInCloud) null
+                else JobMachine.autoRetry(item.job, now)?.let { item.withJob(it) }
+            }
+            if (retried.isNotEmpty()) {
+                store.upsert(retried)
+                AppLog.info("Trying ${retried.size} photos again that failed on a network error")
+            }
 
             val onlyChosen = !includeNew && !prefs.autoBackup
             // Ids only. Each upload loads its own row, so a run of tens of thousands never holds them all.

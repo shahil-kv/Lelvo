@@ -342,6 +342,40 @@ func sampleMeta() -> CaptionMeta {
         #expect(JobMachine.reduce(up, .interrupted, now: now).state == .pending)
     }
 
+    @Test func backoffKeepsRetryWaiting() {
+        var j = JobMachine.reduce(JobStatus(), .start, now: now)
+        j = JobMachine.reduce(j, .error(reason: "network", transient: true), now: now)
+        #expect(j.state == .pending)
+        #expect(!j.isRunnable(at: now))
+        #expect(!j.isRunnable(at: j.notBefore!.addingTimeInterval(-0.5)))
+        #expect(j.isRunnable(at: j.notBefore!))
+    }
+
+    @Test func autoRetryOnlyTransientOncePerDay() {
+        var j = JobStatus()
+        for _ in 1...JobMachine.maxAttempts {
+            j = JobMachine.reduce(j, .start, now: now)
+            j = JobMachine.reduce(j, .error(reason: "network", transient: true), now: now)
+            j.notBefore = nil
+        }
+        #expect(j.state == .failed && j.transientFailure)
+        let retried = JobMachine.autoRetry(j, now: now)
+        #expect(retried?.state == .pending)
+        #expect(retried?.attempts == 0)
+        #expect(retried?.autoRetriedAt == now)
+        // Fails again the same day: left for the user.
+        var again = retried!
+        again.state = .failed; again.transientFailure = true; again.attempts = JobMachine.maxAttempts
+        #expect(JobMachine.autoRetry(again, now: now.addingTimeInterval(3600)) == nil)
+        #expect(JobMachine.autoRetry(again, now: now.addingTimeInterval(JobMachine.autoRetryInterval))?.state == .pending)
+
+        let up = JobMachine.reduce(JobStatus(), .start, now: now)
+        let perm = JobMachine.reduce(up, .error(reason: "missing original", transient: false), now: now)
+        #expect(JobMachine.autoRetry(perm, now: now) == nil)
+        #expect(JobMachine.autoRetry(JobMachine.reduce(up, .sent(sizeMatches: false), now: now), now: now) == nil)
+        #expect(JobMachine.autoRetry(up, now: now) == nil)
+    }
+
     @Test func floodWaitParsing() {
         #expect(TelegramErrorClassifier.classify(code: 429, message: "Too Many Requests: retry after 17") == .floodWait(seconds: 17))
         #expect(TelegramErrorClassifier.classify(code: 420, message: "FLOOD_WAIT_300") == .floodWait(seconds: 300))

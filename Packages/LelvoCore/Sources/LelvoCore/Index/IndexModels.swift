@@ -95,6 +95,10 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var mimeType: String?
     /// Job queue: earliest time to retry (FLOOD_WAIT / backoff).
     public var notBefore: Date?
+    /// Job queue: the last failure was a passing error (see `JobStatus.transientFailure`). Local only.
+    public var transientFailure: Bool?
+    /// Job queue: when a run last retried it on its own. Local only.
+    public var autoRetriedAt: Date?
     /// Uploaded by the 1.0 Bot API app (not format 1).
     public var legacy: Bool?
     /// From the caption `l` field: the asset this was uploaded from (used to re-link after a reinstall).
@@ -241,7 +245,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
             case .backedUp, .trashed: state = .verified
             case .failed, .tooLarge: state = .failed
             }
-            return JobStatus(state: state, attempts: attempts, lastError: lastError, notBefore: notBefore)
+            return JobStatus(state: state, attempts: attempts, lastError: lastError, notBefore: notBefore,
+                             transientFailure: transientFailure ?? false, autoRetriedAt: autoRetriedAt)
         }
         set {
             switch newValue.state {
@@ -253,6 +258,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
             attempts = newValue.attempts
             lastError = newValue.lastError
             notBefore = newValue.notBefore
+            transientFailure = newValue.transientFailure ? true : nil
+            autoRetriedAt = newValue.autoRetriedAt
         }
     }
 

@@ -246,7 +246,8 @@ class LibraryScanner(
                 if (local.status == ItemStatus.Trashed) item = item.copy(status = ItemStatus.Trashed, trashedAt = local.trashedAt)
                 if (item.status != ItemStatus.BackedUp && (local.status == ItemStatus.Uploading || local.status == ItemStatus.Queued) && !item.isStrandedInCloud) {
                     // Still being uploaded by this phone: keep the queue state, update known parts.
-                    item = item.copy(status = local.status, lastError = local.lastError, attempts = local.attempts, notBefore = local.notBefore)
+                    item = item.copy(status = local.status, lastError = local.lastError, attempts = local.attempts, notBefore = local.notBefore,
+                        transientFailure = local.transientFailure, autoRetriedAt = local.autoRetriedAt)
                 }
             }
             merged += item

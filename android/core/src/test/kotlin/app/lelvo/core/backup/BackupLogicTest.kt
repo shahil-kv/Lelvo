@@ -70,6 +70,43 @@ class JobMachineTest {
         assertEquals(JobState.Pending, JobMachine.reduce(up, JobEvent.Interrupted, now).state)
     }
 
+    @Test fun backoffKeepsRetryWaiting() {
+        var j = JobMachine.reduce(JobStatus(), JobEvent.Start, now)
+        j = JobMachine.reduce(j, JobEvent.Error("network", transient = true), now)
+        assertEquals(JobState.Pending, j.state)
+        assertFalse(j.isRunnable(now))
+        assertFalse(j.isRunnable(j.notBefore!! - 1))
+        assertTrue(j.isRunnable(j.notBefore!!))
+    }
+
+    @Test fun autoRetryOnlyTransientOncePerDay() {
+        var j = JobStatus()
+        repeat(JobMachine.MAX_ATTEMPTS) {
+            j = JobMachine.reduce(j, JobEvent.Start, now)
+            j = JobMachine.reduce(j, JobEvent.Error("network", transient = true), now).copy(notBefore = null)
+        }
+        assertEquals(JobState.Failed, j.state)
+        assertTrue(j.transientFailure)
+        val retried = JobMachine.autoRetry(j, now)!!
+        assertEquals(JobState.Pending, retried.state)
+        assertEquals(0, retried.attempts)
+        assertEquals(now, retried.autoRetriedAt)
+        val again = retried.copy(state = JobState.Failed, transientFailure = true, attempts = JobMachine.MAX_ATTEMPTS)
+        assertNull(JobMachine.autoRetry(again, now + 3_600_000))
+        assertEquals(JobState.Pending, JobMachine.autoRetry(again, now + JobMachine.AUTO_RETRY_INTERVAL_MS)?.state)
+
+        val up = JobMachine.reduce(JobStatus(), JobEvent.Start, now)
+        assertNull(JobMachine.autoRetry(JobMachine.reduce(up, JobEvent.Error("missing original", transient = false), now), now))
+        assertNull(JobMachine.autoRetry(JobMachine.reduce(up, JobEvent.Sent(false), now), now))
+        assertNull(JobMachine.autoRetry(up, now))
+
+        // Kept in the item's local extras, so the rule holds across launches.
+        val failed = item(status = ItemStatus.Failed, cloud = false).withJob(again)
+        val back = ItemExtras.apply(failed, ItemExtras.decode(ItemExtras.encode(failed)))
+        assertTrue(back.transientFailure)
+        assertEquals(now, back.autoRetriedAt)
+    }
+
     @Test fun anInterruptedUploadKeepsConfirmedParts() {
         val uploading = item(status = ItemStatus.Uploading, cloud = true)
         val back = uploading.reduced(JobEvent.Interrupted)

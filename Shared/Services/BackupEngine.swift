@@ -632,6 +632,19 @@ final class BackupEngine: @unchecked Sendable {
         if let stale = try? env.store.items(status: .uploading).filter({ !$0.isImportInFlight }) {
             try? env.store.upsert(stale.map { var i = $0; i.job = JobMachine.reduce(i.job, .interrupted); return i })
         }
+        // Photos that failed only on passing errors (network, timeout) get one more go, at most once a day (D1).
+        if let failed = try? env.store.items(status: .failed) {
+            let now = Date()
+            let retried: [MediaItem] = failed.compactMap { item in
+                guard item.localIdentifier != nil, !item.isStrandedInCloud,
+                      let job = JobMachine.autoRetry(item.job, now: now) else { return nil }
+                var i = item; i.job = job; return i
+            }
+            if !retried.isEmpty {
+                try? env.store.upsert(retried)
+                appLog("Trying \(retried.count) photos again that failed on a network error")
+            }
+        }
 
         let onlyChosen = !includeNew && !Prefs.autoBackup
         let runnable = runnableItems(now: Date(), onlyChosen: onlyChosen)
