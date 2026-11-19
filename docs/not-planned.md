@@ -15,8 +15,8 @@ these are closed as *not planned*; if you think a decision is wrong, open a
 
 ## Not planned
 
-- **Android, Windows, Linux or a web version.** The project focuses on making the Apple apps excellent. The storage
-  format is documented ([CLOUD_FORMAT.md](CLOUD_FORMAT.md)), so others are free to build compatible apps.
+- **Windows, Linux or a web version.** The project focuses on making the iPhone, Mac and Android apps excellent. The
+  storage format is documented ([CLOUD_FORMAT.md](CLOUD_FORMAT.md)), so others are free to build compatible apps.
 - **A Lelvo server, sync service or account.** It would mean holding people's data.
 - **Analytics, crash reporting services or ads**, including "anonymous" ones.
 - **Backing up to Google Drive, iCloud Drive, Dropbox, S3 and the like.** Lelvo is about Telegram storage;

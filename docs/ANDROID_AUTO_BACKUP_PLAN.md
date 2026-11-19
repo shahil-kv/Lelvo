@@ -1,6 +1,6 @@
 # Automatic backup on Android: hardening plan
 
-Status: draft for the owner's approval, 2026-11-14. iPhone version: `docs/AUTO_BACKUP_PLAN.md` (shipped in #125).
+Status: draft for the owner's approval, 2026-11-14. iPhone version shipped in #125.
 
 Android already has automatic backup (`docs/ANDROID_PLAN.md`, Phase J). This plan makes it **reliable**: new photos go
 up soon after they're taken, a large backlog finishes without the charger, and when Android or the phone maker blocks

@@ -16,7 +16,7 @@ Competitor claims such as Ente's concurrency or Immich's trash retention were sk
 verified. After this file was written, SUMMARY items 1 to 3, 8 and 9 were written (see the status table there).
 
 **Caveats.** Competitor "weak spots" mix their docs, known issues, and agent reading of shallow clones. Lelvo
-rows cite our code or `docs/MANUAL_TEST_PLAN.md` / `docs/PROGRESS.md`. Nothing here replaces a device check.
+rows cite our code or `docs/MANUAL_TEST_PLAN.md`. Nothing here replaces a device check.
 Columns: **Status** = Ahead / Parity / Gap / Partial / Not planned.
 
 ---
@@ -145,7 +145,7 @@ Columns: **Status** = Ahead / Parity / Gap / Partial / Not planned.
 | **Ente** | Stream from encrypted cloud; buffers on cellular for originals |
 | **Immich** | Server HLS / transcode (preview); network-dependent |
 | **Lelvo** | Ranged TDLib + CGFE decrypt; `sp` fast copy; Automatic stall → fast |
-| **Missing / weaker** | Quality switch restarts player; cloud-only "Make fast version" may download original first (`PROGRESS.md`) |
+| **Missing / weaker** | Quality switch restarts player; cloud-only "Make fast version" may download original first |
 | **Better-than-them bar** | Seek that works; stall fallback; quality change without a dead screen |
 | **Status** | Ahead on no-server streaming; **Gap** on seamless switch |
 
