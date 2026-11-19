@@ -314,7 +314,7 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 4.2  | Close gesture               | Swipe down / back                                 | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testOpenViewerSwipeAndClose (sim; device check still Shahil) |
 | 4.3  | Details sheet               | Swipe up / info: date, place, camera, size, where | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testViewerInfo (sim; device check still Shahil) |
 | 4.4  | Zoom + double-tap           | Sharp when zoomed                                 | ☑ sim demo | ☐   | ☐   | Claude | Double tap zooms, again zooms out (ViewerTests) |
-| 4.5  | Screen copy then original   | Soft then sharp load for cloud                    | ☐   | ☐   | ☐   |        |       |
+| 4.5  | Screen copy then original   | Soft then sharp load for cloud                    | ◐ sim | ☐   | ☐   | Claude | Cloud-only photos open (0.01 s, cached). None in the QA library is big enough to have a screen copy; check a big cloud photo on device |
 | 4.6  | Share original              | Shared file opens elsewhere                       | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testViewerShareOriginal (sim; device check still Shahil) |
 | 4.7  | Save to phone               | Lands in Photos / gallery with date               | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testViewerSaveAnswers (demo) + real round trip 1.19: bytes and date equal (sim; device check still Shahil) |
 | 4.8  | Favorite from viewer        | Syncs to grid                                     | ☑ sim demo | ☐   | ☐   | Claude | Heart in viewer: Favorites 0 → 1 item (ViewerTests) |
@@ -325,7 +325,7 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 4.13 | Scrub + frame strip         | Seek lands near target                            | ☑ sim demo | ☐   | ☐   | Claude | Slider seek to 60% (PhotosButtons testVideoControls 11-18) |
 | 4.14 | Mute / speed / ±10 s        | Controls work; mute sticks as designed            | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testVideoControls (sim; device check still Shahil) |
 | 4.15 | Quality pill / fast version | Switch if present; stall fallback                 | ☑ sim demo | ☐   | ☐   | Claude | Original / Fast menu switches (VideoQuality 11-18) |
-| 4.16 | Resume playback position    | Leave mid-video (>2 min) → reopen near same time  | ☐   | ☐   | ☐   |        |       |
+| 4.16 | Resume playback position    | Leave mid-video (>2 min) → reopen near same time  | ☑ sim | ☐   | ☐   | Claude | 10-min cloud video left at 5:35, reopened at 5:42 (RealAccountVideoResumeTests) |
 | 4.17 | Sound off on close          | No audio after leaving viewer                     | ☑ sim demo | ☐   | ☐   | Claude | Cloud video sound stops on close (VideoClose 11-18) |
 | 4.18 | Place opens Maps            | Tap place → maps app                              | ☑ sim demo | ☐   | ☐   | Claude | After I22: Info → Open in Maps opens Apple Maps (ViewerTests). Mac not tapped |
 | 4.19 | Neighbour prefetch on Wi‑Fi | Next items open faster                            | ☐   | ☐   | ☐   |        |       |
