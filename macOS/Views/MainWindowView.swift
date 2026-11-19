@@ -241,7 +241,7 @@ struct MacSidebar: View {
                 Section(isExpanded: $albumsExpanded) {
                     ForEach(index.albums) { row(.album($0.title)) }
                 } header: {
-                    HStack(spacing: 6) { Text("Albums"); BetaTag() }
+                    Text("Albums")
                 }
             }
         }
@@ -257,7 +257,6 @@ struct MacSidebar: View {
         Label {
             HStack(spacing: 6) {
                 Text(item.title).lineLimit(1)
-                if item == .favorites { BetaTag() }
                 if item == .locked { ProBadge() }
             }
         } icon: {

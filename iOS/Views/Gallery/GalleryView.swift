@@ -429,11 +429,8 @@ struct GalleryView: View {
                     }
                 }
             } else {
-                // The second line is the menu item's subtitle: these are in beta until they've had more use.
                 Button { addingToAlbum = true } label: {
-                    Text("Add to Album")
-                    Text("Beta")
-                    Image(systemName: "rectangle.stack.badge.plus")
+                    Label("Add to Album", systemImage: "rectangle.stack.badge.plus")
                 }
                 .disabled(chosen.isEmpty)
                 if !downloadable.isEmpty {
@@ -443,9 +440,7 @@ struct GalleryView: View {
                 }
                 if !chosen.isEmpty {
                     Button { Task { await setFavorite(chosen, !allFavorite) } } label: {
-                        Text(allFavorite ? "Unfavorite" : "Favorite")
-                        Text("Beta")
-                        Image(systemName: allFavorite ? "heart.slash" : "heart")
+                        Label(allFavorite ? "Unfavorite" : "Favorite", systemImage: allFavorite ? "heart.slash" : "heart")
                     }
                     Button { pendingMoveToLocked = chosen } label: {
                         Label("Move to Locked Folder", systemImage: "lock.fill")
