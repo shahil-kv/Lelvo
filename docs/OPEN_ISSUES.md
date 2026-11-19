@@ -18,7 +18,7 @@ Last updated 2026-11-18. Branch with the uncommitted test work: `docs/stability-
 | # | Question | Claude's recommendation |
 |---|---|---|
 | D1 ✅ yes (11-19) | Should each backup run retry, once, photos that failed only because of the network (I2)? | Yes. Today they wait for a tap on Retry. |
-| D2 ✅ recommended wording (11-19) | 1.22: a photo whose Telegram messages were deleted shows "1 item couldn't be backed up / Retry". Is that wording right? | Say "1 photo is no longer in your Telegram library. Back it up again?"  ✅ fixed 2026-11-19 (D2COMMIT): header and button ("Back up again") on iPhone, Mac, Android. Retest: 1.22. |
+| D2 ✅ recommended wording (11-19) | 1.22: a photo whose Telegram messages were deleted shows "1 item couldn't be backed up / Retry". Is that wording right? | Say "1 photo is no longer in your Telegram library. Back it up again?"  ✅ fixed 2026-11-19 (0b8578c): header and button ("Back up again") on iPhone, Mac, Android. Retest: 1.22. |
 | D3 | Run the Android 40k test with a real sign-in on an emulator (needs your login code)? | Yes, on a fresh emulator with automatic backup off. |
 | D4 | Commit today's test work and open a PR (own files only)? | Yes, split into: fault injection + retry fix; scripts; UI tests; docs. |
 | D6 ✅ yes | May Claude create a test library "Lelvo QA Test" on your account to prove I7 (a new private channel)? | Yes, it can be deleted after. |
@@ -33,7 +33,7 @@ Last updated 2026-11-18. Branch with the uncommitted test work: `docs/stability-
   `acquireLaneSlot`. Android already leaves not-due items queued.
 - **Left:** commit it (D4). Add a core unit test that a retried item is not sent before its `notBefore`.
 
-### I2 — Photos that failed in an earlier run need a manual Retry ✅ fixed 2026-11-19 (02a8392)
+### I2 — Photos that failed in an earlier run need a manual Retry ✅ fixed 2026-11-19 (5dea7dc)
 
 - **Seen:** L.4 follow-up. Attempts carry over between runs; after a network outage, those photos fail at once on the
   next run and stay failed until the user taps Retry.
@@ -137,7 +137,7 @@ simulator once, or make the check compare the failed count before and after.
   ends, also when it fails). Only the user's own Pause should persist. Check Android's switch too.
 - **Done when:** switch library twice on the QA simulator, add a photo, it backs up automatically.
 
-### I13 — Very long file name (228 characters) can't be backed up, with an unclear error ✅ fixed 2026-11-19 (I13COMMIT)
+### I13 — Very long file name (228 characters) can't be backed up, with an unclear error ✅ fixed 2026-11-19 (131747b)
 
 - **Seen:** Phase D.13. `D13-long…long.jpg` retried 5 times, then failed: "The operation couldn’t be completed.
   (PHPhotosErrorDomain error -1.)". Size 0 in the index. Unicode and emoji names were fine.
@@ -153,7 +153,7 @@ simulator once, or make the check compare the failed count before and after.
   device repro to tell it apart from a passing one).
 - **Retest:** D.13, and Save to phone of that item.
 
-### I14 — The photo's own time zone isn't kept (D.11) ✅ fixed 2026-11-19 (I14COMMIT)
+### I14 — The photo's own time zone isn't kept (D.11) ✅ fixed 2026-11-19 (e15b995)
 
 - **Seen:** photo taken 23:30 at +09:00 is stored with the device offset (+05:30, `tzOffsetMinutes` 330), not +09:00.
   The day is right here, but a photo taken at 01:30 abroad would land on the previous day on other devices.
@@ -173,6 +173,8 @@ simulator once, or make the check compare the failed count before and after.
 - **May be the simulator:** `addmedia` from outside may not fire `photoLibraryDidChange` the same way the Camera does.
   Check on a real phone first (R8). Code: `GalleryModel` and `BackgroundTasks` both register a change observer.
 - **Fix if real:** the observer must refresh the timeline and queue the new asset (debounced), also while a run is idle.
+- **Not fixed 2026-11-19 (skipped):** both observers are registered; nothing in the code shows a bug, and the issue says to
+  check on a real phone first (R8). Changing the observer blind risks extra library reads on every change.
 
 ### I16 — Largest text size: sign-in "Continue" can't be reached (10.15)
 
@@ -182,8 +184,11 @@ simulator once, or make the check compare the failed count before and after.
   keyboard), or let the button scroll with the content. Check every onboarding step and the Android sign-in at
   font scale 2.0.
 - **Done when:** `Scripts/../build/qa/tabs-tour.sh` "big" pass completes all 7 screens.
+- **Not fixed 2026-11-19 (skipped):** the phone step already puts its content in a ScrollView with Continue in
+  `.safeAreaInset(edge: .bottom)`, so the cause isn't visible in the code. It needs a run on a free simulator at XXXL to
+  find what pushes the button off screen; none was free (UI tests were running). Retest after a fix: 10.15.
 
-### I17 — "Beta" badge on Albums in Collections
+### I17 — "Beta" badge on Albums in Collections ✅ fixed 2026-11-19 (9c0d542)
 
 - **Seen:** Collections tab shows "Albums  Beta"; the selection ••• menu also shows "Beta" under Add to Album and Favorite (`GalleryView.swift` ~435, ~447). The house rules say no "beta" in user-facing text, and the copy lint
   missed it (it is probably a separate badge string). Decide: drop the badge, or keep it on purpose and teach
@@ -201,7 +206,7 @@ simulator once, or make the check compare the failed count before and after.
 - **Fix:** run them through `build/qa/run-faults.sh`, which adds 6 new photos before each test. Better: the test
   fails when the app log shows no "injected" line for the run.
 
-### I20 — Disk full: iPhone/Mac and Android behave differently ✅ fixed 2026-11-19 (I20COMMIT)
+### I20 — Disk full: iPhone/Mac and Android behave differently ✅ fixed 2026-11-19 (9d3d083)
 
 - **Seen:** 2026-11-19. iPhone/Mac stop the run on "out of space" only when the device has less than the margin free;
   otherwise the photo is retried 5 times and marked failed (one huge file must not block the rest). Android stops the
@@ -211,7 +216,7 @@ simulator once, or make the check compare the failed count before and after.
 - **Done:** Android already stopped only when nearly full (200 MB margin, as iOS). All three now share
   `RunStopClassifier.diskFullStopsRun`, and an out-of-space error with room left fails that one file for good with
   "Not enough space for this file." (no retries).
-- **Retest:** the disk-full fault rows of Phase T/L (`-QAFault diskFull`), on iPhone sim, Mac and Android.
+- **Retest:** the I8 disk-full rows (`-QADiskFullOnSend`): with the device not nearly full the faulted photos now end under Failed with "Not enough space for this file." instead of being retried, so row "I8 disk full (`-QADiskFullOnSend 2`)" expects that now. iPhone sim, Mac and Android.
 
 ## Needs a real phone (owner)
 
