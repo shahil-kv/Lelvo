@@ -2,6 +2,7 @@ import Foundation
 import Photos
 import AVFoundation
 import Network
+import ImageIO
 import LelvoCore
 
 /// Live state for the UI (Backup tab, progress bars).
@@ -989,7 +990,10 @@ final class BackupEngine: @unchecked Sendable {
                 item.codec = video.codec
                 item.hdr = video.hdr
             }
-            item.tzOffsetMinutes = TimeZone.current.secondsFromGMT(for: asset.creationDate ?? Date()) / 60
+            // The zone the photo was taken in, from its EXIF, so a photo from abroad lands on its own day on every
+            // device (I14). The phone's zone only when the file has none (videos, screenshots, older cameras).
+            item.tzOffsetMinutes = (asset.mediaType == .image ? Self.exifOffsetMinutes(of: exp.primaryURL) : nil)
+                ?? TimeZone.current.secondsFromGMT(for: asset.creationDate ?? Date()) / 60
             item.assetModifiedAt = asset.modificationDate
             item.albums = env.photos.albumNames(for: asset)
             item.hidden = asset.isHidden ? true : nil
@@ -1662,6 +1666,16 @@ final class BackupEngine: @unchecked Sendable {
         }
         appLog("Upload of \(item.filename) will be retried: \(error.localizedDescription)")
         return .retryLater
+    }
+
+    /// `OffsetTimeOriginal` (or `OffsetTime`) of an exported image. Reads the properties only, not the pixels.
+    private static func exifOffsetMinutes(of url: URL) -> Int? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any],
+              let offset = (exif[kCGImagePropertyExifOffsetTimeOriginal] ?? exif[kCGImagePropertyExifOffsetTime]) as? String
+        else { return nil }
+        return ExifDate.offsetMinutes(offset)
     }
 
     private static func deviceIsNearlyFull() -> Bool {

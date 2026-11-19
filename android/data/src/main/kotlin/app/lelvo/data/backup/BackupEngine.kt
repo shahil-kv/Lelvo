@@ -752,7 +752,9 @@ class BackupEngine(
                 duration = file.duration, createdAt = file.createdAt ?: item.createdAt, favorite = file.isFavorite,
                 latitude = place?.first, longitude = place?.second, encrypted = true, mimeType = file.mimeType,
                 codec = if (file.isVideo) phone.videoCodec(file) else null,
-                tzOffsetMinutes = TimeZone.getDefault().getOffset(file.createdAt ?: System.currentTimeMillis()) / 60_000,
+                // The photo's own zone, so a photo from abroad lands on its own day on every device (I14).
+                tzOffsetMinutes = phone.exifOffsetMinutes(file)
+                    ?: (TimeZone.getDefault().getOffset(file.createdAt ?: System.currentTimeMillis()) / 60_000),
                 assetModifiedAt = file.modifiedAt, roleHashes = item.roleHashes + ("o" to hash),
             )
             store.upsert(listOf(item))

@@ -153,13 +153,17 @@ simulator once, or make the check compare the failed count before and after.
   device repro to tell it apart from a passing one).
 - **Retest:** D.13, and Save to phone of that item.
 
-### I14 — The photo's own time zone isn't kept (D.11)
+### I14 — The photo's own time zone isn't kept (D.11) ✅ fixed 2026-11-19 (I14COMMIT)
 
 - **Seen:** photo taken 23:30 at +09:00 is stored with the device offset (+05:30, `tzOffsetMinutes` 330), not +09:00.
   The day is right here, but a photo taken at 01:30 abroad would land on the previous day on other devices.
 - **Fix:** read `OffsetTimeOriginal` from the image metadata when present (iPhone/Mac at export time, Android from
   EXIF) and store that offset. Additive, no format change if `tz` already exists in the caption (check
   `docs/CLOUD_FORMAT.md`).
+- **Done:** no format change: `tz` is already a caption field. Photos now store EXIF `OffsetTimeOriginal` (or
+  `OffsetTime`), falling back to the device zone (iPhone/Mac read the exported file's properties; Android reads EXIF
+  from the original). Videos keep the device zone.
+- **Retest:** D.11.
 
 ### I15 — A photo added while Lelvo is open doesn't appear (3.20, simulator)
 
