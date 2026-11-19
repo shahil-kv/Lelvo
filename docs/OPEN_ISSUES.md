@@ -17,8 +17,8 @@ Last updated 2026-11-18. Branch with the uncommitted test work: `docs/stability-
 
 | # | Question | Claude's recommendation |
 |---|---|---|
-| D1 | Should each backup run retry, once, photos that failed only because of the network (I2)? | Yes. Today they wait for a tap on Retry. |
-| D2 | 1.22: a photo whose Telegram messages were deleted shows "1 item couldn't be backed up / Retry". Is that wording right? | Say "1 photo is no longer in your Telegram library. Back it up again?" |
+| D1 ✅ yes (11-19) | Should each backup run retry, once, photos that failed only because of the network (I2)? | Yes. Today they wait for a tap on Retry. |
+| D2 ✅ recommended wording (11-19) | 1.22: a photo whose Telegram messages were deleted shows "1 item couldn't be backed up / Retry". Is that wording right? | Say "1 photo is no longer in your Telegram library. Back it up again?" |
 | D3 | Run the Android 40k test with a real sign-in on an emulator (needs your login code)? | Yes, on a fresh emulator with automatic backup off. |
 | D4 | Commit today's test work and open a PR (own files only)? | Yes, split into: fault injection + retry fix; scripts; UI tests; docs. |
 | D6 ✅ yes | May Claude create a test library "Lelvo QA Test" on your account to prove I7 (a new private channel)? | Yes, it can be deleted after. |
@@ -192,7 +192,7 @@ simulator once, or make the check compare the failed count before and after.
 - **Seen:** 2026-11-19. iPhone/Mac stop the run on "out of space" only when the device has less than the margin free;
   otherwise the photo is retried 5 times and marked failed (one huge file must not block the rest). Android stops the
   run on any out-of-space error.
-- **Fix:** pick one rule for all three. Recommendation: the iPhone rule, and on iPhone make that one file a permanent
+- **Decided 2026-11-19 (owner):** the iPhone rule on all three. Recommendation was: the iPhone rule, and on iPhone make that one file a permanent
   failure with "Not enough space for this file" instead of 5 retries.
 
 ## Needs a real phone (owner)
