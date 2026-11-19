@@ -14,6 +14,9 @@ final class CloudVideoSession: ObservableObject {
     /// "Make Fast Version" is running, or just failed (shown briefly in the pill).
     @Published private(set) var making = false
     @Published private(set) var makeFailed = false
+    /// The fast version shows the wrong picture (turned, stretched): the original plays and the menu offers a remake.
+    @Published private(set) var fastBroken = false
+    private var shapeTask: Task<Void, Never>?
     /// Keeps the resource loader alive while its item plays.
     private var stream: StreamingAsset?
     private let reader: MediaReader
@@ -44,7 +47,33 @@ final class CloudVideoSession: ObservableObject {
         statusObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in self?.timeControlChanged() }
         }
+        fastBroken = VideoPlayback.isBrokenFastVersion(item)
         watchStart()
+        verifyShape(of: first)
+    }
+
+    /// Checks that the fast version's picture has the original's shape once its size is known; if not, plays the
+    /// original. Older builds wrote some fast versions on a wrong frame size, which showed turned and stretched.
+    private func verifyShape(of playerItem: AVPlayerItem) {
+        shapeTask?.cancel()
+        guard quality == .streamingCopy, stream != nil, item.hasEdit != true else { return }
+        shapeTask = Task { [weak self] in
+            for _ in 0..<150 {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                guard let self, !Task.isCancelled, self.player.currentItem === playerItem else { return }
+                let size = playerItem.presentationSize
+                guard size.width > 0, size.height > 0 else { continue }
+                let item = self.item
+                if !VideoQualityPolicy.fastVersionMatches(originalWidth: item.pixelWidth, originalHeight: item.pixelHeight,
+                                                          copyWidth: Int(size.width.rounded()), copyHeight: Int(size.height.rounded())) {
+                    appLog("Video quality: the fast version of \(item.filename) is \(Int(size.width))x\(Int(size.height)) for a \(item.pixelWidth)x\(item.pixelHeight) video, playing the original")
+                    VideoPlayback.markFastVersion(item, broken: true)
+                    self.fastBroken = true
+                    await self.switchTo(.original)
+                }
+                return
+            }
+        }
     }
 
     /// A video that shows its first frame and then never plays left no trace in the log: no download was waiting, so
@@ -86,20 +115,28 @@ final class CloudVideoSession: ObservableObject {
     }
 
     /// "Make Fast Version" for a video without one (backed up before fast versions, and not on this device).
-    func makeFastVersion() {
-        guard !making, !hasCopy else { return }
+    /// `remake`: replaces a fast version that plays wrong (the original is untouched).
+    func makeFastVersion(remake: Bool = false) {
+        guard !making, remake || !hasCopy else { return }
         making = true
         makeFailed = false
         let id = item.id
         Task {
+            // The old fast version is deleted from Telegram first: keep playing from the original meanwhile, and come
+            // back to the new one when it is ready. Playing the old one (or opening it) would stall for good.
+            let wasFast = remake && quality == .streamingCopy
+            if wasFast { await switchTo(.original, whileMaking: true) }
             do {
-                try await Task.detached(priority: .userInitiated) { try await AppEnvironment.shared.engine.makeFastVersion(itemId: id) }.value
+                try await Task.detached(priority: .userInitiated) { try await AppEnvironment.shared.engine.makeFastVersion(itemId: id, remake: remake) }.value
                 if let updated = try? AppEnvironment.shared.store.item(id: id) { item = updated }
                 making = false
+                if remake { VideoPlayback.markFastVersion(item, broken: false); fastBroken = false }
+                if wasFast { await switchTo(.streamingCopy) }
                 // The user waited for it: use it now if it's the better fit for this connection.
-                if !userChose, VideoPlayback.initialQuality(for: item) == .streamingCopy { await switchTo(.streamingCopy) }
+                if !remake, !userChose, VideoPlayback.initialQuality(for: item) == .streamingCopy { await switchTo(.streamingCopy) }
             } catch {
                 AppLog.shared.warn("Make fast version of \(item.filename) failed: \(error.localizedDescription)")
+                if let updated = try? AppEnvironment.shared.store.item(id: id) { item = updated }
                 making = false
                 makeFailed = true
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -120,6 +157,7 @@ final class CloudVideoSession: ObservableObject {
         stallTask?.cancel()
         startTask?.cancel()
         watchdog?.cancel()
+        shapeTask?.cancel()
         player.pause()
         stream?.cancel()
         player.replaceCurrentItem(with: nil)
@@ -134,31 +172,30 @@ final class CloudVideoSession: ObservableObject {
 
     func release() { held = false }
 
-    private func switchTo(_ q: VideoQuality) async {
-        guard q != quality, !switching, q == .original || hasCopy else { return }
+    private func switchTo(_ q: VideoQuality, whileMaking: Bool = false) async {
+        // While a fast version is being remade the old one no longer exists in Telegram.
+        guard q != quality, !switching, q == .original || (hasCopy && (!making || whileMaking)) else {
+            appLog("Video quality: \(item.filename) switch to \(Self.name(q)) ignored (now \(Self.name(quality)), switching \(switching), remaking \(making), fast version \(hasCopy ? "yes" : "no"))")
+            return
+        }
         switching = true
         defer { switching = false }
         stallTask?.cancel()
         let time = player.currentTime()
         let wasPlaying = player.timeControlStatus != .paused
         let (nextItem, next) = Self.playerItem(item, q, reader)
+        // The start time goes on the item before it is attached: AVPlayer then asks for the data around that moment
+        // instead of loading the start of the file first (a 4K original's index can sit at the end) and seeking after.
+        // Waiting for "ready" and giving up after 20 s left the video stuck mid-way and the quality menu blocked.
+        if time.isNumeric, time.seconds > 0 {
+            await nextItem.seek(to: time, toleranceBefore: .zero, toleranceAfter: CMTime(seconds: 1, preferredTimescale: 600))
+        }
         player.replaceCurrentItem(with: nextItem)
         stream = next
         quality = q
         appLog("Video quality: \(item.filename) switched to \(Self.name(q)) at \(String(format: "%.1f", time.seconds)) s")
-        // Seek once the new item can take it, so the video continues where it was.
-        await Self.waitUntilLoaded(nextItem, timeout: 20)
-        guard nextItem.status == .readyToPlay, player.currentItem === nextItem else { return }
-        if time.isNumeric, time.seconds > 0 { await player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) }
         if wasPlaying, !held { player.play() }
-    }
-
-    /// Waits until the item is ready or failed (or the timeout passes), checking a few times a second.
-    private static func waitUntilLoaded(_ item: AVPlayerItem, timeout: TimeInterval) async {
-        let end = Date().addingTimeInterval(timeout)
-        while item.status == .unknown, Date() < end, !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
+        verifyShape(of: nextItem)
     }
 
     /// Once half a second is buffered, start instead of waiting for AVPlayer's larger "won't stall" buffer: measured
@@ -180,6 +217,11 @@ final class CloudVideoSession: ObservableObject {
     }
 
     private func timeControlChanged() {
+        // A viewer that is closing must stay silent whatever restarts the player (a load finishing, a stall ending).
+        if held, player.timeControlStatus != .paused {
+            player.pause()
+            return
+        }
         if player.timeControlStatus == .playing, !playingLogged {
             playingLogged = true
             appLog(String(format: "Video timing: %@: playing after %.2f s", item.filename, Date().timeIntervalSince(opened)))
@@ -203,29 +245,34 @@ final class CloudVideoSession: ObservableObject {
 struct VideoQualityMenu: View {
     @ObservedObject var session: CloudVideoSession
 
-    /// "4K" / "1080p" when the two versions differ in resolution; otherwise "Original" / "Fast".
-    private func label(_ q: VideoQuality) -> String? {
-        let item = session.item
-        guard let mine = item.resolutionLabel(q), mine != item.resolutionLabel(q == .original ? .streamingCopy : .original) else { return nil }
-        return mine
-    }
-
     private var title: String {
-        if session.making { return "Preparing" }
+        if session.making { return session.fastBroken ? "Repairing" : "Preparing" }
         if session.makeFailed { return "Couldn't Prepare" }
-        return label(session.quality) ?? (session.quality == .original ? "Original" : "Fast")
-    }
-
-    private func named(_ title: String, _ q: VideoQuality) -> String {
-        label(q).map { "\(title) (\($0))" } ?? title
+        return session.quality == .original ? "Original" : "Fast"
     }
 
     var body: some View {
         Menu {
             if session.hasCopy {
+                // A system picker: the checkmark column is the same width for every row, so choosing a row never shifts
+                // or wraps the others. Short names keep each on one line.
                 Section("Video Quality") {
-                    option(.original, named("Play Original Quality", .original))
-                    option(.streamingCopy, named("Play Fast Version", .streamingCopy))
+                    Picker("Video Quality", selection: Binding(get: { session.quality }, set: { session.choose($0) })) {
+                        Text("Original").tag(VideoQuality.original)
+                        Text("Fast").tag(VideoQuality.streamingCopy)
+                            .disabled(session.making || session.fastBroken)
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+                // Only when the fast version was found to play wrong: a rebuild is not a quality a viewer should pick.
+                if session.fastBroken {
+                    Section("The fast version of this video doesn't play right") {
+                        Button { session.makeFastVersion(remake: true) } label: {
+                            Label(session.making ? "Repairing…" : "Repair Fast Version", systemImage: "wrench.and.screwdriver")
+                        }
+                        .disabled(session.making)
+                    }
                 }
             } else {
                 Section("This video has no fast version yet") {
@@ -254,12 +301,6 @@ struct VideoQualityMenu: View {
         .fixedSize()
         .accessibilityLabel("Video quality")
         .accessibilityValue(session.making ? "Preparing fast version" : (session.quality == .original ? "Original" : "Fast version"))
-    }
-
-    @ViewBuilder private func option(_ q: VideoQuality, _ title: String) -> some View {
-        Button { session.choose(q) } label: {
-            if session.quality == q { Label(title, systemImage: "checkmark") } else { Text(title) }
-        }
     }
 }
 
@@ -300,7 +341,10 @@ final class ViewerVideoSessions: ObservableObject {
             let playing = watched.allObjects.filter { $0.rate != 0 }
             playing.forEach { $0.pause() }
             if playing.isEmpty { appLog("Viewer closed: \(players.count) video players stopped") }
-            else { AppLog.shared.warn("Viewer closed but \(playing.count) video players still played; stopped them") }
+            else {
+                let state = playing.map { p in "\(p.timeControlStatus.rawValue), \(p.reasonForWaitingToPlay?.rawValue ?? "no reason")" }.joined(separator: "; ")
+                AppLog.shared.warn("Viewer closed but \(playing.count) video players still played; stopped them [\(state)]")
+            }
         }
     }
 

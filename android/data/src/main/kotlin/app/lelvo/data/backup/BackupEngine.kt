@@ -1,5 +1,6 @@
 package app.lelvo.data.backup
 
+import app.lelvo.core.video.VideoQualityPolicy
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -171,6 +172,12 @@ class BackupEngine(
     private var runJob: Job? = null
 
     init {
+        // Temporary export, encode and download files a run left behind when the app was killed mid-way (a finished or
+        // failed run removes its own). A day old is never in use.
+        scope.launch {
+            val limit = System.currentTimeMillis() - 24L * 60 * 60 * 1000
+            staging.listFiles()?.forEach { if (it.isFile && it.lastModified() < limit) it.delete() }
+        }
         scope.launch {
             uploads.speedLimited.collect {
                 val a = _activity.value
@@ -541,7 +548,7 @@ class BackupEngine(
     /** [announce]: the user started the run, so the Backup tab says how it went (iOS `announce`); automatic runs stay quiet. */
     private fun finish(summary: Summary, started: Boolean, announce: Boolean): Summary {
         _activity.update {
-            it.copy(isRunning = false, lastSummary = if (announce) summary else it.lastSummary, message = summary.text, lanes = emptyMap(), secondsLeft = emptyMap(),
+            it.copy(isRunning = false, lastSummary = if (announce || summary.error != null) summary else it.lastSummary?.takeIf { s -> s.error == null }, message = summary.text, lanes = emptyMap(), secondsLeft = emptyMap(),
                 notice = null, total = if (started) it.total else 0)
         }
         rates.clear()
@@ -927,10 +934,10 @@ class BackupEngine(
      * "Make fast version" in the viewer: the fast version of one video, now, from the phone's file or, for a video
      * that's only in the cloud, from its original downloaded first (the user asked for it).
      */
-    suspend fun makeFastVersion(itemId: String) = withContext(Dispatchers.IO) {
+    suspend fun makeFastVersion(itemId: String, remake: Boolean = false) = withContext(Dispatchers.IO) {
         val item = store.item(itemId) ?: throw FastVersionUnsupported("gone")
         if (item.status != ItemStatus.BackedUp || item.kind != ItemKind.Video) throw FastVersionUnsupported("not a backed-up video")
-        if (StreamingCopyPolicy.hasCopy(item)) return@withContext
+        if (!remake && StreamingCopyPolicy.hasCopy(item)) return@withContext
         val file = item.localId?.let(phone::file)
         if (file != null) {
             uploadFastVersion(item, "copy", force = true) { out -> FastVersionEncoder.encode(app, file.uri, out) }
@@ -959,6 +966,11 @@ class BackupEngine(
             }
             val started = System.currentTimeMillis()
             val copy = encode(out)
+            // Never upload a copy that doesn't show what the original shows (edited videos: the original's size isn't the edit's).
+            if (!item.hasEdit && !VideoQualityPolicy.fastVersionMatches(item.width, item.height, copy.width, copy.height, allowTurned = true)) {
+                AppLog.warn("No fast version for ${item.filename}: it came out ${copy.width}×${copy.height} for a ${item.width}×${item.height} video")
+                throw FastVersionUnsupported("wrong shape")
+            }
             val size = copy.file.length()
             if (!force && !StreamingCopyPolicy.isWorthKeeping(size, item.fileSize)) {
                 store.update(item.id) { it.copy(streamingCopySkipped = true) }
@@ -982,6 +994,7 @@ class BackupEngine(
                 progress = { sent, total -> showLane(laneKey, BackupActivity.Lane(label, sent, total)) },
             )
             store.update(item.id) { it.withParts("sp", parts, parts.size).copy(streamingCopySkipped = false, roleHashes = it.roleHashes + ("sp" to hash)) }
+            reader.forget(item.id, "sp")
             AppLog.info("Uploaded a fast version: ${size shr 10} KB for a ${item.fileSize shr 10} KB original")
             return true
         } finally {

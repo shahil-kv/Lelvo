@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -98,15 +99,21 @@ import kotlinx.coroutines.launch
  * `CloudVideoSession` and `PlaybackState`). With Automatic quality, a stall of a few seconds on the original switches
  * to the fast version, never against the user's own pick.
  */
+/** Videos whose fast version was found to show the wrong picture in this run: they open on the original at once. */
+private val brokenFast: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
 @OptIn(UnstableApi::class)
 @Stable
 internal class VideoSession(
     val player: ExoPlayer,
     private val app: LelvoApp,
     /** Null for a phone or demo video: it has one version. */
-    val item: LibraryItem?,
+    private val item0: LibraryItem?,
     private val scope: CoroutineScope,
 ) {
+    /** The item as the library has it now: a remade fast version changes its parts, and the old ones are gone. */
+    var item: LibraryItem? = item0
+        private set
     var playing by mutableStateOf(false)
     /** Play was asked for (it may still be loading): the button then offers Pause. */
     var wantsPlay by mutableStateOf(true)
@@ -136,26 +143,37 @@ internal class VideoSession(
 
     val hasFast: Boolean get() = item?.hasFastVersion == true
 
+    /** The fast version shows the wrong picture (stretched or with bars: an older build wrote some): the original plays and the menu offers a remake. */
+    var fastBroken by mutableStateOf(item0?.id?.let(brokenFast::contains) == true)
+
     /** "Make fast version" is running, or just failed (shown briefly in the pill), as on iOS. */
     var making by mutableStateOf(false)
     var makeFailed by mutableStateOf(false)
 
     /** A backed-up cloud video with no fast version: the pill offers to make one. */
-    val canMakeFast: Boolean get() = item != null && !hasFast && item.status == ItemStatus.BackedUp
+    val canMakeFast: Boolean get() = item?.let { !hasFast && it.status == ItemStatus.BackedUp } == true
 
-    fun makeFastVersion() {
+    /** [remake]: replaces a fast version that plays wrong (the original is untouched). */
+    fun makeFastVersion(remake: Boolean = false) {
         val id = item?.id ?: return
         if (making) return
         making = true
         makeFailed = false
         scope.launch {
+            // The old fast version is deleted from Telegram first: play the original meanwhile, and come back to the new one.
+            val wasFast = remake && version == VideoVersion.Fast
+            if (wasFast) switchTo(VideoVersion.Original, whileMaking = true)
             try {
-                app.backup.makeFastVersion(id)
-                Messages.show(Messages.Style.Success, "Fast version ready", "It plays from the next time you open this video.")
+                app.backup.makeFastVersion(id, remake)
+                app.store.item(id)?.let { item = it }
+                if (remake) { brokenFast.remove(id); fastBroken = false }
+                if (wasFast) switchTo(VideoVersion.Fast, whileMaking = true)
+                else Messages.show(Messages.Style.Success, "Fast version ready", "It plays from the next time you open this video.")
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 AppLog.warn("Make fast version failed: ${e::class.simpleName}")
+                app.store.item(id)?.let { item = it }
                 makeFailed = true
                 Messages.show(Messages.Style.Failure, "Couldn't make a fast version", e.message)
                 kotlinx.coroutines.delay(3_000)
@@ -167,15 +185,7 @@ internal class VideoSession(
     }
 
     /** This phone can decode the original smoothly (`VideoDecoders.canPlay`); asked once per video. */
-    val originalPlayable: Boolean = item == null || VideoDecoders.canPlay(item.codec, item.width, item.height)
-
-    /** "4K" / "1080p" when the two versions differ in resolution; otherwise "Original" / "Fast" (iOS `VideoQualityMenu`). */
-    fun label(v: VideoVersion): String? {
-        val i = item ?: return null
-        val mine = VideoLabels.resolution(i.width, i.height, v) ?: return null
-        val other = VideoLabels.resolution(i.width, i.height, if (v == VideoVersion.Original) VideoVersion.Fast else VideoVersion.Original)
-        return mine.takeIf { it != other }
-    }
+    val originalPlayable: Boolean = item0 == null || VideoDecoders.canPlay(item0.codec, item0.width, item0.height)
 
     /** Frames for the scrubber, made the first time it's dragged. */
     val strip = FrameStrip(scope)
@@ -195,10 +205,10 @@ internal class VideoSession(
         when {
             phone != null -> player.setMediaItem(MediaItem.fromUri(phone))
             demo != null -> player.setMediaItem(MediaItem.fromUri(demo))
-            item != null -> {
-                version = VideoQualityPolicy.initial(preference, hasFast, originalPlayable)
-                player.setMediaSource(source(item, version))
-                VideoNavigation.resumePosition(app.positions.position(item.id), item.duration ?: 0.0)?.let { player.seekTo((it * 1000).toLong()) }
+            item0 != null -> {
+                version = if (fastBroken) VideoVersion.Original else VideoQualityPolicy.initial(preference, hasFast, originalPlayable)
+                player.setMediaSource(source(item0, version))
+                VideoNavigation.resumePosition(app.positions.position(item0.id), item0.duration ?: 0.0)?.let { player.seekTo((it * 1000).toLong()) }
             }
         }
         player.addListener(object : Player.Listener {
@@ -215,6 +225,18 @@ internal class VideoSession(
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
+
+            override fun onVideoSizeChanged(size: androidx.media3.common.VideoSize) {
+                val now = item ?: return
+                if (version != VideoVersion.Fast || now.hasEdit || size.width <= 0 || size.height <= 0 || DemoMode.assetUri(now) != null) return
+                val shownWidth = Math.round(size.width * size.pixelWidthHeightRatio)
+                if (!VideoQualityPolicy.fastVersionMatches(now.width, now.height, shownWidth, size.height, allowTurned = true)) {
+                    AppLog.warn("Video quality: the fast version is ${shownWidth}×${size.height} for a ${now.width}×${now.height} video, playing the original")
+                    brokenFast.add(now.id)
+                    fastBroken = true
+                    switchTo(VideoVersion.Original)
+                }
+            }
 
             override fun onPlaybackStateChanged(state: Int) {
                 buffering = state == Player.STATE_BUFFERING || state == Player.STATE_IDLE
@@ -251,8 +273,8 @@ internal class VideoSession(
     fun describe(): String = source()
 
     private fun source(): String = when {
-        item == null -> "phone video"
-        DemoMode.assetUri(item) != null -> "demo"
+        item0 == null -> "phone video"
+        DemoMode.assetUri(item0) != null -> "demo"
         version == VideoVersion.Fast -> "fast version"
         else -> "original"
     }
@@ -283,9 +305,10 @@ internal class VideoSession(
     }
 
     /** Swaps the version at the same moment, playing on if it was playing. */
-    private fun switchTo(v: VideoVersion) {
+    private fun switchTo(v: VideoVersion, whileMaking: Boolean = false) {
         val item = item ?: return
-        if (v == version || switching || (v == VideoVersion.Fast && !hasFast)) return
+        // While a fast version is being remade the old one no longer exists in Telegram.
+        if (v == version || switching || (v == VideoVersion.Fast && (!hasFast || (making && !whileMaking)))) return
         switching = true
         stall?.cancel()
         val at = player.currentPosition
@@ -612,7 +635,7 @@ internal fun MakeFastPill(session: VideoSession) {
 @Composable
 internal fun QualityPill(session: VideoSession) {
     var menu by remember { mutableStateOf(false) }
-    val title = session.label(session.version) ?: if (session.version == VideoVersion.Original) "Original" else "Fast"
+    val title = if (session.version == VideoVersion.Original) "Original" else "Fast"
     Box {
         Row(
             Modifier.background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(50))
@@ -632,19 +655,37 @@ internal fun QualityPill(session: VideoSession) {
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             Text("Video quality", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             for (v in listOf(VideoVersion.Original, VideoVersion.Fast)) {
-                val name = if (v == VideoVersion.Original) "Original quality" else "Fast version"
+                val name = if (v == VideoVersion.Original) "Original" else "Fast"
                 // Offered only when this phone can play it; otherwise it would stutter or show broken colours.
-                val usable = v == VideoVersion.Fast || session.originalPlayable
+                val usable = if (v == VideoVersion.Fast) !session.making && !session.fastBroken else session.originalPlayable
                 DropdownMenuItem(
                     text = {
                         Column {
-                            Text(session.label(v)?.let { "$name ($it)" } ?: name)
-                            if (!usable) Text("This phone can't play it smoothly", style = MaterialTheme.typography.bodySmall)
+                            Text(name)
+                            if (!usable && v == VideoVersion.Original) Text("This phone can't play it smoothly", style = MaterialTheme.typography.bodySmall)
                         }
                     },
                     enabled = usable,
-                    trailingIcon = { if (session.version == v) Icon(painterResource(R.drawable.ic_check), null) },
+                    // The check column is the same width on every row, so choosing a row never shifts the others.
+                    leadingIcon = {
+                        if (session.version == v) Icon(painterResource(R.drawable.ic_check), null, modifier = Modifier.size(24.dp))
+                        else Spacer(Modifier.size(24.dp))
+                    },
                     onClick = { menu = false; session.choose(v) },
+                )
+            }
+            // Only when the fast version was found to play wrong: a rebuild is not a quality a viewer should pick.
+            if (session.fastBroken) {
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(if (session.making) "Repairing…" else "Repair fast version")
+                            Text("The fast version of this video doesn't play right", style = MaterialTheme.typography.bodySmall)
+                        }
+                    },
+                    enabled = !session.making,
+                    onClick = { menu = false; session.makeFastVersion(remake = true) },
                 )
             }
         }

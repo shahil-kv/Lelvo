@@ -96,6 +96,8 @@ enum PhotoAvailability {
 
 enum StreamingCopyError: LocalizedError {
     case unsupported
+    /// The encoded copy isn't the shape of the original (it would play turned or stretched).
+    case wrongShape
     var errorDescription: String? { "This video can't be converted to a fast version. It still plays in original quality." }
 }
 

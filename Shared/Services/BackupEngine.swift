@@ -1318,13 +1318,13 @@ final class BackupEngine: @unchecked Sendable {
 
     /// "Make Fast Version" in the viewer: the fast version of one video, now. A video that's no longer on this
     /// device is downloaded from Telegram first (the user asked for it; it stays in the viewing cache).
-    func makeFastVersion(itemId: String) async throws {
+    func makeFastVersion(itemId: String, remake: Bool = false) async throws {
         guard !DemoMode.isActive else { return }
         try await env.td.waitUntilReady(timeout: 20)
         guard let item = try env.store.item(id: itemId), item.status == .backedUp, item.kind == .video else {
             throw StreamingCopyError.unsupported
         }
-        guard !item.hasStreamingCopy else { return }
+        guard remake || !item.hasStreamingCopy else { return }
         if let id = item.localIdentifier, let asset = env.photos.asset(localIdentifier: id) {
             _ = try await uploadStreamingCopy(item, laneKey: "copy", force: true,
                                               encode: { try await self.env.photos.exportStreamingCopy(of: asset, to: $0) })
@@ -1362,6 +1362,14 @@ final class BackupEngine: @unchecked Sendable {
             _ = try store.update(id: itemId) { $0.cloudParts?["sp"] = nil; $0.expectedParts?["sp"] = nil }
         }
         let copy = try await encode(url)
+        // Never upload a copy that doesn't show what the original shows. (Edited videos: the original's size isn't the
+        // edit's, so there is nothing to compare.)
+        if item.hasEdit != true,
+           !VideoQualityPolicy.fastVersionMatches(originalWidth: item.pixelWidth, originalHeight: item.pixelHeight,
+                                                  copyWidth: copy.width, copyHeight: copy.height) {
+            appLog("No fast version for \(item.filename): it came out \(copy.width)x\(copy.height) for a \(item.pixelWidth)x\(item.pixelHeight) video")
+            throw StreamingCopyError.wrongShape
+        }
         let size = try CloudUploader.size(of: copy.url)
         guard force || StreamingCopyPolicy.isWorthKeeping(copyBytes: size, originalBytes: item.fileSize) else {
             _ = try? store.update(id: itemId) { $0.streamingCopySkipped = true }
@@ -1388,6 +1396,7 @@ final class BackupEngine: @unchecked Sendable {
             hashes["sp"] = hash
             $0.roleHashes = hashes
         }
+        env.reader.forget(item, role: "sp")
         appLog("Uploaded the fast version of \(item.filename): \(Format.bytes(size)) for a \(Format.bytes(item.fileSize)) original")
         return true
     }

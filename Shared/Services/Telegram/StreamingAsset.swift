@@ -181,8 +181,21 @@ enum VideoPlayback {
         return item.hasEdit == true && !item.parts("e").isEmpty ? "e" : "o"
     }
 
+    /// Fast versions found to show the wrong picture (turned or stretched: built by an older encoder). Kept on this
+    /// device only, so they open on the original at once instead of flashing the bad picture first.
+    private static let brokenKey = "brokenFastVersions"
+    static func isBrokenFastVersion(_ item: MediaItem) -> Bool {
+        UserDefaults.standard.stringArray(forKey: brokenKey)?.contains(item.id) == true
+    }
+    static func markFastVersion(_ item: MediaItem, broken: Bool) {
+        var ids = Set(UserDefaults.standard.stringArray(forKey: brokenKey) ?? [])
+        if broken { ids.insert(item.id) } else { ids.remove(item.id) }
+        UserDefaults.standard.set(Array(ids), forKey: brokenKey)
+    }
+
     static func initialQuality(for item: MediaItem) -> VideoQuality {
-        VideoQualityPolicy.initial(preference: Prefs.videoQuality, hasCopy: item.hasStreamingCopy,
+        if isBrokenFastVersion(item) { return .original }
+        return VideoQualityPolicy.initial(preference: Prefs.videoQuality, hasCopy: item.hasStreamingCopy,
                                    isExpensiveNetwork: NetworkStatus.shared.isExpensive,
                                    bytesPerSecond: StreamingThroughput.shared.bytesPerSecond,
                                    originalBitsPerSecond: item.originalBitsPerSecond)
