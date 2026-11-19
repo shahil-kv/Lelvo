@@ -63,4 +63,39 @@ final class ScreenTourTests: XCTestCase {
         XCTAssertTrue(allow.waitForExistence(timeout: 15) || begin.exists)
         sleep(1); shot("after-code")
     }
+
+    /// Test plan 10.14 / 10.15: every main tab and Settings on the demo library, for light, dark and largest text.
+    func testMainTabsTour() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestReset"]
+        app.launch()
+        app.passIntro()
+        let phone = app.textFields["Phone number"]
+        XCTAssertTrue(phone.waitForExistence(timeout: 15))
+        let dial = app.textFields["Country code"]
+        dial.tap(); dial.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "1")
+        phone.tap(); phone.typeText("5550100199")
+        app.buttons["Continue"].tap()
+        let code = app.textFields["Login code"]
+        XCTAssertTrue(code.waitForExistence(timeout: 10)); code.typeText("24680")
+        let allow = app.buttons["Allow Access"], begin = app.buttons["Start using Lelvo"]
+        _ = allow.waitForExistence(timeout: 10)
+        if allow.exists {
+            allow.tap()
+            let no = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Don’t Allow"]
+            if no.waitForExistence(timeout: 5) { no.tap() }
+        }
+        XCTAssertTrue(begin.waitForExistence(timeout: 10)); begin.tap()
+        XCTAssertTrue(app.collectionViews["galleryGrid"].cells.firstMatch.waitForExistence(timeout: 15))
+        sleep(2); shot("tab-photos")
+        for tab in ["Collections", "Search", "Backup"] {
+            app.buttons[tab].firstMatch.tap(); sleep(2); shot("tab-" + tab.lowercased())
+        }
+        let gear = app.buttons.matching(NSPredicate(format: "label == 'Settings'")).firstMatch
+        if gear.waitForExistence(timeout: 5) {
+            gear.tap(); sleep(2); shot("settings-top")
+            app.swipeUp(); sleep(1); shot("settings-middle")
+            app.swipeUp(); app.swipeUp(); sleep(1); shot("settings-bottom")
+        }
+    }
 }

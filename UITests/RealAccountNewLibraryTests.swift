@@ -9,6 +9,7 @@ final class RealAccountNewLibraryTests: XCTestCase {
         guard let name = env["QA_NEW_LIBRARY"], let dir = env["QA_DIR"],
               let pass = try? String(contentsOfFile: dir + "/new-pass.txt", encoding: .utf8) else { throw XCTSkip("not set") }
         let app = XCUIApplication()
+        app.launchArguments = ["-QAPlainFields"]  // no password AutoFill, so typing reaches the fields (I7)
         app.launch()
         let start = app.buttons["Start a new library instead"]
         if !start.waitForExistence(timeout: 10) {
