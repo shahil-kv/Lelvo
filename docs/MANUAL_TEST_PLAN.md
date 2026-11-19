@@ -745,6 +745,15 @@ Open issues, fix plans and owner decisions: [OPEN_ISSUES.md](OPEN_ISSUES.md).
 
 Newest first. **By:** `Auto` = Claude ran it (simulator, emulator, scripts), `Shahil` = by hand on a device.
 
+### 2026-11-19 (evening) — Auto, retest after fixes I2, D2, I13, I14, I17, I20
+
+| Run | Result | Notes |
+|---|---|---|
+| Checks on the merged branch | ☑ | 562 core tests; iOS + Mac no warnings; Android core/data tests + debug build. |
+| T.1, L.4, I8 revoked / channel gone / disk full, "Lelvo QA" sim, 6 new photos each | ☑ 5/5 | Disk full: run stops "out of storage, nothing was lost", clean run then backs up all 6. |
+| Android fault runs | blocked | Emulator signed out since 11-18 (R18). |
+| Still to retest | ☐ | 1.22 new wording, D.11 photo time zone, D.13 long name + Save to phone, Collections/Mac sidebar without Beta. |
+
 ### 2026-11-19 (later) — Auto, Phase T + L fault injection, "Lelvo QA" sim
 
 | Run | Result | Notes |

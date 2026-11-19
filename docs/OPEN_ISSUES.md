@@ -238,7 +238,8 @@ simulator once, or make the check compare the failed count before and after.
 | R14 | L.1–L.3, L.5, L.7, L.11–L.13 | Lock 10 min, call, Low Power Mode, restart, revoke Photos access, reopen after a day, heat, Mac lid closed. |
 | R15 | D.1–D.7, D.9, D.14 | iCloud-optimized photo and video, RAW/ProRAW, HDR/ProRes/Cinematic/slo-mo, Portrait, panorama, burst, file over 4 GB, Android WhatsApp/SD folders. |
 | R16 | 11.6, 11.8 | Back up on one phone while the other is open; the same photo on both phones gives one copy. |
-| R17 | Decisions D1, D2, D3 | See the table at the top. |
+| R17 | Decision D3 | See the table at the top. |
+| R18 | Sign the Android emulator (Pixel_9) back in | Signed out since 2026-11-18. Needed for the Android fault runs (`build/qa/android-faults.sh`) and I4. |
 
 ## Progress of the test plan (2026-11-18)
 
