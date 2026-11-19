@@ -137,7 +137,7 @@ simulator once, or make the check compare the failed count before and after.
   ends, also when it fails). Only the user's own Pause should persist. Check Android's switch too.
 - **Done when:** switch library twice on the QA simulator, add a photo, it backs up automatically.
 
-### I13 — Very long file name (228 characters) can't be backed up, with an unclear error
+### I13 — Very long file name (228 characters) can't be backed up, with an unclear error ✅ fixed 2026-11-19 (I13COMMIT)
 
 - **Seen:** Phase D.13. `D13-long…long.jpg` retried 5 times, then failed: "The operation couldn’t be completed.
   (PHPhotosErrorDomain error -1.)". Size 0 in the index. Unicode and emoji names were fine.
@@ -147,6 +147,11 @@ simulator once, or make the check compare the failed count before and after.
 - **Also:** a PhotoKit -1 that repeats should end as "This photo couldn't be read" (the ignore list), not a raw domain
   error.
 - **Done when:** the same file backs up, and Save to phone gives a valid name.
+- **Done:** `FileNames.safe` (Swift and Kotlin core) cuts names on disk to 160 bytes with the extension kept; used by
+  every export staging path and Save to iPhone/Mac (`sanitizedFilename`) and Android Save to phone. The caption keeps the
+  full name. Android staging already used ids. Not done: a repeating PhotoKit -1 still ends as the raw error (needs a
+  device repro to tell it apart from a passing one).
+- **Retest:** D.13, and Save to phone of that item.
 
 ### I14 — The photo's own time zone isn't kept (D.11)
 

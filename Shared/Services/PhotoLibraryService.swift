@@ -743,8 +743,8 @@ extension UIImage {
 
 extension String {
     var sanitizedFilename: String {
-        let cleaned = components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>\n\r")).joined(separator: "_")
-        return cleaned.isEmpty ? "file" : cleaned
+        // Cut to fit the file system's name limit too (I13); the full name stays in the caption.
+        FileNames.safe(self)
     }
 
     var mimeTypeForFilename: String {
