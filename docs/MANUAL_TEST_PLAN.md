@@ -339,14 +339,14 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | ---- | ----------------------------- | ------------------------------------------------ | --- | --- | --- | ------ | ----- |
 | 5.1  | Phone folders listed          | Matches device albums/buckets                    | ☐   | ☐   | ☐   |        |       |
 | 5.2  | Lelvo albums listed           | Library albums appear                            | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testAlbumOpens, testAlbumsSeeAll (sim; device check still Shahil) |
-| 5.3  | Create album + add items      | Notes / Telegram consistent                      | ☐   | ☐   | ☐   |        |       |
-| 5.4  | Remove from album             | Item leaves album, not library                   | ☐   | ☐   | ☐   |        |       |
+| 5.3  | Create album + add items      | Notes / Telegram consistent                      | ☑ sim | ☐   | ☐   | Claude | New album 'QA Sync' + add, reached the other device (11.2) |
+| 5.4  | Remove from album             | Item leaves album, not library                   | ✗ | ☐   | ☐   | Claude | iPhone and Mac have no 'Remove from album' (Android does): I21 |
 | 5.5  | Delete album                  | Album gone; items remain                         | ☐   | ☐   | ☐   |        |       |
 | 5.6  | Favorites smart row           | Opens hearted set                                | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testFavoritesOpens (sim; device check still Shahil) |
 | 5.7  | Videos / media-type rows      | Correct filters                                  | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testVideosOpens (sim; device check still Shahil) |
 | 5.8  | Recent days                   | Sensible grouping                                | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testRecentDayOpens, testRecentDaysSeeAll (sim; device check still Shahil) |
 | 5.9  | Recently Deleted — recover    | Item returns                                     | ☑ sim demo | ☐   | ☐   | Claude | Delete everywhere → Recently Deleted → recover (RecentlyDeleted 11-18); real account 11.4 |
-| 5.10 | Recently Deleted — delete now | Gone for good after confirm                      | ☐   | ☐   | ☐   |        |       |
+| 5.10 | Recently Deleted — delete now | Gone for good after confirm                      | ☑ sim demo | ☐   | ☐   | Claude | Delete All asks first, then empties (RecentlyDeleted suite 11-18) |
 | 5.11 | 30-day cleanup                | Item past retention removed (debug retention OK) | ☐   | ☐   | ☐   |        |       |
 | 5.12 | Memories cards                | On this day / recent / trips                     | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testMemoriesSeeAllAndShowAllPhotos (sim; device check still Shahil) |
 | 5.13 | Memories story player         | Plays; dismiss (X / swipe) clears cover          | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testMemoryPlaysAndItsButtonsAnswer (sim; device check still Shahil) |
