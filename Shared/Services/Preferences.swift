@@ -42,6 +42,8 @@ enum Prefs {
         static let autoBackupNudgedAt = "autoBackupNudgedAt"
         static let streamingCopies = "streamingCopies"
         static let videoQuality = "videoQuality"
+        /// Start a video again when it ends. Off by default. Only this device's preference: nothing in the library changes.
+        static let loopVideos = "loopVideos"
         static let keepAwakeDuringBackup = "keepAwakeDuringBackup"
         /// The one-time "Found a bug? Tell me" note was closed, after the photos first appeared.
         static let communityNoteShown = "communityNoteShown"
@@ -100,6 +102,7 @@ enum Prefs {
             Key.streamingCopies: true,
             Key.keepAwakeDuringBackup: true,
             Key.videoQuality: VideoQualityPreference.automatic.rawValue,
+            Key.loopVideos: false,
             Key.onboardingComplete: false,
             Key.lockedFolderAutoLockMs: 5_000,
         ])
@@ -124,6 +127,7 @@ enum Prefs {
     static var autoBackup: Bool { defaults.bool(forKey: Key.autoBackup) }
     /// Make a small fast version of each video while backing it up, so it plays at once from the cloud (role `sp`).
     static var streamingCopies: Bool { defaults.bool(forKey: Key.streamingCopies) }
+    static var loopVideos: Bool { defaults.bool(forKey: Key.loopVideos) }
     static var videoQuality: VideoQualityPreference {
         VideoQualityPreference(rawValue: defaults.string(forKey: Key.videoQuality) ?? "") ?? .automatic
     }

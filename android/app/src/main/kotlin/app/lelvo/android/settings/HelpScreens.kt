@@ -295,6 +295,7 @@ private val ACKNOWLEDGEMENTS = listOf(
     Triple("Kotlin and kotlinx", "The language, coroutines and serialization. Apache License 2.0.", "https://www.apache.org/licenses/LICENSE-2.0"),
     Triple("Coil", "Loading thumbnails and photos. Apache License 2.0.", "https://github.com/coil-kt/coil/blob/main/LICENSE.txt"),
     Triple("Telephoto", "Zooming into photos. Apache License 2.0.", "https://github.com/saket/telephoto/blob/trunk/LICENSE.txt"),
+    Triple("ThumbHash", "Placeholder previews, © 2023 Evan Wallace. MIT License.", "https://github.com/evanw/thumbhash/blob/main/LICENSE.md"),
 )
 
 @Composable

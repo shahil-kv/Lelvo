@@ -407,6 +407,8 @@ struct ViewerPage: View {
     @State private var poster: UIImage?
     @State private var videoReady = false
     @State private var trace: VideoTrace?
+    /// A failed video is opened once more on its own; a second failure shows "Try again" instead of looping.
+    @State private var reopenedAfterFailure = false
     /// The side last double-tapped to skip (-1 back, 1 forward), shown for a moment.
     @State private var skipShown: (side: Int, id: UUID)?
 
@@ -415,7 +417,7 @@ struct ViewerPage: View {
             switch content {
             case .loading(let placeholder):
                 if let placeholder { Image(uiImage: placeholder).resizable().scaledToFit() }
-                ProgressView().tint(.white).padding(14).background(.black.opacity(0.35), in: Circle())
+                VideoDownloadRing(progress: nil)
             case .image(let image):
                 ZoomableImageView(image: image, entry: entry, zoomed: $zoomed)
             case .live(let live):
@@ -428,9 +430,12 @@ struct ViewerPage: View {
                             ZStack {
                                 Color.black
                                 if let poster { Image(uiImage: poster).resizable().scaledToFit() }
-                                ProgressView().tint(.white).padding(14).background(.black.opacity(0.35), in: Circle())
+                                VideoLoadingRing(player: player)
                             }
                             .allowsHitTesting(false)
+                        } else if !(session?.switching ?? false) {
+                            // Mid-play stall: ring over the last frame (no black cover).
+                            VideoLoadingRing(player: player, onlyWhileWaiting: true)
                         }
                     }
                     .overlay { if let session { VideoSwitchingOverlay(session: session) } }
@@ -442,9 +447,16 @@ struct ViewerPage: View {
                         // A new item after a quality switch: trace it like the first.
                         if let q, let item = player.currentItem, let name = entry.item?.filename {
                             trace = VideoTrace(item: item, name: name, source: q == .original ? "cloud original" : "cloud fast version")
+                            trace?.onFailure = { videoFailed($0) }
                         }
                     }
                     .onAppear { if isCurrent, !videos.closing { player.play() } }
+                    .onReceive(NotificationCenter.default.publisher(for: AVPlayerItem.didPlayToEndTimeNotification)) { note in
+                        // "Loop videos" in Settings: start again instead of stopping on the last frame.
+                        guard Prefs.loopVideos, isCurrent, let ended = note.object as? AVPlayerItem, ended === player.currentItem else { return }
+                        player.seek(to: .zero)
+                        player.play()
+                    }
                     .onChange(of: isCurrent) { _, now in if now, !videos.closing { player.play() } else { player.pause() } }
                     .onDisappear {
                         rememberPosition(player)
@@ -467,6 +479,9 @@ struct ViewerPage: View {
                 VStack(spacing: 16) {
                     if let placeholder { Image(uiImage: placeholder).resizable().scaledToFit().frame(maxHeight: 280) }
                     Label(reason, systemImage: "icloud.slash").foregroundStyle(.white).multilineTextAlignment(.center).padding()
+                    Button("Try again") { reopenedAfterFailure = false; Task { await load() } }
+                        .buttonStyle(.bordered)
+                        .tint(.white)
                 }
             }
         }
@@ -508,6 +523,7 @@ struct ViewerPage: View {
                     // away meanwhile, a player made now would play with nothing on screen.
                     guard !Task.isCancelled, !videos.closing else { return }
                     trace = VideoTrace(item: item, name: entry.item?.filename ?? "local video", source: "iPhone")
+                    trace?.onFailure = { videoFailed($0) }
                     let player = AVPlayer(playerItem: item)
                     videos.register(player)
                     resume(player)
@@ -574,8 +590,27 @@ struct ViewerPage: View {
     /// player made before that fails with -11819 ("Cannot Complete Action"): the video on screen stayed black until the
     /// viewer was closed. Make a new player for it.
     private func restartVideoAfterReset() {
+        reopenVideo("Media services were reset; reopening the video on screen")
+    }
+
+    /// A player that failed for any other reason used to leave a black screen and one line in the log. Open it once
+    /// more; if that fails too, say so and offer "Try again" instead of looping.
+    private func videoFailed(_ error: NSError?) {
+        guard case .video = content, error?.code != -11819 else { return }
+        if reopenedAfterFailure {
+            if entry.asset == nil { videos.close(entry.id); session = nil }
+            trace = nil
+            videoReady = false
+            content = .unavailable("This video can't play right now. Check your connection and try again.", poster)
+            return
+        }
+        reopenedAfterFailure = true
+        reopenVideo("Video failed; opening it once more")
+    }
+
+    private func reopenVideo(_ why: String) {
         guard case .video = content else { return }
-        appLog("Media services were reset; reopening the video on screen")
+        appLog(why)
         trace = nil
         videoReady = false
         if entry.asset != nil {
@@ -598,6 +633,7 @@ struct ViewerPage: View {
         if let playerItem = s.player.currentItem {
             trace = VideoTrace(item: playerItem, name: item.filename,
                                source: s.quality == .original ? "cloud \(Format.bytes(item.fileSize))" : "cloud fast version")
+            trace?.onFailure = { videoFailed($0) }
         }
         resume(s.player)
         content = .video(s.player)
@@ -1002,9 +1038,38 @@ struct PlayerView: UIViewRepresentable {
         player.allowsExternalPlayback = true
         let ready = onReadyForDisplay
         context.coordinator.readyObservation = view.playerLayer?.observe(\.isReadyForDisplay, options: [.initial, .new]) { layer, _ in
-            if layer.isReadyForDisplay { DispatchQueue.main.async { ready() } }
+            if layer.isReadyForDisplay {
+                DispatchQueue.main.async {
+                    ready()
+                    Self.logGeometry(layer)
+                }
+            }
         }
         return scroll
+    }
+
+    /// Where a video lands on screen and how the file says it is turned: a picture that shows sideways or lower than
+    /// centre leaves no other trace.
+    @MainActor private static func logGeometry(_ layer: AVPlayerLayer) {
+        guard let item = layer.player?.currentItem else { return }
+        let bounds = layer.bounds, shown = layer.videoRect, size = item.presentationSize
+        let host = layer.superlayer.map { String(format: "%.0fx%.0f at %.0f,%.0f", $0.bounds.width, $0.bounds.height, $0.frame.minX, $0.frame.minY) } ?? "none"
+        Task { @MainActor in
+            var turned = "no tracks"
+            if let tracks = try? await item.asset.load(.tracks) {
+                var parts: [String] = []
+                for track in tracks {
+                    let kind = track.mediaType.rawValue
+                    if track.mediaType == .video, let n = try? await track.load(.naturalSize), let t = try? await track.load(.preferredTransform) {
+                        parts.append(String(format: "video %.0fx%.0f [%.0f %.0f %.0f %.0f]", n.width, n.height, t.a, t.b, t.c, t.d))
+                    } else { parts.append(kind) }
+                }
+                turned = "tracks: " + parts.joined(separator: ", ")
+            }
+            appLog(String(format: "Video layout: layer %.0fx%.0f, picture %.0fx%.0f at %.0f,%.0f, item %.0fx%.0f, view %@, %@, composition %@",
+                          bounds.width, bounds.height, shown.width, shown.height, shown.minX, shown.minY, size.width, size.height, host, turned,
+                          item.videoComposition == nil ? "none" : "set"))
+        }
     }
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
@@ -1234,6 +1299,8 @@ final class PlaybackState: ObservableObject {
     @Published var isPlaying = false
     /// Waiting for data (slow network): shown as a spinner instead of the play/pause icon.
     @Published var isBuffering = false
+    /// How much of the file is loaded (0…1), when the duration is known.
+    @Published var bufferProgress: Double?
     @Published var isMuted = false
     private var timeObserver: Any?
     private var statusObservation: NSKeyValueObservation?
@@ -1251,14 +1318,17 @@ final class PlaybackState: ObservableObject {
                 guard t.isValid, t.isNumeric, t.seconds.isFinite, t.seconds >= 0 else { return }
                 self.current = t.seconds
                 if let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
+                self.bufferProgress = player.bufferProgress
             }
         }
         statusObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] p, _ in
             let playing = p.timeControlStatus != .paused
             let buffering = p.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            let progress = p.bufferProgress
             Task { @MainActor in
                 self?.isPlaying = playing
                 self?.isBuffering = buffering
+                self?.bufferProgress = progress
             }
         }
     }
@@ -1321,6 +1391,8 @@ final class VideoTrace {
     private var logged = false
     private var statusObservation: NSKeyValueObservation?
     private var observers: [NSObjectProtocol] = []
+    /// Called on the main queue when the item fails to play (not for stalls).
+    var onFailure: ((NSError?) -> Void)?
 
     init(item: AVPlayerItem, name: String, source: String) {
         self.name = name
@@ -1330,6 +1402,7 @@ final class VideoTrace {
             guard let self, item.status == .failed else { return }
             let e = item.error as NSError?
             AppLog.shared.error("Video failed: \(self.name) after \(self.elapsed): \(e?.localizedDescription ?? "unknown") [\(e?.domain ?? "") \(e?.code ?? 0)] \(e?.userInfo[NSUnderlyingErrorKey] ?? "")")
+            DispatchQueue.main.async { self.onFailure?(e) }
         }
         let nc = NotificationCenter.default
         observers.append(nc.addObserver(forName: AVPlayerItem.playbackStalledNotification, object: item, queue: .main) { [weak self] _ in

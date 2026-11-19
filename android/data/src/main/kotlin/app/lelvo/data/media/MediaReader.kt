@@ -150,6 +150,12 @@ class MediaReader(private val files: TdFiles, private val library: LibraryServic
         forgetCaches()
     }
 
+    /** A resource was replaced (a remade fast version): its old header and decrypted chunks must not be read against the new bytes. */
+    fun forget(itemId: String, role: String) {
+        headers.remove("$itemId/$role")
+        chunks.remove("$itemId/$role")
+    }
+
     fun forgetCaches() {
         remoteIds.clear()
         headers.clear()

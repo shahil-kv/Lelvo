@@ -55,6 +55,7 @@ public enum LibraryIndexer {
             meta.a = item.albums
             meta.fav = item.favorite == true ? 1 : nil
             meta.hid = item.hidden == true ? 1 : nil
+            meta.th = item.thumbHash
             meta.l = item.sourceLocalIdentifier
             meta.ed = role == "o" && item.hasEdit == true ? 1 : nil
             meta.e = item.encrypted ? 1 : nil
@@ -100,7 +101,7 @@ public enum LibraryIndexer {
             var missing = item
             missing.status = .failed
             missing.cloudParts = nil
-            missing.lastError = "Not found in the Telegram channel any more. Tap Retry to upload it again."
+            missing.lastError = MediaItem.notInCloudError
             return .update(missing)
         default:
             return .unchanged
@@ -147,6 +148,7 @@ public enum LibraryIndexer {
             item.albums = primary.a
             item.favorite = primary.fav == 1 ? true : nil
             item.hidden = primary.hid == 1 ? true : nil
+            item.thumbHash = primary.th
             item.sourceLocalIdentifier = primary.l
             item.hasEdit = (primary.ed == 1 || roles["e"] != nil) ? true : nil
             var hashes: [String: String] = [:]

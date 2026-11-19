@@ -517,8 +517,32 @@ import LelvoCore
     }
 
     func compute(queued: [MediaItem] = [], failed: [MediaItem] = [], candidates: [String] = [], known: Set<String> = [],
-                 offBackup: Set<String> = [], auto: Bool = false) -> BackupCounts {
-        BackupCounts.compute(queued: queued, failed: failed, candidates: candidates, known: known, offBackup: offBackup, autoBackup: auto)
+                 offBackup: Set<String> = [], auto: Bool = false, ignored: Set<String> = []) -> BackupCounts {
+        BackupCounts.compute(queued: queued, failed: failed, candidates: candidates, known: known, offBackup: offBackup, autoBackup: auto, ignored: ignored)
+    }
+
+    @Test func aPhotoSetAsideStaysUnderFailedButARetryCantHelpIt() {
+        let setAside = item(.failed)
+        let other = MediaItem(localIdentifier: "Z", sha256: "z", filename: "z.jpg", kind: .photo, creationDate: Date(), fileSize: 1, status: .failed)
+        let c = compute(failed: [setAside, other], ignored: [setAside.localIdentifier!])
+        #expect(c.failed == 2, "still shown as failed, with its reason")
+        #expect(c.retryable == 1, "only the other one can be helped by Retry")
+        #expect(compute(failed: [setAside, other]).retryable == 2, "nothing set aside: both retryable as before")
+    }
+
+    @Test func photosGoneFromTelegramAreOfferedAgain() {
+        var gone = item(.failed); gone.lastError = MediaItem.notInCloudError
+        var gone2 = item(.failed, local: "B"); gone2.lastError = MediaItem.notInCloudError
+        var other = item(.failed, local: "C"); other.lastError = "timeout"
+        let one = compute(failed: [gone])
+        #expect(one.failedHeadline == "1 photo is no longer in your Telegram library. Back it up again?")
+        #expect(one.retryLabel == "Back up again")
+        #expect(compute(failed: [gone, gone2]).failedHeadline == "2 photos are no longer in your Telegram library. Back them up again?")
+        let mixed = compute(failed: [gone, other])
+        #expect(mixed.missingFromCloud == 1)
+        #expect(mixed.failedHeadline == "Backup complete, 2 items couldn't be backed up")
+        #expect(mixed.retryLabel == "Retry 2 failed")
+        #expect(compute(failed: [other]).failedHeadline == "Backup complete, 1 item couldn't be backed up")
     }
 
     @Test func nothingIsCountedTwiceWithAutomaticBackupOn() {
@@ -899,5 +923,64 @@ import LelvoCore
         #expect(slots.acquireForLane() == false)
         slots.release()
         #expect(slots.acquireForLane() == true)
+    }
+}
+
+@Suite struct RunStopTests {
+    @Test func diskFullStopsTheRunOnlyWhenNearlyFull() {
+        #expect(RunStopClassifier.diskFullStopsRun(freeBytes: 10 << 20, margin: 200 << 20))
+        #expect(!RunStopClassifier.diskFullStopsRun(freeBytes: 5 << 30, margin: 200 << 20), "one big file fails alone")
+        #expect(!RunStopClassifier.diskFullStopsRun(freeBytes: nil, margin: 200 << 20))
+        #expect(RunStopClassifier.fileDoesNotFitMessage == "Not enough space for this file.")
+    }
+
+    @Test func revokedSessionStopsTheRun() {
+        #expect(RunStopClassifier.cause(code: 401, message: "SESSION_REVOKED") == .sessionEnded)
+        #expect(RunStopClassifier.cause(code: 401, message: "Unauthorized") == .sessionEnded)
+        #expect(RunStopClassifier.cause(code: 400, message: "AUTH_KEY_UNREGISTERED") == .sessionEnded)
+    }
+
+    @Test func unusableChannelStopsTheRun() {
+        #expect(RunStopClassifier.cause(code: 403, message: "CHAT_WRITE_FORBIDDEN") == .channelUnavailable)
+        #expect(RunStopClassifier.cause(code: 400, message: "CHANNEL_PRIVATE") == .channelUnavailable)
+        #expect(RunStopClassifier.cause(code: 403, message: "USER_BANNED_IN_CHANNEL") == .channelUnavailable)
+    }
+
+    @Test func fileLevelAndTemporaryErrorsDoNotStopTheRun() {
+        #expect(RunStopClassifier.cause(code: 429, message: "Too Many Requests: retry after 30") == nil)
+        #expect(RunStopClassifier.cause(code: 400, message: "FLOOD_WAIT_30") == nil)
+        #expect(RunStopClassifier.cause(code: 500, message: "Internal Server Error") == nil)
+        #expect(RunStopClassifier.cause(code: 400, message: "FILE_PARTS_INVALID") == nil)
+        #expect(RunStopClassifier.cause(code: -1, message: "Connection timeout") == nil)
+    }
+
+    @Test func diskFullIsRecognised() {
+        #expect(RunStopClassifier.isDiskFull(domain: "NSCocoaErrorDomain", code: 640))
+        #expect(RunStopClassifier.isDiskFull(domain: "NSPOSIXErrorDomain", code: 28))
+        #expect(!RunStopClassifier.isDiskFull(domain: "NSCocoaErrorDomain", code: 260))
+        #expect(!RunStopClassifier.isDiskFull(domain: "NSPOSIXErrorDomain", code: 2))
+    }
+
+    @Test func everyCauseHasAPlainMessage() {
+        for c in [RunStopCause.sessionEnded, .channelUnavailable, .deviceStorageFull] {
+            #expect(!c.message.isEmpty)
+            #expect(!c.message.contains("!"))
+        }
+    }
+}
+
+@Suite("Hashing cancellation")
+struct HashCancellationTests {
+    @Test func cancelledTaskStopsHashing() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("hash-cancel-\(UUID().uuidString)")
+        try Data(count: 3 << 20).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let task = Task<String, Error> {
+            while !Task.isCancelled { await Task.yield() }
+            return try Deduplicator.sha256(of: url)
+        }
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(try Deduplicator.sha256(of: url).count == 64)
     }
 }

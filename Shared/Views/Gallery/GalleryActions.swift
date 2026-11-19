@@ -85,6 +85,32 @@ enum GalleryActions {
         return (onDevice.count + cloudRecorded, cloudOnly.count - cloudRecorded)
     }
 
+    /// Takes the entries out of an album, like Remove from Album in Photos. Items on this device leave the album in
+    /// Photos at once; items in the Telegram library get a note (docs/CLOUD_FORMAT.md §7.3, the same one Android
+    /// writes), so every device follows. No photo is deleted, from the device or the Telegram library.
+    /// Returns how many items left the album.
+    static func removeFromAlbum(_ entries: [GalleryEntry], title: String) async throws -> Int {
+        let env = AppEnvironment.shared
+        let onDevice = entries.compactMap { $0.asset?.localIdentifier }
+        try await env.photos.remove(onDevice, fromAlbumsTitled: title)
+        let name = MetaLog.albumName(title)
+        if let name {
+            let members = entries.compactMap(\.item).filter { $0.albums?.contains(name) == true }
+            _ = try MetaSync.shared.change(members, key: .album(name), value: false)
+        }
+        await MainActor.run { NotificationCenter.default.post(name: .albumsChanged, object: nil) }
+        return entries.filter { e in
+            e.asset != nil || name.map { e.item?.albums?.contains($0) == true } == true
+        }.count
+    }
+
+    /// Whether the album is one the user can take photos out of: an editable album in Photos, or a Lelvo album some
+    /// of these entries are in. False for smart albums such as Videos.
+    static func canRemove(fromAlbum title: String, entries: [GalleryEntry]) -> Bool {
+        if let name = MetaLog.albumName(title), entries.contains(where: { $0.item?.albums?.contains(name) == true }) { return true }
+        return AppEnvironment.shared.photos.hasEditableAlbum(titled: title)
+    }
+
     /// Deletes an album everywhere, like Delete Album in Photos: the album goes from Photos on this device and, through
     /// a note, from every device's Lelvo. No photo is deleted, from the device or the Telegram library.
     static func deleteAlbum(_ title: String) async throws {

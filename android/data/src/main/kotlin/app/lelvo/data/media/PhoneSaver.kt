@@ -8,6 +8,7 @@ import android.webkit.MimeTypeMap
 import app.lelvo.core.index.ItemKind
 import app.lelvo.core.index.LibraryItem
 import app.lelvo.core.support.AppLog
+import app.lelvo.core.support.FileNames
 import app.lelvo.data.index.LibraryStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -57,7 +58,7 @@ class PhoneSaver(context: Context, private val reader: MediaReader, private val 
         val ext = item.filename.substringAfterLast('.', "").lowercase()
         val mime = item.mimeType ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: if (video) "video/mp4" else "image/jpeg"
         val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, item.filename.ifEmpty { if (video) "video.mp4" else "photo.jpg" })
+            put(MediaStore.MediaColumns.DISPLAY_NAME, item.filename.ifEmpty { if (video) "video.mp4" else "photo.jpg" }.let { FileNames.safe(it) })
             put(MediaStore.MediaColumns.MIME_TYPE, mime)
             put(MediaStore.MediaColumns.RELATIVE_PATH, if (video) "Movies/Lelvo" else "Pictures/Lelvo")
             item.createdAt?.let { put(MediaStore.MediaColumns.DATE_TAKEN, it) }

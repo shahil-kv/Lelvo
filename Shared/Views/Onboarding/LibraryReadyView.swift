@@ -62,7 +62,7 @@ struct LibraryReadyView: View {
 
             VStack(spacing: 10) {
                 Text("Your library is ready").font(.system(size: 30, weight: .bold)).multilineTextAlignment(.center)
-                Text(detail).foregroundStyle(.white.opacity(0.75)).multilineTextAlignment(.center)
+                Text(detail).foregroundStyle(.primary.opacity(0.75)).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .offset(y: 110)

@@ -327,6 +327,9 @@ struct MacViewerPage: View {
     @State private var session: CloudVideoSession?
     @EnvironmentObject private var videos: ViewerVideoSessions
     @State private var poster: PlatformImage?
+    /// A failed video is opened once more on its own; a second failure shows "Try again" instead of looping.
+    @State private var reopenedAfterFailure = false
+    @State private var failureWatch: VideoFailureWatch?
     @State private var videoReady = false
     @State private var liveControl = LiveControl()
     @State private var showSpinner = false
@@ -360,9 +363,12 @@ struct MacViewerPage: View {
                             ZStack {
                                 Color.black
                                 if let poster { Image(platformImage: poster).resizable().scaledToFit() }
-                                spinner
+                                VideoLoadingRing(player: player)
                             }
                             .allowsHitTesting(false)
+                        } else if !(session?.switching ?? false) {
+                            // Mid-play stall: ring over the last frame, as on iPhone.
+                            VideoLoadingRing(player: player, onlyWhileWaiting: true)
                         }
                     }
                     .overlay { if let session { VideoSwitchingOverlay(session: session) } }
@@ -370,6 +376,12 @@ struct MacViewerPage: View {
                         if let session { VideoQualityMenu(session: session).padding(16) }
                     }
                     .onAppear { if isCurrent { player.play() } }
+                    .onReceive(NotificationCenter.default.publisher(for: AVPlayerItem.didPlayToEndTimeNotification)) { note in
+                        // "Loop videos" in Settings: start again instead of stopping on the last frame.
+                        guard Prefs.loopVideos, isCurrent, let ended = note.object as? AVPlayerItem, ended === player.currentItem else { return }
+                        player.seek(to: .zero)
+                        player.play()
+                    }
                     .onChange(of: isCurrent) { _, now in if now { player.play() } else { player.pause() } }
                     .onDisappear {
                         rememberPosition(player)
@@ -395,6 +407,8 @@ struct MacViewerPage: View {
                         .foregroundStyle(.white.opacity(0.85))
                         .multilineTextAlignment(.center)
                         .padding()
+                    Button("Try again") { reopenedAfterFailure = false; Task { await load() } }
+                        .buttonStyle(.bordered)
                 }
             }
         }
@@ -445,6 +459,21 @@ struct MacViewerPage: View {
             .background(.black.opacity(0.35), in: Circle())
     }
 
+    /// Opens a video that failed once more, then offers "Try again" (iPhone does the same in `ViewerView`).
+    private func videoFailed(_ error: NSError?) {
+        guard case .video = content else { return }
+        failureWatch = nil
+        if session != nil { videos.close(entry.id); session = nil }
+        if reopenedAfterFailure {
+            content = .unavailable("This video can't play right now. Check your connection and try again.", poster)
+            return
+        }
+        reopenedAfterFailure = true
+        appLog("Video failed; opening it once more")
+        content = .loading(poster)
+        Task { await load() }
+    }
+
     private func load() async {
         let env = AppEnvironment.shared
         let screen = await MainActor.run { () -> CGSize in
@@ -468,6 +497,7 @@ struct MacViewerPage: View {
                     // Closed or moved on while Photos fetched it: don't make a player nothing will stop.
                     guard !Task.isCancelled else { return }
                     let player = AVPlayer(playerItem: item)
+                    failureWatch = VideoFailureWatch(item: item) { videoFailed($0) }
                     resume(player)
                     content = .video(player)
                 } else {
@@ -502,6 +532,7 @@ struct MacViewerPage: View {
                 // fast version on a slow or metered connection (Settings → Video quality).
                 let s = videos.open(entry.id, item: item, reader: env.reader)
                 session = s
+                if let playing = s.player.currentItem { failureWatch = VideoFailureWatch(item: playing) { videoFailed($0) } }
                 resume(s.player)
                 content = .video(s.player)
             case .livePhoto:

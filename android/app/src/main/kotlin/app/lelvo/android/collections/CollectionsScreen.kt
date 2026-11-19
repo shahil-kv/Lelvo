@@ -274,7 +274,7 @@ internal fun CoverTile(row: Collections.Row, app: LelvoApp, width: Dp?, onClick:
         (if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .semantics(mergeDescendants = true) { contentDescription = "$title, ${row.count} items" },
+            .semantics(mergeDescendants = true) { contentDescription = "$title, ${row.count} ${if (row.count == 1) "item" else "items"}" },
     ) {
         Cover(row.cover, app, iconFor(row.filter), Modifier.fillMaxWidth().aspectRatio(1f))
         Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))

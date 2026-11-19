@@ -102,11 +102,110 @@ import LelvoCore
         #expect(try store.counts()[.backedUp] == 5000)
     }
 
+    /// The real upgrade: a database at schema 7 (before the ignore list) with items, notes and settings in it opens in the
+    /// new version, keeps every row, and gains only the new table.
+    @Test func aVersion7DatabaseUpgradesToTheIgnoreListWithoutLosingAnything() throws {
+        let url = tempURL()
+        defer { remove(url) }
+        do {
+            let store = try LibraryStore(url: url)
+            try store.upsert([item(1), item(2, status: .queued), item(3, status: .failed)])
+            store.setMeta("k", "v")
+            try store.setPhotosFavorites(["x": true])
+        }
+        // Make it look like the build before: no ignored_assets table, schema marked 7.
+        var db: OpaquePointer?
+        #expect(sqlite3_open(url.path, &db) == SQLITE_OK)
+        #expect(sqlite3_exec(db, "DROP TABLE ignored_assets; PRAGMA user_version = 7;", nil, nil, nil) == SQLITE_OK)
+        sqlite3_close(db)
+
+        let upgraded = try LibraryStore(url: url)
+        #expect(upgraded.schemaVersion == 9)
+        #expect(try upgraded.allItems().map(\.filename).sorted() == ["IMG_1.HEIC", "IMG_2.HEIC", "IMG_3.HEIC"])
+        #expect(upgraded.meta("k") == "v")
+        #expect(try upgraded.photosFavorites() == ["x": true])
+        #expect(try upgraded.ignoredAssets().isEmpty)
+        try upgraded.ignoreAsset(localIdentifier: "L3", reason: "Can't be read", modifiedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        // And it keeps working after another open.
+        let reopened = try LibraryStore(url: url)
+        #expect(reopened.schemaVersion == 9)
+        #expect(try reopened.ignoredAssets().map(\.localIdentifier) == ["L3"])
+    }
+
+    @Test func aVersion8DatabaseGainsTheDateIndexAndKeepsItsItems() throws {
+        let url = tempURL()
+        defer { remove(url) }
+        do {
+            let store = try LibraryStore(url: url)
+            try store.upsert([item(1), item(2)])
+        }
+        var db: OpaquePointer?
+        #expect(sqlite3_open(url.path, &db) == SQLITE_OK)
+        #expect(sqlite3_exec(db, "DROP INDEX idx_items_date; PRAGMA user_version = 8;", nil, nil, nil) == SQLITE_OK)
+        sqlite3_close(db)
+
+        let upgraded = try LibraryStore(url: url)
+        #expect(upgraded.schemaVersion == 9)
+        #expect(try upgraded.allItems().count == 2)
+        var check: OpaquePointer?
+        #expect(sqlite3_open(url.path, &check) == SQLITE_OK)
+        var stmt: OpaquePointer?
+        sqlite3_prepare_v2(check, "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_items_date';", -1, &stmt, nil)
+        #expect(sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 1)
+        sqlite3_finalize(stmt)
+        sqlite3_close(check)
+    }
+
+    @Test func ignoredAssetCountMatchesTheSetAsidePhotos() throws {
+        let url = tempURL()
+        defer { remove(url) }
+        let store = try LibraryStore(url: url)
+        #expect(try store.ignoredAssetCount() == 0)
+        try store.ignoreAsset(localIdentifier: "A", reason: "Can't be read", modifiedAt: nil)
+        try store.ignoreAsset(localIdentifier: "B", reason: "Can't be read", modifiedAt: nil)
+        #expect(try store.ignoredAssetCount() == 2)
+        #expect(try store.ignoredAssets().count == 2)
+    }
+
+    @Test func ignoredAmongFindsOnlyUnchangedSetAsidePhotos() throws {
+        let store = try LibraryStore(url: nil)
+        var a = item(1, status: .failed), b = item(2, status: .failed), c = item(3, status: .failed)
+        let stamp = Date(timeIntervalSince1970: 1_700_000_000)
+        a.assetModifiedAt = stamp; b.assetModifiedAt = stamp; c.assetModifiedAt = stamp
+        try store.ignoreAsset(localIdentifier: "L1", reason: "r", modifiedAt: stamp)
+        try store.ignoreAsset(localIdentifier: "L2", reason: "r", modifiedAt: stamp)
+        b.assetModifiedAt = stamp.addingTimeInterval(120)   // edited since it was set aside
+        #expect(try store.ignoredAmong([a, b, c]) == ["L1"])
+        #expect(try store.ignoredAmong([]).isEmpty)
+        #expect(try LibraryStore(url: nil).ignoredAmong([a]).isEmpty, "empty list: nothing to find")
+    }
+
+    @Test func aPhotoSetAsideStaysIgnoredUntilItChanges() throws {
+        let store = try LibraryStore(url: nil)
+        let before = Date(timeIntervalSince1970: 1_700_000_000)
+        try store.ignoreAsset(localIdentifier: "L1", reason: "File is damaged", modifiedAt: before)
+        #expect(try store.isIgnored(localIdentifier: "L1", modifiedAt: before))
+        #expect(try !store.isIgnored(localIdentifier: "L1", modifiedAt: before.addingTimeInterval(60)), "edited since: tried again")
+        #expect(try !store.isIgnored(localIdentifier: "L2", modifiedAt: before), "never set aside")
+        let listed = try #require(try store.ignoredAssets().first)
+        #expect(listed.reason == "File is damaged" && listed.modifiedAt == 1_700_000_000)
+        // Setting it aside again replaces, never duplicates.
+        try store.ignoreAsset(localIdentifier: "L1", reason: "Gone from iCloud", modifiedAt: nil)
+        #expect(try store.ignoredAssets().count == 1)
+        #expect(try store.isIgnored(localIdentifier: "L1", modifiedAt: nil))
+        try store.unignoreAsset(localIdentifier: "L1")
+        #expect(try store.ignoredAssets().isEmpty)
+        try store.ignoreAsset(localIdentifier: "A", reason: "r", modifiedAt: nil)
+        try store.ignoreAsset(localIdentifier: "B", reason: "r", modifiedAt: nil)
+        try store.unignoreAllAssets()
+        #expect(try store.ignoredAssets().isEmpty)
+    }
+
     @Test func searchWordsAreStoredAndMigrated() throws {
         let url = tempURL()
         defer { remove(url) }
         let store = try LibraryStore(url: url)
-        #expect(store.schemaVersion == 7)
+        #expect(store.schemaVersion == 9)
         try store.setSearch(key: "A", stamp: "1", words: "beach sunset", things: ["beach", "sunset_sunrise"], score: 0.4)
         try store.setSearch(key: "C", stamp: "1", words: "receipt", utility: true)
         #expect(try store.photoFacts()["A"] == .init(things: ["beach", "sunset_sunrise"], score: 0.4, utility: false))

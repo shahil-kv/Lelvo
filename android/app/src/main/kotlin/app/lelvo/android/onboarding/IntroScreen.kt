@@ -690,6 +690,10 @@ private fun Numbers(photos: PhotoAccess, partial: Boolean) {
         Text("%,d".format(count.value.toInt()), style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Bold))
         Text(if (partial) "photos and videos you've shared with Lelvo" else "photos and videos on this phone",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (partial) {
+            val context = LocalContext.current
+            TextButton(onClick = { context.startActivity(appSettings(context.packageName)) }) { Text("Allow all photos in Settings") }
+        }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Tile(stats?.let { size(it.bytes) } ?: "…", "to back up", MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))

@@ -25,6 +25,11 @@ final class ThumbnailPipeline: @unchecked Sendable {
     private var caching: PHCachingImageManager { AppEnvironment.shared.photos.gridImages }
     private let lock = NSLock()
     private var prefetching: [String: Task<Void, Never>] = [:]
+    /// While the grid flings (`ScrollLoadPolicy`), new loads wait here and start the moment it slows down.
+    private var deferring = false
+    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var lastScrollSample: Double = 0
+    private var watchdog: Task<Void, Never>?
 
     private init() {
         memory.countLimit = 3000
@@ -33,6 +38,79 @@ final class ThumbnailPipeline: @unchecked Sendable {
         #else
         memory.totalCostLimit = 150 * 1024 * 1024
         #endif
+    }
+
+    /// Holds back (or releases) loads that have not started yet. Safe from any thread; loads already running finish.
+    #if DEBUG
+    /// `-noFlingDeferral`: the scroll benchmark's "before" run, with new loads never held back.
+    private static let flingDeferralOff = ProcessInfo.processInfo.arguments.contains("-noFlingDeferral")
+    #endif
+
+    func setDeferring(_ on: Bool) {
+        #if DEBUG
+        if Self.flingDeferralOff { return }
+        #endif
+        lock.lock()
+        deferring = on
+        let release = on ? [] : Array(waiters.values)
+        if !on { waiters.removeAll(); watchdog?.cancel(); watchdog = nil }
+        if on, watchdog == nil {
+            // Safety net: whatever scrolled the list (a finger, the scrubber, code), loads are released shortly after the
+            // scroll events stop, so a missed "scroll ended" callback can never leave tiles blank.
+            watchdog = Task.detached { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    guard let self else { return }
+                    let state = self.deferralState()
+                    if !state.deferring { return }
+                    if state.idle { self.setDeferring(false); return }
+                }
+            }
+        }
+        lock.unlock()
+        release.forEach { $0.resume() }
+    }
+
+    /// Read under the lock in plain code: the lock can't be taken inside an async closure.
+    private func deferralState() -> (deferring: Bool, idle: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (deferring, CACurrentMediaTime() - lastScrollSample > 0.2)
+    }
+
+    /// Every scroll event says the list is still moving, which keeps a deferral alive.
+    func noteScroll(at time: Double) {
+        lock.lock()
+        lastScrollSample = time
+        lock.unlock()
+    }
+
+    var isDeferring: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return deferring
+    }
+
+    /// Returns at once unless a fling is in progress; then waits for the release (or cancellation).
+    private func waitWhileDeferring() async {
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                lock.lock()
+                if deferring && !Task.isCancelled {
+                    waiters[id] = cont
+                    lock.unlock()
+                } else {
+                    lock.unlock()
+                    cont.resume()
+                }
+            }
+        } onCancel: {
+            lock.lock()
+            let cont = waiters.removeValue(forKey: id)
+            lock.unlock()
+            cont?.resume()
+        }
     }
 
     /// Grid sizes in 128-pixel steps, so zooming the grid doesn't reload every frame.
@@ -60,6 +138,8 @@ final class ThumbnailPipeline: @unchecked Sendable {
             }
             let env = AppEnvironment.shared
             let task = Task.detached(priority: .userInitiated) { [self] in
+                await waitWhileDeferring()
+                if Task.isCancelled { cont.finish(); return }
                 if let asset = entry.asset {
                     for await raw in env.photos.thumbnails(for: asset, pixels: CGFloat(pixels)) {
                         if Task.isCancelled { break }
@@ -109,6 +189,8 @@ final class ThumbnailPipeline: @unchecked Sendable {
             let running = prefetching[entry.id] != nil
             if !running {
                 prefetching[entry.id] = Task.detached(priority: .utility) { [self] in
+                    await waitWhileDeferring()
+                    if Task.isCancelled { return }
                     if let img = try? await env.media.thumbnail(for: item, urgent: false) { store(img, pixels: Int.max, for: entry.id) }
                     _ = lock.withLock { prefetching.removeValue(forKey: entry.id) }
                 }
@@ -159,6 +241,7 @@ final class ThumbnailPipeline: @unchecked Sendable {
 
     func clearMemory() {
         memory.removeAllObjects()
+        ThumbHashImages.shared.clearMemory()
         caching.stopCachingImagesForAllAssets()
     }
 
@@ -169,4 +252,35 @@ final class ThumbnailPipeline: @unchecked Sendable {
         o.isNetworkAccessAllowed = true
         return o
     }()
+}
+
+/// Turns scroll offsets into points per second and feeds `ScrollLoadPolicy`. Main thread only; no allocation per call.
+struct ScrollSpeedMeter {
+    private var policy = ScrollLoadPolicy()
+    private var lastOffset: Double?
+    private var lastTime: Double = 0
+    private(set) var speed: Double = 0
+
+    /// Call on every scroll event. Pushes the decision to the pipeline only when it changes.
+    mutating func sample(offset: Double, time: Double) {
+        defer { lastOffset = offset; lastTime = time }
+        ThumbnailPipeline.shared.noteScroll(at: time)
+        guard let last = lastOffset, time - lastTime > 0.001 else { return }
+        // Smooth a little so one big frame delta does not trip the threshold.
+        speed = speed * 0.5 + abs(offset - last) / (time - lastTime) * 0.5
+        apply()
+    }
+
+    /// The scroll stopped (no more events): speed is zero, release everything held back.
+    mutating func stop() {
+        speed = 0
+        lastOffset = nil
+        apply()
+    }
+
+    private mutating func apply() {
+        policy.update(speedPointsPerSecond: speed)
+        // Compared with the pipeline itself, not the last answer: its watchdog may have released the loads already.
+        if policy.isDeferring != ThumbnailPipeline.shared.isDeferring { ThumbnailPipeline.shared.setDeferring(policy.isDeferring) }
+    }
 }

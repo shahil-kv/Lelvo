@@ -454,6 +454,8 @@ final class LibraryService: @unchecked Sendable {
         var thumbnailIds: [Int64: String] = [:]
         var from: Int64 = 0
         var newest: Int64 = 0
+        var paging = ScanPaging()
+        var reachedEnd = false
         scanLoop: while true {
             let page: FoundChatMessages
             do {
@@ -498,9 +500,16 @@ final class LibraryService: @unchecked Sendable {
                 }
             }
             progress?(summary.messages)
-            guard page.nextFromMessageId != 0, !page.messages.isEmpty else { break }
-            from = page.nextFromMessageId
+            switch paging.step(from: from, nextFromMessageId: page.nextFromMessageId, pageWasEmpty: page.messages.isEmpty) {
+            case .next(let id): from = id
+            case .finished: reachedEnd = true; break scanLoop
+            case .gaveUp: break scanLoop
+            }
         }
+        // Only a scan that reached Telegram's end may decide that something is gone from the channel. One that stopped
+        // early treats itself as a recent scan, and the next one starts again from the top.
+        let covered = full && reachedEnd
+        if full, !reachedEnd, fromSnapshot == nil { appLog("Library scan stopped before the end of the channel; nothing was marked missing") }
 
         thumbnails.record(thumbnailIds, chatId: chatId)
         // Before the scan position moves: a note that couldn't be downloaded is read again by the next scan.
@@ -521,8 +530,8 @@ final class LibraryService: @unchecked Sendable {
             Task.detached(priority: .utility) { [self] in _ = try? await self.scan(full: true) }
             return summary
         }
-        try merge(cloud: cloud, full: full, summary: &summary)
-        if full {
+        try merge(cloud: cloud, full: covered, summary: &summary)
+        if covered {
             // Notes no longer in the channel: removed by a device whose 30 days were over, or in the Telegram app.
             store.setMeta(Self.lastFullScanAtKey, String(Foundation.Date().timeIntervalSince1970))
             let inChannel = Set(foundNotes.map(\.messageId))
@@ -531,13 +540,13 @@ final class LibraryService: @unchecked Sendable {
             let metaInChannel = Set(foundMetaNotes.map(\.messageId))
             try store.removeMetaNotes(messageIds: try store.metaNotes().map(\.messageId).filter { !metaInChannel.contains($0) && $0 <= newest })
         }
-        try applyTrashNotes(messagesSeen: full)
+        try applyTrashNotes(messagesSeen: covered)
         // After the merge, which takes favorites and albums from the captions: notes and waiting changes go on top. A
         // recent scan only touches the items it read and the items in new notes; a full scan checks every one.
         try applyMetaNotes(only: full ? nil : newMetaIds.union(cloud.map(\.meta.id)))
-        if full { UserDefaults.standard.set(summary.orphans.map { NSNumber(value: $0) }, forKey: Self.duplicatesKey) }
+        if covered { UserDefaults.standard.set(summary.orphans.map { NSNumber(value: $0) }, forKey: Self.duplicatesKey) }
         if newest > 0 { UserDefaults.standard.set(Int(newest), forKey: Self.lastScanKey) }
-        if full {
+        if covered {
             store.setMeta(Self.repairedKey, "1")
             let found = summary
             lock.withLock { lastFullScan = (chatId, Foundation.Date(), found) }
@@ -921,10 +930,12 @@ final class LibraryService: @unchecked Sendable {
     private func merge(cloud: [CloudMessage], full: Bool, summary: inout ScanSummary) throws {
         // A partial scan only sees new messages; combine them with the parts already known.
         var messages = cloud
+        // Only a full scan needs every item (to find the ones gone from the channel). A recent scan runs on every backup
+        // and sync, so it reads just the items its messages belong to: not 40k rows each time.
+        let known: [MediaItem] = full ? try store.allItems() : try store.items(ids: Set(cloud.map(\.meta.id)))
         if !full {
-            let ids = Set(cloud.map(\.meta.id))
             let scanned = Set(cloud.map(\.messageId))
-            for item in try store.allItems() where ids.contains(item.id) {
+            for item in known {
                 messages += LibraryIndexer.knownMessages(of: item, excluding: scanned)
             }
         }
@@ -934,7 +945,7 @@ final class LibraryService: @unchecked Sendable {
         summary.orphans = result.orphanMessageIds
 
         var merged: [MediaItem] = []
-        let existing = Dictionary(uniqueKeysWithValues: try store.allItems().map { ($0.id, $0) })
+        let existing = Dictionary(uniqueKeysWithValues: known.map { ($0.id, $0) })
         for var item in result.items {
             if let local = existing[item.id] {
                 item = item.keepingLocalState(from: local)
@@ -964,7 +975,7 @@ final class LibraryService: @unchecked Sendable {
                     var missing = item
                     missing.status = .failed
                     missing.cloudParts = nil
-                    missing.lastError = "Not found in the Telegram channel any more. Tap Retry to upload it again."
+                    missing.lastError = MediaItem.notInCloudError
                     merged.append(missing)
                 } else {
                     try store.delete(id: item.id)

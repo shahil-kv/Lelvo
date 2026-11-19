@@ -2,6 +2,7 @@ import Foundation
 import Photos
 import AVFoundation
 import Network
+import ImageIO
 import LelvoCore
 
 /// Live state for the UI (Backup tab, progress bars).
@@ -193,7 +194,7 @@ final class BackupEngine: @unchecked Sendable {
                 return
             } catch {
                 guard case .floodWait(let s)? = (error as? TDServiceError)?.kind else { throw error }
-                gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+                holdForFlood(s)
             }
         }
     }
@@ -214,7 +215,7 @@ final class BackupEngine: @unchecked Sendable {
             return try await body()
         } catch {
             guard case .floodWait(let s)? = (error as? TDServiceError)?.kind else { throw error }
-            gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+            holdForFlood(s)
             throw error
         }
     }
@@ -235,6 +236,15 @@ final class BackupEngine: @unchecked Sendable {
     private let relinkLock = NSLock()
     private var running = false
     /// Every lane waits until this; written down so a new process honours a wait an earlier one was given.
+    /// Every `FLOOD_WAIT` goes through here so the log shows each pause; Scripts/check-log.sh checks no send starts inside it.
+    private func holdForFlood(_ s: Int) {
+        let until = gate.withLock { () -> Date in
+            pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s)))
+            return pausedUntil
+        }
+        appLog("FLOOD_WAIT \(s) s: uploads paused until \(ISO8601DateFormatter().string(from: until))")
+    }
+
     private var pausedUntil = Prefs.floodUntil {
         didSet { if pausedUntil != oldValue { Prefs.floodUntil = pausedUntil } }
     }
@@ -243,6 +253,50 @@ final class BackupEngine: @unchecked Sendable {
     private var pauseRequested = false
     private var laneTask: Task<Void, Never>?
     private var isPauseRequested: Bool { gate.withLock { pauseRequested } }
+
+    // MARK: Frozen runs
+
+    private var heartbeat = RunHeartbeat(startedAt: .distantPast)
+    private var frozenStopRequested = false
+    private var isFrozenStopRequested: Bool { gate.withLock { frozenStopRequested } }
+    /// Set by the first file that hits an error every file would hit (signed out, channel gone, disk full). The lanes stop
+    /// starting uploads; the queue is not walked into Failed.
+    private var runStopCause: RunStopCause?
+    private var currentRunStopCause: RunStopCause? { gate.withLock { runStopCause } }
+
+    /// Upload bytes went out, or an item finished.
+    private func noteMoved() { gate.withLock { heartbeat.moved(at: Date()) } }
+
+    /// A run iOS suspended mid-upload, still not moving after the app woke (see `RunHeartbeat`).
+    var hasFrozenRun: Bool { gate.withLock { running && heartbeat.isFrozen(at: Date()) } }
+
+    /// When a run is going but iOS suspended it since it last moved, waits up to `RunHeartbeat.frozenAfter` for it to
+    /// move. If it doesn't, stops it and waits for it to end. True when no run is going any more.
+    func stopFrozenRun() async -> Bool {
+        let suspended = gate.withLock { () -> Bool in
+            heartbeat.beat(at: Date())
+            return running && heartbeat.wasSuspended
+        }
+        guard suspended else { return !isRunning }
+        let until = Date().addingTimeInterval(RunHeartbeat.frozenAfter + 1)
+        while Date() < until, !hasFrozenRun, isRunning {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            gate.withLock { heartbeat.beat(at: Date()) }
+        }
+        let stop: (Task<Void, Never>?, TimeInterval)? = gate.withLock {
+            guard running, heartbeat.isFrozen(at: Date()) else { return nil }
+            frozenStopRequested = true
+            return (laneTask, Date().timeIntervalSince(heartbeat.movedAt))
+        }
+        guard let stop else { return !isRunning }
+        let (task, idle) = stop
+        appLog("A backup iOS suspended mid-upload hadn't moved for \(Int(idle)) s; stopping it to start again")
+        task?.cancel()
+        let ended = Date().addingTimeInterval(15)
+        while isRunning, Date() < ended { try? await Task.sleep(nanoseconds: 200_000_000) }
+        if isRunning { AppLog.shared.warn("The suspended backup didn't stop within 15 s") }
+        return !isRunning
+    }
 
     /// Stops the running backup immediately (in-flight uploads are cancelled and go back to the queue)
     /// and keeps it paused for automatic runs until the user taps Back up now.
@@ -530,19 +584,35 @@ final class BackupEngine: @unchecked Sendable {
             if userStarted { await announce(summary) }
             return summary
         }
-        let alreadyRunning: Bool = gate.withLock {
-            if running { return true }
-            running = true
-            return false
+        let claim: () -> Bool = { [self] in
+            gate.withLock {
+                if running { return false }
+                running = true
+                return true
+            }
         }
-        if alreadyRunning {
+        // A run iOS froze in the background would otherwise turn this one away for as long as the process lives.
+        var claimed = claim()
+        if !claimed, await stopFrozenRun() { claimed = claim() }
+        if !claimed {
             summary.error = StopReason.alreadyRunning.localizedDescription
             await publish { $0.isStarting = false }
             return summary
         }
         defer { gate.withLock { running = false; laneTask = nil } }
-        let isCancelled: @Sendable () -> Bool = { [weak self] in callerCancelled() || (self?.isPauseRequested ?? false) }
-        gate.withLock { pauseRequested = false }
+        let isCancelled: @Sendable () -> Bool = { [weak self] in
+            callerCancelled() || (self?.isPauseRequested ?? false) || (self?.isFrozenStopRequested ?? false)
+        }
+        gate.withLock { pauseRequested = false; frozenStopRequested = false; runStopCause = nil; heartbeat = RunHeartbeat(startedAt: Date()) }
+        // Beats while the process is awake; a long gap between beats means iOS suspended it.
+        let beating = Task.detached { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self else { return }
+                self.gate.withLock { self.heartbeat.beat(at: Date()) }
+            }
+        }
+        defer { beating.cancel() }
 
         await publish { $0.isRunning = true; $0.isStarting = false; $0.message = "Connecting to Telegram…" }
         do {
@@ -562,6 +632,19 @@ final class BackupEngine: @unchecked Sendable {
         // resetting one mid-upload made it look failed and offered to delete it.
         if let stale = try? env.store.items(status: .uploading).filter({ !$0.isImportInFlight }) {
             try? env.store.upsert(stale.map { var i = $0; i.job = JobMachine.reduce(i.job, .interrupted); return i })
+        }
+        // Photos that failed only on passing errors (network, timeout) get one more go, at most once a day (D1).
+        if let failed = try? env.store.items(status: .failed) {
+            let now = Date()
+            let retried: [MediaItem] = failed.compactMap { item in
+                guard item.localIdentifier != nil, !item.isStrandedInCloud,
+                      let job = JobMachine.autoRetry(item.job, now: now) else { return nil }
+                var i = item; i.job = job; return i
+            }
+            if !retried.isEmpty {
+                try? env.store.upsert(retried)
+                appLog("Trying \(retried.count) photos again that failed on a network error")
+            }
         }
 
         let onlyChosen = !includeNew && !Prefs.autoBackup
@@ -590,9 +673,13 @@ final class BackupEngine: @unchecked Sendable {
             for lane in 0..<Self.maxConcurrentUploads {
                 group.addTask { [self] in
                     while let item = await queue.next() {
+                        if let cause = currentRunStopCause {
+                            if await queue.drain() { appLog("Backup stopped: \(cause.message)") }
+                            break
+                        }
                         if isCancelled() || startBy.map({ Date() > $0 }) == true {
                             if await queue.drain() {
-                                appLog("Backup stopped: \(isPauseRequested ? "paused" : (startBy.map { Date() > $0 } == true ? "out of time for this run" : "ended by iOS"))")
+                                appLog("Backup stopped: \(isPauseRequested ? "paused" : isFrozenStopRequested ? "suspended by iOS" : (startBy.map { Date() > $0 } == true ? "out of time for this run" : "ended by iOS"))")
                             }
                             break
                         }
@@ -610,11 +697,16 @@ final class BackupEngine: @unchecked Sendable {
                             continue
                         }
                         await waitForFloodPause(isCancelled: isCancelled)
+                        // A retried item keeps its backoff (5 s, 10 s, 20 s…). Requeued in this run it came back
+                        // after one round, so a minute without Telegram used up every attempt and marked it failed.
+                        await waitForBackoff(of: item, isCancelled: isCancelled)
+                        if isCancelled() { continue }
                         // The check at the top of the loop stops the run and logs why.
                         guard await acquireLaneSlot(isCancelled: isCancelled) else { continue }
                         await paceUploadStart()
                         let outcome = await process(item, lane: lane, isCancelled: isCancelled)
                         gate.withLock { uploadSlots.release() }
+                        noteMoved()
                         if outcome == .retryLater, await queue.requeue(item) {
                             // Slowed down or a temporary network error: try again later in this same run.
                             continue
@@ -654,6 +746,7 @@ final class BackupEngine: @unchecked Sendable {
         if isPauseRequested {
             summary.error = "Paused. \(summary.uploaded) backed up in this run; tap Back up now to continue where it stopped."
         }
+        if let cause = currentRunStopCause { summary.error = cause.message }
         let final = summary
         await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.lanes = [:]; a.notice = nil }
         appLog("Backup run finished: \(summary.text)")
@@ -727,7 +820,11 @@ final class BackupEngine: @unchecked Sendable {
     func retryFailed() {
         // Without a photo on this device backup can't upload it (a failed Takeout import retries from the import
         // screen), and a retried row would sit in the queue for ever.
-        guard let failed = try? env.store.items(status: .failed).filter({ !$0.isStrandedInCloud && $0.localIdentifier != nil }) else { return }
+        guard let all = try? env.store.items(status: .failed).filter({ !$0.isStrandedInCloud && $0.localIdentifier != nil }) else { return }
+        // A photo with no original file fails the same way every time: it stays under Failed with its reason and is tried
+        // again only when the photo changes.
+        let setAside = (try? env.store.ignoredAmong(all)) ?? []
+        let failed = all.filter { !($0.localIdentifier.map(setAside.contains) ?? false) }
         // Retrying is an explicit choice: these upload even when the rest of the queue is left alone.
         try? env.store.upsert(failed.map { var i = $0; i.job = JobMachine.reduce(i.job, .retry); i.chosen = true; return i })
     }
@@ -762,6 +859,15 @@ final class BackupEngine: @unchecked Sendable {
     func waitBeforeSending() async throws {
         await waitForFloodPause(isCancelled: { Task.isCancelled || isPauseRequested })
         if Task.isCancelled || isPauseRequested { throw CancellationError() }
+    }
+
+    private func waitForBackoff(of queued: MediaItem, isCancelled: () -> Bool) async {
+        while !isCancelled() {
+            guard let until = (try? env.store.item(id: queued.id))?.notBefore else { return }
+            let wait = until.timeIntervalSinceNow
+            if wait <= 0 { return }
+            try? await Task.sleep(nanoseconds: UInt64(min(wait, 1) * 1_000_000_000))
+        }
     }
 
     private func waitForFloodPause(isCancelled: () -> Bool) async {
@@ -884,7 +990,10 @@ final class BackupEngine: @unchecked Sendable {
                 item.codec = video.codec
                 item.hdr = video.hdr
             }
-            item.tzOffsetMinutes = TimeZone.current.secondsFromGMT(for: asset.creationDate ?? Date()) / 60
+            // The zone the photo was taken in, from its EXIF, so a photo from abroad lands on its own day on every
+            // device (I14). The phone's zone only when the file has none (videos, screenshots, older cameras).
+            item.tzOffsetMinutes = (asset.mediaType == .image ? Self.exifOffsetMinutes(of: exp.primaryURL) : nil)
+                ?? TimeZone.current.secondsFromGMT(for: asset.creationDate ?? Date()) / 60
             item.assetModifiedAt = asset.modificationDate
             item.albums = env.photos.albumNames(for: asset)
             item.hidden = asset.isHidden ? true : nil
@@ -899,6 +1008,8 @@ final class BackupEngine: @unchecked Sendable {
                 try thumbData.write(to: thumbURL)
                 if let px = ImageDimensions.pixelSize(of: thumbData) { thumbSize = (px.width, px.height) }
                 _ = try? env.thumbnailCache.store(data: thumbData, for: CloudMediaService.thumbnailKey(item), ext: "jpg")
+                // The placeholder other devices show before this thumbnail downloads; nothing happens while the switch is off.
+                if ThumbHashRollout.writesToCaptions, let hash = ThumbHashMaker.hash(fromJPEG: thumbData) { item.thumbHash = hash }
             }
             defer { try? FileManager.default.removeItem(at: thumbURL) }
 
@@ -954,7 +1065,7 @@ final class BackupEngine: @unchecked Sendable {
                     },
                     progress: { [weak self] sent, _ in
                         let name = item.filename
-                        Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: name, sent: min(base + sent, streamTotal), total: streamTotal) } }
+                        self?.noteMoved(); Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: name, sent: min(base + sent, streamTotal), total: streamTotal) } }
                     })
                 item = (try store.item(id: itemId)) ?? item
                 item.setParts(parts, role: resource.role, expected: parts.count)
@@ -1192,7 +1303,7 @@ final class BackupEngine: @unchecked Sendable {
                 encrypted: item.encrypted, thumbnail: nil, existing: [],
                 checkpoint: { parts, expected, _ in try store.update(id: itemId) { $0.setParts(parts, role: "e", expected: expected) } },
                 progress: { [weak self] sent, total in
-                    Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: "\(name) (edit)", sent: sent, total: total) } }
+                    self?.noteMoved(); Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: "\(name) (edit)", sent: sent, total: total) } }
                 })
             item = (try store.item(id: itemId)) ?? item
             item.setParts(parts, role: "e", expected: parts.count)
@@ -1224,13 +1335,13 @@ final class BackupEngine: @unchecked Sendable {
 
     /// "Make Fast Version" in the viewer: the fast version of one video, now. A video that's no longer on this
     /// device is downloaded from Telegram first (the user asked for it; it stays in the viewing cache).
-    func makeFastVersion(itemId: String) async throws {
+    func makeFastVersion(itemId: String, remake: Bool = false) async throws {
         guard !DemoMode.isActive else { return }
         try await env.td.waitUntilReady(timeout: 20)
         guard let item = try env.store.item(id: itemId), item.status == .backedUp, item.kind == .video else {
             throw StreamingCopyError.unsupported
         }
-        guard !item.hasStreamingCopy else { return }
+        guard remake || !item.hasStreamingCopy else { return }
         if let id = item.localIdentifier, let asset = env.photos.asset(localIdentifier: id) {
             _ = try await uploadStreamingCopy(item, laneKey: "copy", force: true,
                                               encode: { try await self.env.photos.exportStreamingCopy(of: asset, to: $0) })
@@ -1268,6 +1379,14 @@ final class BackupEngine: @unchecked Sendable {
             _ = try store.update(id: itemId) { $0.cloudParts?["sp"] = nil; $0.expectedParts?["sp"] = nil }
         }
         let copy = try await encode(url)
+        // Never upload a copy that doesn't show what the original shows. (Edited videos: the original's size isn't the
+        // edit's, so there is nothing to compare.)
+        if item.hasEdit != true,
+           !VideoQualityPolicy.fastVersionMatches(originalWidth: item.pixelWidth, originalHeight: item.pixelHeight,
+                                                  copyWidth: copy.width, copyHeight: copy.height) {
+            appLog("No fast version for \(item.filename): it came out \(copy.width)x\(copy.height) for a \(item.pixelWidth)x\(item.pixelHeight) video")
+            throw StreamingCopyError.wrongShape
+        }
         let size = try CloudUploader.size(of: copy.url)
         guard force || StreamingCopyPolicy.isWorthKeeping(copyBytes: size, originalBytes: item.fileSize) else {
             _ = try? store.update(id: itemId) { $0.streamingCopySkipped = true }
@@ -1285,7 +1404,7 @@ final class BackupEngine: @unchecked Sendable {
             encrypted: item.encrypted, thumbnail: thumbnail, existing: [],
             checkpoint: { parts, expected, _ in try store.update(id: itemId) { $0.setParts(parts, role: "sp", expected: expected) } },
             progress: { [weak self] sent, total in
-                Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
+                self?.noteMoved(); Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
             })
         _ = try store.update(id: itemId) {
             $0.setParts(parts, role: "sp", expected: parts.count)
@@ -1294,6 +1413,7 @@ final class BackupEngine: @unchecked Sendable {
             hashes["sp"] = hash
             $0.roleHashes = hashes
         }
+        env.reader.forget(item, role: "sp")
         appLog("Uploaded the fast version of \(item.filename): \(Format.bytes(size)) for a \(Format.bytes(item.fileSize)) original")
         return true
     }
@@ -1337,7 +1457,7 @@ final class BackupEngine: @unchecked Sendable {
                 // Not on the device (only in iCloud Photos) or a network error: checked again on a later run.
                 AppLog.shared.warn("Couldn't complete the backup of \(item.filename) yet: \(error.localizedDescription)")
                 if case .floodWait(let s)? = (error as? TDServiceError)?.kind {
-                    gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+                    holdForFlood(s)
                     break
                 }
             }
@@ -1360,7 +1480,7 @@ final class BackupEngine: @unchecked Sendable {
                 try store.update(id: itemId) { $0.setParts(parts, role: resource.role, expected: expected, resume: resume) }
             },
             progress: { [weak self] sent, total in
-                Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
+                self?.noteMoved(); Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
             })
         _ = try store.update(id: itemId) {
             $0.setParts(parts, role: resource.role, expected: parts.count)
@@ -1446,7 +1566,7 @@ final class BackupEngine: @unchecked Sendable {
             encrypted: item.encrypted, thumbnail: thumbnail, existing: [],
             checkpoint: { parts, expected, _ in try store.update(id: itemId) { $0.setParts(parts, role: "d", expected: expected) } },
             progress: { [weak self] sent, total in
-                Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
+                self?.noteMoved(); Task { await self?.publish { $0.lanes[laneKey] = BackupActivity.LaneProgress(name: label, sent: sent, total: total) } }
             })
         _ = try store.update(id: itemId) {
             $0.setParts(parts, role: "d", expected: parts.count)
@@ -1466,7 +1586,7 @@ final class BackupEngine: @unchecked Sendable {
         if let td = error as? TDServiceError {
             if case .cancelled = td { return }
             if case .floodWait(let s) = td.kind {
-                gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+                holdForFlood(s)
             }
             AppLog.shared.warn("Screen copy of \(item.filename) will be retried: \(error.localizedDescription)")
             return
@@ -1484,7 +1604,7 @@ final class BackupEngine: @unchecked Sendable {
         if let td = error as? TDServiceError {
             if case .cancelled = td { return }
             if case .floodWait(let s) = td.kind {
-                gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+                holdForFlood(s)
             }
             AppLog.shared.warn("Fast version of \(item.filename) will be retried: \(error.localizedDescription)")
             return
@@ -1504,6 +1624,24 @@ final class BackupEngine: @unchecked Sendable {
             save(item)
             return .skipped
         }
+        // An error every file would hit: stop the run and keep this file waiting, with no attempt used.
+        // Disk full stops the run only when the device is nearly out of room. One huge file that doesn't fit would
+        // otherwise block every photo behind it, run after run.
+        let stopCause = Self.runStopCause(for: error)
+        if let cause = stopCause, cause != .deviceStorageFull || Self.deviceIsNearlyFull() {
+            gate.withLock { if runStopCause == nil { runStopCause = cause } }
+            item.job = JobMachine.reduce(item.job, .interrupted)
+            save(item)
+            AppLog.shared.warn("Backup run will stop: \(cause.message)")
+            return .skipped
+        }
+        // Out of space with room left on the device: this file alone doesn't fit. Five retries would fail the same way.
+        if stopCause == .deviceStorageFull {
+            item.job = JobMachine.reduce(item.job, .error(reason: RunStopClassifier.fileDoesNotFitMessage, transient: false))
+            save(item)
+            AppLog.shared.error("Upload of \(item.filename) failed: it doesn't fit in the free space")
+            return .failed
+        }
         let kind: TelegramErrorKind
         if let td = error as? TDServiceError { kind = td.kind }
         // Not enough space: retrying in this run would export the file again and fail the same way.
@@ -1511,7 +1649,7 @@ final class BackupEngine: @unchecked Sendable {
         else { kind = .transient }
         switch kind {
         case .floodWait(let s):
-            gate.withLock { pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s))) }
+            holdForFlood(s)
             item.job = JobMachine.reduce(item.job, .floodWait(seconds: s))
         case .transient:
             item.job = JobMachine.reduce(item.job, .error(reason: error.localizedDescription, transient: true))
@@ -1520,11 +1658,51 @@ final class BackupEngine: @unchecked Sendable {
         }
         save(item)
         if item.status == .failed {
+            if case PhotoLibraryError.noOriginalResource = error, let local = item.localIdentifier {
+                try? env.store.ignoreAsset(localIdentifier: local, reason: error.localizedDescription, modifiedAt: item.assetModifiedAt)
+            }
             AppLog.shared.error("Upload of \(item.filename) failed: \(error.localizedDescription)")
             return .failed
         }
         appLog("Upload of \(item.filename) will be retried: \(error.localizedDescription)")
         return .retryLater
+    }
+
+    /// `OffsetTimeOriginal` (or `OffsetTime`) of an exported image. Reads the properties only, not the pixels.
+    private static func exifOffsetMinutes(of url: URL) -> Int? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any],
+              let offset = (exif[kCGImagePropertyExifOffsetTimeOriginal] ?? exif[kCGImagePropertyExifOffsetTime]) as? String
+        else { return nil }
+        return ExifDate.offsetMinutes(offset)
+    }
+
+    private static func deviceIsNearlyFull() -> Bool {
+        #if DEBUG
+        if FaultInjection.fakesDeviceFull { return true }
+        #endif
+        return RunStopClassifier.diskFullStopsRun(freeBytes: CloudUploader.freeSpace(at: FileManager.default.temporaryDirectory),
+                                                  margin: CloudUploader.spaceMargin)
+    }
+
+    /// Telegram says the session or channel is unusable, or the OS says the disk is full (also as an underlying error).
+    static func runStopCause(for error: Error) -> RunStopCause? {
+        if let td = error as? TDServiceError {
+            switch td {
+            case .telegram(let code, let message): if let c = RunStopClassifier.cause(code: code, message: message) { return c }
+            case .sendFailed(let message): if let c = RunStopClassifier.cause(code: 400, message: message) { return c }
+            default: break
+            }
+        }
+        var current: NSError? = error as NSError
+        var depth = 0
+        while let e = current, depth < 4 {
+            if RunStopClassifier.isDiskFull(domain: e.domain, code: e.code) { return .deviceStorageFull }
+            current = e.userInfo[NSUnderlyingErrorKey] as? NSError
+            depth += 1
+        }
+        return nil
     }
 
     /// Caption for an extra file (`ad`, `ad2`, `ra`, `epv`): describes the file itself.

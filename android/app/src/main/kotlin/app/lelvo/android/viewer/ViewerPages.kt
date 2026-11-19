@@ -178,13 +178,15 @@ internal fun CloudPhotoPage(
     var file by remember(item.id) { mutableStateOf(media.cachedDisplayed(item)) }
     var sharp by remember(item.id) { mutableStateOf(false) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
+    // Bumped by "Try again": loads the photo once more without leaving the viewer.
+    var attempt by remember(item.id) { mutableStateOf(0) }
     val useCopy = remember(item.id) { media.hasScreenCopy(item) && file == null }
     // The pager also builds the pages either side. Only the page on screen downloads: neighbours fetched at the same
     // time split the connection six ways, and the photo being looked at came last. The viewer fetches them ahead
     // once this one is sharp (iOS `NeighbourPrefetcher`).
     var wanted by remember(item.id) { mutableStateOf(false) }
     if (current) wanted = true
-    LaunchedEffect(item.id, wanted) {
+    LaunchedEffect(item.id, wanted, attempt) {
         if (file != null || !wanted) return@LaunchedEffect
         try {
             // The screen copy first (a few hundred KB, on screen in about a second), then the photo.
@@ -228,14 +230,19 @@ internal fun CloudPhotoPage(
                 modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(50)).padding(12.dp),
             )
         }
-        error?.let { ViewerNotice(it, Modifier.align(Alignment.BottomCenter).padding(bottom = 140.dp)) }
+        error?.let { ViewerNotice(it, Modifier.align(Alignment.BottomCenter).padding(bottom = 140.dp), onRetry = { error = null; attempt++ }) }
     }
 }
 
 @Composable
-internal fun ViewerNotice(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text, color = Color.White, style = MaterialTheme.typography.bodyMedium,
+internal fun ViewerNotice(text: String, modifier: Modifier = Modifier, onRetry: (() -> Unit)? = null) {
+    androidx.compose.foundation.layout.Column(
         modifier = modifier.padding(24.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(12.dp)).padding(12.dp),
-    )
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(text, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+        if (onRetry != null) {
+            androidx.compose.material3.TextButton(onClick = onRetry) { Text("Try again", color = Color.White) }
+        }
+    }
 }

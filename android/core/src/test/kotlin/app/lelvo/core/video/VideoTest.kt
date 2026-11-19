@@ -112,4 +112,18 @@ class StreamingCopyPolicyTest {
         kotlin.test.assertEquals(3_000_000, StreamingCopyPolicy.targetBitsPerSecond(60f))
         kotlin.test.assertEquals(2_000_000, StreamingCopyPolicy.targetBitsPerSecond(30f))
     }
+
+    @Test
+    fun fastVersionMustHaveTheOriginalsShape() {
+        assertTrue(VideoQualityPolicy.fastVersionMatches(720, 1280, 720, 1280))
+        assertTrue(VideoQualityPolicy.fastVersionMatches(2160, 3840, 1080, 1920))
+        assertTrue(VideoQualityPolicy.fastVersionMatches(3840, 2160, 1920, 1080))
+        // The broken copy seen on a real library: 692x1920 for a 720x1280 original.
+        assertFalse(VideoQualityPolicy.fastVersionMatches(720, 1280, 692, 1920))
+        assertFalse(VideoQualityPolicy.fastVersionMatches(720, 1280, 1280, 720))
+        assertTrue(VideoQualityPolicy.fastVersionMatches(720, 1280, 1280, 720, allowTurned = true))
+        assertFalse(VideoQualityPolicy.fastVersionMatches(720, 1280, 692, 1920, allowTurned = true))
+        assertTrue(VideoQualityPolicy.fastVersionMatches(0, 0, 692, 1920))
+        assertFalse(VideoQualityPolicy.fastVersionMatches(720, 1280, 0, 0))
+    }
 }

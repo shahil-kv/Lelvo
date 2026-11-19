@@ -48,6 +48,17 @@ public enum VideoQualityPolicy {
     /// The original paused to load for this long while playing: switch to the copy (Automatic only).
     public static let stallSecondsBeforeFallback: TimeInterval = 3
 
+    /// A fast version shows the same picture as the original, only smaller: the same shape (width : height). A copy
+    /// built on a wrong frame size (turned, stretched, with black bars) fails this, and plays the original instead.
+    /// Unknown original size: nothing to compare, so it passes. Unknown copy size: it can't be shown, so it fails.
+    public static func fastVersionMatches(originalWidth: Int, originalHeight: Int, copyWidth: Int, copyHeight: Int) -> Bool {
+        guard originalWidth > 0, originalHeight > 0 else { return true }
+        guard copyWidth > 0, copyHeight > 0 else { return false }
+        let original = Double(originalWidth) / Double(originalHeight)
+        let copy = Double(copyWidth) / Double(copyHeight)
+        return abs(original - copy) / original <= 0.03
+    }
+
     /// Automatic always starts on the fast version when there is one: it plays at once on any connection, and the
     /// viewer's quality button switches to the original whenever the user wants it.
     public static func initial(preference: VideoQualityPreference, hasCopy: Bool, isExpensiveNetwork: Bool,

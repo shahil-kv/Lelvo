@@ -31,6 +31,7 @@ struct LelvoApp: App {
         UITestSupport.prepareIfNeeded()
         #if DEBUG
         ScrollBenchmark.runIfRequested()
+        QAHooks.runIfRequested()
         #endif
     }
 

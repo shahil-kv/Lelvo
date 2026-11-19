@@ -154,6 +154,26 @@ final class CollectionsButtonsTests: XCTestCase {
         XCTAssertTrue(grid.cells.firstMatch.waitForExistence(timeout: 15))
     }
 
+    /// Test plan 3.7.
+    func testLivePhotosOpens() throws {
+        // Rows with no items are hidden, like Photos; the demo library has none of these.
+        guard row("Live Photos").waitForExistence(timeout: 5) else { throw XCTSkip("No Live Photos items in this library") }
+        open("Live Photos")
+        sleep(2)
+        screenshot("live-photos")
+        XCTAssertTrue(app.navigationBars["Live Photos"].waitForExistence(timeout: 10))
+    }
+
+    /// Test plan 3.10.
+    func testNotBackedUpOpens() throws {
+        // Rows with no items are hidden, like Photos; the demo library has none of these.
+        guard row("Not backed up").waitForExistence(timeout: 5) else { throw XCTSkip("No Not backed up items in this library") }
+        open("Not backed up")
+        sleep(2)
+        screenshot("not-backed-up")
+        XCTAssertTrue(app.navigationBars["Not backed up"].waitForExistence(timeout: 10))
+    }
+
     func testOnlyInTheCloudOpens() {
         open("Only in the cloud")
         XCTAssertTrue(grid.cells.firstMatch.waitForExistence(timeout: 15))

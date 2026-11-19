@@ -287,6 +287,16 @@ enum AutoStart {
     @MainActor static func onOpen() {
         let activity = BackupActivity.shared
         let env = AppEnvironment.shared
+        // A run iOS suspended in the background still says "Backing up" and blocks every start. Stop it, then look again.
+        if env.engine.isRunning, !looking {
+            looking = true
+            Task {
+                let free = await env.engine.stopFrozenRun()
+                looking = false
+                if free { onOpen() }
+            }
+            return
+        }
         guard env.isConfigured, !activity.isRunning, !activity.isStarting, !env.engine.isRunning,
               ContinuedBackup.foregroundTask == nil, !looking,
               Date().timeIntervalSince(lastStart) > 5 * 60,

@@ -70,7 +70,22 @@ final class AppEnvironment: @unchecked Sendable {
         thumbnailCache.setCapacity(Prefs.thumbnailCacheBytes)
         originalsCache.setCapacity(Prefs.mediaCacheBytes)
         if td.isReady { await td.optimizeStorage(maxBytes: Prefs.mediaCacheBytes) }
-        await Task.detached(priority: .utility) { Self.removeOldShareCopies() }.value
+        await Task.detached(priority: .utility) {
+            Self.removeOldShareCopies()
+            Self.removeStaleStagingFiles()
+        }.value
+    }
+
+    /// Temporary export, encode and download files a run left behind when the app was closed or killed mid-way (a
+    /// finished or failed run removes its own). A day old is never in use.
+    private static func removeStaleStagingFiles(olderThan age: TimeInterval = 24 * 60 * 60) {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        let raw = AppEnvironment.shared.stagingDirectory.appendingPathComponent("raw", isDirectory: true)
+        for url in (try? fm.contentsOfDirectory(at: raw, includingPropertiesForKeys: keys)) ?? [] {
+            let date = (try? url.resourceValues(forKeys: Set(keys)))?.contentModificationDate
+            if let date, Date().timeIntervalSince(date) > age { try? fm.removeItem(at: url) }
+        }
     }
 
     /// Sharing copies the whole file so it carries its real name, and the system can't say when the share ended. A

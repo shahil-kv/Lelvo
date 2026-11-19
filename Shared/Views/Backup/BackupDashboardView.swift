@@ -14,8 +14,17 @@ final class BackupStatsModel: ObservableObject {
     @Published var left = 0
     /// Failed items a retry can help.
     @Published var retryable = 0
+    @Published var missingFromCloud = 0
+    /// The header and Retry wording for the failed items, from the shared rule (`BackupCounts`).
+    var failureWords: BackupCounts {
+        var c = BackupCounts()
+        c.failed = failed; c.retryable = retryable; c.missingFromCloud = missingFromCloud
+        return c
+    }
     /// Photos here that the user deleted from the backup.
     @Published var removedFromBackup = 0
+    /// Photos set aside as unreadable (ignore list).
+    @Published var skipped = 0
     private var observer: NSObjectProtocol?
     private var pendingRefresh: Task<Void, Never>?
 
@@ -54,6 +63,8 @@ final class BackupStatsModel: ObservableObject {
             let counts = (try? env.store.counts()) ?? [:]
             let queued = ((try? env.store.items(status: .queued)) ?? []) + ((try? env.store.items(status: .uploading)) ?? [])
             let failedItems = (try? env.store.items(status: .failed)) ?? []
+            let ignored = (try? env.store.ignoredAmong(failedItems)) ?? []
+            let skippedCount = (try? env.store.ignoredAssetCount()) ?? 0
             let autoBackup = Prefs.autoBackup
             // Ids only: decoding every backed-up item here every few seconds kept a large library busy during a backup.
             let all = (try? env.store.localIdentifiers(status: .backedUp)) ?? []
@@ -61,7 +72,7 @@ final class BackupStatsModel: ObservableObject {
             var work: BackupCounts
             if DemoMode.isActive {
                 // App Review demo: the sample items waiting for "Back up now" stand in for this iPhone's photos.
-                work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup)
+                work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup, ignored: ignored)
                 work.notQueued = DemoMode.pendingItems().count
                 onDevice = work.notQueued
                 cloudOnly = all.count
@@ -70,12 +81,12 @@ final class BackupStatsModel: ObservableObject {
                 onDevice = assets.count
                 work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: env.photos.backupCandidates().map(\.localIdentifier),
                                             known: (try? env.store.knownLocalIdentifiers()) ?? [],
-                                            offBackup: (try? env.store.offBackupLocalIdentifiers()) ?? [], autoBackup: autoBackup)
+                                            offBackup: (try? env.store.offBackupLocalIdentifiers()) ?? [], autoBackup: autoBackup, ignored: ignored)
                 let present = env.photos.existingIdentifiers(all.compactMap { $0 })
                 cloudOnly = all.filter { $0.map { !present.contains($0) } ?? true }.count
                 removed = RemovedFromBackupModel.photos().count
             } else {
-                work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup)
+                work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup, ignored: ignored)
                 cloudOnly = all.count
             }
             let (onDeviceCount, cloudOnlyCount, removedCount, result) = (onDevice, cloudOnly, removed, work)
@@ -84,11 +95,13 @@ final class BackupStatsModel: ObservableObject {
                 self.pending = result.pending(autoBackup: autoBackup)
                 self.failed = result.failed
                 self.retryable = result.retryable
+                self.missingFromCloud = result.missingFromCloud
                 self.cloudOnly = cloudOnlyCount
                 self.onDevice = onDeviceCount
                 self.notQueued = result.notQueued
                 self.left = result.left
                 self.removedFromBackup = removedCount
+                self.skipped = skippedCount
                 self.lastTotal = counts.values.reduce(0, +)
                 self.refreshing = false
                 if self.refreshAgain { self.refreshAgain = false; self.scheduleRefresh() }
@@ -187,7 +200,7 @@ struct BackupDashboardView: View {
                                 ContinuedBackup.start()
                             }
                         } label: {
-                            Label("Retry \(stats.retryable) failed", systemImage: "arrow.clockwise")
+                            Label(stats.failureWords.retryLabel, systemImage: "arrow.clockwise")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
@@ -271,6 +284,11 @@ struct BackupDashboardView: View {
                     NavigationLink { FailedItemsView() } label: {
                         statRow("Failed", stats.failed, "exclamationmark.icloud.fill", stats.failed > 0 ? .red : .secondary)
                     }
+                    if stats.skipped > 0 {
+                        NavigationLink { SkippedPhotosView() } label: {
+                            statRow("Skipped photos", stats.skipped, "eye.slash", .secondary)
+                        }
+                    }
                     if stats.removedFromBackup > 0 {
                         NavigationLink { RemovedFromBackupView() } label: {
                             statRow("Removed from backup", stats.removedFromBackup, "icloud.slash", .secondary)
@@ -324,10 +342,12 @@ struct BackupDashboardView: View {
         }
     }
 
-    private enum HeaderState { case running, complete, completeWithFailures, pending, notBackedUp }
+    private enum HeaderState { case running, stopped, complete, completeWithFailures, pending, notBackedUp }
 
     private var headerState: HeaderState {
         if activity.isRunning { return .running }
+        // A run that hit an error every file would hit (signed out, channel gone, disk full) says why, not "complete".
+        if activity.lastSummary?.error != nil { return .stopped }
         if stats.pending > 0 { return .pending }
         if stats.notQueued > 0 { return .notBackedUp }
         return stats.failed > 0 ? .completeWithFailures : .complete
@@ -351,7 +371,9 @@ struct BackupDashboardView: View {
             (icon, tint, title) = ("checkmark.icloud.fill", .green, "Backup complete")
         case .completeWithFailures:
             (icon, tint, title) = ("exclamationmark.icloud.fill", .orange,
-                                   "Backup complete, \(stats.failed) item\(stats.failed == 1 ? "" : "s") couldn't be backed up")
+                                   stats.failureWords.failedHeadline)
+        case .stopped:
+            (icon, tint, title) = ("exclamationmark.icloud.fill", .orange, "Backup stopped")
         case .running, .pending:
             (icon, tint, title) = ("icloud.and.arrow.up", .accentColor, "\(left) item\(left == 1 ? "" : "s") left to back up")
         case .notBackedUp:
@@ -360,7 +382,7 @@ struct BackupDashboardView: View {
         }
         let mark: CatchingMark.Status = switch state {
         case .complete: .complete
-        case .completeWithFailures: .attention
+        case .completeWithFailures, .stopped: .attention
         case .running: .working
         case .pending, .notBackedUp: .idle
         }
@@ -372,7 +394,7 @@ struct BackupDashboardView: View {
                 Text(title).font(.headline).multilineTextAlignment(.center)
                     .contentTransition(.numericText())
             } icon: {
-                if state == .completeWithFailures || state == .notBackedUp {
+                if state == .completeWithFailures || state == .notBackedUp || state == .stopped {
                     Image(systemName: icon).foregroundStyle(tint)
                 }
             }
@@ -381,6 +403,7 @@ struct BackupDashboardView: View {
             Text(state == .complete ? (stats.removedFromBackup > 0
                     ? "Everything else on this \(Device.name) is backed up. \(Self.removedLine(stats.removedFromBackup, device: Device.name))"
                     : "Everything on this \(Device.name) is backed up")
+                 : state == .stopped ? (activity.lastSummary?.error ?? "")
                  : state == .notBackedUp ? "Back up now uploads them all, or choose photos in Photos and tap Back up."
                  : "To your Telegram library")
                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)

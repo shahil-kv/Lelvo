@@ -603,6 +603,9 @@ final class TDService: @unchecked Sendable {
     /// `progress` reports (uploaded, total) bytes.
     func sendDocument(chatId: Int64, fileURL: URL, caption: String, thumbnail: (URL, Int, Int)?,
                       progress: ((Int64, Int64) -> Void)? = nil) async throws -> Message {
+        #if DEBUG
+        try await FaultInjection.beforeSend()
+        #endif
         await ensureChat(chatId)
         let client = try requireClient()
         let content = InputMessageContent.inputMessageDocument(InputMessageDocument(
@@ -620,6 +623,10 @@ final class TDService: @unchecked Sendable {
             pending = try await client.sendMessage(chatId: chatId, inputMessageContent: content, options: options,
                                                    replyMarkup: nil, replyTo: nil, topicId: nil)
         } catch { throw error.asTD }
+        // Start/end lines let Scripts/check-log.sh prove the two-upload limit and that FLOOD_WAIT pauses were kept.
+        appLog("Send started (message \(pending.id))")
+        var sendOK = false
+        defer { appLog("Send ended (message \(pending.id), \(sendOK ? "ok" : "failed"))") }
 
         var fileId: Int?
         var watchdog: Task<Void, Never>?
@@ -658,7 +665,7 @@ final class TDService: @unchecked Sendable {
             if let id = fileId { setUploadObserver(id, nil) }
         }
 
-        return try await withTaskCancellationHandler {
+        let sent = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (c: CheckedContinuation<Message, Swift.Error>) in
                 self.awaitSend(pending.id, c)
             }
@@ -666,6 +673,8 @@ final class TDService: @unchecked Sendable {
             Task { _ = try? await client.deleteMessages(chatId: chatId, messageIds: [pending.id], revoke: true) }
             self.finishSend(oldId: pending.id, result: .failure(TDServiceError.cancelled))
         }
+        sendOK = true
+        return sent
     }
 
     func sendText(chatId: Int64, text: String) async throws -> Message {
@@ -1085,6 +1094,15 @@ final class TDService: @unchecked Sendable {
             throw error.asTD
         }
     }
+
+    #if DEBUG
+    /// QA only: deletes messages the way another device would, so this device hears it as an outside change.
+    func qaDeleteAsIfElsewhere(chatId: Int64, ids: [Int64]) async throws {
+        await ensureChat(chatId)
+        _ = try? await requireClient().getMessages(chatId: chatId, messageIds: ids)
+        _ = try await requireClient().deleteMessages(chatId: chatId, messageIds: ids, revoke: true)
+    }
+    #endif
 
     /// Which of these messages are still in the channel. Asks for up to 100 at once, so Recover All on thousands of photos
     /// stays a few requests. `getMessages` answers with nulls for missing messages, which TDLibKit's `[Message]` can't

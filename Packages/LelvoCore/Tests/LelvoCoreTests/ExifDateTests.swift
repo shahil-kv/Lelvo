@@ -3,6 +3,13 @@ import Foundation
 @testable import LelvoCore
 
 @Suite struct ExifDateTests {
+    @Test func offsetAloneGivesTheCaptionZone() {
+        #expect(ExifDate.offsetMinutes("+09:00") == 540)
+        #expect(ExifDate.offsetMinutes("-03:30") == -210)
+        #expect(ExifDate.offsetMinutes("+0530") == 330)
+        #expect(ExifDate.offsetMinutes("   ") == nil)
+    }
+
     @Test func offsetShiftsTheInstantAndKeepsTheZone() throws {
         let parsed = try #require(ExifDate.parse("2019:07:04 18:22:01", offset: "+05:30"))
         #expect(parsed.date == utc("2019-07-04T12:52:01Z"))

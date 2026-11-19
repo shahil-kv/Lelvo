@@ -112,7 +112,12 @@ struct MacBackupView: View {
         let (icon, tint, title): (String, Color, String) = {
             switch state {
             case .complete: return ("checkmark.icloud.fill", .green, "Backup Complete")
-            case .failures: return ("exclamationmark.icloud.fill", .orange, "\(stats.failed) Item\(stats.failed == 1 ? "" : "s") Couldn't Be Backed Up")
+            case .failures:
+                // Only lost their messages in Telegram: say so, not "couldn't be backed up" (D2).
+                let words = stats.failureWords
+                let title = words.missingFromCloud == stats.failed ? words.failedHeadline
+                    : "\(stats.failed) Item\(stats.failed == 1 ? "" : "s") Couldn't Be Backed Up"
+                return ("exclamationmark.icloud.fill", .orange, title)
             case .running: return ("icloud.and.arrow.up.fill", .accentColor, "Backing Up \(left.formatted()) Item\(left == 1 ? "" : "s")")
             case .notBackedUp: return (paused ? "pause.circle.fill" : "icloud.slash.fill", paused ? .orange : .gray,
                                        "\(left.formatted()) Item\(left == 1 ? "" : "s") Not Backed Up")
@@ -162,7 +167,8 @@ struct MacBackupView: View {
             return stats.removedFromBackup > 0
                 ? "Everything else in Photos on this Mac is in your Telegram library. \(BackupDashboardView.removedLine(stats.removedFromBackup, device: "Mac"))"
                 : "Everything in Photos on this Mac is in your Telegram library."
-        case .failures: return "Everything else is safe. Retry, or open Failed to see why."
+        case .failures:
+            return stats.missingFromCloud == stats.failed ? "Everything else is safe." : "Everything else is safe. Retry, or open Failed to see why."
         case .notBackedUp: return paused ? "Paused. Automatic backups wait until you resume." : "Back Up Now uploads them all."
         }
     }
@@ -195,7 +201,7 @@ struct MacBackupView: View {
                 .controlSize(.large)
                 .keyboardShortcut("b", modifiers: .command)
         } else if stats.retryable > 0 {
-            Button("Retry") {
+            Button(stats.missingFromCloud == stats.failed ? "Back Up Again" : "Retry") {
                 ToastCenter.shared.show(.info, "Retrying \(stats.retryable) failed")
                 Task {
                     await Task.detached { AppEnvironment.shared.engine.retryFailed() }.value

@@ -32,6 +32,8 @@ object AppLog {
         this.secrets = secrets
         this.echo = echo
         this.dir = dir
+        // Marks a relaunch, so Scripts/check-log.py drops sends the killed process never ended.
+        info("Log opened for a new app process")
     }
 
     val file: File? get() = dir?.let { File(it, "lelvo.log") }

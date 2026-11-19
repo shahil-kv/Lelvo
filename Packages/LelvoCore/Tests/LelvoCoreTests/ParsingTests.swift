@@ -115,3 +115,20 @@ import LelvoCore
         #expect(Redactor.redact("my secret passphrase", extraSecrets: ["secret passphrase"]) == "my <redacted>")
     }
 }
+
+@Suite struct FileNamesTests {
+    @Test func longNamesFitWithTheirExtension() {
+        let long = "D13-" + String(repeating: "long", count: 56) + ".jpg"
+        let safe = FileNames.safe(long)
+        #expect(safe.utf8.count <= FileNames.maxBytes)
+        #expect(safe.hasSuffix(".jpg"))
+        #expect(safe.hasPrefix("D13-long"))
+        #expect(FileNames.safe("IMG_0001.HEIC") == "IMG_0001.HEIC")
+        #expect(FileNames.safe("a/b:c.jpg") == "a_b_c.jpg")
+        #expect(FileNames.safe("") == "file")
+        let emoji = String(repeating: "😀", count: 60) + ".png"
+        let cut = FileNames.safe(emoji)
+        #expect(cut.utf8.count <= FileNames.maxBytes)
+        #expect(cut.hasSuffix("😀.png"))
+    }
+}

@@ -462,7 +462,7 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color.screenBackground.ignoresSafeArea()
             Group {
                 switch m.step {
                 case .welcome:
@@ -499,7 +499,6 @@ struct OnboardingView: View {
         .textFieldStyle(.plain)
         .focusEffectDisabled()
         .macBorderlessButtons()
-        .preferredColorScheme(.dark)
     }
 
     // MARK: - Steps
@@ -713,13 +712,14 @@ private struct LibraryScreen: View {
                         m.createLibrary()
                     }
                     .padding(20)
+                    // Solid, so the warning card scrolls under the button instead of showing through it (I6).
+                    .background(.bar)
                 }
                 .navigationTitle("New library")
                 .inlineNavigationTitle()
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { creating = false } } }
             }
             .presentationDetents([.large])
-            .preferredColorScheme(.dark)
         }
     }
 
@@ -737,7 +737,7 @@ private struct LibraryScreen: View {
                 Button("Rename") { editingName = true }.font(.subheadline.weight(.semibold))
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
-            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             Text("You can rename it any time in Settings.").font(.footnote).foregroundStyle(.secondary).padding(.top, -10)
         }
     }
@@ -797,7 +797,7 @@ struct LibraryCard: View {
             if selected, let onRename {
                 Button(action: onRename) {
                     Image(systemName: "pencil").font(.subheadline.weight(.semibold))
-                        .frame(width: 34, height: 34).background(Color.white.opacity(0.1), in: Circle())
+                        .frame(width: 34, height: 34).background(Color.primary.opacity(0.1), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Rename \(title)")
@@ -806,7 +806,7 @@ struct LibraryCard: View {
                 .font(.title3).foregroundStyle(selected ? Color.accentColor : .secondary)
         }
         .padding(16)
-        .background(Color.white.opacity(selected ? 0.1 : 0.05), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(Color.primary.opacity(selected ? 0.1 : 0.05), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(selected ? Color.accentColor : .clear, lineWidth: 1.5))
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
@@ -877,7 +877,7 @@ struct PassphraseSetup: View {
                     Spacer(minLength: 0)
                 }
                 .padding(12)
-                .background(Color.white.opacity(acknowledged ? 0.1 : 0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color.primary.opacity(acknowledged ? 0.1 : 0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -936,7 +936,7 @@ private struct OnboardingPage<Content: View>: View {
                 if m.canGoBack {
                     Button { m.back() } label: {
                         Image(systemName: "chevron.left").font(.body.weight(.semibold))
-                            .frame(width: 40, height: 40).background(Color.white.opacity(0.1), in: Circle())
+                            .frame(width: 40, height: 40).background(Color.primary.opacity(0.1), in: Circle())
                     }
                     .foregroundStyle(.primary)
                     .accessibilityLabel("Back")
@@ -978,9 +978,9 @@ private struct OnboardingPage<Content: View>: View {
                     .padding(.horizontal, 24).padding(.vertical, 12)
                     // Solid behind the button so fields scrolling under it never show through.
                     .background {
-                        Color.black
+                        Color.screenBackground
                             .overlay(alignment: .top) {
-                                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                                LinearGradient(colors: [.clear, .screenBackground], startPoint: .top, endPoint: .bottom)
                                     .frame(height: 28).offset(y: -28)
                             }
                             .ignoresSafeArea(edges: .bottom)
@@ -990,7 +990,7 @@ private struct OnboardingPage<Content: View>: View {
     }
 }
 
-/// Large white capsule, like the primary buttons in Apple's and Telegram's onboarding.
+/// Large capsule in the text colour (white in dark mode, black in light), like Apple's and Telegram's onboarding.
 struct PrimaryCapsuleButton: View {
     let title: String
     var enabled = true
@@ -1007,18 +1007,18 @@ struct PrimaryCapsuleButton: View {
                 Text(title).opacity(busy ? 0 : 1)
                 if busy {
                     HStack(spacing: 10) {
-                        ProgressView().tint(.black)
+                        ProgressView().tint(Color.screenBackground)
                         if let busyTitle { Text(busyTitle) }
                     }
-                    .foregroundStyle(Color.black)
+                    .foregroundStyle(Color.screenBackground)
                 }
             }
             .font(.headline)
-            .foregroundStyle(enabled ? Color.black : Color.white.opacity(0.45))
+            .foregroundStyle(enabled ? Color.screenBackground : Color.primary.opacity(0.4))
             .frame(maxWidth: 520)
             .frame(height: 54)
             // Solid when disabled too: a see-through button shows whatever scrolls under it.
-            .background(enabled || busy ? Color.white : Color(white: 0.2), in: Capsule())
+            .background(enabled || busy ? Color.primary : Color.primary.opacity(0.12), in: Capsule())
         }
         .buttonStyle(PressScaleStyle())
         .disabled(!enabled || busy)
@@ -1045,13 +1045,22 @@ struct OnboardingField: View {
     @State private var revealed = false
     @FocusState private var focused: Bool
 
+    /// UI tests can't type into a field the system offers to fill with a strong password, so `-QAPlainFields` turns
+    /// the content type off (test plan 1.4, OPEN_ISSUES I7).
+    private var contentType: UITextContentType? {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-QAPlainFields") { return nil }
+        #endif
+        return content
+    }
+
     var body: some View {
         HStack {
             Group {
                 if secure && !revealed { SecureField(placeholder, text: $text) }
                 else { TextField(placeholder, text: $text).platformKeyboard(keyboard) }
             }
-            .textContentType(content)
+            .textContentType(contentType)
             .textFieldStyle(.plain)
             .focusEffectDisabled()
             .autocorrectionDisabled()
@@ -1068,7 +1077,7 @@ struct OnboardingField: View {
         .font(.body)
         .padding(.horizontal, 16)
         .frame(height: 54)
-        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(focused ? Color.accentColor : .clear, lineWidth: 1.5))
         .onAppear { if autofocus { focused = true } }
     }
@@ -1098,7 +1107,7 @@ private struct PhoneScreen: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                Divider().overlay(Color.white.opacity(0.1))
+                Divider().overlay(Color.primary.opacity(0.1))
                 HStack(spacing: 0) {
                     HStack(spacing: 2) {
                         Text("+").foregroundStyle(.secondary)
@@ -1112,27 +1121,25 @@ private struct PhoneScreen: View {
                             }
                     }
                     .padding(.horizontal, 16)
-                    Divider().frame(height: 30).overlay(Color.white.opacity(0.15))
+                    Divider().frame(height: 30).overlay(Color.primary.opacity(0.15))
                     TextField("Phone number", text: $m.nationalNumber)
                         .platformKeyboard(.numberPad)
                         .textContentType(.telephoneNumber)
                         .focused($numberFocused)
                         .padding(.horizontal, 16)
                         .onChange(of: m.nationalNumber) { _, v in
-                            // Autofill gives the whole number with the country code: split it.
-                            let digits = v.filter(\.isNumber)
-                            if v.hasPrefix("+"), let c = Countries.match(prefixOf: digits) {
-                                m.dialCode = c.dialCode
-                                m.nationalNumber = String(digits.dropFirst(c.dialCode.count))
-                            } else if digits.count > Countries.lengths(forDialCode: m.dialCode).upperBound || digits != v {
-                                m.nationalNumber = String(digits.prefix(Countries.lengths(forDialCode: m.dialCode).upperBound))
-                            }
+                            // Autofill and keyboard chips give the number in many shapes: split it.
+                            let s = PhoneInput.split(v, dialCode: m.dialCode,
+                                                     match: { Countries.match(prefixOf: $0)?.dialCode },
+                                                     lengths: Countries.lengths(forDialCode:))
+                            if s.dialCode != m.dialCode { m.dialCode = s.dialCode }
+                            if s.national != v { m.nationalNumber = s.national }
                         }
                 }
                 .font(.title3.monospacedDigit())
                 .frame(height: 58)
             }
-            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .onAppear { numberFocused = true }
         .sheet(isPresented: $pickingCountry) {
@@ -1173,7 +1180,7 @@ private struct CountryPicker: View {
 
 private struct CodeScreen: View {
     @ObservedObject var m: OnboardingModel
-    @FocusState private var focused: Bool
+    @State private var focused = false
     @State private var shake = 0
     /// Digits Telegram sent; 0 when the code is a word or phrase (typed into a plain field instead of boxes).
     private var length: Int { m.codeLength }
@@ -1192,7 +1199,7 @@ private struct CodeScreen: View {
 
     /// The words people scan for (where to look) in white, the rest secondary.
     private var richSubtitle: AttributedString? {
-        func bold(_ s: String) -> AttributedString { var a = AttributedString(s); a.foregroundColor = .white; return a }
+        func bold(_ s: String) -> AttributedString { var a = AttributedString(s); a.foregroundColor = .primary; return a }
         switch m.codeDelivery {
         case .telegram:
             return AttributedString("It's in a chat from ") + bold("Telegram") + AttributedString(" in the Telegram app, ")
@@ -1270,12 +1277,7 @@ private struct CodeScreen: View {
 
     private var digitBoxes: some View {
         ZStack {
-            TextField("", text: $m.code)
-                .platformKeyboard(.numberPad)
-                .textContentType(.oneTimeCode)
-                .focused($focused)
-                .opacity(0.02)
-                .accessibilityLabel("Login code")
+            OneTimeCodeField(text: $m.code, focused: $focused)
                 .onChange(of: m.code) { _, v in
                     let digits = String(v.filter(\.isNumber).prefix(length))
                     if digits != v { m.code = digits }
@@ -1288,7 +1290,7 @@ private struct CodeScreen: View {
                     Text(i < chars.count ? String(chars[i]) : "")
                         .font(.system(size: 28, weight: .semibold).monospacedDigit())
                         .frame(maxWidth: .infinity).frame(height: 62)
-                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(current ? Color.accentColor : (m.error != nil ? .red.opacity(0.7) : .clear), lineWidth: 1.5))
                         .animation(.spring(duration: 0.2), value: m.code)
