@@ -508,7 +508,7 @@ Treat as a **quality bar**, not a shipping blocker for v1 — but tick before ca
 | 13.11 | Backup tab readable at a glance                          | Counts + one primary CTA             | ☐   | ☐   | ☐   |        |       |
 | 13.12 | Kill app on every main screen                            | No crash on resume                   | ☑ sim demo | ☐   | ☐   | Claude | Killed on Photos, Collections, Search, Backup, Settings: reopens each time (KillResumeTests) |
 | 13.13 | Rotate / fold / multi-window if claimed                  |                                      | ☐   | ☐   | ☐   |        |       |
-| 13.14 | iPad compatibility mode (iPhone app)                     | No crash                             | ☐   | —   | —   |        |       |
+| 13.14 | iPad compatibility mode (iPhone app)                     | No crash                             | ☑ sim | —   | —   | Claude | iPad mini sim, iOS 27: runs in the iPhone window, demo timeline shows, no crash (11-19) |
 | 13.15 | Brand colours from tokens                                | Accent / status colours match design | ☑ | ☐   | ☐   | Claude | design-tokens.py regenerates with no diff (11-19) |
 
 ---

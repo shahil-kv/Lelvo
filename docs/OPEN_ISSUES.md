@@ -256,6 +256,8 @@ simulator once, or make the check compare the failed count before and after.
 | R17 | Decision D3 | See the table at the top. |
 | R19 | 4.5, 4.10, 4.19, 4.20 viewer on a phone | Big cloud photo shows soft then sharp; Live Photo plays; next photos open faster on Wi-Fi; airplane mode: a photo you opened before still opens. |
 | R20 | Mac: Remove from Album (5.4), Open in Maps (4.18) | Click each once on the Mac. |
+| R21 | 14.4 oldest iOS (17) | Only iOS 27 simulators are installed; needs a ~7 GB iOS 17 runtime download (Xcode → Settings → Components) or an old device. Say yes and Claude runs it. |
+| R22 | Phase 13 feel rows (13.1–13.6, 13.8–13.11, 13.13) | Your judgment while using the app: calm wording, empty states, no stuck spinners, haptics, transitions, grid stays put, viewer chrome, Backup tab at a glance. |
 | R18 | Sign the Android emulator (Pixel_9) back in | Signed out since 2026-11-18. Needed for the Android fault runs (`build/qa/android-faults.sh`) and I4. |
 
 ## Progress of the test plan (2026-11-18)
