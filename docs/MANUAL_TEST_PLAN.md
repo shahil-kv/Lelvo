@@ -386,7 +386,7 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 7.7  | Screen copy (`d`) for large photo | Big JPEG gets display copy                              | ☑ sim | ☐   | ☐   | Claude | 42 photos ≥3.1 MB have d; smaller ones (0.4–3.4 MB) don't, by size rule |
 | 7.8  | Fast video version                | Created at backup or “Make fast version”                | ☐   | ☐   | ☐   |        |       |
 | 7.9  | Split large video                 | ≥2 GB or over part limit → multi-part; re-scan complete | ☐   | ☐   | ☐   |        |       |
-| 7.10 | HEIC / JPEG / PNG / GIF           | One of each backs up and opens                          | ◐ sim | ☐   | ☐   | Claude | JPEG 247, HEIC 1, MP4 4 backed up; PNG and GIF not in the test library yet |
+| 7.10 | HEIC / JPEG / PNG / GIF           | One of each backs up and opens                          | ☑ sim | ☐   | ☐   | Claude | JPEG, HEIC, PNG, GIF, MP4 all backed up with thumbnails (11-19) |
 | 7.11 | Live Photo pair (iOS)             | Photo + video motion preserved                          | ☐   | —   | ☐   |        |       |
 | 7.12 | Motion Photo (Android)            | Single JPEG with embedded video                         | —   | ☐   | —   |        |       |
 | 7.13 | Edited phone photo                | Original bytes as platform stores them                  | ☐   | ☐   | ☐   |        |       |
