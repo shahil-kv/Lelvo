@@ -191,8 +191,8 @@ Write the numbers down. Same library, same moment.
 | --- | ------------------------------------ | ----------------------------------------------- | --- | --- | --- | ------ | ----- |
 | C.1 | Phone count matches Photos app       | Lelvo "on this phone" vs Photos / Gallery count | ☑ sim 40k | ☐   | —   | Claude | 40,006 on phone, matches seed + samples |
 | C.2 | Library count same on all three      | Backed-up total on iPhone, Android, Mac         | ☐   | ☐   | ☐   |        |       |
-| C.3 | Stable across relaunch               | Kill → reopen 3 times                           | ☐   | ☐   | ☐   |        |       |
-| C.4 | Waiting + backed up + failed = total | Backup tab adds up                              | ☐   | ☐   | ☐   |        |       |
+| C.3 | Stable across relaunch               | Kill → reopen 3 times                           | ☑ sim | ☐   | ☐   | Claude | 3 cold launches: 258 / 251 / 10 / 0 waiting / 7 failed every time |
+| C.4 | Waiting + backed up + failed = total | Backup tab adds up                              | ☑ sim | ☐   | ☐   | Claude | 258 on phone = 251 backed up + 0 waiting + 7 failed |
 | C.5 | After delete / recover / Free Up     | Each count moves by exactly the number touched  | ☐   | ☐   | ☐   |        |       |
 | C.6 | No flicker                           | Counts never jump to 0 or double during a scan  | ☐   | ☐   | ☐   |        |       |
 | C.7 | After reinstall (1.18)               | Same numbers as before                          | ☐   | ☐   | ☐   |        |       |
