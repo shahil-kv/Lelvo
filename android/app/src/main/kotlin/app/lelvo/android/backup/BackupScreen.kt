@@ -291,7 +291,7 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                         Messages.progress("Re-scanning…")
                         try {
                             val r = app.model.rescan()
-                            Messages.show(Messages.Style.Success, "Library re-scanned", "${"%,d".format(r.items)} items")
+                            Messages.show(Messages.Style.Success, "Library re-scanned", if (r.items == 1) "1 item" else "${"%,d".format(r.items)} items")
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                         } catch (e: Exception) {

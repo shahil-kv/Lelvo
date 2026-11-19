@@ -61,7 +61,7 @@ class BackupNotifications(private val context: Context) {
         val total = maxOf(a.total, 1) * 100
         val done = minOf(total - 1, a.done * 100 + (inFlight * 100).toInt())
         val text = when {
-            a.total > 0 -> "${a.done} of ${a.total} items"
+            a.total > 0 -> "${a.done} of ${a.total} ${if (a.total == 1) "item" else "items"}"
             else -> a.message ?: "Preparing…"
         }
         lastKey = "$text|${done * 100 / total}|${a.notice}"

@@ -448,7 +448,7 @@ enum ContinuedBackup {
                 let doing = a.lanes.isEmpty ? (a.message ?? "no upload running")
                     : a.lanes.values.map { $0.sent > 0 ? "uploading" : "preparing a file" }.sorted().joined(separator: " + ")
                 note.report(task.progress.completedUnitCount, doing: doing)
-                if a.total > 0 { task.updateTitle("Backing up to Telegram", subtitle: "\(a.done) of \(a.total) items") }
+                if a.total > 0 { task.updateTitle("Backing up to Telegram", subtitle: "\(a.done) of \(a.total) \(a.total == 1 ? "item" : "items")") }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }

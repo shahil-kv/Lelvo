@@ -818,7 +818,7 @@ struct DuplicatesView: View {
         if items.isEmpty { EmptyView() }
         else if !pro.isPro {
             Section {
-                LabeledContent("\(items.count) items", value: Format.bytes(items.reduce(0) { $0 + $1.bytes }))
+                LabeledContent(items.count == 1 ? "1 item" : "\(items.count) items", value: Format.bytes(items.reduce(0) { $0 + $1.bytes }))
                 Button { showProPaywall = true } label: {
                     Label("Review with Pro", systemImage: "sparkles")
                 }

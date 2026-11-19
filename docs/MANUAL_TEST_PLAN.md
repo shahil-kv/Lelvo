@@ -265,7 +265,7 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 2.4  | Wrong 2FA password                  | Clear error; no lockout spam                                 | ☐   | ☐   | ☐   |        |       |
 | 2.5  | No Telegram account                 | Number with no account → points to Telegram                  | ☐   | ☐   | ☐   |        |       |
 | 2.6  | Session ended elsewhere             | Sign in on second client that ends sessions if available     | ☐   | ☐   | ☐   |        |       |
-| 2.7  | Demo / App Review login (iOS)       | Review number + code → sample library; Back up now simulates | ☑ sim demo | —   | —   | Claude | Review number + code opens the sample library (RecentlyDeleted, PhotosButtons suites 11-18) |
+| 2.7  | Demo / App Review login (iOS)       | Review number + code → sample library; Back up now simulates | ☑ sim demo | ☑ emu demo | —   | Claude | Review number + code opens the sample library (RecentlyDeleted, PhotosButtons suites 11-18) |
 | 2.8  | Choose among multiple libraries     | If several channels exist, pick correct one                  | ☐   | ☐   | ☐   |        |       |
 | 2.9  | Wrong passphrase                    | Refuse; no wipe                                              | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: Real account: wrong key on "Android Test" → "That passphrase or recovery key doesn't open this library", no crash (sim; device check still Shahil) |
 | 2.10 | Damaged / newer / plain header      | Open incompatible library → “incompatible”, never “repair”   | ◐ | ☐   | ☐   | Claude | Core tests: newer format never taken for missing header; damaged headers refused. Screen wording not seen |
@@ -317,7 +317,7 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 4.5  | Screen copy then original   | Soft then sharp load for cloud                    | ◐ sim | ☐   | ☐   | Claude | Cloud-only photos open (0.01 s, cached). None in the QA library is big enough to have a screen copy; check a big cloud photo on device |
 | 4.6  | Share original              | Shared file opens elsewhere                       | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testViewerShareOriginal (sim; device check still Shahil) |
 | 4.7  | Save to phone               | Lands in Photos / gallery with date               | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testViewerSaveAnswers (demo) + real round trip 1.19: bytes and date equal (sim; device check still Shahil) |
-| 4.8  | Favorite from viewer        | Syncs to grid                                     | ☑ sim demo | ☐   | ☐   | Claude | Heart in viewer: Favorites 0 → 1 item (ViewerTests) |
+| 4.8  | Favorite from viewer        | Syncs to grid                                     | ☑ sim demo | ☑ emu demo | ☐   | Claude | Heart in viewer: Favorites 0 → 1 item (ViewerTests) |
 | 4.9  | Delete from viewer          | Phone / backup / everywhere paths                 | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testViewerDeleteCancelKeepsTheItem (sim; device check still Shahil) |
 | 4.10 | Live Photo play             | Press / chip; paired motion                       | ☐   | —   | ☐   |        |       |
 | 4.11 | Motion Photo play           | Chip / long press                                 | —   | ☐   | —   |        |       |
@@ -327,7 +327,7 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 4.15 | Quality pill / fast version | Switch if present; stall fallback                 | ☑ sim demo | ☐   | ☐   | Claude | Original / Fast menu switches (VideoQuality 11-18) |
 | 4.16 | Resume playback position    | Leave mid-video (>2 min) → reopen near same time  | ☑ sim | ☐   | ☐   | Claude | 10-min cloud video left at 5:35, reopened at 5:42 (RealAccountVideoResumeTests) |
 | 4.17 | Sound off on close          | No audio after leaving viewer                     | ☑ sim demo | ☐   | ☐   | Claude | Cloud video sound stops on close (VideoClose 11-18) |
-| 4.18 | Place opens Maps            | Tap place → maps app                              | ☑ sim demo | ☐   | ☐   | Claude | After I22: Info → Open in Maps opens Apple Maps (ViewerTests). Mac not tapped |
+| 4.18 | Place opens Maps            | Tap place → maps app                              | ☑ sim demo | ☑ emu demo | ☐   | Claude | After I22: Info → Open in Maps opens Apple Maps (ViewerTests). Mac not tapped |
 | 4.19 | Neighbour prefetch on Wi‑Fi | Next items open faster                            | ☐   | ☐   | ☐   |        |       |
 | 4.20 | Offline open of cached      | Known cached item still opens                     | ☐   | ☐   | ☐   |        |       |
 
@@ -340,12 +340,12 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 5.1  | Phone folders listed          | Matches device albums/buckets                    | ☑ sim | ☐   | ☐   | Claude | Photos albums 'QA Remove', 'QA Remove 2', 'QA Remove 3' listed in Collections → Albums (AlbumTrashTests). Android buckets: R18 |
 | 5.2  | Lelvo albums listed           | Library albums appear                            | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testAlbumOpens, testAlbumsSeeAll (sim; device check still Shahil) |
 | 5.3  | Create album + add items      | Notes / Telegram consistent                      | ☑ sim | ☐   | ☐   | Claude | New album 'QA Sync' + add, reached the other device (11.2) |
-| 5.4  | Remove from album             | Item leaves album, not library                   | ☑ sim | ☐   | ☐   | Claude | After I21: Remove from Album in an album, photo leaves the open grid at once, album-remove note sent (AlbumTrashTests). Mac not tapped yet |
+| 5.4  | Remove from album             | Item leaves album, not library                   | ☑ sim | ☑ emu demo | ☐   | Claude | After I21: Remove from Album in an album, photo leaves the open grid at once, album-remove note sent (AlbumTrashTests). Mac not tapped yet |
 | 5.5  | Delete album                  | Album gone; items remain                         | ☑ sim | ☐   | ☐   | Claude | Deleted 'QA Sync': album gone, 293 items before and after, album-remove note sent for 2 items (AlbumTrashTests) |
-| 5.6  | Favorites smart row           | Opens hearted set                                | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testFavoritesOpens (sim; device check still Shahil) |
+| 5.6  | Favorites smart row           | Opens hearted set                                | ☑ sim | ☑ emu demo | ☐   | Auto | Auto 11-17: testFavoritesOpens (sim; device check still Shahil) |
 | 5.7  | Videos / media-type rows      | Correct filters                                  | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testVideosOpens (sim; device check still Shahil) |
 | 5.8  | Recent days                   | Sensible grouping                                | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testRecentDayOpens, testRecentDaysSeeAll (sim; device check still Shahil) |
-| 5.9  | Recently Deleted — recover    | Item returns                                     | ☑ sim demo | ☐   | ☐   | Claude | Delete everywhere → Recently Deleted → recover (RecentlyDeleted 11-18); real account 11.4 |
+| 5.9  | Recently Deleted — recover    | Item returns                                     | ☑ sim demo | ◐ emu demo | ☐   | Claude | Delete everywhere → Recently Deleted → recover (RecentlyDeleted 11-18); real account 11.4 |
 | 5.10 | Recently Deleted — delete now | Gone for good after confirm                      | ☑ sim demo | ☐   | ☐   | Claude | Delete All asks first, then empties (RecentlyDeleted suite 11-18) |
 | 5.11 | 30-day cleanup                | Item past retention removed (debug retention OK) | ☑ sim demo | ☐   | ☐   | Claude | 20 s debug retention: Recently Deleted 0 items after relaunch (AlbumTrashTests) |
 | 5.12 | Memories cards                | On this day / recent / trips                     | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testMemoriesSeeAllAndShowAllPhotos (sim; device check still Shahil) |
@@ -506,7 +506,7 @@ Treat as a **quality bar**, not a shipping blocker for v1 — but tick before ca
 | 13.9  | Grid doesn’t jump under thumb                            |                                      | ☐   | ☐   | ☐   |        |       |
 | 13.10 | Viewer chrome auto-hides sensibly                        |                                      | ☐   | ☐   | ☐   |        |       |
 | 13.11 | Backup tab readable at a glance                          | Counts + one primary CTA             | ☐   | ☐   | ☐   |        |       |
-| 13.12 | Kill app on every main screen                            | No crash on resume                   | ☑ sim demo | ☐   | ☐   | Claude | Killed on Photos, Collections, Search, Backup, Settings: reopens each time (KillResumeTests) |
+| 13.12 | Kill app on every main screen                            | No crash on resume                   | ☑ sim demo | ☑ emu demo | ☐   | Claude | Killed on Photos, Collections, Search, Backup, Settings: reopens each time (KillResumeTests) |
 | 13.13 | Rotate / fold / multi-window if claimed                  |                                      | ☐   | ☐   | ☐   |        |       |
 | 13.14 | iPad compatibility mode (iPhone app)                     | No crash                             | ☑ sim | —   | —   | Claude | iPad mini sim, iOS 27: runs in the iPhone window, demo timeline shows, no crash (11-19) |
 | 13.15 | Brand colours from tokens                                | Accent / status colours match design | ☑ | ☐   | ☐   | Claude | design-tokens.py regenerates with no diff (11-19) |
@@ -744,6 +744,17 @@ Moved into the main plan: Mac runs every row that applies, plus Phase M.
 Open issues, fix plans and owner decisions: [OPEN_ISSUES.md](OPEN_ISSUES.md).
 
 Newest first. **By:** `Auto` = Claude ran it (simulator, emulator, scripts), `Shahil` = by hand on a device.
+
+### 2026-11-19 (night) — Android emulator, demo library (signed out of Telegram)
+
+| Check | Result | Notes |
+|---|---|---|
+| Kill and reopen on Photos, Collections, Search, Backup | ☑ | No crash (`adb logcat -b crash` empty). |
+| Favorite from the viewer, Delete → Recently Deleted | ☑ | |
+| "Recently Deleted, 1 items" | ✗ → fixed | The I18 fix had missed this row and 5 other Android labels (duplicates, re-scan, library switch, notification). Fixed; now "1 item". iPhone/Mac: 2 more labels fixed too. |
+| Remove from album (Kerala) | ☑ | "Removed 1 from 'Kerala'", grid 3 → 2 at once. |
+| Details → Open in Maps | ☑ | Google Maps opens. |
+| Wi-Fi only kept after restart | not in demo | Backup options are hidden in the demo; needs R18. |
 
 ### 2026-11-19 (evening) — Auto, retest after fixes I2, D2, I13, I14, I17, I20
 

@@ -301,7 +301,7 @@ internal fun LinkRow(title: String, icon: Int, count: Int?, pro: Boolean = false
                 contentDescription = buildString {
                     append(title)
                     if (pro) append(", Pro")
-                    if (count != null) append(", $count items")
+                    if (count != null) append(", $count ${if (count == 1) "item" else "items"}")
                 }
             },
         verticalAlignment = Alignment.CenterVertically,

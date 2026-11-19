@@ -199,7 +199,7 @@ fun LibrariesScreen(app: LelvoApp, onClose: () -> Unit) {
                 busy = "Loading ${c.title}…"
                 try {
                     val s = app.model.rescan()
-                    Messages.show(Messages.Style.Success, "Switched to ${c.title}", "${s.items} items")
+                    Messages.show(Messages.Style.Success, "Switched to ${c.title}", if (s.items == 1) "1 item" else "${s.items} items")
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
