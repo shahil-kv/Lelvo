@@ -100,6 +100,11 @@ final class RealAccountChangesTests: XCTestCase {
         sleep(15)
         let tab = app.buttons["Backup"].firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 30)); tab.tap()
+        // D2: says what happened, not "couldn't be backed up".
+        let gone = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'no longer in your Telegram library'")).firstMatch
+        XCTAssertTrue(gone.waitForExistence(timeout: 60), "Header says the photo is no longer in Telegram")
+        XCTAssertTrue(app.buttons["Back up again"].exists, "Back up again button")
+        shot("gone-from-telegram")
         let free = app.buttons.containing(NSPredicate(format: "label CONTAINS 'Free Up'")).firstMatch
         if free.waitForExistence(timeout: 10) { free.tap() }
         sleep(8); shot("free-up")
@@ -163,6 +168,18 @@ final class RealAccountChangesTests: XCTestCase {
     }
 
     /// Debug helper: opens the Backup tab of the app as it is now (no relaunch) and keeps a screenshot.
+    /// Test hygiene (OPEN_ISSUES I10): retries every failed item so later checks start from zero failed.
+    func testRetryAllFailed() throws {
+        let app = try launch([])
+        let tab = app.buttons["Backup"].firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 30)); tab.tap()
+        let retry = app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Retry'")).firstMatch
+        guard retry.waitForExistence(timeout: 10) else { return }
+        retry.tap()
+        backUpAndWait(app)
+        print("QA after retry:", app.staticTexts.allElementsBoundByIndex.prefix(10).map(\.label))
+    }
+
     func testPeekBackupTab() throws {
         guard ProcessInfo.processInfo.environment["QA_DIR"] != nil else { throw XCTSkip("QA only") }
         let app = XCUIApplication(); app.activate()
