@@ -356,7 +356,7 @@ private fun PainPage(active: Boolean, reduce: Boolean) {
                 }
             }
             Box(Modifier.graphicsLayer { alpha = mine.value; translationY = (1 - mine.value) * 12.dp.toPx() }) {
-                Meter("Your Lelvo library", "Unlimited storage", 0.18f * mine.value, Lelvo.colors.accent) {
+                Meter("Your Lelvo library", "No storage plan", 0.18f * mine.value, Lelvo.colors.accent) {
                     Text("Every original, full quality, nothing compressed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

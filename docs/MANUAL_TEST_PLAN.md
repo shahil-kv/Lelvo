@@ -501,15 +501,15 @@ Treat as a **quality bar**, not a shipping blocker for v1 — but tick before ca
 | 13.4  | Loading never looks stuck > few seconds without progress |                                      | ☐   | ☐   | ☐   |        |       |
 | 13.5  | Haptics only where helpful (iOS)                         |                                      | ☐   | —   | —   |        |       |
 | 13.6  | Transitions match system apps                            | Photos-like, not flashy              | ☐   | ☐   | ☐   |        |       |
-| 13.7  | No placeholder / TODO / beta strings                     | Search + tap every button            | ☐   | ☐   | ☐   |        |       |
+| 13.7  | No placeholder / TODO / beta strings                     | Search + tap every button            | ☑ sim | ☐   | ☐   | Claude | check-release copy lint clean (11-19); Beta badge removed (I17) |
 | 13.8  | Demo banner never confusable with real library           |                                      | ☐   | ☐   | ☐   |        |       |
 | 13.9  | Grid doesn’t jump under thumb                            |                                      | ☐   | ☐   | ☐   |        |       |
 | 13.10 | Viewer chrome auto-hides sensibly                        |                                      | ☐   | ☐   | ☐   |        |       |
 | 13.11 | Backup tab readable at a glance                          | Counts + one primary CTA             | ☐   | ☐   | ☐   |        |       |
-| 13.12 | Kill app on every main screen                            | No crash on resume                   | ☐   | ☐   | ☐   |        |       |
+| 13.12 | Kill app on every main screen                            | No crash on resume                   | ☑ sim demo | ☐   | ☐   | Claude | Killed on Photos, Collections, Search, Backup, Settings: reopens each time (KillResumeTests) |
 | 13.13 | Rotate / fold / multi-window if claimed                  |                                      | ☐   | ☐   | ☐   |        |       |
 | 13.14 | iPad compatibility mode (iPhone app)                     | No crash                             | ☐   | —   | —   |        |       |
-| 13.15 | Brand colours from tokens                                | Accent / status colours match design | ☐   | ☐   | ☐   |        |       |
+| 13.15 | Brand colours from tokens                                | Accent / status colours match design | ☑ | ☐   | ☐   | Claude | design-tokens.py regenerates with no diff (11-19) |
 
 ---
 
@@ -517,14 +517,14 @@ Treat as a **quality bar**, not a shipping blocker for v1 — but tick before ca
 
 | #     | Scenario                                          | How to test                                                  | iOS | And | Mac | By     | Notes |
 | ----- | ------------------------------------------------- | ------------------------------------------------------------ | --- | --- | --- | ------ | ----- |
-| 14.1  | Release build has no debug hooks                  | No UITest flags / demo shortcuts beyond intended review path | ☐   | ☐   | ☐   |        |       |
+| 14.1  | Release build has no debug hooks                  | No UITest flags / demo shortcuts beyond intended review path | ☑ | ☐   | ☐   | Claude | check-release: iOS, Mac, Android release builds have no debug hooks (11-19) |
 | 14.2  | Airplane → online                                 | Clear state; resume                                          | ☐   | ☐   | ☐   |        |       |
 | 14.3  | IPv6-only (NAT64)                                 | Demo works; real sign-in like official Telegram              | ☐   | ☐   | ☐   |        |       |
 | 14.4  | Oldest supported OS                               | Install + Phase 1 smoke                                      | ☐   | ☐   | ☐   |        |       |
 | 14.5  | Newest OS                                         | Same                                                         | ☐   | ☐   | ☐   |        |       |
 | 14.6  | Privacy labels / Data safety match PRIVACY.md     |                                                              | ☐   | ☐   | ☐   |        |       |
 | 14.7  | Listing discloses Telegram API                    | No Telegram logo/branding misuse                             | ☐   | ☐   | ☐   |        |       |
-| 14.8  | No “unlimited / never lose / free storage” claims | Copy review                                                  | ☐   | ☐   | ☐   |        |       |
+| 14.8  | No “unlimited / never lose / free storage” claims | Copy review                                                  | ☑ | ☐   | ☐   | Claude | Intro said 'Unlimited storage' on all three: now 'No storage plan' (11-19). Website FAQ quotes Telegram's own wording |
 | 14.9  | Screenshots match build                           |                                                              | ☐   | ☐   | ☐   |        |       |
 | 14.10 | Review notes + demo video (iOS)                   | Sign-in path documented                                      | ☐   | —   | ☐   |        |       |
 | 14.11 | Play internal track install                       | Signed release APK/AAB                                       | —   | ☐   | —   |        |       |

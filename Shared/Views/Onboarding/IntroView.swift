@@ -311,7 +311,7 @@ private struct PainArt: View {
                 }
                 .opacity(full ? 1 : 0)
             }
-            meter(title: "Your Lelvo library", value: "Unlimited storage", fill: mine ? 0.18 : 0, color: .accentColor) {
+            meter(title: "Your Lelvo library", value: "No storage plan", fill: mine ? 0.18 : 0, color: .accentColor) {
                 Text("Every original, full quality, nothing compressed.").font(.footnote).foregroundStyle(.secondary)
             }
             .opacity(mine ? 1 : 0)
