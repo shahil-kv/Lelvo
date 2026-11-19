@@ -94,4 +94,34 @@ final class AlbumTrashTests: XCTestCase {
         wait(for: [one], timeout: 20)
         sleep(15) // album note goes out paced
     }
+
+    /// Test plan 3.17 then 3.18 on the two newest photos (just backed up): one removed from this iPhone only, the
+    /// other deleted from the backup only (`QA_STEP=phone|backup`). The runner compares the Backup tab counts.
+    func test3_17_18_deletePhoneOnlyThenBackupOnly() throws {
+        guard ProcessInfo.processInfo.environment["QA_DIR"] != nil else { throw XCTSkip("QA only") }
+        let app = XCUIApplication(); app.launchArguments = []; app.launch()
+        if app.buttons["Not now"].waitForExistence(timeout: 6) { app.buttons["Not now"].tap() }
+        app.tabBars.buttons["Photos"].firstMatch.tap()
+        let grid = app.collectionViews["galleryGrid"]
+        XCTAssertTrue(grid.cells.firstMatch.waitForExistence(timeout: 30))
+        let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        func pick(_ i: Int, _ button: String) {
+            app.buttons["Select"].tap()
+            // Newest photo that is both on this iPhone and backed up (dated test photos sort above "today").
+            grid.cells.matching(NSPredicate(format: "label CONTAINS 'and in the cloud'")).element(boundBy: 0).tap()
+            app.buttons["Delete"].tap()
+            let b = app.buttons[button]
+            XCTAssertTrue(b.waitForExistence(timeout: 5), button); b.tap()
+            // iOS asks before a phone copy goes; deleting from the backup only has no second question.
+            for a in [app.alerts.firstMatch, sb.alerts.firstMatch] where a.waitForExistence(timeout: 6) {
+                if a.buttons["Delete"].exists { a.buttons["Delete"].tap() }
+                break
+            }
+            sleep(8)
+            if app.buttons["Done"].exists { app.buttons["Done"].firstMatch.tap() }
+        }
+        let step = ProcessInfo.processInfo.environment["QA_STEP"] ?? "phone"
+        pick(0, step == "phone" ? "Remove 1 from This iPhone" : "Delete 1 from Backup Only")
+        sleep(10)
+    }
 }

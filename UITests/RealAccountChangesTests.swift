@@ -185,8 +185,11 @@ final class RealAccountChangesTests: XCTestCase {
         let app = XCUIApplication(); app.activate()
         let tab = app.buttons["Backup"].firstMatch
         if tab.waitForExistence(timeout: 10) { tab.tap() }
-        sleep(2); shot("peek")
-        print("QA peek:", app.staticTexts.allElementsBoundByIndex.prefix(12).map(\.label))
+        sleep(2)
+        let counts = app.staticTexts["Waiting to upload"].firstMatch
+        for _ in 0..<5 where !counts.exists { app.swipeUp() }
+        shot("peek")
+        print("QA peek:", app.staticTexts.allElementsBoundByIndex.prefix(40).map(\.label))
     }
 
     /// Phase D: backs up whatever odd files the runner added to Photos (no faults), then the runner reads the index.

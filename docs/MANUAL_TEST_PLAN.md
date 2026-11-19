@@ -296,8 +296,8 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 3.14 | Multi: share                  | System share sheet                                   | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testSelectionBarShare (sim; device check still Shahil) |
 | 3.15 | Multi: favorite               | Phone and/or library heart                           | ☐   | ☐   | ☐   |        |       |
 | 3.16 | Multi: add to album           | Existing + new album                                 | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testSelectionMenuOpensAddToAlbum (sim; device check still Shahil) |
-| 3.17 | Multi: delete phone           | System confirm; only phone                           | ☐   | ☐   | ☐   |        |       |
-| 3.18 | Multi: delete backup only     | Leaves phone; removes from library                   | ☐   | ☐   | ☐   |        |       |
+| 3.17 | Multi: delete phone           | System confirm; only phone                           | ☑ sim | ☐   | ☐   | Claude | Remove from This iPhone: on iPhone 293 → 292, only in the cloud 12 → 13, still in the library |
+| 3.18 | Multi: delete backup only     | Leaves phone; removes from library                   | ☑ sim | ☐   | ☐   | Claude | Delete from Backup Only: on iPhone stays 292, backed up 291 → 290 |
 | 3.19 | Multi: delete everywhere      | Both sides with confirms                             | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testSelectionBarDeleteEverywhereMovesToRecentlyDeleted (sim; device check still Shahil) |
 | 3.20 | New phone photo appears       | Take a photo → appears without reinstall             | ☐   | ☐   | ☐   |        |       |
 | 3.21 | Large library scroll          | 1k+ items; no crash; usable FPS                      | ☑ sim 40k | ☐   | ☐   | Claude | 40k seed: scrolls, no crash (P.2); smoothness on device R1 |
