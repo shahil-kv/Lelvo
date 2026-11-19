@@ -280,14 +280,14 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 
 | #    | Scenario                      | How to test                                          | iOS | And | Mac | By     | Notes |
 | ---- | ----------------------------- | ---------------------------------------------------- | --- | --- | --- | ------ | ----- |
-| 3.1  | Phone + cloud in one timeline | Mix of local and backed-up; scroll                   | ☐   | ☐   | ☐   |        |       |
-| 3.2  | Day / month / year grouping   | Pinch or zoom levels if available                    | ☐   | ☐   | ☐   |        |       |
+| 3.1  | Phone + cloud in one timeline | Mix of local and backed-up; scroll                   | ☑ sim | ☐   | ☐   | Claude | Real account: 258 on phone + 10 cloud-only in one timeline (C counts) |
+| 3.2  | Day / month / year grouping   | Pinch or zoom levels if available                    | ☑ sim demo | ☐   | ☐   | Claude | Pinch / column sizes (NativeGrid + PhotosButtons 11-18) |
 | 3.3  | Date scrubber                 | Fast scroll; date label correct                      | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testFastScrollAndScrubber (sim; device check still Shahil) |
 | 3.4  | Status badges                 | Backed up / waiting / attention colours match legend | ☐   | ☐   | ☐   |        |       |
 | 3.5  | “What the icons mean”         | Open help / legend sheet                             | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testIconLegendDoneCloses (sim; device check still Shahil) |
-| 3.6  | Filter: videos                | Only videos                                          | ☐   | ☐   | ☐   |        |       |
+| 3.6  | Filter: videos                | Only videos                                          | ☑ sim demo | ☐   | ☐   | Claude | Videos row (Collections 11-18) |
 | 3.7  | Filter: Live / Motion         | Only those kinds                                     | ☐   | ☐   | ☐   |        |       |
-| 3.8  | Filter: favorites             | Hearted only                                         | ☐   | ☐   | ☐   |        |       |
+| 3.8  | Filter: favorites             | Hearted only                                         | ☑ sim demo | ☐   | ☐   | Claude | Favorites (Collections 11-18) |
 | 3.9  | Filter: only in Telegram      | Cloud-only visible                                   | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testOnlyInTheCloudOpens (sim; device check still Shahil) |
 | 3.10 | Filter: not backed up         | Waiting / local-only                                 | ☐   | ☐   | ☐   |        |       |
 | 3.11 | Select + swipe-select         | Long-press, drag, edge auto-scroll                   | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testLongPressStartsSelectingAndSwipeSelects, testSwipeSelectsEveryTileBetweenAcrossRows (sim; device check still Shahil) |
@@ -300,7 +300,7 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 3.18 | Multi: delete backup only     | Leaves phone; removes from library                   | ☐   | ☐   | ☐   |        |       |
 | 3.19 | Multi: delete everywhere      | Both sides with confirms                             | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testSelectionBarDeleteEverywhereMovesToRecentlyDeleted (sim; device check still Shahil) |
 | 3.20 | New phone photo appears       | Take a photo → appears without reinstall             | ☐   | ☐   | ☐   |        |       |
-| 3.21 | Large library scroll          | 1k+ items; no crash; usable FPS                      | ☐   | ☐   | ☐   |        |       |
+| 3.21 | Large library scroll          | 1k+ items; no crash; usable FPS                      | ☑ sim 40k | ☐   | ☐   | Claude | 40k seed: scrolls, no crash (P.2); smoothness on device R1 |
 | 3.22 | Empty library                 | New account empty state is clear                     | ☐   | ☐   | ☐   |        |       |
 | 3.23 | Pull / re-scan                | Re-scan does not wipe correct items                  | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testRescanAnswers (sim; device check still Shahil) |
 
@@ -324,9 +324,9 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 4.12 | Video play / pause          | Starts without black forever                      | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testVideoControls (sim; device check still Shahil) |
 | 4.13 | Scrub + frame strip         | Seek lands near target                            | ☐   | ☐   | ☐   |        |       |
 | 4.14 | Mute / speed / ±10 s        | Controls work; mute sticks as designed            | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testVideoControls (sim; device check still Shahil) |
-| 4.15 | Quality pill / fast version | Switch if present; stall fallback                 | ☐   | ☐   | ☐   |        |       |
+| 4.15 | Quality pill / fast version | Switch if present; stall fallback                 | ☑ sim demo | ☐   | ☐   | Claude | Original / Fast menu switches (VideoQuality 11-18) |
 | 4.16 | Resume playback position    | Leave mid-video (>2 min) → reopen near same time  | ☐   | ☐   | ☐   |        |       |
-| 4.17 | Sound off on close          | No audio after leaving viewer                     | ☐   | ☐   | ☐   |        |       |
+| 4.17 | Sound off on close          | No audio after leaving viewer                     | ☑ sim demo | ☐   | ☐   | Claude | Cloud video sound stops on close (VideoClose 11-18) |
 | 4.18 | Place opens Maps            | Tap place → maps app                              | ☐   | ☐   | ☐   |        |       |
 | 4.19 | Neighbour prefetch on Wi‑Fi | Next items open faster                            | ☐   | ☐   | ☐   |        |       |
 | 4.20 | Offline open of cached      | Known cached item still opens                     | ☐   | ☐   | ☐   |        |       |
@@ -345,14 +345,14 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 5.6  | Favorites smart row           | Opens hearted set                                | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testFavoritesOpens (sim; device check still Shahil) |
 | 5.7  | Videos / media-type rows      | Correct filters                                  | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testVideosOpens (sim; device check still Shahil) |
 | 5.8  | Recent days                   | Sensible grouping                                | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testRecentDayOpens, testRecentDaysSeeAll (sim; device check still Shahil) |
-| 5.9  | Recently Deleted — recover    | Item returns                                     | ☐   | ☐   | ☐   |        |       |
+| 5.9  | Recently Deleted — recover    | Item returns                                     | ☑ sim demo | ☐   | ☐   | Claude | Delete everywhere → Recently Deleted → recover (RecentlyDeleted 11-18); real account 11.4 |
 | 5.10 | Recently Deleted — delete now | Gone for good after confirm                      | ☐   | ☐   | ☐   |        |       |
 | 5.11 | 30-day cleanup                | Item past retention removed (debug retention OK) | ☐   | ☐   | ☐   |        |       |
 | 5.12 | Memories cards                | On this day / recent / trips                     | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testMemoriesSeeAllAndShowAllPhotos (sim; device check still Shahil) |
 | 5.13 | Memories story player         | Plays; dismiss (X / swipe) clears cover          | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testMemoryPlaysAndItsButtonsAnswer (sim; device check still Shahil) |
 | 5.14 | Memories settings             | Toggles stick after relaunch                     | ☐   | ☐   | ☐   |        |       |
 | 5.15 | Map with places               | Pins/clusters; tap → items                       | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: testMapOpensAndAPinOpensItsPhotos (sim; device check still Shahil) |
-| 5.16 | Map light + dark              | Readable both                                    | ☐   | ☐   | ☐   |        |       |
+| 5.16 | Map light + dark              | Readable both                                    | ◐ sim demo | ☐   | ☐   | Claude | Map opens (Collections 11-18); dark mode not checked on map |
 | 5.17 | Item without GPS              | Does not fake a place                            | ☐   | ☐   | ☐   |        |       |
 
 ---
@@ -442,18 +442,18 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | #     | Scenario                                 | How to test                                                   | iOS | And | Mac | By     | Notes |
 | ----- | ---------------------------------------- | ------------------------------------------------------------- | --- | --- | --- | ------ | ----- |
 | 10.1  | Signed-in identity shown                 | Number redacted sensibly in UI                                | ☐   | ☐   | ☐   |        |       |
-| 10.2  | Library name / encryption status         | Correct                                                       | ☐   | ☐   | ☐   |        |       |
+| 10.2  | Library name / encryption status         | Correct                                                       | ☑ sim demo | ☐   | ☐   | Claude | Library and Encryption rows shown (SettingsPersistTests) |
 | 10.3  | Change passphrase                        | Old fails; new unlocks; recovery key still works if unchanged | ☐   | ☐   | ☐   |        |       |
 | 10.4  | View / confirm recovery key again        | Path exists; no leak into logs                                | ☐   | ☐   | ☐   |        |       |
-| 10.5  | Backup option toggles                    | Persist across relaunch                                       | ☐   | ☐   | ☐   |        |       |
+| 10.5  | Backup option toggles                    | Persist across relaunch                                       | ☑ sim demo | ☐   | ☐   | Claude | Wi-Fi only changed, kept after relaunch (SettingsPersistTests) |
 | 10.6  | Storage / cache clear                    | Clears cache; library intact                                  | ☐   | ☐   | ☐   |        |       |
 | 10.7  | Telegram account kept 2 years            | Row / action behaves                                          | ☐   | ☐   | ☐   |        |       |
-| 10.8  | Share logs                               | Redacted; no phone, codes, keys, file ids                     | ☐   | ☐   | ☐   |        |       |
+| 10.8  | Share logs                               | Redacted; no phone, codes, keys, file ids                     | ◐ sim | ☐   | ☐   | Claude | Real 2-day log passes check-log.py: no secrets. Share sheet itself not checked |
 | 10.9  | Clear logs                               | Empties                                                       | ☐   | ☐   | ☐   |        |       |
 | 10.10 | Report a problem                         | Mail / GitHub intent                                          | ☐   | ☐   | ☐   |        |       |
 | 10.11 | Suggest a feature                        | Same                                                          | ☐   | ☐   | ☐   |        |       |
 | 10.12 | Privacy policy / FAQ / source / licences | Links open                                                    | ☐   | ☐   | ☐   |        |       |
-| 10.13 | About version                            | Matches store build                                           | ☐   | ☐   | ☐   |        |       |
+| 10.13 | About version                            | Matches store build                                           | ◐ sim | ☐   | ☐   | Claude | About shows 'Version, 0.1.0 (1)'; match with store build at release |
 | 10.14 | Light / dark / system                    | All main tabs                                                 | ☑ sim | ☐   | ☐   | Claude | 7 screens light + dark |
 | 10.15 | Dynamic Type largest (iOS)               | No clipped critical buttons                                   | ✗ sim | —   | —   | Claude | Sign-in Continue unreachable: I16 |
 | 10.16 | VoiceOver / TalkBack basics              | Tabs, Back up, viewer close labelled                          | ☐   | ☐   | ☐   |        |       |
