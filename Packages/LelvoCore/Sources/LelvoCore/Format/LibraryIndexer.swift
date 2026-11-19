@@ -101,7 +101,7 @@ public enum LibraryIndexer {
             var missing = item
             missing.status = .failed
             missing.cloudParts = nil
-            missing.lastError = "Not found in the Telegram channel any more. Tap Retry to upload it again."
+            missing.lastError = MediaItem.notInCloudError
             return .update(missing)
         default:
             return .unchanged

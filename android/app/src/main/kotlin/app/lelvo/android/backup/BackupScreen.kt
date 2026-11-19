@@ -81,7 +81,10 @@ import java.text.DateFormat
 private data class Stats(
     val onPhone: Int = 0, val backedUp: Int = 0, val cloudOnly: Int = 0, val counts: BackupCounts = BackupCounts(),
     val failedItems: List<LibraryItem> = emptyList(), val removed: Int = 0, val skipped: Int = 0, val ready: Boolean = false,
-)
+) {
+    /** Failed only because their messages are gone from Telegram (D2). */
+    val missingFromCloud: Int = failedItems.count { BackupCounts.isMissingFromCloud(it) }
+}
 
 /**
  * The Backup tab (iOS `BackupDashboardView`), laid out like Google Photos' backup page: one status line with what's
@@ -223,7 +226,7 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                             scope.launch { engine.retryFailed(); app.startBackup(includeNew = false) }
                         }, modifier = Modifier.fillMaxWidth()) {
                             Icon(painterResource(R.drawable.ic_sync), contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp)); Text("Retry ${stats.counts.retryable} failed")
+                            Spacer(Modifier.width(8.dp)); Text(BackupCounts.retryLabel(stats.counts.retryable, stats.counts.failed, stats.missingFromCloud))
                         }
                     }
                 }
@@ -318,7 +321,7 @@ private fun StatusHeader(activity: BackupActivity, stats: Stats, lastBackupAt: L
         stopReason != null -> Triple(R.drawable.ic_error, Lelvo.colors.orange, "Backup stopped")
         activity.isRunning || pending > 0 -> Triple(R.drawable.ic_cloud_upload, Lelvo.colors.accent, "${"%,d".format(left)} item${if (left == 1) "" else "s"} left to back up")
         c.notQueued > 0 -> Triple(R.drawable.ic_cloud_off, MaterialTheme.colorScheme.onSurfaceVariant, "${"%,d".format(c.notQueued)} item${if (c.notQueued == 1) "" else "s"} not in the cloud")
-        c.failed > 0 -> Triple(R.drawable.ic_error, Lelvo.colors.orange, "Backup complete, ${"%,d".format(c.failed)} item${if (c.failed == 1) "" else "s"} couldn't be backed up")
+        c.failed > 0 -> Triple(R.drawable.ic_error, Lelvo.colors.orange, BackupCounts.failedHeadline(c.failed, stats.missingFromCloud))
         else -> Triple(R.drawable.ic_cloud_done, Lelvo.colors.green, "Backup complete")
     }
     val subtitle = when {

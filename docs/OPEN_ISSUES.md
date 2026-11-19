@@ -18,7 +18,7 @@ Last updated 2026-11-18. Branch with the uncommitted test work: `docs/stability-
 | # | Question | Claude's recommendation |
 |---|---|---|
 | D1 ✅ yes (11-19) | Should each backup run retry, once, photos that failed only because of the network (I2)? | Yes. Today they wait for a tap on Retry. |
-| D2 ✅ recommended wording (11-19) | 1.22: a photo whose Telegram messages were deleted shows "1 item couldn't be backed up / Retry". Is that wording right? | Say "1 photo is no longer in your Telegram library. Back it up again?" |
+| D2 ✅ recommended wording (11-19) | 1.22: a photo whose Telegram messages were deleted shows "1 item couldn't be backed up / Retry". Is that wording right? | Say "1 photo is no longer in your Telegram library. Back it up again?"  ✅ fixed 2026-11-19 (D2COMMIT): header and button ("Back up again") on iPhone, Mac, Android. Retest: 1.22. |
 | D3 | Run the Android 40k test with a real sign-in on an emulator (needs your login code)? | Yes, on a fresh emulator with automatic backup off. |
 | D4 | Commit today's test work and open a PR (own files only)? | Yes, split into: fault injection + retry fix; scripts; UI tests; docs. |
 | D6 ✅ yes | May Claude create a test library "Lelvo QA Test" on your account to prove I7 (a new private channel)? | Yes, it can be deleted after. |

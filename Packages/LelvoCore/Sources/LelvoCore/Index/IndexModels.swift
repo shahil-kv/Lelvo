@@ -235,6 +235,13 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
         return (original?.size ?? 0) + (pairedVideo?.size ?? 0)
     }
 
+    /// The reason stored on a backed-up item whose messages were deleted from Telegram. Kept word for word: rows saved
+    /// by earlier builds are matched by it.
+    public static let notInCloudError = "Not found in the Telegram channel any more. Tap Retry to upload it again."
+
+    /// Failed only because its messages are gone from Telegram; the photo is still here to back up again.
+    public var isMissingFromCloud: Bool { status == .failed && lastError == Self.notInCloudError }
+
     /// Job-queue view of `status`.
     public var job: JobStatus {
         get {

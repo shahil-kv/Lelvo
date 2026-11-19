@@ -14,6 +14,13 @@ final class BackupStatsModel: ObservableObject {
     @Published var left = 0
     /// Failed items a retry can help.
     @Published var retryable = 0
+    @Published var missingFromCloud = 0
+    /// The header and Retry wording for the failed items, from the shared rule (`BackupCounts`).
+    var failureWords: BackupCounts {
+        var c = BackupCounts()
+        c.failed = failed; c.retryable = retryable; c.missingFromCloud = missingFromCloud
+        return c
+    }
     /// Photos here that the user deleted from the backup.
     @Published var removedFromBackup = 0
     /// Photos set aside as unreadable (ignore list).
@@ -88,6 +95,7 @@ final class BackupStatsModel: ObservableObject {
                 self.pending = result.pending(autoBackup: autoBackup)
                 self.failed = result.failed
                 self.retryable = result.retryable
+                self.missingFromCloud = result.missingFromCloud
                 self.cloudOnly = cloudOnlyCount
                 self.onDevice = onDeviceCount
                 self.notQueued = result.notQueued
@@ -192,7 +200,7 @@ struct BackupDashboardView: View {
                                 ContinuedBackup.start()
                             }
                         } label: {
-                            Label("Retry \(stats.retryable) failed", systemImage: "arrow.clockwise")
+                            Label(stats.failureWords.retryLabel, systemImage: "arrow.clockwise")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
@@ -363,7 +371,7 @@ struct BackupDashboardView: View {
             (icon, tint, title) = ("checkmark.icloud.fill", .green, "Backup complete")
         case .completeWithFailures:
             (icon, tint, title) = ("exclamationmark.icloud.fill", .orange,
-                                   "Backup complete, \(stats.failed) item\(stats.failed == 1 ? "" : "s") couldn't be backed up")
+                                   stats.failureWords.failedHeadline)
         case .stopped:
             (icon, tint, title) = ("exclamationmark.icloud.fill", .orange, "Backup stopped")
         case .running, .pending:

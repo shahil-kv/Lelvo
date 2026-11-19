@@ -262,6 +262,19 @@ class BackupCountsTest {
         known: Set<String> = emptySet(), offBackup: Set<String> = emptySet(), auto: Boolean = false, ignored: Set<String> = emptySet(),
     ) = BackupCounts.compute(queued, failed, candidates, known, offBackup, auto, ignored)
 
+    @Test fun photosGoneFromTelegramAreOfferedAgain() {
+        val gone = item(local = "A", status = ItemStatus.Failed).copy(lastError = app.lelvo.core.index.LibraryIndexer.NOT_FOUND)
+        val other = item(local = "C", status = ItemStatus.Failed).copy(lastError = "timeout")
+        assertTrue(BackupCounts.isMissingFromCloud(gone))
+        assertFalse(BackupCounts.isMissingFromCloud(other))
+        assertEquals("1 photo is no longer in your Telegram library. Back it up again?", BackupCounts.failedHeadline(1, 1))
+        assertEquals("2 photos are no longer in your Telegram library. Back them up again?", BackupCounts.failedHeadline(2, 2))
+        assertEquals("Back up again", BackupCounts.retryLabel(1, 1, 1))
+        assertEquals("Backup complete, 2 items couldn't be backed up", BackupCounts.failedHeadline(2, 1))
+        assertEquals("Retry 2 failed", BackupCounts.retryLabel(2, 2, 1))
+        assertEquals("Backup complete, 1 item couldn't be backed up", BackupCounts.failedHeadline(1, 0))
+    }
+
     @Test fun aPhotoSetAsideStaysUnderFailedButARetryCantHelpIt() {
         val setAside = item(local = "A", status = ItemStatus.Failed)
         val other = item(local = "Z", status = ItemStatus.Failed, name = "Z.HEIC")

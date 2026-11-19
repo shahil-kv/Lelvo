@@ -4,6 +4,7 @@ import app.lelvo.core.crypto.FileCrypto
 import app.lelvo.core.format.PartLayout
 import app.lelvo.core.index.ItemKind
 import app.lelvo.core.index.ItemStatus
+import app.lelvo.core.index.LibraryIndexer
 import app.lelvo.core.index.LibraryItem
 
 /**
@@ -139,6 +140,25 @@ data class BackupCounts(val activeQueue: Int = 0, val notQueued: Int = 0, val fa
     fun pending(autoBackup: Boolean): Int = activeQueue + if (autoBackup) notQueued else 0
 
     companion object {
+        /**
+         * The Backup header when a run is done but some items failed (iOS `BackupCounts.failedHeadline`). When every one
+         * of them only lost its messages in Telegram ([missing]), say that and offer to back them up again (D2).
+         */
+        fun failedHeadline(failed: Int, missing: Int): String {
+            val one = failed == 1
+            return if (missing > 0 && missing == failed) {
+                "${"%,d".format(failed)} ${if (one) "photo is" else "photos are"} no longer in your Telegram library. Back ${if (one) "it" else "them"} up again?"
+            } else "Backup complete, ${"%,d".format(failed)} item${if (one) "" else "s"} couldn't be backed up"
+        }
+
+        /** The Retry button under the header (iOS `BackupCounts.retryLabel`). */
+        fun retryLabel(retryable: Int, failed: Int, missing: Int): String =
+            if (missing > 0 && missing == failed) "Back up again" else "Retry ${"%,d".format(retryable)} failed"
+
+        /** Failed only because its messages are gone from Telegram (iOS `MediaItem.isMissingFromCloud`). */
+        fun isMissingFromCloud(item: LibraryItem): Boolean =
+            item.status == ItemStatus.Failed && item.lastError == LibraryIndexer.NOT_FOUND
+
         /**
          * [queued]: items in the queue, uploading included. [candidates]: phone ids the backup covers. [known]: phone
          * ids the index has in any state. [offBackup]: photos deleted from the backup on purpose.

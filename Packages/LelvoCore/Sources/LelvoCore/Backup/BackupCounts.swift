@@ -10,6 +10,10 @@ public struct BackupCounts: Equatable, Sendable {
     public var failed = 0
     /// Failed items a retry can help.
     public var retryable = 0
+    /// Failed because their messages were deleted from Telegram (`MediaItem.notInCloudError`).
+    public var missingFromCloud = 0
+
+    public init() {}
 
     /// Everything "Back Up Now" would upload.
     public var left: Int { activeQueue + notQueued }
@@ -36,8 +40,24 @@ public struct BackupCounts: Equatable, Sendable {
         counts.notQueued = candidates.filter { !known.contains($0) && !offBackup.contains($0) }.count + (uploadable.count - active)
         let stranded = queued.filter(\.isStrandedInCloud).count
         counts.failed = failed.count + stranded
+        counts.missingFromCloud = failed.filter(\.isMissingFromCloud).count
         counts.retryable = failed.filter { !$0.isStrandedInCloud && !($0.localIdentifier.map(ignored.contains) ?? false) }.count
         return counts
+    }
+
+    /// The Backup header when a run is done but some items failed. When every one of them only lost its messages in
+    /// Telegram, say that and offer to back them up again (D2), rather than calling it a failure.
+    public var failedHeadline: String {
+        if missingFromCloud > 0, missingFromCloud == failed {
+            let one = failed == 1
+            return "\(failed.formatted()) \(one ? "photo is" : "photos are") no longer in your Telegram library. Back \(one ? "it" : "them") up again?"
+        }
+        return "Backup complete, \(failed.formatted()) item\(failed == 1 ? "" : "s") couldn't be backed up"
+    }
+
+    /// The Retry button under the header.
+    public var retryLabel: String {
+        missingFromCloud > 0 && missingFromCloud == failed ? "Back up again" : "Retry \(retryable.formatted()) failed"
     }
 
     /// Photos on this device the user deleted from the backup, which a backup skips until they choose to back them up.

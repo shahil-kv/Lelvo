@@ -530,6 +530,21 @@ import LelvoCore
         #expect(compute(failed: [setAside, other]).retryable == 2, "nothing set aside: both retryable as before")
     }
 
+    @Test func photosGoneFromTelegramAreOfferedAgain() {
+        var gone = item(.failed); gone.lastError = MediaItem.notInCloudError
+        var gone2 = item(.failed, local: "B"); gone2.lastError = MediaItem.notInCloudError
+        var other = item(.failed, local: "C"); other.lastError = "timeout"
+        let one = compute(failed: [gone])
+        #expect(one.failedHeadline == "1 photo is no longer in your Telegram library. Back it up again?")
+        #expect(one.retryLabel == "Back up again")
+        #expect(compute(failed: [gone, gone2]).failedHeadline == "2 photos are no longer in your Telegram library. Back them up again?")
+        let mixed = compute(failed: [gone, other])
+        #expect(mixed.missingFromCloud == 1)
+        #expect(mixed.failedHeadline == "Backup complete, 2 items couldn't be backed up")
+        #expect(mixed.retryLabel == "Retry 2 failed")
+        #expect(compute(failed: [other]).failedHeadline == "Backup complete, 1 item couldn't be backed up")
+    }
+
     @Test func nothingIsCountedTwiceWithAutomaticBackupOn() {
         let c = compute(queued: [item(.queued)], candidates: ["B", "C"], auto: true)
         #expect(c.activeQueue == 1)
