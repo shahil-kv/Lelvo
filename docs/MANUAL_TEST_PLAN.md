@@ -260,15 +260,15 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | #    | Scenario                            | How to test                                                  | iOS | And | Mac | By     | Notes |
 | ---- | ----------------------------------- | ------------------------------------------------------------ | --- | --- | --- | ------ | ----- |
 | 2.1  | Intro pages readable, skippable     | Walk all intro pages; back/forward                           | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: ScreenTourTests: every intro page, light + dark, Continue through to sign-in (sim; device check still Shahil) |
-| 2.2  | Wrong login code                    | Enter bad code → clear message, retry                        | ☐   | ☐   | ☐   |        |       |
+| 2.2  | Wrong login code                    | Enter bad code → clear message, retry                        | ☑ sim demo | ☐   | ☐   | Claude | Wrong code: 'That code isn't right…', stays on code step, right code then works (SignInErrorsTests) |
 | 2.3  | Resend code                         | Wait / tap resend; labels match delivery                     | ☐   | ☐   | ☐   |        |       |
 | 2.4  | Wrong 2FA password                  | Clear error; no lockout spam                                 | ☐   | ☐   | ☐   |        |       |
 | 2.5  | No Telegram account                 | Number with no account → points to Telegram                  | ☐   | ☐   | ☐   |        |       |
 | 2.6  | Session ended elsewhere             | Sign in on second client that ends sessions if available     | ☐   | ☐   | ☐   |        |       |
-| 2.7  | Demo / App Review login (iOS)       | Review number + code → sample library; Back up now simulates | ☐   | —   | —   |        |       |
+| 2.7  | Demo / App Review login (iOS)       | Review number + code → sample library; Back up now simulates | ☑ sim demo | —   | —   | Claude | Review number + code opens the sample library (RecentlyDeleted, PhotosButtons suites 11-18) |
 | 2.8  | Choose among multiple libraries     | If several channels exist, pick correct one                  | ☐   | ☐   | ☐   |        |       |
 | 2.9  | Wrong passphrase                    | Refuse; no wipe                                              | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: Real account: wrong key on "Android Test" → "That passphrase or recovery key doesn't open this library", no crash (sim; device check still Shahil) |
-| 2.10 | Damaged / newer / plain header      | Open incompatible library → “incompatible”, never “repair”   | ☐   | ☐   | ☐   |        |       |
+| 2.10 | Damaged / newer / plain header      | Open incompatible library → “incompatible”, never “repair”   | ◐ | ☐   | ☐   | Claude | Core tests: newer format never taken for missing header; damaged headers refused. Screen wording not seen |
 | 2.11 | New library shows recovery key once | Must confirm; cannot skip                                    | ☐   | ☐   | ☐   |        |       |
 | 2.12 | Library ready / Welcome back counts | First scan and return visit show sensible counts             | ☑ sim | ☐   | ☐   | Auto | Auto 11-17: Real account after reinstall: "library has 109 items, 418 MB" shown before unlock (sim; device check still Shahil) |
 | 2.13 | Switch library                      | Switch → index matches that channel                          | ☐   | ☐   | ☐   |        |       |
@@ -389,8 +389,8 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 7.10 | HEIC / JPEG / PNG / GIF           | One of each backs up and opens                          | ☑ sim | ☐   | ☐   | Claude | JPEG, HEIC, PNG, GIF, MP4 all backed up with thumbnails (11-19) |
 | 7.11 | Live Photo pair (iOS)             | Photo + video motion preserved                          | ☐   | —   | ☐   |        |       |
 | 7.12 | Motion Photo (Android)            | Single JPEG with embedded video                         | —   | ☐   | —   |        |       |
-| 7.13 | Edited phone photo                | Original bytes as platform stores them                  | ☐   | ☐   | ☐   |        |       |
-| 7.14 | Keep screen on while backing up   | Toggle works                                            | ☐   | ☐   | ☐   |        |       |
+| 7.13 | Edited phone photo                | Original bytes as platform stores them                  | ☑ sim | ☐   | ☐   | Claude | Edit after backup keeps the original (1.21, 11-17) |
+| 7.14 | Keep screen on while backing up   | Toggle works                                            | ☑ sim demo | ☐   | ☐   | Claude | Keep iPhone awake switch toggles (SignInErrorsTests) |
 | 7.15 | Dashboard counts                  | Waiting / done / failed match reality                   | ☑ sim | ☐   | ☐   | Claude | Counts add up (C.4) |
 | 7.16 | Failed → delete from phone row    | Only after understanding risk                           | ☐   | ☐   | ☐   |        |       |
 | 7.17 | Extra copies in Telegram          | Deduplicator finds extras if present                    | ☐   | ☐   | ☐   |        |       |
@@ -399,8 +399,8 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 7.20 | Wi‑Fi only setting                | On cellular, waits with reason                          | ☐   | ☐   | ☐   |        |       |
 | 7.21 | While charging setting            | Unplugged waits if required                             | ☐   | ☐   | ☐   |        |       |
 | 7.22 | Limited Photos access banner      | Clear CTA when limited                                  | ☐   | ☐   | ☐   |        |       |
-| 7.23 | Demo backup (review)              | Simulated 6 items; no real network needed               | ☐   | ☐   | ☐   |        |       |
-| 7.24 | Tools section                     | Each tool opens without crash                           | ☐   | ☐   | ☐   |        |       |
+| 7.23 | Demo backup (review)              | Simulated 6 items; no real network needed               | ☑ sim demo | ☐   | ☐   | Claude | Demo Back up now runs without network (BackupButtons 11-18) |
+| 7.24 | Tools section                     | Each tool opens without crash                           | ☑ sim demo | ☐   | ☐   | Claude | Every tool answers a tap (RecentlyDeleted testToolsAnswerEveryTap 11-18) |
 
 ---
 
@@ -429,11 +429,11 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 9.2 | Cold start background                      | Force-quit; new photo; background still eventually runs | ☐   | ☐   | ☐   |        |       |
 | 9.3 | Foreground progress notification (Android) | Pause from notification; finished notice                | —   | ☐   | —   |        |       |
 | 9.4 | iOS BG processing / continued              | User-started long backup continues reasonably           | ☐   | —   | —   |        |       |
-| 9.5 | No silent-audio keep-alive                 | Confirm no fake audio / location tricks                 | ☐   | ☐   | ☐   |        |       |
-| 9.6 | App shortcut: Back up now                  | Long-press icon / shortcuts                             | ☐   | ☐   | ☐   |        |       |
-| 9.7 | App shortcut: Free up space                | Opens flow                                              | ☐   | ☐   | ☐   |        |       |
+| 9.5 | No silent-audio keep-alive                 | Confirm no fake audio / location tricks                 | ☑ | ☐   | ☐   | Claude | Background modes are only fetch + processing; audio session only for video playback; no location use |
+| 9.6 | App shortcut: Back up now                  | Long-press icon / shortcuts                             | ◐ | ☐   | ☐   | Claude | App Shortcut 'Back up new photos with Lelvo' exists (BackupIntents); run from Shortcuts on a phone |
+| 9.7 | App shortcut: Free up space                | Opens flow                                              | ◐ | ☐   | ☐   | Claude | App Shortcut 'Free up space with Lelvo' exists; run on a phone |
 | 9.8 | Quick Settings tile (Android)              | Status text; start/pause                                | —   | ☐   | —   |        |       |
-| 9.9 | Automation guide (iOS)                     | Instructions accurate                                   | ☐   | —   | —   |        |       |
+| 9.9 | Automation guide (iOS)                     | Instructions accurate                                   | ☑ sim demo | —   | —   | Claude | Shortcuts guide opens (BackupButtons 11-18) |
 
 ---
 
