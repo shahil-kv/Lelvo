@@ -23,6 +23,9 @@ enum FaultInjection {
 
     static var isActive: Bool { args.contains { $0.hasPrefix("-QAFlood") || $0.hasPrefix("-QAFail") || $0.hasPrefix("-QAOffline") || $0.hasPrefix("-QARevoke") || $0.hasPrefix("-QAChannelGone") || $0.hasPrefix("-QADiskFull") || $0 == "-QASlowSend" } }
 
+    /// A real full disk also leaves little free space, which is what lets the error stop the run (BackupEngine).
+    static var fakesDeviceFull: Bool { args.contains("-QADiskFullOnSend") }
+
     /// Called at the top of every file send. Throws the injected error, or returns after any injected delay.
     static func beforeSend() async throws {
         guard isActive else { return }

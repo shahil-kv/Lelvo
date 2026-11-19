@@ -180,6 +180,21 @@ simulator once, or make the check compare the failed count before and after.
 - **Seen:** Collections row reads "Recently Deleted, 1 items" (UI test label, so VoiceOver says it too). Use the same
   singular/plural rule as the visible counts. Check other rows (albums, Smart Cleanup) and Android content descriptions.
 
+### I19 — Fault UI tests pass when nothing was waiting to back up (test tooling)
+
+- **Seen:** 2026-11-19. With every photo already backed up, `testT1_floodWaitHonoured` and `testL4_offlineMidRun`
+  "passed" with 0 sends (log: "0 queued"), and the I8 tests failed for the same reason, not an app bug.
+- **Fix:** run them through `build/qa/run-faults.sh`, which adds 6 new photos before each test. Better: the test
+  fails when the app log shows no "injected" line for the run.
+
+### I20 — Disk full: iPhone/Mac and Android behave differently
+
+- **Seen:** 2026-11-19. iPhone/Mac stop the run on "out of space" only when the device has less than the margin free;
+  otherwise the photo is retried 5 times and marked failed (one huge file must not block the rest). Android stops the
+  run on any out-of-space error.
+- **Fix:** pick one rule for all three. Recommendation: the iPhone rule, and on iPhone make that one file a permanent
+  failure with "Not enough space for this file" instead of 5 retries.
+
 ## Needs a real phone (owner)
 
 | # | Check | How |
@@ -192,6 +207,15 @@ simulator once, or make the check compare the failed count before and after.
 | R6 | @SpamBot after a big backup | Account is not limited. |
 | R7 | I5 number field | Type the number fast 5 times. |
 | R8 | I15 new photo while Lelvo is open | Open Lelvo, switch to Camera, take a photo, come back: it shows at the top and backs up. |
+| R9 | Phase P on devices | Cold launch under 2 s, scroll, memory after 10 min, battery for a 1 h backup, cache size (P.1–P.10), iPhone, Android release build, then Mac. |
+| R10 | T.4 end the Lelvo session from Telegram → Devices | Idle and mid-backup: clear sign-out message, nothing local wiped. |
+| R11 | T.5, T.6 | Session name looks right; other chats' unread, mute and archive unchanged after a backup. |
+| R12 | T.7, T.8, T.9 (test account) | Delete one item's message by hand, post junk in the channel, delete the channel; re-scan each. |
+| R13 | T.11, T.12, T.13, T.14, T.15 | Two phones back up at once; 2 h unattended run; Telegram open during backup; VPN on; data use. |
+| R14 | L.1–L.3, L.5, L.7, L.11–L.13 | Lock 10 min, call, Low Power Mode, restart, revoke Photos access, reopen after a day, heat, Mac lid closed. |
+| R15 | D.1–D.7, D.9, D.14 | iCloud-optimized photo and video, RAW/ProRAW, HDR/ProRes/Cinematic/slo-mo, Portrait, panorama, burst, file over 4 GB, Android WhatsApp/SD folders. |
+| R16 | 11.6, 11.8 | Back up on one phone while the other is open; the same photo on both phones gives one copy. |
+| R17 | Decisions D1, D2, D3 | See the table at the top. |
 
 ## Progress of the test plan (2026-11-18)
 

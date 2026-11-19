@@ -140,15 +140,15 @@ it must say the account has no limits.
 
 | #    | Scenario                           | How to test                                                                  | Breaks if…                                                         | iOS | And | Mac | By     | Notes |
 | ---- | ---------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ | --- | --- | --- | ------ | ----- |
-| T.1  | FLOOD_WAIT under load              | Back up 500+ small photos in one go; read log                                | Any request sent during a wait; wait shorter than told; retry loop | ☐   | ☐   | ☐   |        |       |
-| T.2  | Two uploads at most                | Watch log / Backup lanes during T.1                                          | Three or more parts in flight                                      | ☐   | ☐   | ☐   |        |       |
+| T.1  | FLOOD_WAIT under load              | Back up 500+ small photos in one go; read log                                | Any request sent during a wait; wait shorter than told; retry loop | ☑ sim | ☐   | ☐   | Claude | FLOOD_WAIT 25 s injected on send 2: no send inside the wait, ≤2 at once, finished (11-19) |
+| T.2  | Two uploads at most                | Watch log / Backup lanes during T.1                                          | Three or more parts in flight                                      | ☑ sim | ☐   | ☐   | Claude | Never more than 2 in flight during T.1 (log check) |
 | T.3  | Quiet launch                       | Cold launch with a big library; count TDLib calls in first minute of log     | Hundreds of history/file calls; full-channel scan on every launch  | ☐   | ☐   | ☐   |        |       |
-| T.4  | Session ended from Telegram        | Telegram → Settings → Devices → end Lelvo session (idle, then mid-backup)    | Spinner forever; crash; local photos or queue wiped                | ☐   | ☐   | ☐   |        |       |
+| T.4  | Session ended from Telegram        | Telegram → Settings → Devices → end Lelvo session (idle, then mid-backup)    | Spinner forever; crash; local photos or queue wiped                | ◐ sim | ☐   | ☐   | Claude | Injected 401 SESSION_REVOKED: run stops with sign-in message, photos kept waiting, next run backs up all. Real Devices-screen end: R10 |
 | T.5  | Lelvo session name                 | Telegram → Devices                                                           | Shows something odd or another app's name                          | ☐   | ☐   | ☐   |        |       |
 | T.6  | Only our channel touched           | Before/after: other chats' unread counts, archive, mute, read marks          | Any other chat marked read, joined, muted or messaged              | ☐   | ☐   | ☐   |        |       |
 | T.7  | Message deleted by hand in channel | Delete one item's message(s) in Telegram → re-scan                           | Still "backed up"; crash; Free Up offers it                        | ☐   | ☐   | ☐   |        |       |
 | T.8  | Junk posted in channel             | Post a text, a sticker and a random photo in the channel → re-scan           | Counted as library items; crash; scan stops                        | ☐   | ☐   | ☐   |        |       |
-| T.9  | Channel deleted or left            | Delete the library channel in Telegram (test account only)                   | Silently makes a new library; claims items backed up               | ☐   | ☐   | ☐   |        |       |
+| T.9  | Channel deleted or left            | Delete the library channel in Telegram (test account only)                   | Silently makes a new library; claims items backed up               | ◐ sim | ☐   | ☐   | Claude | Injected 403 CHAT_WRITE_FORBIDDEN: run stops, says why, nothing marked failed. Real channel delete: R12 |
 | T.10 | 2 GB vs 4 GB file limit            | File just over 2 GB on a non-Premium account                                 | Upload rejected and retried forever instead of split               | ☐   | ☐   | ☐   |        |       |
 | T.11 | Two devices back up at once        | iPhone + Android same library, both "Back up now"                            | Duplicates; FLOOD_WAIT storm; one device's notes lost              | ☐   | ☐   | ☐   |        |       |
 | T.12 | Long run                           | 2 hours / 2k items unattended                                                | FLOOD waits growing; account limited (@SpamBot); memory climbing   | ☐   | ☐   | ☐   |        |       |
@@ -171,15 +171,15 @@ One item of each kind is enough. After backup: open on the other platform, then 
 | D.5  | ProRes / 4K60 / HDR (Dolby Vision) video                      | Plays HDR; size matches                                             | ☐   | ☐   | ☐   |        |       |
 | D.6  | Slo-mo, time-lapse, Cinematic, spatial video                  | Original kept; plays                                                | ☐   | ☐   | ☐   |        |       |
 | D.7  | Portrait (depth), panorama, burst (picked + all)              | Depth/edits not lost; burst handled as designed                     | ☐   | ☐   | ☐   |        |       |
-| D.8  | 1-second video and 1-hour video                               | Both complete; long one splits and streams                          | ☐   | ☐   | ☐   |        |       |
+| D.8  | 1-second video and 1-hour video                               | Both complete; long one splits and streams                          | ☑ sim | ☐   | ☐   | Claude | 1 s and 10 min backed up; split/stream needs >2 GB (D.9) |
 | D.9  | File over 4 GB                                                | Splits; re-scan complete; plays                                     | ☐   | ☐   | ☐   |        |       |
-| D.10 | No EXIF date / date 1970 / future date                        | Lands on a sane day; no crash in grouping                           | ☐   | ☐   | ☐   |        |       |
-| D.11 | Taken abroad (other time zone)                                | Same day on all three platforms                                     | ☐   | ☐   | ☐   |        |       |
-| D.12 | Same name `IMG_0001.JPG` from two cameras                     | Both kept, no overwrite                                             | ☐   | ☐   | ☐   |        |       |
-| D.13 | Unicode / emoji / very long file name                         | Backs up; Save to phone keeps a valid name                          | ☐   | ☐   | ☐   |        |       |
+| D.10 | No EXIF date / date 1970 / future date                        | Lands on a sane day; no crash in grouping                           | ☑ sim | ☐   | ☐   | Claude | No EXIF uses add date; 1970 and 2031 kept; no crash |
+| D.11 | Taken abroad (other time zone)                                | Same day on all three platforms                                     | ⚠ sim | ☐   | ☐   | Claude | Stored with device offset, not photo's: I14 |
+| D.12 | Same name `IMG_0001.JPG` from two cameras                     | Both kept, no overwrite                                             | ☑ sim | ☐   | ☐   | Claude | Both kept, different hashes |
+| D.13 | Unicode / emoji / very long file name                         | Backs up; Save to phone keeps a valid name                          | ✗ sim | ☐   | ☐   | Claude | Unicode fine; 228-char name fails: I13 |
 | D.14 | WhatsApp / Downloads / SD card folders (Android)              | Found; backed up per folder choice                                  | —   | ☐   | —   |        |       |
-| D.15 | Corrupt / 0-byte file                                         | Marked failed with reason; queue continues                          | ☐   | ☐   | ☐   |        |       |
-| D.16 | Photo with location stripped                                  | No fake place                                                       | ☐   | ☐   | ☐   |        |       |
+| D.15 | Corrupt / 0-byte file                                         | Marked failed with reason; queue continues                          | ☑ sim | ☐   | ☐   | Claude | Truncated file backed up; Photos refuses 0-byte on iOS |
+| D.16 | Photo with location stripped                                  | No fake place                                                       | ◐ sim | ☐   | ☐   | Claude | Backed up; info panel place not checked yet |
 
 ---
 
@@ -189,7 +189,7 @@ Write the numbers down. Same library, same moment.
 
 | #   | Scenario                             | How to test                                     | iOS | And | Mac | By     | Notes |
 | --- | ------------------------------------ | ----------------------------------------------- | --- | --- | --- | ------ | ----- |
-| C.1 | Phone count matches Photos app       | Lelvo "on this phone" vs Photos / Gallery count | ☐   | ☐   | —   |        |       |
+| C.1 | Phone count matches Photos app       | Lelvo "on this phone" vs Photos / Gallery count | ☑ sim 40k | ☐   | —   | Claude | 40,006 on phone, matches seed + samples |
 | C.2 | Library count same on all three      | Backed-up total on iPhone, Android, Mac         | ☐   | ☐   | ☐   |        |       |
 | C.3 | Stable across relaunch               | Kill → reopen 3 times                           | ☐   | ☐   | ☐   |        |       |
 | C.4 | Waiting + backed up + failed = total | Backup tab adds up                              | ☐   | ☐   | ☐   |        |       |
@@ -209,9 +209,9 @@ Start a backup of ~50 items, do the thing, then check: no duplicate, no false "b
 | L.1  | Lock the screen for 10 min                    | ☐   | ☐   | —   |        |       |
 | L.2  | Phone call / FaceTime                         | ☐   | ☐   | —   |        |       |
 | L.3  | Low Power Mode / Battery Saver on             | ☐   | ☐   | ☐   |        |       |
-| L.4  | Wi‑Fi → cellular → Wi‑Fi switch               | ☐   | ☐   | ☐   |        |       |
+| L.4  | Wi‑Fi → cellular → Wi‑Fi switch               | ☑ sim | ☐   | ☐   | Claude | Telegram unreachable 40 s mid-run: retries wait 5/10/20/40 s, all 6 backed up after (11-19) |
 | L.5  | Restart the phone                             | ☐   | ☐   | ☐   |        |       |
-| L.6  | Phone storage nearly full                     | ☐   | ☐   | ☐   |        |       |
+| L.6  | Phone storage nearly full                     | ◐ sim | ☐   | ☐   | Claude | Injected out-of-space: run stops 'out of storage', nothing failed, next run backs up. Real full phone: owner |
 | L.7  | Photos access revoked in Settings             | ☐   | ☐   | ☐   |        |       |
 | L.8  | Sign out during backup                        | ☐   | ☐   | ☐   |        |       |
 | L.9  | Switch library during backup                  | ☐   | ☐   | ☐   |        |       |
@@ -228,8 +228,8 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 
 | #    | Check                             | Target                                                            | iOS | And | Mac | By     | Notes | Today |
 | ---- | --------------------------------- | ----------------------------------------------------------------- | --- | --- | --- | ------ | ----- | ----- |
-| P.1  | Cold launch to grid               | under 2 s                                                         | ☐   | ☐   | ☐   |        |       | ☐     |
-| P.2  | Fast scroll top → bottom          | no hitch, no blank cells after stop                               | ☐   | ☐   | ☐   |        |       | ☐     |
+| P.1  | Cold launch to grid               | under 2 s                                                         | ⚠ sim 40k | ☐   | ☐   | Claude | 5.8 s incl. UI-test launch overhead; device needed for the 2 s target | ☐     |
+| P.2  | Fast scroll top → bottom          | no hitch, no blank cells after stop                               | ◐ sim 40k | ☐   | ☐   | Claude | No full rebuilds; hitch ratio needs a device | ☐     |
 | P.3  | Scrubber drag across years        | label and grid keep up                                            | ☐   | ☐   | ☐   |        |       | ☐     |
 | P.4  | Open viewer on cloud item         | first image under 1 s on Wi‑Fi                                    | ☐   | ☐   | ☐   |        |       | ☐     |
 | P.5  | Memory after 10 min browsing      | stays flat, no growth per swipe                                   | ☐   | ☐   | ☐   |        |       | ☐     |
@@ -408,12 +408,12 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 
 | #    | Scenario                     | How to test                                       | iOS | And | Mac | By     | Notes |
 | ---- | ---------------------------- | ------------------------------------------------- | --- | --- | --- | ------ | ----- |
-| 8.1  | Free Up lists only verified  | Items not fully backed up absent                  | ☐   | ☐   | ☐   |        |       |
+| 8.1  | Free Up lists only verified  | Items not fully backed up absent                  | ☑ sim | ☐   | ☐   | Claude | 220 listed = 220 verified in Telegram |
 | 8.2  | Re-check right before delete | Telegram check immediately before system prompt   | ☐   | ☐   | ☐   |        |       |
-| 8.3  | Cancel system delete         | Nothing removed                                   | ☐   | ☐   | ☐   |        |       |
-| 8.4  | Confirm delete               | Phone gone; still in library                      | ☐   | ☐   | ☐   |        |       |
+| 8.3  | Cancel system delete         | Nothing removed                                   | ☑ sim | ☐   | ☐   | Claude | Don't Allow: nothing removed |
+| 8.4  | Confirm delete               | Phone gone; still in library                      | ☑ sim | ☐   | ☐   | Claude | 220 deleted from phone, all still cloud items |
 | 8.5  | Free Up after airplane       | Does not claim verified offline                   | ☐   | ☐   | ☐   |        |       |
-| 8.6  | Save everything to phone     | Cloud-only set → Photos with date/place           | ☐   | ☐   | ☐   |        |       |
+| 8.6  | Save everything to phone     | Cloud-only set → Photos with date/place           | ☑ sim | ☐   | ☐   | Claude | Killed mid-save; Save all again offered exactly the 184 left; no duplicates |
 | 8.7  | Save single item             | From viewer                                       | ☐   | ☐   | ☐   |        |       |
 | 8.8  | Download a copy              | File usable outside app                           | ☐   | ☐   | ☐   |        |       |
 | 8.9  | Second copy to folder        | Pick folder; files land; resume if interrupted    | ☐   | ☐   | ☐   |        |       |
@@ -454,8 +454,8 @@ Use the biggest real library you have, or a seeded one (see Automation). Polishe
 | 10.11 | Suggest a feature                        | Same                                                          | ☐   | ☐   | ☐   |        |       |
 | 10.12 | Privacy policy / FAQ / source / licences | Links open                                                    | ☐   | ☐   | ☐   |        |       |
 | 10.13 | About version                            | Matches store build                                           | ☐   | ☐   | ☐   |        |       |
-| 10.14 | Light / dark / system                    | All main tabs                                                 | ☐   | ☐   | ☐   |        |       |
-| 10.15 | Dynamic Type largest (iOS)               | No clipped critical buttons                                   | ☐   | —   | —   |        |       |
+| 10.14 | Light / dark / system                    | All main tabs                                                 | ☑ sim | ☐   | ☐   | Claude | 7 screens light + dark |
+| 10.15 | Dynamic Type largest (iOS)               | No clipped critical buttons                                   | ✗ sim | —   | —   | Claude | Sign-in Continue unreachable: I16 |
 | 10.16 | VoiceOver / TalkBack basics              | Tabs, Back up, viewer close labelled                          | ☐   | ☐   | ☐   |        |       |
 
 ---
@@ -744,6 +744,17 @@ Moved into the main plan: Mac runs every row that applies, plus Phase M.
 Open issues, fix plans and owner decisions: [OPEN_ISSUES.md](OPEN_ISSUES.md).
 
 Newest first. **By:** `Auto` = Claude ran it (simulator, emulator, scripts), `Shahil` = by hand on a device.
+
+### 2026-11-19 (later) — Auto, Phase T + L fault injection, "Lelvo QA" sim
+
+| Run | Result | Notes |
+|---|---|---|
+| First pass | ✗ test setup | Nothing was waiting to back up, so no send happened: T.1 and L.4 "passed" with 0 sends and I8 failed. I19. Rerun with `build/qa/run-faults.sh` (6 new photos before each test). |
+| T.1 FLOOD_WAIT 25 s (`-QAFloodOnSend 2 25`) | ☑ | |
+| 7.3 two dropped sends | ☑ | |
+| L.4 offline 40 s (`-QAOfflineFor 3 40`) | ☑ | Backoff fix holds. |
+| I8 session revoked / channel gone | ☑ | Run stops, header "Backup stopped" with the reason, next run clears it. |
+| I8 disk full | ✗ → fixed | The fault faked the error but not low free space, and the app (on purpose) stops only when the device is nearly full; every photo was retried 5× and marked failed. Debug fault now also fakes low space; passes. Android has no nearly-full gate (always stops): parity question, I20. |
 
 ### 2026-11-19 — Auto, Phase 11 sync, two simulators on "Lelvo QA"
 

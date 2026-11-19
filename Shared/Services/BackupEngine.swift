@@ -1644,6 +1644,9 @@ final class BackupEngine: @unchecked Sendable {
     }
 
     private static func deviceIsNearlyFull() -> Bool {
+        #if DEBUG
+        if FaultInjection.fakesDeviceFull { return true }
+        #endif
         guard let free = CloudUploader.freeSpace(at: FileManager.default.temporaryDirectory) else { return false }
         return free < CloudUploader.spaceMargin
     }
