@@ -293,11 +293,12 @@ Telegram app or by SMS. We don't control these codes, so we can't give you a fix
 code for a real account. We are asking you to approve this built-in demo mode for review.
 
 DEMO ACCESS (no Telegram account needed):
-1. Tap "Continue with Telegram".
-2. Enter the phone number +1 555 010 0199 (type it with the +1, or pick United States
+1. Swipe or tap Continue through the short intro. On the last page, tap "Continue"; the
+   system Photos permission request follows (either answer works).
+2. On the sign-in screen, enter the phone number +1 555 010 0199 (type it with the +1, or pick United States
    and enter 5550100199), then tap Continue.
 3. Enter the code 24680.
-4. Choose whether to allow Photos access (either works), then tap "Start using Lelvo".
+4. Tap "Start using Lelvo".
 A demo library with sample photos and videos loads, marked by a banner at the top. Every
 feature works: timeline, pinch to resize, viewer, video playback, selection, sharing,
 albums, settings. On the Backup tab, "Back up now" shows a simulated backup of 6 items.
@@ -315,6 +316,18 @@ they own. The app doesn't sell or offer storage, doesn't create Telegram account
 to the user's own library channel, and follows Telegram's upload limits.
 
 Background modes: "processing" and "fetch" are used to continue the user-started photo backup.
+
+NO PURCHASES IN 1.0: the app is free and offers no in-app purchases or subscriptions. Paid
+features are not offered or shown in this version.
+
+SIGN IN WITH APPLE (4.8): Lelvo is a client for the user's own Telegram account and stores
+photos only there, so signing in with Telegram is required to reach that account. The app
+creates no account of its own, so it offers no other login and has no account to delete.
+
+IPAD: Lelvo 1.0 is built for iPhone and runs on iPad in iPhone compatibility mode.
+
+PREVIOUS REJECTION (5.1.1(iv)): the screen before the Photos permission request now has only
+a "Continue" button, which always leads to the system request. The "Not now" button is gone.
 ```
 
 - [ ] 📝 Fill in contact name, phone and email in App Review Information, and answer within hours while in review.
