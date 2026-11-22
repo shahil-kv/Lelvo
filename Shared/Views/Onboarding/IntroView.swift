@@ -63,7 +63,8 @@ struct IntroView: View {
             .animation(.easeInOut(duration: 0.6), value: current == .hook)
         }
         .contentShape(Rectangle())
-        .gesture(DragGesture(minimumDistance: 30).onEnded { value in
+        // Simultaneous, so the vertical ScrollView inside a page (and its rows) doesn't swallow a sideways swipe.
+        .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { value in
             guard abs(value.translation.width) > abs(value.translation.height) else { return }
             if value.translation.width < -60, current != .numbers { go(1) }
             if value.translation.width > 60 { go(-1) }

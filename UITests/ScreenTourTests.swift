@@ -71,6 +71,27 @@ final class ScreenTourTests: XCTestCase {
     }
 
     /// Test plan 10.14 / 10.15: every main tab and Settings on the demo library, for light, dark and largest text.
+    /// A sideways swipe that starts on a feature row or an FAQ row turns the page instead of only tapping the row.
+    func testSwipeOnRowsTurnsPage() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestReset"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 20))
+        app.buttons["Get started"].tap()
+        app.buttons["Continue"].tap()
+        let row = app.staticTexts["Search your photos"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.swipeLeft()
+        sleep(1)
+        XCTAssertFalse(row.exists && row.isHittable, "Swipe on a feature row turned the page")
+        app.buttons["Continue"].tap()
+        let faq = app.staticTexts["Can Telegram see my photos?"]
+        XCTAssertTrue(faq.waitForExistence(timeout: 5))
+        faq.swipeRight()
+        sleep(1)
+        XCTAssertFalse(faq.exists && faq.isHittable, "Swipe on an FAQ row turned the page back")
+    }
+
     func testMainTabsTour() {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestReset"]
