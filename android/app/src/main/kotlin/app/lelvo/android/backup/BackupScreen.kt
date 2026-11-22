@@ -1,5 +1,6 @@
 package app.lelvo.android.backup
 
+import app.lelvo.data.ProStore
 import app.lelvo.android.background.BackupScheduler
 import app.lelvo.android.settings.BackgroundIssueCard
 import app.lelvo.android.settings.BackgroundStatus
@@ -284,8 +285,10 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                     modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp).semantics { heading() })
                 ToolRow("Free up space", R.drawable.ic_phone) { page = Page.FreeUp }
                 ToolRow("Save all to this phone", R.drawable.ic_download) { page = Page.SaveAll }
-                ToolRow("Extra copies and duplicates", R.drawable.ic_collections) { page = Page.Duplicates }
-                ToolRow("Second copy to a folder", R.drawable.ic_folder) { page = Page.SecondCopy }
+                if (ProStore.OFFERED) {
+                    ToolRow("Extra copies and duplicates", R.drawable.ic_collections) { page = Page.Duplicates }
+                    ToolRow("Second copy to a folder", R.drawable.ic_folder) { page = Page.SecondCopy }
+                }
                 ToolRow("Re-scan the Telegram library", R.drawable.ic_sync) {
                     scope.launch {
                         Messages.progress("Re-scanning…")

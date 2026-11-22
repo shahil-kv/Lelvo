@@ -1,5 +1,6 @@
 package app.lelvo.android.search
 
+import app.lelvo.data.ProStore
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -274,7 +275,7 @@ private fun Suggestions(
                 for (kind in listOf("Videos", "Favorites", "Screenshots")) SuggestionChip(onClick = { onChoose(kind) }, label = { Text(kind) })
             }
         }
-        if (!isPro) item("smartSearch") {
+        if (ProStore.OFFERED && !isPro) item("smartSearch") {
             ListItem(
                 headlineContent = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -292,6 +293,7 @@ private fun Suggestions(
                 status.total > 0 && status.read < status.total ->
                     "${countFormat.format(status.read)} of ${countFormat.format(status.total)} photos read for places. Reading continues while Lelvo is open."
                 isPro -> "Search looks at places, dates, and things in your photos, on this phone."
+                !ProStore.OFFERED -> "Search looks at places, dates and kinds of photos, on this phone."
                 else -> "Places, dates and kinds are free. Things in a photo need Lelvo Pro."
             }
             Text(

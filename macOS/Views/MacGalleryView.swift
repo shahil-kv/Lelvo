@@ -503,7 +503,7 @@ struct MacGalleryView: View {
         items.append(GridMenuItem(title: allFavorite ? "Unfavorite" : "Favorite", symbol: allFavorite ? "heart.slash" : "heart") {
             Task { await MacActions.setFavorite(group, !allFavorite, toast: toast) }
         })
-        items.append(GridMenuItem(title: "Move to Locked Folder", symbol: "lock.fill") {
+        if ProStore.offered { items.append(GridMenuItem(title: "Move to Locked Folder", symbol: "lock.fill") {
             guard ProStore.shared.isPro else {
                 toast.show(.info, "Lelvo Pro", detail: "Locked folder is included with Pro. Open Settings → Lelvo Pro.")
                 return
@@ -522,7 +522,7 @@ struct MacGalleryView: View {
                     toast.show(.failure, "Couldn't move", detail: (error as? LocalizedError)?.errorDescription)
                 }
             }
-        })
+        }) }
         items.append(.separator)
         items.append(GridMenuItem(title: "Delete…", symbol: "trash", enabled: !actions.inCloud.isEmpty || !actions.onMac.isEmpty) {
             confirmDelete = group

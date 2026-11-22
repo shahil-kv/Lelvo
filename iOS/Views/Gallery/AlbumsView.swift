@@ -63,11 +63,13 @@ struct AlbumsView: View {
                     }
                     if !content.media.isEmpty { mediaSection }
                     groupedSection("Utilities") {
-                        linkRow("Locked Folder", symbol: "lock.fill", pro: true) {
-                            LockedFolderView()
+                        if ProStore.offered {
+                            linkRow("Locked Folder", symbol: "lock.fill", pro: true) {
+                                LockedFolderView()
+                            }
+                            Divider().padding(.leading, 52)
+                            linkRow("Smart Cleanup", symbol: "wand.and.stars", pro: true) { DuplicatesView() }
                         }
-                        Divider().padding(.leading, 52)
-                        linkRow("Smart Cleanup", symbol: "wand.and.stars", pro: true) { DuplicatesView() }
                         if let docs = content.documents {
                             Divider().padding(.leading, 52)
                             linkRow(docs.filter.title, symbol: docs.symbol, count: docs.count) { GalleryView(filter: docs.filter, embedInNavigation: false) }

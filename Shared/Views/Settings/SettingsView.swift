@@ -66,26 +66,7 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink("Memories") { MemoriesSettingsView() }
-                    NavigationLink {
-                        ProPaywallView()
-                    } label: {
-                        HStack {
-                            Text("Lelvo Pro")
-                            ProBadge()
-                            Spacer()
-                            Text(pro.isPro ? "On" : "Off").foregroundStyle(.secondary)
-                        }
-                    }
-                    if pro.isPro {
-                        NavigationLink {
-                            LockedFolderSettingsView()
-                        } label: {
-                            HStack {
-                                Text("Locked Folder")
-                                ProBadge()
-                            }
-                        }
-                    }
+                    if ProStore.offered { proRows }
                 }
 
                 Section {
@@ -146,6 +127,29 @@ struct SettingsView: View {
                 Text("This \(Device.name) is signed out of Telegram and Lelvo's local data is removed. Your backup in Telegram isn't touched; sign in again to get it back.")
             }
             .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
+        }
+    }
+
+    @ViewBuilder private var proRows: some View {
+        NavigationLink {
+            ProPaywallView()
+        } label: {
+            HStack {
+                Text("Lelvo Pro")
+                ProBadge()
+                Spacer()
+                Text(pro.isPro ? "On" : "Off").foregroundStyle(.secondary)
+            }
+        }
+        if pro.isPro {
+            NavigationLink {
+                LockedFolderSettingsView()
+            } label: {
+                HStack {
+                    Text("Locked Folder")
+                    ProBadge()
+                }
+            }
         }
     }
 

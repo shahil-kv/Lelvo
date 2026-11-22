@@ -459,8 +459,10 @@ struct GalleryView: View {
                     Button { Task { await setFavorite(chosen, !allFavorite) } } label: {
                         Label(allFavorite ? "Unfavorite" : "Favorite", systemImage: allFavorite ? "heart.slash" : "heart")
                     }
-                    Button { pendingMoveToLocked = chosen } label: {
-                        Label("Move to Locked Folder", systemImage: "lock.fill")
+                    if ProStore.offered {
+                        Button { pendingMoveToLocked = chosen } label: {
+                            Label("Move to Locked Folder", systemImage: "lock.fill")
+                        }
                     }
                 }
                 Divider()

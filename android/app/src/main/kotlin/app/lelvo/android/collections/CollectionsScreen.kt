@@ -1,5 +1,6 @@
 package app.lelvo.android.collections
 
+import app.lelvo.data.ProStore
 import kotlinx.coroutines.flow.conflate
 
 import app.lelvo.android.timeline.throttled
@@ -208,8 +209,10 @@ fun CollectionsScreen(app: LelvoApp, onOpen: (CollectionPage) -> Unit, onSetting
             }
             item("utilities") {
                 Section("Utilities") {
-                    LinkRow("Locked folder", R.drawable.ic_lock, null, pro = true) { onOpen(CollectionPage.Locked) }
-                    LinkRow("Smart Cleanup", R.drawable.ic_auto_awesome, null, pro = true) { onOpen(CollectionPage.Duplicates) }
+                    if (ProStore.OFFERED) {
+                        LinkRow("Locked folder", R.drawable.ic_lock, null, pro = true) { onOpen(CollectionPage.Locked) }
+                        LinkRow("Smart Cleanup", R.drawable.ic_auto_awesome, null, pro = true) { onOpen(CollectionPage.Duplicates) }
+                    }
                     LinkRow("Recently Deleted", R.drawable.ic_delete, trashed) { onOpen(CollectionPage.RecentlyDeleted) }
                 }
             }

@@ -23,7 +23,7 @@ struct SearchSuggestions: View {
                     row(kind, symbol: "magnifyingglass")
                 }
             } header: { Text("Try") } footer: { Text(search.status) }
-            if !pro.isPro {
+            if ProStore.offered, !pro.isPro {
                 Section {
                     Button { showProPaywall = true } label: {
                         Label {

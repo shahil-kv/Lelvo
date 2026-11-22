@@ -229,7 +229,7 @@ struct MacSidebar: View {
                 row(.notBackedUp)
                 row(.cloudOnly)
                 row(.backup)
-                row(.locked)
+                if ProStore.offered { row(.locked) }
                 row(.recentlyDeleted)
             }
             if !index.smartTypes.isEmpty {

@@ -16,9 +16,9 @@ struct MacSettingsView: View {
                 NavigationStack { LibrarySettingsView() }
             }
             Tab("Memories", systemImage: "sparkles") { MemoriesSettingsView() }
-            Tab("Locked", systemImage: "lock.fill") { LockedFolderSettingsView().formStyle(.grouped) }
+            if ProStore.offered { Tab("Locked", systemImage: "lock.fill") { LockedFolderSettingsView().formStyle(.grouped) } }
             Tab("Storage", systemImage: "internaldrive") { StorageSettingsView().formStyle(.grouped) }
-            Tab("Second Copy", systemImage: "externaldrive.badge.checkmark") { MacSecondCopyView() }
+            if ProStore.offered { Tab("Second Copy", systemImage: "externaldrive.badge.checkmark") { MacSecondCopyView() } }
             Tab("Export", systemImage: "square.and.arrow.down.on.square") { ExportLibraryView().formStyle(.grouped) }
             Tab("Logs", systemImage: "doc.text.magnifyingglass") { NavigationStack { LogsView() } }
             Tab("About", systemImage: "info.circle") { NavigationStack { AboutView() } }

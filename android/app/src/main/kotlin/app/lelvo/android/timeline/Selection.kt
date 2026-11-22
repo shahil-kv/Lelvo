@@ -1,5 +1,6 @@
 package app.lelvo.android.timeline
 
+import app.lelvo.data.ProStore
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -255,7 +256,7 @@ internal fun SelectionActions(
                 if (album != null) Action(R.drawable.ic_library_add, "Remove", enabled = inLibrary) {
                     scope.launch { if (AlbumActions.remove(app, chosen, album)) onDone() }
                 } else Action(R.drawable.ic_library_add, "Add to album", enabled = chosen.isNotEmpty()) { addingToAlbum = true }
-                Action(R.drawable.ic_lock, "Lock", enabled = chosen.isNotEmpty()) {
+                if (ProStore.OFFERED) Action(R.drawable.ic_lock, "Lock", enabled = chosen.isNotEmpty()) {
                     if (!isPro) {
                         Messages.show(Messages.Style.Info, "Lelvo Pro", "Locked folder is included with Pro.")
                     } else {

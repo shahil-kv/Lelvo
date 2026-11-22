@@ -1,5 +1,6 @@
 package app.lelvo.android.settings
 
+import app.lelvo.data.ProStore
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -140,7 +141,7 @@ private fun Main(
         SectionDivider()
         SettingRow("Memories", icon = R.drawable.ic_schedule) { open(Page.Memories) }
         val isPro by app.pro.isPro.collectAsState()
-        SettingRow("Lelvo Pro", if (isPro) "On" else "Off", icon = R.drawable.ic_lock, pro = true) { open(Page.Pro) }
+        if (ProStore.OFFERED) SettingRow("Lelvo Pro", if (isPro) "On" else "Off", icon = R.drawable.ic_lock, pro = true) { open(Page.Pro) }
         SettingRow("Storage", storage, icon = R.drawable.ic_storage) { open(Page.Storage) }
         Footnote("Space used on this phone by cloud previews you've viewed. Your photos aren't affected.")
 
