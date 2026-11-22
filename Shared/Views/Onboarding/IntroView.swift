@@ -88,7 +88,7 @@ struct IntroView: View {
         case .hook: return "Get started"
         case .questions: return "Continue to Lelvo"
         case .numbers:
-            if photoStatus == .notDetermined { return "Allow access to Photos" }
+            if photoStatus == .notDetermined { return "Continue" }
             return "Continue with Telegram"
         default: return "Continue"
         }
@@ -97,7 +97,8 @@ struct IntroView: View {
     private func primary() {
         guard current == .numbers else { go(1); return }
         if photoStatus == .notDetermined {
-            Task { photoStatus = await PhotoLibraryService.requestAuthorization() }
+            // The system prompt always follows this page; whatever the answer, carry on to sign-in.
+            Task { photoStatus = await PhotoLibraryService.requestAuthorization(); finish() }
         } else {
             finish()
         }
@@ -117,10 +118,7 @@ struct IntroView: View {
 
             PrimaryCapsuleButton(title: buttonTitle, action: primary)
 
-            if current == .numbers, photoStatus == .notDetermined {
-                // Photos access can wait: sign-in and the cloud library work without it.
-                Button("Not now", action: finish).font(.subheadline.weight(.semibold)).foregroundStyle(.primary.opacity(0.7))
-            }
+            // App Review 5.1.1(iv): no way to skip past the Photos prompt, and the button says "Continue".
 
             if current == .hook {
                 // Telegram API terms 2.2 ask for this to be prominent in the intro, so it can't be small tertiary text.

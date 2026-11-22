@@ -134,7 +134,7 @@ fun IntroScreen(photos: PhotoAccess, start: Int, onPage: (Int) -> Unit, onFinish
     val scope = rememberCoroutineScope()
     val reduce = rememberReduceMotion()
     var status by remember { mutableStateOf(photos.status()) }
-    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { status = photos.markAsked() }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { status = photos.markAsked(); onFinish() }
     LaunchedEffect(pager.currentPage) { onPage(pager.currentPage) }
     val go: (Int) -> Unit = { p -> scope.launch { if (reduce) pager.scrollToPage(p) else pager.animateScrollToPage(p) } }
     BackHandler(enabled = pager.currentPage > 0) { go(pager.currentPage - 1) }
@@ -143,7 +143,7 @@ fun IntroScreen(photos: PhotoAccess, start: Int, onPage: (Int) -> Unit, onFinish
     val title = when {
         page == 0 -> "Get started"
         page == 4 -> "Continue to Lelvo"
-        page == 5 && status == PhotoAccess.Status.NotAsked -> "Allow access to photos"
+        page == 5 && status == PhotoAccess.Status.NotAsked -> "Continue"
         page == 5 -> "Continue with Telegram"
         else -> "Continue"
     }
@@ -181,8 +181,6 @@ fun IntroScreen(photos: PhotoAccess, start: Int, onPage: (Int) -> Unit, onFinish
                         else -> onFinish()
                     }
                 }
-                // Photos access can wait: sign-in and the cloud library work without it.
-                if (page == PAGES - 1 && status == PhotoAccess.Status.NotAsked) TextButton(onClick = onFinish) { Text("Not now") }
                 if (page == 0) {
                     // Telegram API terms 2.2 ask for this to be prominent in the intro, so it can't be small tertiary text.
                     Text("Lelvo uses the Telegram API and is part of the Telegram ecosystem. Not affiliated with Telegram.",

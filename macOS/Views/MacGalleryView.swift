@@ -256,7 +256,7 @@ struct MacGalleryView: View {
                 } description: {
                     Text("Lelvo shows your Photos library and your Telegram backup in one timeline.")
                 } actions: {
-                    Button("Allow Access") {
+                    Button("Continue") {
                         Task {
                             _ = await PhotoLibraryService.requestAuthorization()
                             model.registerForChangesIfNeeded()

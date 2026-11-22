@@ -39,8 +39,14 @@ final class ScreenTourTests: XCTestCase {
         XCTAssertTrue(last.waitForExistence(timeout: 5))
         sleep(1); shot("intro-\(page)")
         last.tap()
-        let signIn = app.buttons["Continue with Telegram"], notNow = app.buttons["Not now"]
-        if notNow.waitForExistence(timeout: 3), !signIn.exists { sleep(1); shot("photos-ask"); notNow.tap() } else { signIn.tap() }
+        // With Photos not asked yet, "Continue" goes straight to the system prompt (App Review 5.1.1(iv)), then sign-in.
+        if app.buttons["Continue"].waitForExistence(timeout: 4) { sleep(1); shot("photos-page"); app.buttons["Continue"].tap() }
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        if alert.waitForExistence(timeout: 4) {
+            sleep(1); shot("photos-ask")
+            let deny = alert.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Don'")).firstMatch
+            (deny.exists ? deny : alert.buttons.firstMatch).tap()
+        } else if app.buttons["Continue with Telegram"].exists { app.buttons["Continue with Telegram"].tap() }
 
         let phone = app.textFields["Phone number"]
         XCTAssertTrue(phone.waitForExistence(timeout: 15))
