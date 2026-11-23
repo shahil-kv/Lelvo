@@ -123,8 +123,16 @@ fun SignInScreen(td: TdClient, step: AuthStep, demo: DemoMode, onIntro: (() -> U
         }
         // The demo works in a build without Telegram app keys too.
         step == AuthStep.WaitPhone || step == AuthStep.NeedsCredentials || (editing && step != AuthStep.Ready) -> {
-            // Back from "Wrong number?" returns to the code or password step TDLib still holds.
-            val back: (() -> Unit)? = if (editing && reset == null) ({ editing = false }) else onIntro
+            // Back from the phone step always leaves sign-in (iOS `back()`). It used to return to the code step TDLib
+            // still held after "Wrong number?", so Back alternated phone and code forever. TDLib is restarted behind it
+            // (outliving this screen), so coming back shows the phone step, not the old code.
+            val back: (() -> Unit)? = onIntro?.let { intro ->
+                {
+                    if (editing) kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+                        .launch { td.switchAccount() }
+                    intro()
+                }
+            }
             BackHandler(enabled = back != null) { back?.invoke() }
             PhoneStep(td, demo, dial, { dial = it }, number, { number = it }, hasKeys = step != AuthStep.NeedsCredentials, onBack = back,
                 onDemo = { phone = it; demoCode = true }, onSent = { phone = it },

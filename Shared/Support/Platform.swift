@@ -359,7 +359,10 @@ private struct CodeTextField: UIViewRepresentable {
 
     func updateUIView(_ field: UITextField, context: Context) {
         context.coordinator.parent = self
-        if field.text != text { field.text = text }
+        if field.text != text {
+            AppLog.shared.log("Code field: SwiftUI writes \(text.count) chars over \((field.text ?? "").count)")
+            field.text = text
+        }
         // Becoming first responder while the view is still off-window does nothing; try again on the next turn.
         if focused, !field.isFirstResponder { DispatchQueue.main.async { field.becomeFirstResponder() } }
         if !focused, field.isFirstResponder { DispatchQueue.main.async { field.resignFirstResponder() } }
@@ -371,17 +374,32 @@ private struct CodeTextField: UIViewRepresentable {
         var parent: CodeTextField
         init(_ parent: CodeTextField) { self.parent = parent }
 
-        @objc func changed(_ field: UITextField) { sync(field) }
+        @objc func changed(_ field: UITextField) {
+            AppLog.shared.log("Code field: editingChanged, \((field.text ?? "").count) chars")
+            sync(field)
+        }
+        // Lengths only, never the digits: to see which path an AutoFill tap takes.
+        func textField(_ field: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+            AppLog.shared.log("Code field: shouldChange at \(range.location)+\(range.length), \(string.count) chars, \(string.allSatisfy(\.isNumber) ? "digits" : "other")")
+            return true
+        }
         // AutoFill of a code suggested above the keyboard (SMS, or a Telegram notification on newer iOS) can set the
         // text without sending .editingChanged; the next SwiftUI update then wrote the old empty text back, so tapping
         // the suggestion did nothing. Any text change moves the selection, so this catches that path too.
         func textFieldDidChangeSelection(_ field: UITextField) { sync(field) }
         private func sync(_ field: UITextField) {
             let new = field.text ?? ""
+            if new != parent.text { AppLog.shared.log("Code field: sync \(parent.text.count) -> \(new.count) chars") }
             if new != parent.text { parent.text = new }
         }
-        func textFieldDidBeginEditing(_ field: UITextField) { if !parent.focused { parent.setFocused(true) } }
-        func textFieldDidEndEditing(_ field: UITextField) { if parent.focused { parent.setFocused(false) } }
+        func textFieldDidBeginEditing(_ field: UITextField) {
+            AppLog.shared.log("Code field: begin editing")
+            if !parent.focused { parent.setFocused(true) }
+        }
+        func textFieldDidEndEditing(_ field: UITextField) {
+            AppLog.shared.log("Code field: end editing, \((field.text ?? "").count) chars")
+            if parent.focused { parent.setFocused(false) }
+        }
     }
 }
 #endif

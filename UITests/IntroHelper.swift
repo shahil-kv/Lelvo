@@ -1,8 +1,8 @@
 import XCTest
 
 extension XCUIApplication {
-    /// Walks through the first-run intro to the Telegram sign-in, the way a user would: the pages, then "Not now"
-    /// on Photos access when it hasn't been decided yet.
+    /// Walks through the first-run intro to the Telegram sign-in, the way a user would: the pages, then "Continue" and
+    /// the system Photos prompt when access hasn't been decided yet (App Review 5.1.1(iv): no way to skip it).
     func passIntro(file: StaticString = #filePath, line: UInt = #line) {
         let start = buttons["Get started"]
         XCTAssertTrue(start.waitForExistence(timeout: 20), "The intro should open on a fresh install", file: file, line: line)
@@ -11,8 +11,15 @@ extension XCUIApplication {
         for _ in 0..<3 where next.waitForExistence(timeout: 5) && !last.exists { next.tap() }
         XCTAssertTrue(last.waitForExistence(timeout: 5), file: file, line: line)
         last.tap()
-        let signIn = buttons["Continue with Telegram"], notNow = buttons["Not now"]
-        if notNow.waitForExistence(timeout: 3), !signIn.exists { notNow.tap() } else { signIn.tap() }
+        let signIn = buttons["Continue with Telegram"]
+        if signIn.waitForExistence(timeout: 3) { signIn.tap(); return }
+        XCTAssertTrue(next.waitForExistence(timeout: 3), "Continue on the Photos page", file: file, line: line)
+        next.tap()
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        if alert.waitForExistence(timeout: 5) {
+            let deny = alert.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Don'")).firstMatch
+            (deny.exists ? deny : alert.buttons.firstMatch).tap()
+        }
     }
 
     /// The App Review sign-in (reserved number and code) into the bundled sample library.

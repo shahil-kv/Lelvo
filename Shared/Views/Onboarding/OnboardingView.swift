@@ -262,10 +262,9 @@ final class OnboardingModel: ObservableObject {
         if codePreview { return }
         #endif
         switch step {
-        case .phone where editingNumber:
-            // Back from "Wrong number?": return to the step TDLib still holds.
-            editingNumber = false
-            if let lastAuth { apply(lastAuth) }
+        // Back from the phone step always leaves sign-in. It used to return to the code step TDLib still held after
+        // "Wrong number?", so Back alternated phone and code forever. editingNumber stays set: TDLib is still waiting
+        // for a code, and submitPhone needs to know to restart sign-in for the next number.
         case .credentials, .phone: step = .welcome
         case .code where demoSignIn:
             demoSignIn = false
@@ -758,7 +757,9 @@ private struct LibraryScreen: View {
             if showCreate {
                 Button { creating = true } label: { Label("Start a new library instead", systemImage: "plus.circle") }
             }
-            Button { m.useDifferentAccount() } label: { Label("Use a different Telegram account", systemImage: "person.crop.circle") }
+            // Straight to the phone step; sign-out runs behind it and submitPhone waits for it. Waiting here kept the
+            // library screen and its busy button up for the whole sign-out.
+            Button { m.useDifferentAccount(inBackground: true) } label: { Label("Use a different Telegram account", systemImage: "person.crop.circle") }
         }
         .font(.subheadline.weight(.medium))
         .disabled(m.busy)
@@ -1280,6 +1281,7 @@ private struct CodeScreen: View {
             OneTimeCodeField(text: $m.code, focused: $focused)
                 .onChange(of: m.code) { _, v in
                     let digits = String(v.filter(\.isNumber).prefix(length))
+                    AppLog.shared.log("Code screen: code now \(v.count) chars, \(digits.count) digits of \(length)")
                     if digits != v { m.code = digits }
                     if digits.count == length && !m.busy { m.submitCode() }
                 }
