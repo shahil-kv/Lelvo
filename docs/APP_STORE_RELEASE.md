@@ -303,6 +303,8 @@ A demo library with sample photos and videos loads, marked by a banner at the to
 feature works: timeline, pinch to resize, viewer, video playback, selection, sharing,
 albums, settings. On the Backup tab, "Back up now" shows a simulated backup of 6 items.
 In demo mode nothing is uploaded and no Telegram connection is made.
+Automatic backup (new photos backed up in the background) is not active in demo mode, because
+nothing is uploaded there; with a real account it runs as shown in the video.
 
 REAL FLOW: signing in with a real number sends the login code to that account's Telegram app.
 A video of the real sign-in and backup is here: <link>
