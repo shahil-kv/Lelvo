@@ -424,9 +424,9 @@ adopted by a standards body nor published. [Apple's table](https://developer.app
 | **Standard algorithm not provided by Apple's OS (Lelvo)** | French declaration, only if sold in France |
 | Proprietary, not accepted by standards bodies | US CCATS, plus the French declaration if sold in France |
 
-- [ ] 📝 **Decided: France is left out of v1.** Switch it off in App Store Connect → Pricing and Availability. Since build 5,
-      `ITSAppUsesNonExemptEncryption = true` (the honest answer: standard algorithms beyond Apple's OS); App Store Connect
-      then asks the algorithm type (answer "Standard encryption algorithms…") and whether it's sold in France (No). France controls secure storage and secure communications apps, and Lelvo is
+- [ ] 📝 **Decided: France is left out of v1.** Switch it off in App Store Connect → Pricing and Availability. Since build 5 the
+      `ITSAppUsesNonExemptEncryption` key is left out (`true` without a compliance code fails the upload), so App Store
+      Connect asks on each build the algorithm type (answer "Standard encryption algorithms…") and whether it's sold in France (No). France controls secure storage and secure communications apps, and Lelvo is
       both. To add France later: file the declaration with ANSSI, upload it, and put the code Apple gives you in
       `ITSEncryptionExportComplianceCode` (the key then becomes `true`).
 - [ ] 📝 Apple holds the developer responsible for this answer, and says exempt encryption may need a yearly

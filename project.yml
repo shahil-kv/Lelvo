@@ -66,7 +66,6 @@ targets:
         LSRequiresIPhoneOS: true
         TDAPIId: $(TD_API_ID)
         TDAPIHash: $(TD_API_HASH)
-        ITSAppUsesNonExemptEncryption: true
         UILaunchScreen:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark
@@ -143,7 +142,6 @@ targets:
         NSHumanReadableCopyright: "© 2026 Lelvo contributors. Free software under the GPL-3.0."
         NSPhotoLibraryUsageDescription: Lelvo backs up the photos and videos in your Photos library to your own private Telegram channel and shows them in one timeline.
         NSPhotoLibraryAddUsageDescription: Lelvo saves photos you download from your Telegram backup back into your Photos library.
-        ITSAppUsesNonExemptEncryption: true
     entitlements:
       path: macOS/LelvoMac.entitlements
       properties:
