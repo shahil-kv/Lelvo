@@ -299,8 +299,8 @@ DEMO ACCESS (no Telegram account needed):
    and enter 5550100199), then tap Continue.
 3. Enter the code 24680.
 4. Tap "Start using Lelvo".
-A demo library with sample photos and videos loads, marked by a banner at the top. Every
-feature works: timeline, pinch to resize, viewer, video playback, selection, sharing,
+A demo library with sample photos and videos loads, marked by a banner at the top. These
+work: timeline, pinch to resize, viewer, video playback, selection, sharing,
 albums, settings. On the Backup tab, "Back up now" shows a simulated backup of 6 items.
 In demo mode nothing is uploaded and no Telegram connection is made.
 Automatic backup (new photos backed up in the background) is not active in demo mode, because
