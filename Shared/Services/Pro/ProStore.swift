@@ -13,7 +13,8 @@ final class ProStore: ObservableObject {
     static let productIds: Set<String> = [yearlyId, monthlyId, lifetimeId]
 
     /// Off for 1.0: Pro isn't finished, so no Pro screen, badge, upsell or store call is shown. The code stays; flip
-    /// this to bring it back. Free features never depend on it.
+    /// this to bring it back, and put `NSFaceIDUsageDescription` back in project.yml first (Locked Folder uses Face ID;
+    /// without the key iOS ends the app on the first Face ID call). Free features never depend on it.
     static let offered = false
 
     @Published private(set) var isPro = false
