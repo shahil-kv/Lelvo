@@ -586,6 +586,7 @@ struct OnboardingView: View {
     private var photos: some View {
         let status = m.photoStatus
         let decided = status != .notDetermined
+        // App Review 5.1.1(iv): before the system Photos prompt the button says "Continue" and always leads to it.
         return OnboardingPage(icon: "photo.on.rectangle.angled", title: "Back up your photos",
                               subtitle: DemoMode.isActive
                                 ? "\(m.info ?? "") Allowing access shows this \(Device.name)'s photos next to the samples; they stay on the \(Device.name)."
@@ -593,7 +594,7 @@ struct OnboardingView: View {
                                     ?? "Allow Full Access so everything on this \(Device.name) is backed up.",
                               m: m, showsInfo: false,
                               button: decided ? .init(title: "Start using Lelvo", enabled: true) { app.finishOnboarding() }
-                                              : .init(title: "Allow Access", enabled: true) { m.requestPhotos() }) {
+                                              : .init(title: "Continue", enabled: true) { m.requestPhotos() }) {
             VStack(alignment: .leading, spacing: 12) {
                 switch status {
                 case .authorized: Label("Full access granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green)

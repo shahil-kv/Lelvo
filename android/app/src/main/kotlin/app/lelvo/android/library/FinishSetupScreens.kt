@@ -147,7 +147,7 @@ fun PhotosStepScreen(setup: LibrarySetup, photos: PhotoAccess, onFinish: () -> U
         subtitle = found?.let { "$it Allow access to all photos so everything on this phone is backed up too." }
             ?: "Allow access to all photos so everything on this phone is backed up.",
         button = if (decided) PrimaryButton("Start using Lelvo", enabled = true, run = onFinish)
-        else PrimaryButton("Allow access", enabled = true) { ask.launch(photos.permissions) },
+        else PrimaryButton("Continue", enabled = true) { ask.launch(photos.permissions) },  // like iOS (App Review 5.1.1(iv))
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when (status) {
