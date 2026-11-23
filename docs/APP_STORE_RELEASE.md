@@ -304,11 +304,14 @@ work: timeline, pinch to resize, viewer, video playback, selection, sharing,
 albums, settings. On the Backup tab, "Back up now" shows a simulated backup of 6 items.
 In demo mode nothing is uploaded and no Telegram connection is made.
 Automatic backup (new photos backed up in the background) is not active in demo mode, because
-nothing is uploaded there; with a real account it runs as shown in the video.
+nothing is uploaded there. With a real account, new photos are backed up when the app is opened,
+and in the short background time iOS allows.
 
 REAL FLOW: signing in with a real number sends the login code to that account's Telegram app.
 A video of the real sign-in and backup is here: <link>
-Private details in the video are blurred. If you need to test with a real account, contact us and
+Private details in the video are blurred. Near the end the backup shows as paused: we left Lelvo
+to open the Telegram app, and iOS pauses uploads in apps that are not open. It continues when
+Lelvo is opened again. If you need to test with a real account, contact us and
 we'll arrange a time to pass you the login code live for a spare test account.
 
 Telegram allows third-party apps through its API (https://core.telegram.org/api/terms);
