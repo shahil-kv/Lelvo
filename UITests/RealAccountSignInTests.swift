@@ -29,7 +29,7 @@ final class RealAccountSignInTests: XCTestCase {
         let code = app.textFields["Login code"]
         XCTAssertTrue(code.waitForExistence(timeout: 60), "Telegram should ask for the code")
         let otp = try waitForFile(dir + "/otp.txt", seconds: 600)
-        code.typeText(otp)
+        code.tap(); code.typeText(otp)
 
         // Two-step verification, when the account has it.
         let password = app.secureTextFields.firstMatch

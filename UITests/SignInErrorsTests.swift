@@ -14,7 +14,7 @@ final class SignInErrorsTests: XCTestCase {
         app.buttons["Continue"].tap()
         let code = app.textFields["Login code"]
         XCTAssertTrue(code.waitForExistence(timeout: 10))
-        code.typeText("11111")
+        code.tap(); code.typeText("11111")
         sleep(3)
         let texts = app.staticTexts.allElementsBoundByIndex.map(\.label).filter { $0.lowercased().contains("code") }
         print("QA wrong code:", texts)

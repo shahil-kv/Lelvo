@@ -64,7 +64,7 @@ final class ScreenTourTests: XCTestCase {
         let code = app.textFields["Login code"]
         XCTAssertTrue(code.waitForExistence(timeout: 10))
         sleep(1); shot("code")
-        code.typeText("24680")
+        code.tap(); code.typeText("24680")
         let allow = app.buttons["Allow Access"], begin = app.buttons["Start using Lelvo"]
         XCTAssertTrue(allow.waitForExistence(timeout: 15) || begin.exists)
         sleep(1); shot("after-code")
@@ -104,7 +104,7 @@ final class ScreenTourTests: XCTestCase {
         phone.tap(); phone.typeText("5550100199")
         app.buttons["Continue"].tap()
         let code = app.textFields["Login code"]
-        XCTAssertTrue(code.waitForExistence(timeout: 10)); code.typeText("24680")
+        XCTAssertTrue(code.waitForExistence(timeout: 10)); code.tap(); code.typeText("24680")
         let allow = app.buttons["Allow Access"], begin = app.buttons["Start using Lelvo"]
         _ = allow.waitForExistence(timeout: 10)
         if allow.exists {

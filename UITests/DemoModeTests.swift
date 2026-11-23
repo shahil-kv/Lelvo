@@ -30,7 +30,7 @@ final class DemoModeTests: XCTestCase {
 
         let code = app.textFields["Login code"]
         XCTAssertTrue(code.waitForExistence(timeout: 10))
-        code.typeText("24680")
+        code.tap(); code.typeText("24680")
 
         // Photos step: decline if asked (the simulator remembers an earlier answer), so the test doesn't depend on
         // the simulator's photos.

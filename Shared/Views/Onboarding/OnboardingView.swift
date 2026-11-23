@@ -1181,7 +1181,7 @@ private struct CountryPicker: View {
 
 private struct CodeScreen: View {
     @ObservedObject var m: OnboardingModel
-    @State private var focused = false
+    @FocusState private var focused: Bool
     @State private var shake = 0
     /// Digits Telegram sent; 0 when the code is a word or phrase (typed into a plain field instead of boxes).
     private var length: Int { m.codeLength }
@@ -1227,6 +1227,9 @@ private struct CodeScreen: View {
                         if !m.code.isEmpty { m.submitCode() }
                     }
                 }
+                if m.codeDelivery == .telegram && !focused && m.code.isEmpty {
+                    Text("Tap the box when the code arrives.").font(.footnote).foregroundStyle(.secondary)
+                }
                 if m.codeDelivery == .telegram && telegramMissing {
                     Text("Telegram isn't on this \(Device.name). Open it on the phone or computer where you use it.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -1240,7 +1243,11 @@ private struct CodeScreen: View {
                 .font(.subheadline)
             }
         }
-        .onAppear { focused = true }
+        // Found on device: a field already active when Telegram's notification arrived showed "From Telegram 12345"
+        // above the keyboard but got nothing on tap; a field tapped after the code arrived filled at once. So for a
+        // code in Telegram the keyboard waits for a tap. SMS codes fill an active field fine, so those open at once.
+        .onAppear { if m.codeDelivery != .telegram { focused = true } }
+        .onChange(of: focused) { _, f in AppLog.shared.log("Code screen: field \(f ? "focused" : "unfocused")") }
         .onChange(of: m.error) { _, e in
             if e != nil { withAnimation(.default) { shake += 1 }; m.code = "" }
         }
@@ -1276,34 +1283,32 @@ private struct CodeScreen: View {
         }
     }
 
+    /// One visible field, not boxes over a hidden field: iOS shows a code suggestion above the keyboard for a hidden
+    /// field but inserts nothing when it's tapped (found on device: an invisible field got an empty insert, a plain
+    /// visible field got the code). Big spaced digits keep the look of separate boxes.
     private var digitBoxes: some View {
-        ZStack {
-            OneTimeCodeField(text: $m.code, focused: $focused)
-                .onChange(of: m.code) { _, v in
-                    let digits = String(v.filter(\.isNumber).prefix(length))
-                    AppLog.shared.log("Code screen: code now \(v.count) chars, \(digits.count) digits of \(length)")
-                    if digits != v { m.code = digits }
-                    if digits.count == length && !m.busy { m.submitCode() }
-                }
-            HStack(spacing: length > 5 ? 8 : 10) {
-                ForEach(0..<length, id: \.self) { i in
-                    let chars = Array(m.code)
-                    let current = i == chars.count && focused
-                    Text(i < chars.count ? String(chars[i]) : "")
-                        .font(.system(size: 28, weight: .semibold).monospacedDigit())
-                        .frame(maxWidth: .infinity).frame(height: 62)
-                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(current ? Color.accentColor : (m.error != nil ? .red.opacity(0.7) : .clear), lineWidth: 1.5))
-                        .animation(.spring(duration: 0.2), value: m.code)
-                }
+        TextField("", text: $m.code, prompt: Text(String(repeating: "–", count: length)).foregroundStyle(.tertiary))
+            .textContentType(.oneTimeCode)
+            #if os(iOS)
+            .keyboardType(.numberPad)
+            #endif
+            .focused($focused)
+            .multilineTextAlignment(.center)
+            .font(.system(size: 30, weight: .semibold).monospacedDigit())
+            .kerning(length > 6 ? 10 : 16)
+            .textFieldStyle(.plain)
+            .frame(maxWidth: .infinity).frame(height: 64)
+            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(m.error != nil ? Color.red.opacity(0.7) : (focused ? Color.accentColor : .clear), lineWidth: 1.5))
+            .accessibilityLabel("Login code")
+            .onChange(of: m.code) { _, v in
+                let digits = String(v.filter(\.isNumber).prefix(length))
+                AppLog.shared.log("Code screen: code now \(v.count) chars, \(digits.count) digits of \(length)")
+                if digits != v { m.code = digits }
+                if digits.count == length && !m.busy { m.submitCode() }
             }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { focused = true }
-        .modifier(Shake(trigger: shake))
+            .modifier(Shake(trigger: shake))
     }
 }
 

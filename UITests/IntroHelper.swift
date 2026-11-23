@@ -35,7 +35,7 @@ extension XCUIApplication {
         buttons["Continue"].tap()
         let code = textFields["Login code"]
         XCTAssertTrue(code.waitForExistence(timeout: 10), file: file, line: line)
-        code.typeText("24680")
+        code.tap(); code.typeText("24680")
         let allow = buttons["Allow Access"]
         let begin = buttons["Start using Lelvo"]
         XCTAssertTrue(allow.waitForExistence(timeout: 10) || begin.exists, file: file, line: line)
