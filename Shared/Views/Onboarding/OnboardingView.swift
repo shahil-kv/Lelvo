@@ -1226,6 +1226,16 @@ private struct CodeScreen: View {
                         if !m.code.isEmpty { m.submitCode() }
                     }
                 }
+                // iOS AutoFill only reads codes from SMS and Mail, never from a Telegram chat, so a copied code needs a
+                // visible way in: the field behind the boxes is invisible and its Paste menu is hard to find.
+                // PasteButton reads the clipboard without the "Allow Paste" prompt.
+                PasteButton(payloadType: String.self) { strings in
+                    guard let code = Self.code(in: strings.first ?? "", length: length) else { return }
+                    Task { @MainActor in m.code = code }
+                }
+                .buttonBorderShape(.capsule)
+                .labelStyle(.titleAndIcon)
+                .disabled(m.busy)
                 if m.codeDelivery == .telegram && telegramMissing {
                     Text("Telegram isn't on this \(Device.name). Open it on the phone or computer where you use it.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -1273,6 +1283,13 @@ private struct CodeScreen: View {
             .font(.subheadline.monospacedDigit())
             .disabled(left > 0 || m.busy)
         }
+    }
+
+    /// The code in a copied Telegram message ("Login code: 12345. Do not give this code…"), or the copied code itself.
+    nonisolated static func code(in text: String, length: Int) -> String? {
+        let runs = text.split(whereSeparator: { !$0.isNumber }).map(String.init)
+        if length > 0 { return runs.first { $0.count == length } }
+        return runs.first { $0.count >= 4 }
     }
 
     private var digitBoxes: some View {

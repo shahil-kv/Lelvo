@@ -371,7 +371,15 @@ private struct CodeTextField: UIViewRepresentable {
         var parent: CodeTextField
         init(_ parent: CodeTextField) { self.parent = parent }
 
-        @objc func changed(_ field: UITextField) { parent.text = field.text ?? "" }
+        @objc func changed(_ field: UITextField) { sync(field) }
+        // AutoFill of a code suggested above the keyboard (SMS, or a Telegram notification on newer iOS) can set the
+        // text without sending .editingChanged; the next SwiftUI update then wrote the old empty text back, so tapping
+        // the suggestion did nothing. Any text change moves the selection, so this catches that path too.
+        func textFieldDidChangeSelection(_ field: UITextField) { sync(field) }
+        private func sync(_ field: UITextField) {
+            let new = field.text ?? ""
+            if new != parent.text { parent.text = new }
+        }
         func textFieldDidBeginEditing(_ field: UITextField) { if !parent.focused { parent.setFocused(true) } }
         func textFieldDidEndEditing(_ field: UITextField) { if parent.focused { parent.setFocused(false) } }
     }

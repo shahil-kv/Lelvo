@@ -1,5 +1,6 @@
 package app.lelvo.android.signin
 
+import app.lelvo.android.shell.Messages
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -357,6 +358,18 @@ private fun CodeLayout(
                     if (d.length == length && !busy) submit()
                 } else OnboardingField("Code", code, onCode, autofocus = true, onSubmit = { if (code.isNotEmpty()) submit() })
             }
+            // Like iOS: the system fills codes from SMS only, never from a Telegram chat, so a copied code needs a
+            // visible way in. Reads the clipboard only when tapped.
+            val context = LocalContext.current
+            androidx.compose.material3.FilledTonalButton(enabled = !busy, onClick = {
+                val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                val text = cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                val found = codeIn(text, length)
+                if (found != null) {
+                    onCode(found)
+                    if (length > 0 && found.length == length && !busy) submit()
+                } else Messages.show(Messages.Style.Info, "No code to paste", "Copy the code in Telegram first.")
+            }) { Text("Paste") }
             if (delivery == CodeDelivery.Telegram && telegramMissing) {
                 Text("Telegram isn't on this phone. Open it on the phone or computer where you use it.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -368,6 +381,12 @@ private fun CodeLayout(
             }, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.clickable(onClick = onBack))
         }
     }
+}
+
+/** The code in a copied Telegram message ("Login code: 12345. Do not give…"), or the copied code itself (iOS `code(in:)`). */
+internal fun codeIn(text: String, length: Int): String? {
+    val runs = text.split(Regex("[^0-9]+")).filter { it.isNotEmpty() }
+    return if (length > 0) runs.firstOrNull { it.length == length } else runs.firstOrNull { it.length >= 4 }
 }
 
 /** One box per digit over a hidden field, so the system's one-time-code autofill and paste still work. */
