@@ -111,10 +111,12 @@ final class CollectionsTests: XCTestCase {
         XCTAssertTrue(app.collectionViews["galleryGrid"].cells.firstMatch.waitForExistence(timeout: 10), "Searching for videos finds the demo's videos")
     }
 
-    func testDuplicatesAndSimilar() {
+    func testDuplicatesAndSimilar() throws {
         app.buttons["Collections"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Collections"].waitForExistence(timeout: 20))
         let duplicates = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Smart Cleanup")).firstMatch
+        // Smart Cleanup is a Pro screen, hidden for 1.0 (ProStore.offered).
+        guard duplicates.waitForExistence(timeout: 5) else { throw XCTSkip("Smart Cleanup is hidden while Pro is off") }
         for _ in 0..<8 where !duplicates.isHittable { app.swipeUp() }
         duplicates.tap()
         XCTAssertTrue(app.navigationBars["Smart Cleanup"].waitForExistence(timeout: 10))

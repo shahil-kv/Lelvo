@@ -53,13 +53,13 @@ final class ViewerTests: XCTestCase {
         openPhoto()
         sleep(2)
         let before = app.screenshot().pngRepresentation
-        app.otherElements.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
         sleep(2)
         let after = app.screenshot().pngRepresentation
         shot("zoomed")
         XCTAssertNotEqual(before, after, "Double tap changes the picture (zoom)")
         // Zoomed in, a swipe pans instead of paging: the Info button stays on the same photo.
-        app.otherElements.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
     }
 
     func test4_18_placeOpensMaps() {

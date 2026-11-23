@@ -29,6 +29,8 @@ final class PhotosButtonsTests: XCTestCase {
         XCTAssertTrue(phone.waitForExistence(timeout: 15))
         let dial = app.textFields["Country code"]
         dial.tap()
+        // The first tap can land before the field takes focus on a cold simulator.
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 3) { dial.tap() }
         dial.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "1")
         phone.tap()
         phone.typeText("5550100199")

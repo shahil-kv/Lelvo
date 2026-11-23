@@ -181,7 +181,9 @@ final class CollectionsButtonsTests: XCTestCase {
 
     // MARK: Utilities
 
-    func testDuplicatesOpens() {
+    func testDuplicatesOpens() throws {
+        // Smart Cleanup is a Pro screen, hidden for 1.0 (ProStore.offered).
+        guard row("Smart Cleanup").waitForExistence(timeout: 5) else { throw XCTSkip("Smart Cleanup is hidden while Pro is off") }
         open("Smart Cleanup")
         XCTAssertTrue(app.navigationBars["Smart Cleanup"].waitForExistence(timeout: 10))
         sleep(5)
