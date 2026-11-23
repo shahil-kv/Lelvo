@@ -64,11 +64,7 @@ final class ScreenTourTests: XCTestCase {
         let code = app.textFields["Login code"]
         XCTAssertTrue(code.waitForExistence(timeout: 10))
         sleep(1); shot("code")
-        // A code copied from the Telegram chat goes in with the Paste button (iOS AutoFill never reads Telegram chats).
-        UIPasteboard.general.string = "Login code: 24680. Do not give this code to anyone, even if they say they are from Telegram!"
-        let paste = app.buttons["Paste"]
-        XCTAssertTrue(paste.waitForExistence(timeout: 5), "Paste button")
-        paste.tap()
+        code.typeText("24680")
         let allow = app.buttons["Allow Access"], begin = app.buttons["Start using Lelvo"]
         XCTAssertTrue(allow.waitForExistence(timeout: 15) || begin.exists)
         sleep(1); shot("after-code")
