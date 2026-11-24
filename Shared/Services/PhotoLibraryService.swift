@@ -834,7 +834,7 @@ final class PhotoLibraryService: @unchecked Sendable {
 }
 
 /// Bridges Swift task cancellation to PhotoKit request IDs, even if cancellation fires before the ID is stored.
-private final class PhotoRequestBox<ID>: @unchecked Sendable {
+final class PhotoRequestBox<ID>: @unchecked Sendable {
     private let lock = NSLock()
     private let cancelBlock: (ID) -> Void
     private var id: ID?
