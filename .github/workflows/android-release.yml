@@ -116,7 +116,7 @@ jobs:
         run: |
           set -euo pipefail
           FRONT=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 --json tagName \
-            --jq '[.[].tagName | select(test("^v[0-9]+\.[0-9]+\.[0-9]+$"))][0] // empty')
+            --jq '[.[].tagName | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))][0] // empty')
           [ -n "$FRONT" ] || { echo "::warning::No Lelvo release to attach the APK to."; exit 0; }
           gh release view "$FRONT" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name | select(endswith(".apk"))' \
             | while read -r old; do
