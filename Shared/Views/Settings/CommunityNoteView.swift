@@ -45,7 +45,9 @@ struct CommunityNoteView: View {
                 }
                 .padding(.top, 4)
             }
-            .padding(24)
+            // Less at the bottom: the sheet adds the home-indicator space below "Not now" itself.
+            .padding([.horizontal, .top], 24)
+            .padding(.bottom, 4)
             .background(GeometryReader { g in Color.clear.preference(key: NoteHeight.self, value: g.size.height) })
         }
         .scrollBounceBehavior(.basedOnSize)

@@ -80,6 +80,11 @@ class Prefs(context: Context) {
         get() = VideoQuality.of(p.getString("videoQuality", null))
         set(v) = p.edit().putString("videoQuality", v.code).apply()
 
+    /** Start a video again when it ends. Off by default; only this phone's preference. */
+    var loopVideos: Boolean
+        get() = p.getBoolean("loopVideos", false)
+        set(v) = p.edit().putBoolean("loopVideos", v).apply()
+
     /** Back up only items taken on or after this day (epoch ms), when set. */
     var dateFrom: Long?
         get() = p.getLong("dateFrom", 0).takeIf { it > 0 }

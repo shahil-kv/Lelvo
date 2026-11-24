@@ -23,6 +23,8 @@ final class AppLog: @unchecked Sendable {
         let dir = AppPaths.support.appendingPathComponent("Logs", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("lelvo.log")
+        // Marks a relaunch, so Scripts/check-log.py drops sends the killed process never ended.
+        log("Log opened for a new app process")
     }
 
     private var secrets: [String] {

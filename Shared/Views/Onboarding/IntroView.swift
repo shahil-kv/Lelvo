@@ -26,7 +26,7 @@ struct IntroView: View {
                 if current != .hook {
                     Button { go(-1) } label: {
                         Image(systemName: "chevron.left").font(.body.weight(.semibold))
-                            .frame(width: 40, height: 40).background(Color.white.opacity(0.1), in: Circle())
+                            .frame(width: 40, height: 40).background(Color.primary.opacity(0.1), in: Circle())
                     }
                     .foregroundStyle(.primary)
                     .accessibilityLabel("Back")
@@ -63,7 +63,8 @@ struct IntroView: View {
             .animation(.easeInOut(duration: 0.6), value: current == .hook)
         }
         .contentShape(Rectangle())
-        .gesture(DragGesture(minimumDistance: 30).onEnded { value in
+        // Simultaneous, so the vertical ScrollView inside a page (and its rows) doesn't swallow a sideways swipe.
+        .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { value in
             guard abs(value.translation.width) > abs(value.translation.height) else { return }
             if value.translation.width < -60, current != .numbers { go(1) }
             if value.translation.width > 60 { go(-1) }
@@ -88,7 +89,7 @@ struct IntroView: View {
         case .hook: return "Get started"
         case .questions: return "Continue to Lelvo"
         case .numbers:
-            if photoStatus == .notDetermined { return "Allow access to Photos" }
+            if photoStatus == .notDetermined { return "Continue" }
             return "Continue with Telegram"
         default: return "Continue"
         }
@@ -97,7 +98,8 @@ struct IntroView: View {
     private func primary() {
         guard current == .numbers else { go(1); return }
         if photoStatus == .notDetermined {
-            Task { photoStatus = await PhotoLibraryService.requestAuthorization() }
+            // The system prompt always follows this page; whatever the answer, carry on to sign-in.
+            Task { photoStatus = await PhotoLibraryService.requestAuthorization(); finish() }
         } else {
             finish()
         }
@@ -107,7 +109,7 @@ struct IntroView: View {
         VStack(spacing: 14) {
             HStack(spacing: 7) {
                 ForEach(Page.allCases, id: \.self) { p in
-                    Capsule().fill(p == current ? Color.accentColor : Color.white.opacity(0.2))
+                    Capsule().fill(p == current ? Color.accentColor : Color.primary.opacity(0.2))
                         .frame(width: p == current ? 20 : 7, height: 7)
                 }
             }
@@ -117,10 +119,7 @@ struct IntroView: View {
 
             PrimaryCapsuleButton(title: buttonTitle, action: primary)
 
-            if current == .numbers, photoStatus == .notDetermined {
-                // Photos access can wait: sign-in and the cloud library work without it.
-                Button("Not now", action: finish).font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
-            }
+            // App Review 5.1.1(iv): no way to skip past the Photos prompt, and the button says "Continue".
 
             if current == .hook {
                 // Telegram API terms 2.2 ask for this to be prominent in the intro, so it can't be small tertiary text.
@@ -191,7 +190,7 @@ private struct HookPage: View {
                 .font(.footnote.weight(.semibold))
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.15)))
+                .overlay(Capsule().stroke(Color.primary.opacity(0.15)))
             (Text("Your photos.\n")
              + Text("Only yours.").foregroundStyle(LinearGradient(colors: [Color.accentColor, Color(red: 0.83, green: 0.66, blue: 1)],
                                                                     startPoint: .leading, endPoint: .trailing)))
@@ -200,7 +199,7 @@ private struct HookPage: View {
                 .lineSpacing(-4)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Every original, locked on your \(Device.name) and kept in your own Telegram account. No servers of ours.")
-                .font(.title3).foregroundStyle(.white.opacity(0.75))
+                .font(.title3).foregroundStyle(.primary.opacity(0.75))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 24)
@@ -311,7 +310,7 @@ private struct PainArt: View {
                 }
                 .opacity(full ? 1 : 0)
             }
-            meter(title: "Your Lelvo library", value: "Unlimited storage", fill: mine ? 0.18 : 0, color: .accentColor) {
+            meter(title: "Your Lelvo library", value: "No storage plan", fill: mine ? 0.18 : 0, color: .accentColor) {
                 Text("Every original, full quality, nothing compressed.").font(.footnote).foregroundStyle(.secondary)
             }
             .opacity(mine ? 1 : 0)
@@ -335,7 +334,7 @@ private struct PainArt: View {
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.12))
+                    Capsule().fill(Color.primary.opacity(0.12))
                     Capsule().fill(color).frame(width: geo.size.width * fill)
                 }
             }
@@ -343,7 +342,7 @@ private struct PainArt: View {
             below()
         }
         .padding(16)
-        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -366,16 +365,21 @@ private struct FeaturesPage: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            screenshot
-            Text("Everything in one app").font(.system(size: 28, weight: .bold))
-            VStack(spacing: 2) {
-                ForEach(Self.features.indices, id: \.self) { i in row(i) }
+        // Scrolls like the other pages: at the largest text sizes the rows are taller than the screen and would push
+        // the Continue button off it (OPEN_ISSUES I16).
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                screenshot
+                Text("Everything in one app").font(.system(size: 28, weight: .bold))
+                VStack(spacing: 2) {
+                    ForEach(Self.features.indices, id: \.self) { i in row(i) }
+                }
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 24)
+            .padding(.top, 4)
+            .padding(.bottom, 12)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 4)
+        .scrollBounceBehavior(.basedOnSize)
         .task {
             guard !reduceMotion else { return }
             while !Task.isCancelled {
@@ -410,7 +414,7 @@ private struct FeaturesPage: View {
         .background(RadialGradient(colors: [Color.accentColor.opacity(0.35), Color.accentColor.opacity(0.05)],
                                    center: .top, startRadius: 0, endRadius: 320))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.primary.opacity(0.12)))
         .accessibilityHidden(true)
     }
 
@@ -428,13 +432,15 @@ private struct FeaturesPage: View {
                     .frame(width: 34, height: 34)
                     .background(on ? Color.accentColor : Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(f.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
-                    Text(f.detail).font(.footnote).foregroundStyle(.white.opacity(0.65))
+                    Text(f.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(f.detail).font(.footnote).foregroundStyle(.primary.opacity(0.65))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(Color.white.opacity(on ? 0.1 : 0), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.primary.opacity(on ? 0.1 : 0), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -455,7 +461,7 @@ private struct PrivacyPage: View {
                 Text("Only you can open them").font(.system(size: 30, weight: .bold))
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Every photo is locked on your \(Device.name) before it leaves. You open your library with your passphrase.")
-                    .font(.body).foregroundStyle(.white.opacity(0.75)).fixedSize(horizontal: false, vertical: true)
+                    .font(.body).foregroundStyle(.primary.opacity(0.75)).fixedSize(horizontal: false, vertical: true)
                 // Showing exactly what Telegram stores says more than any sentence about it.
                 TelegramPreview()
                 Label("If you lose your passphrase and your recovery key, nobody can get your photos back. Not us, not Telegram.",
@@ -505,7 +511,7 @@ private struct PrivacyPage: View {
         VStack(spacing: 6) {
             image.font(.system(size: 24)).foregroundStyle(Color.accentColor)
                 .frame(width: 54, height: 54)
-                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
             Text(label).font(.caption).foregroundStyle(.secondary)
         }
         .frame(width: 92)
@@ -519,12 +525,14 @@ struct TelegramPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("What your Telegram stores for one photo").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
+            Text("What your Telegram stores for one photo").font(.caption.weight(.semibold)).foregroundStyle(.primary.opacity(0.6))
             fileBubble.frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(red: 0.06, green: 0.09, blue: 0.13), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // A picture of Telegram's dark chat, the same in light mode.
+        .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("In your Telegram, each photo is an unreadable file that only you can open.")
     }
@@ -597,11 +605,11 @@ private struct QuestionsPage: View {
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 VStack(spacing: 0) {
                     ForEach(Array(Self.items.indices.prefix(showAll ? Self.items.count : Self.shownFirst)), id: \.self) { i in
-                        if i > 0 { Divider().overlay(Color.white.opacity(0.1)).padding(.leading, 50) }
+                        if i > 0 { Divider().overlay(Color.primary.opacity(0.1)).padding(.leading, 50) }
                         row(i).transition(.opacity)
                     }
                 }
-                .background(Color.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(Color.primary.opacity(0.09), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .padding(.top, 6)
                 HStack {
                     if !showAll {
@@ -626,9 +634,9 @@ private struct QuestionsPage: View {
     /// The key points (in **bold**) in bright white, the rest dimmer, so a skim catches what matters.
     private static func answer(_ markdown: String) -> AttributedString {
         var text = (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
-        text.foregroundColor = .white.opacity(0.6)
+        text.foregroundColor = .primary.opacity(0.6)
         for run in text.runs where run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true {
-            text[run.range].foregroundColor = .white
+            text[run.range].foregroundColor = .primary
         }
         return text
     }
@@ -636,12 +644,12 @@ private struct QuestionsPage: View {
     private func badge(_ icon: String, _ text: String) -> some View {
         VStack(spacing: 6) {
             Image(systemName: icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(Color.accentColor)
-            Text(text).font(.caption.weight(.semibold)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.8)
+            Text(text).font(.caption.weight(.semibold)).foregroundStyle(.primary).lineLimit(1).minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.1)))
+        .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.1)))
         .accessibilityElement(children: .combine)
     }
 
@@ -655,10 +663,10 @@ private struct QuestionsPage: View {
                 HStack(spacing: 12) {
                     Image(systemName: item.icon).font(.system(size: 17, weight: .medium)).foregroundStyle(Color.accentColor)
                         .frame(width: 26)
-                    Text(item.question).font(.body.weight(.medium)).foregroundStyle(.white).multilineTextAlignment(.leading)
+                    Text(item.question).font(.body.weight(.medium)).foregroundStyle(.primary).multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
-                    Image(systemName: "chevron.down").font(.footnote.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
+                    Image(systemName: "chevron.down").font(.footnote.weight(.semibold)).foregroundStyle(.primary.opacity(0.6))
                         .rotationEffect(.degrees(isOpen ? 180 : 0))
                 }
                 .padding(.horizontal, 14)
@@ -731,6 +739,11 @@ private struct NumbersPage: View {
                     .contentTransition(.numericText(value: Double(stats.items)))
                 Text(status == .limited ? "photos and videos you've shared with Lelvo" : "photos and videos on this \(Device.name)")
                     .font(.subheadline).foregroundStyle(.secondary)
+                if status == .limited {
+                    Button("Allow full access in Settings") { PlatformActions.openPhotoSettings() }
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.top, 4)
+                }
             }
             .frame(maxWidth: .infinity)
 
@@ -769,9 +782,9 @@ private struct NumbersPage: View {
     private var nextStep: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Next: sign in with Telegram", systemImage: "paperplane.fill")
-                .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                .font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
             Text("Your photos are stored in your own Telegram account. Telegram sends the login code to your Telegram app, usually not by SMS.")
-                .font(.subheadline).foregroundStyle(.white.opacity(0.8))
+                .font(.subheadline).foregroundStyle(.primary.opacity(0.8))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
@@ -788,7 +801,7 @@ private struct NumbersPage: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
-        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     static func size(_ bytes: Int64) -> String {
@@ -897,7 +910,7 @@ struct FirstBackupView: View {
             photoGrid(selectable: false)
             Label("A green cloud means that photo on this \(Device.name) is already in your library.\(autoBackup ? "" : " Back up now sends the rest.")",
                   systemImage: "info.circle")
-                .font(.footnote).foregroundStyle(.white.opacity(0.75))
+                .font(.footnote).foregroundStyle(.primary.opacity(0.75))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .task { await countUp(to: restored ?? 0) }
@@ -950,7 +963,7 @@ struct FirstBackupView: View {
             ring.padding(.top, 30)
             VStack(spacing: 10) {
                 Text(title).font(.system(size: 30, weight: .bold)).multilineTextAlignment(.center)
-                Text(detail).foregroundStyle(.white.opacity(0.75)).multilineTextAlignment(.center)
+                Text(detail).foregroundStyle(.primary.opacity(0.75)).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .animation(.default, value: phase)
@@ -967,7 +980,7 @@ struct FirstBackupView: View {
                     Haptics.selection()
                     withAnimation(.spring(duration: 0.25)) { selected = isSelected ? nil : photo.id }
                 } label: {
-                    Color.white.opacity(0.08).aspectRatio(1, contentMode: .fit)
+                    Color.primary.opacity(0.08).aspectRatio(1, contentMode: .fit)
                         .overlay { if let image = photo.image { Image(platformImage: image).resizable().scaledToFill() } }
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay(alignment: .topTrailing) {
@@ -1007,12 +1020,12 @@ struct FirstBackupView: View {
                     Prefs.defaults.set(autoBackup, forKey: Prefs.Key.autoBackup)
                     done()
                 }
-                Text("You can change this in Settings.").font(.footnote).foregroundStyle(.white.opacity(0.6))
+                Text("You can change this in Settings.").font(.footnote).foregroundStyle(.primary.opacity(0.6))
             } else if phase == .choosing {
                 PrimaryCapsuleButton(title: "Back up this photo", enabled: selected != nil) {
                     if let selected { Task { await upload(selected) } }
                 }
-                Button("Skip for now", action: done).font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                Button("Skip for now", action: done).font(.subheadline.weight(.semibold)).foregroundStyle(.primary.opacity(0.7))
             } else {
                 PrimaryCapsuleButton(title: "Continue in the background", action: done)
             }
@@ -1023,14 +1036,14 @@ struct FirstBackupView: View {
     private var autoBackupCard: some View {
         Toggle(isOn: $autoBackup) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Back up new photos automatically").font(.headline).foregroundStyle(.white)
+                Text("Back up new photos automatically").font(.headline).foregroundStyle(.primary)
                 Text("When you open Lelvo, in the background, and overnight.")
-                    .font(.footnote).foregroundStyle(.white.opacity(0.7))
+                    .font(.footnote).foregroundStyle(.primary.opacity(0.7))
             }
         }
         .tint(.accentColor)
         .padding(14)
-        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 
@@ -1058,7 +1071,7 @@ struct FirstBackupView: View {
 
     private var ring: some View {
         ZStack {
-            Circle().stroke(Color.white.opacity(0.1), lineWidth: 6)
+            Circle().stroke(Color.primary.opacity(0.1), lineWidth: 6)
             Circle().trim(from: 0, to: finished ? 1 : progress)
                 .stroke(finished ? Color.green : Color.accentColor, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                 .rotationEffect(.degrees(-90))
@@ -1066,14 +1079,14 @@ struct FirstBackupView: View {
                 if let image = recent.photos.first(where: { $0.id == selected })?.image {
                     Image(platformImage: image).resizable().scaledToFill()
                 } else {
-                    Color.white.opacity(0.08).overlay { Image(systemName: "photo").font(.largeTitle).foregroundStyle(.secondary) }
+                    Color.primary.opacity(0.08).overlay { Image(systemName: "photo").font(.largeTitle).foregroundStyle(.secondary) }
                 }
             }
             .frame(width: 150, height: 150)
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             Image(systemName: "checkmark").font(.system(size: 22, weight: .bold)).foregroundStyle(.white)
                 .frame(width: 50, height: 50).background(Color.green, in: Circle())
-                .overlay(Circle().stroke(Color.black, lineWidth: 3))
+                .overlay(Circle().stroke(Color.screenBackground, lineWidth: 3))
                 .offset(x: 72, y: 72)
                 .scaleEffect(finished ? 1 : 0.6)
                 .opacity(finished ? 1 : 0)
@@ -1130,7 +1143,9 @@ final class IntroPhotos: ObservableObject {
     @Published private(set) var images: [CGImage] = []
 
     func load() {
-        guard images.isEmpty, let folder = DemoMode.folder else { return }
+        // The iPhone has them in its demo library; the Mac, which has no demo library, in a folder of its own.
+        guard images.isEmpty,
+              let folder = DemoMode.folder ?? Bundle.main.url(forResource: "IntroPhotos", withExtension: nil) else { return }
         Task.detached(priority: .userInitiated) {
             let loaded: [CGImage] = (1...24).compactMap { n in
                 let url = folder.appendingPathComponent(String(format: "photo%02d.jpg", n))

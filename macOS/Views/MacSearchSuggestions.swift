@@ -22,7 +22,7 @@ struct MacSearchSuggestions: View {
                 if !search.places.isEmpty { section("Places", items: search.places, symbol: "mappin.and.ellipse") }
                 if !search.months.isEmpty { section("Months", items: search.months, symbol: "calendar") }
                 section("Try", items: ["Videos", "Favorites", "Screenshots"], symbol: "magnifyingglass")
-                if !pro.isPro {
+                if ProStore.offered, !pro.isPro {
                     Button { showProPaywall = true } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "sparkle.magnifyingglass").foregroundStyle(.tint)

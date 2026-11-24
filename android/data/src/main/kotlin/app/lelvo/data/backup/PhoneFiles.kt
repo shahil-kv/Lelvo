@@ -18,6 +18,7 @@ import android.provider.MediaStore
 import android.util.Size
 import app.lelvo.core.index.captureDate
 import app.lelvo.core.backup.ScreenCopyPolicy
+import app.lelvo.core.index.ExifOffset
 import app.lelvo.core.index.ItemKind
 import app.lelvo.core.search.SearchMatcher
 import app.lelvo.core.support.AppLog
@@ -177,7 +178,7 @@ class PhoneFiles(context: Context) {
     }
 
     /** SHA-256 (hex) and size of the original bytes. */
-    fun hash(file: PhoneFile): Pair<String, Long> {
+    fun hash(file: PhoneFile, ensureActive: () -> Unit = {}): Pair<String, Long> {
         val digest = MessageDigest.getInstance("SHA-256")
         var size = 0L
         openOriginal(file).use { s ->
@@ -185,6 +186,8 @@ class PhoneFiles(context: Context) {
             while (true) {
                 val n = s.read(buffer)
                 if (n < 0) break
+                // A stop request must not wait out a multi-GB video.
+                ensureActive()
                 digest.update(buffer, 0, n)
                 size += n
             }
@@ -204,6 +207,14 @@ class PhoneFiles(context: Context) {
             openOriginal(file).use { s -> FloatArray(2).let { if (ExifInterface(s).getLatLong(it)) it[0].toDouble() to it[1].toDouble() else null } }
         }
         latLon?.takeIf { (lat, lon) -> !(lat == 0.0 && lon == 0.0) && lat in -90.0..90.0 && lon in -180.0..180.0 }
+    }.getOrNull()
+
+    /** The zone a photo was taken in, from its EXIF `OffsetTimeOriginal` (I14). Null for videos or when the file has none. */
+    fun exifOffsetMinutes(file: PhoneFile): Int? = if (file.isVideo) null else runCatching {
+        openOriginal(file).use { s ->
+            val e = ExifInterface(s)
+            ExifOffset.minutes(e.getAttribute("OffsetTimeOriginal") ?: e.getAttribute("OffsetTime"))
+        }
     }.getOrNull()
 
     /** The video's codec name as iOS writes it (`hevc`, `h264`…), when the file says. */

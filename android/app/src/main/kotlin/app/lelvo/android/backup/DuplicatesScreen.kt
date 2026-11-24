@@ -221,7 +221,7 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
                 HorizontalDivider()
                 Header("Screenshots")
                 ListItem(
-                    headlineContent = { Text("${smart.screenshots.size} items") },
+                    headlineContent = { Text(if (smart.screenshots.size == 1) "1 item" else "${smart.screenshots.size} items") },
                     trailingContent = { Text(Formatter.formatShortFileSize(context, smart.screenshots.sumOf { it.bytes })) },
                 )
                 if (!isPro) ListItem(
@@ -254,7 +254,7 @@ fun DuplicatesScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mod
                 HorizontalDivider()
                 Header("Large videos")
                 ListItem(
-                    headlineContent = { Text("${smart.largeVideos.size} items") },
+                    headlineContent = { Text(if (smart.largeVideos.size == 1) "1 item" else "${smart.largeVideos.size} items") },
                     trailingContent = { Text(Formatter.formatShortFileSize(context, smart.largeVideos.sumOf { it.bytes })) },
                 )
                 if (!isPro) ListItem(

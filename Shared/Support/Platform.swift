@@ -135,6 +135,15 @@ extension Image {
 }
 
 extension Color {
+    /// The plain screen background: black in dark mode, white in light mode.
+    static var screenBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color(.systemBackground)
+        #endif
+    }
+
     /// Placeholder behind thumbnails that haven't loaded yet.
     static var tileBackground: Color {
         #if os(macOS)
@@ -297,3 +306,4 @@ extension View {
         #endif
     }
 }
+

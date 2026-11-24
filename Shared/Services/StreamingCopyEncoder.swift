@@ -31,8 +31,28 @@ enum StreamingCopyEncoder {
 
             // Applies the rotation and Photos' edits (slow motion, trims); also converts HDR to standard colour,
             // which every screen shows correctly at this size.
-            let composition = try await AVMutableVideoComposition.videoComposition(withPropertiesOf: asset)
             let fps = try await track.load(.nominalFrameRate)
+            let composition: AVMutableVideoComposition
+            if !(asset is AVComposition), videoTracks.count == 1 {
+                // One plain track (a file): size and turn it from the track itself. `videoComposition(withPropertiesOf:)`
+                // answered 720x2000 for a 1280x720 video turned 90 degrees, so the fast version came out sideways and
+                // stretched in a 692x1920 frame.
+                let natural = try await track.load(.naturalSize)
+                let turn = try await track.load(.preferredTransform)
+                let box = CGRect(origin: .zero, size: natural).applying(turn)
+                let frame = try await track.load(.minFrameDuration)
+                let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
+                layer.setTransform(turn.concatenating(CGAffineTransform(translationX: -box.minX, y: -box.minY)), at: .zero)
+                let instruction = AVMutableVideoCompositionInstruction()
+                instruction.timeRange = CMTimeRange(start: .zero, duration: try await asset.load(.duration))
+                instruction.layerInstructions = [layer]
+                composition = AVMutableVideoComposition()
+                composition.renderSize = CGSize(width: abs(box.width), height: abs(box.height))
+                composition.frameDuration = frame.isValid && frame.seconds > 0 ? frame : CMTime(value: 1, timescale: 30)
+                composition.instructions = [instruction]
+            } else {
+                composition = try await AVMutableVideoComposition.videoComposition(withPropertiesOf: asset)
+            }
             // Slow-motion originals (120/240 fps) play at 60; 30 and 60 fps videos keep their own rate.
             if fps > 60 { composition.frameDuration = CMTime(value: 1, timescale: 60) }
             let outFPS = min(60, Double(fps))
@@ -44,6 +64,14 @@ enum StreamingCopyEncoder {
             let scale = min(1, 1920 / max(shown.width, shown.height, 1))
             width = Int((shown.width * scale / 2).rounded()) * 2
             height = Int((shown.height * scale / 2).rounded()) * 2
+            // A fast version that came out the wrong size or turned leaves no other trace.
+            var described: [String] = []
+            for t in videoTracks {
+                let n = try await t.load(.naturalSize), x = try await t.load(.preferredTransform)
+                described.append(String(format: "%.0fx%.0f [%.0f %.0f %.0f %.0f]", n.width, n.height, x.a, x.b, x.c, x.d))
+            }
+            appLog(String(format: "Fast version: source %@ (%@), render %.0fx%.0f, writes %dx%d, %.0f fps",
+                          String(describing: type(of: asset)), described.joined(separator: ", "), shown.width, shown.height, width, height, fps))
             guard width > 0, height > 0 else { throw StreamingCopyError.unsupported }
 
             reader = try AVAssetReader(asset: asset)

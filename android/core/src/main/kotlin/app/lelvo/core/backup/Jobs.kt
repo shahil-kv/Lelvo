@@ -15,6 +15,10 @@ data class JobStatus(
     val lastError: String? = null,
     /** Don't start before this time, epoch ms (FLOOD_WAIT or backoff). */
     val notBefore: Long? = null,
+    /** Failed only because every attempt hit a passing error, so a later run may retry it. */
+    val transientFailure: Boolean = false,
+    /** When a run last moved it back to pending on its own, epoch ms ([JobMachine.autoRetry]). */
+    val autoRetriedAt: Long? = null,
 ) {
     fun isRunnable(now: Long): Boolean = state == JobState.Pending && (notBefore?.let { it <= now } ?: true)
 }
@@ -46,7 +50,7 @@ object JobMachine {
                 if (event.sizeMatches) job.copy(state = JobState.Verified, lastError = null, notBefore = null)
                 else job.copy(
                     state = JobState.Failed, attempts = job.attempts + 1,
-                    lastError = "Telegram stored a file with a different size than was uploaded.",
+                    lastError = "Telegram stored a file with a different size than was uploaded.", transientFailure = false,
                 )
             // Telegram's instruction, not our failure: wait exactly that long and try again without counting an attempt.
             job.state == JobState.Uploading && event is JobEvent.FloodWait -> job.copy(
@@ -58,13 +62,27 @@ object JobMachine {
                 if (event.transient && attempts < MAX_ATTEMPTS) job.copy(
                     state = JobState.Pending, attempts = attempts, lastError = event.reason,
                     notBefore = now + (backoff.ceilingSeconds(attempts - 1) * 1000).toLong(),
-                ) else job.copy(state = JobState.Failed, attempts = attempts, lastError = event.reason)
+                ) else job.copy(state = JobState.Failed, attempts = attempts, lastError = event.reason, transientFailure = event.transient)
             }
             job.state == JobState.Uploading && event == JobEvent.Interrupted -> job.copy(state = JobState.Pending)
-            job.state == JobState.Failed && event == JobEvent.Retry -> JobStatus()
+            job.state == JobState.Failed && event == JobEvent.Retry -> JobStatus(autoRetriedAt = job.autoRetriedAt)
             // Invalid transitions are ignored; verified is terminal.
             else -> job
         }
+
+    /** Minimum time between two automatic retries of one item, ms. */
+    const val AUTO_RETRY_INTERVAL_MS = 24L * 60 * 60 * 1000
+
+    /**
+     * Run start (D1), as iOS `JobMachine.autoRetry`: an item that failed only on passing errors goes back to pending with
+     * its attempts reset, at most once a day. Permanent failures stay failed. Null when the item is left as it is.
+     */
+    fun autoRetry(job: JobStatus, now: Long = System.currentTimeMillis()): JobStatus? {
+        if (job.state != JobState.Failed || !job.transientFailure) return null
+        val last = job.autoRetriedAt
+        if (last != null && now - last < AUTO_RETRY_INTERVAL_MS) return null
+        return reduce(job, JobEvent.Retry, now).copy(autoRetriedAt = now)
+    }
 }
 
 /** The job view of an item's status (iOS `MediaItem.job`). */
@@ -77,6 +95,7 @@ val LibraryItem.job: JobStatus
             ItemStatus.Failed, ItemStatus.TooLarge -> JobState.Failed
         },
         attempts = attempts, lastError = lastError, notBefore = notBefore,
+        transientFailure = transientFailure, autoRetriedAt = autoRetriedAt,
     )
 
 fun LibraryItem.withJob(job: JobStatus): LibraryItem = copy(
@@ -87,6 +106,7 @@ fun LibraryItem.withJob(job: JobStatus): LibraryItem = copy(
         JobState.Failed -> ItemStatus.Failed
     },
     attempts = job.attempts, lastError = job.lastError, notBefore = job.notBefore,
+    transientFailure = job.transientFailure, autoRetriedAt = job.autoRetriedAt,
 )
 
 /** An event the machine ignores changes nothing: a Trashed item (verified for the machine) must never become BackedUp. */

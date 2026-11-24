@@ -66,7 +66,6 @@ targets:
         LSRequiresIPhoneOS: true
         TDAPIId: $(TD_API_ID)
         TDAPIHash: $(TD_API_HASH)
-        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark
@@ -83,7 +82,6 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSPhotoLibraryUsageDescription: Lelvo backs up your photos and videos to your own private Telegram channel and shows them in one timeline.
         NSPhotoLibraryAddUsageDescription: Lelvo saves photos you download from your Telegram backup back into your library.
-        NSFaceIDUsageDescription: Lelvo uses Face ID to unlock Locked folder.
         PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
         UIBackgroundModes:
           - fetch
@@ -111,6 +109,10 @@ targets:
       Release: Config/App.xcconfig
     sources:
       - path: macOS
+        excludes: [IntroPhotos]
+      # The intro's photo wall (the iPhone app gets them from its demo library), as one folder.
+      - path: macOS/IntroPhotos
+        type: folder
       - path: Shared
     dependencies:
       - package: LelvoCore
@@ -140,7 +142,6 @@ targets:
         NSHumanReadableCopyright: "© 2026 Lelvo contributors. Free software under the GPL-3.0."
         NSPhotoLibraryUsageDescription: Lelvo backs up the photos and videos in your Photos library to your own private Telegram channel and shows them in one timeline.
         NSPhotoLibraryAddUsageDescription: Lelvo saves photos you download from your Telegram backup back into your Photos library.
-        ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: macOS/LelvoMac.entitlements
       properties:
@@ -157,6 +158,9 @@ targets:
       Release: Config/App.xcconfig
     sources:
       - path: macOS
+        excludes: [IntroPhotos]
+      - path: macOS/IntroPhotos
+        type: folder
       - path: Shared
     dependencies:
       - package: LelvoCore

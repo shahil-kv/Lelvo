@@ -5,13 +5,43 @@ import LelvoCore
 @Suite struct LibraryIndexerTests {
     let id = "0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10"
 
-    func msg(_ mid: Int64, role: CaptionMeta.Role = .original, kind: CaptionMeta.Kind = .photo, part: [Int64]? = nil, size: Int64 = 100) -> CloudMessage {
+    func msg(_ mid: Int64, role: CaptionMeta.Role = .original, kind: CaptionMeta.Kind = .photo, part: [Int64]? = nil, size: Int64 = 100, th: String? = nil) -> CloudMessage {
         var m = CaptionMeta(id: id, role: role, kind: kind, sha256: String(repeating: role == .original ? "a" : "b", count: 64),
                             name: role == .pairedVideo ? "IMG_1.MOV" : "IMG_1.HEIC", size: 1000)
         m.t = 1_700_000_000
         m.g = [1.5, 2.5]
         m.p = part
+        m.th = th
         return CloudMessage(messageId: mid, meta: m, fileId: "f\(mid)", uniqueId: "u\(mid)", size: size)
+    }
+
+    @Test func theThumbHashInACaptionReachesTheItemAndSurvivesAMerge() throws {
+        let built = LibraryIndexer.build([msg(10, th: "AAECAwQ=")]).items[0]
+        #expect(built.thumbHash == "AAECAwQ=")
+        // A later scan whose caption has none keeps what this device already had.
+        var local = built
+        local.thumbHash = "local-hash"
+        var scanned = LibraryIndexer.build([msg(10)]).items[0]
+        #expect(scanned.thumbHash == nil)
+        scanned = scanned.keepingLocalState(from: local)
+        #expect(scanned.thumbHash == "local-hash")
+        // And a caption that has one wins over the local one.
+        #expect(built.keepingLocalState(from: local).thumbHash == "AAECAwQ=")
+    }
+
+    @Test func rowsSavedBeforeThumbHashStillReadAndNewRowsKeepOldReadersWorking() throws {
+        var item = LibraryIndexer.build([msg(10)]).items[0]
+        let without = try JSONEncoder().encode(item)
+        #expect(!String(decoding: without, as: UTF8.self).contains("thumbHash"), "absent when nil: old builds see the same row")
+        #expect(try JSONDecoder().decode(MediaItem.self, from: without).thumbHash == nil)
+        item.thumbHash = "AAECAwQ="
+        let store = try LibraryStore(url: nil)
+        try store.upsert([item])
+        #expect(try store.item(id: item.id)?.thumbHash == "AAECAwQ=")
+        // An old build reads a row that has the field: unknown keys are ignored by the decoder.
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(item)) as? [String: Any])
+        json["somethingFromTheFuture"] = 1
+        #expect(try JSONDecoder().decode(MediaItem.self, from: JSONSerialization.data(withJSONObject: json)).id == item.id)
     }
 
     @Test func singlePhotoIsComplete() {
@@ -155,5 +185,43 @@ import LelvoCore
         #expect(LibraryIndexer.afterDeleting([99], from: item) == .unchanged)
         item.status = .uploading
         #expect(LibraryIndexer.afterDeleting([10], from: item) == .unchanged)
+    }
+}
+
+@Suite struct ScanPagingTests {
+    @Test func zeroNextIdIsTheOnlyRealEnd() {
+        var paging = ScanPaging()
+        #expect(paging.step(from: 0, nextFromMessageId: 500, pageWasEmpty: false) == .next(500))
+        #expect(paging.step(from: 500, nextFromMessageId: 0, pageWasEmpty: false) == .finished)
+        var empty = ScanPaging()
+        #expect(empty.step(from: 0, nextFromMessageId: 0, pageWasEmpty: true) == .finished)
+    }
+
+    @Test func anEmptyPageBeforeTheEndKeepsGoing() {
+        var paging = ScanPaging()
+        #expect(paging.step(from: 0, nextFromMessageId: 900, pageWasEmpty: true) == .next(900))
+        #expect(paging.step(from: 900, nextFromMessageId: 800, pageWasEmpty: false) == .next(800))
+        #expect(paging.step(from: 800, nextFromMessageId: 0, pageWasEmpty: false) == .finished)
+    }
+
+    @Test func tooManyEmptyPagesOrNoProgressGivesUpNotFinished() {
+        var paging = ScanPaging()
+        var from: Int64 = 1000
+        for _ in 0..<ScanPaging.maxEmptyPagesInARow {
+            let next = from - 1
+            #expect(paging.step(from: from, nextFromMessageId: next, pageWasEmpty: true) == .next(next))
+            from = next
+        }
+        #expect(paging.step(from: from, nextFromMessageId: from - 1, pageWasEmpty: true) == .gaveUp)
+        var stuck = ScanPaging()
+        #expect(stuck.step(from: 700, nextFromMessageId: 700, pageWasEmpty: false) == .gaveUp)
+    }
+
+    @Test func aPageWithMessagesResetsTheEmptyCount() {
+        var paging = ScanPaging()
+        _ = paging.step(from: 10, nextFromMessageId: 9, pageWasEmpty: true)
+        _ = paging.step(from: 9, nextFromMessageId: 8, pageWasEmpty: true)
+        _ = paging.step(from: 8, nextFromMessageId: 7, pageWasEmpty: false)
+        #expect(paging.step(from: 7, nextFromMessageId: 6, pageWasEmpty: true) == .next(6))
     }
 }

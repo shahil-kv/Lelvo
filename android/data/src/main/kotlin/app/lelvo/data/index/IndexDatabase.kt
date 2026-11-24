@@ -157,6 +157,19 @@ data class MetaRow(@PrimaryKey val key: String, val value: String)
 data class NoBackupRow(@PrimaryKey val key: String)
 
 /**
+ * A phone photo set aside because it can't be read (a damaged file, or one gone from the cloud copy of the gallery): backing
+ * up skips it until the photo changes, so Retry doesn't try the same unreadable file again and again (iOS `ignored_assets`).
+ * [modified] is the photo's modification time in whole seconds when it was set aside, or empty when unknown.
+ */
+@Entity(tableName = "ignored_assets")
+data class IgnoredAssetRow(
+    @PrimaryKey @ColumnInfo(name = "local_id") val localId: String,
+    val reason: String,
+    val modified: String,
+    @ColumnInfo(name = "ignored_at") val ignoredAt: Long,
+)
+
+/**
  * A Recently Deleted change waiting to be sent (iOS `trash_outbox`): one row per item, its latest change. Per library,
  * so a switch can't send it to the wrong channel.
  */
@@ -216,21 +229,29 @@ interface NotesDao {
     @Query("DELETE FROM meta_notes") suspend fun clearMetaNotes()
     @Query("DELETE FROM meta") suspend fun clearMeta()
     @Query("DELETE FROM no_backup") suspend fun clearNoBackup()
+    @Upsert suspend fun ignoreAsset(row: IgnoredAssetRow)
+    @Query("SELECT * FROM ignored_assets ORDER BY ignored_at DESC") suspend fun ignoredAssets(): List<IgnoredAssetRow>
+    @Query("SELECT count(*) FROM ignored_assets") suspend fun ignoredAssetCount(): Int
+    @Query("SELECT modified FROM ignored_assets WHERE local_id = :localId") suspend fun ignoredModified(localId: String): String?
+    @Query("DELETE FROM ignored_assets WHERE local_id = :localId") suspend fun unignoreAsset(localId: String)
+    @Query("DELETE FROM ignored_assets") suspend fun unignoreAllAssets()
 }
 
 @Database(
     entities = [
         ItemRow::class, TrashNoteRow::class, MetaNoteRow::class, MetaRow::class, NoBackupRow::class,
-        TrashOutboxRow::class, MetaOutboxRow::class, PhoneFavoriteRow::class,
+        TrashOutboxRow::class, MetaOutboxRow::class, PhoneFavoriteRow::class, IgnoredAssetRow::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
     // 2 → 3: the outboxes and the phone's last-seen favorites (Phase L), new tables only.
     // 3 → 4: Locked Folder flag on items (#129).
+    // 4 → 5: photos set aside as unreadable, a new table only (`ignored_assets`).
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
         AutoMigration(from = 3, to = 4),
+        AutoMigration(from = 4, to = 5),
     ],
 )
 abstract class IndexDatabase : RoomDatabase() {

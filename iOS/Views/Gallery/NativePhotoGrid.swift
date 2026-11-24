@@ -104,6 +104,32 @@ struct NativePhotoGrid: UIViewRepresentable {
 
         private var snapshotBuild: Task<Void, Never>?
         private var sectionIds: [String] = []
+        private var marksKey: [Double] = []
+
+        /// Where each year starts along the scrubber, measured like `scrollToFraction` moves: a section's top over the
+        /// scroll range. Redone only when the data, columns, width or insets change; never per scroll frame.
+        private func refreshMarks(_ cv: UICollectionView, force: Bool = false) {
+            let inset = cv.adjustedContentInset
+            let key = [Double(appliedVersion), Double(appliedColumns), Double(cv.bounds.width), Double(cv.bounds.height),
+                       Double(inset.top), Double(inset.bottom)]
+            guard force || key != marksKey else { return }
+            marksKey = key
+            let counts = sectionIds.map { sections[$0]?.entries.count ?? 0 }
+            let (tops, height) = layout.sectionTops(counts: counts, width: cv.bounds.width)
+            let range = height - cv.bounds.height + inset.top + inset.bottom
+            guard range > 0, ScrubberTicks.isLongEnough(contentHeight: Double(height), viewportHeight: Double(cv.bounds.height)) else {
+                if !parent.motion.yearMarks.isEmpty { parent.motion.yearMarks = [] }
+                return
+            }
+            let calendar = Calendar.current
+            var marks: [ScrubberMark] = []
+            marks.reserveCapacity(sectionIds.count)
+            for (i, id) in sectionIds.enumerated() {
+                guard let date = sections[id]?.entries.first?.date, let top = tops[safe: i] else { continue }
+                marks.append(ScrubberMark(year: calendar.component(.year, from: date), fraction: Double(top / range)))
+            }
+            parent.motion.yearMarks = marks
+        }
 
         func attach(_ cv: UICollectionView) {
             collectionView = cv
@@ -163,6 +189,7 @@ struct NativePhotoGrid: UIViewRepresentable {
                 appliedScrub = p.scrubToken
                 scrollToFraction(p.scrubFraction, in: cv)
             }
+            refreshMarks(cv)
         }
 
         private func apply(_ list: [GallerySection], in cv: UICollectionView, keepTopTile: Bool) {
@@ -176,6 +203,7 @@ struct NativePhotoGrid: UIViewRepresentable {
                 self.sectionIds = built.sectionIds
                 self.dataSource?.apply(built.snapshot, animatingDifferences: false)
                 self.restore(keep, in: cv)
+                self.refreshMarks(cv, force: true)
                 // Same ids with new content (e.g. a backup finished): update visible tiles and headers in place.
                 self.refreshVisible()
                 self.preloadVisibleVideos()
@@ -524,7 +552,10 @@ struct NativePhotoGrid: UIViewRepresentable {
 
         // MARK: Scrolling (date scrubber)
 
+        private var speedMeter = ScrollSpeedMeter()
+
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            speedMeter.sample(offset: Double(scrollView.contentOffset.y), time: CACurrentMediaTime())
             let range = scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.top + scrollView.adjustedContentInset.bottom
             parent.motion.fraction = range > 0 ? (scrollView.contentOffset.y + scrollView.adjustedContentInset.top) / range : 0
             let title = topSectionTitle(scrollView)
@@ -554,10 +585,12 @@ struct NativePhotoGrid: UIViewRepresentable {
         }
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
             guard !decelerate else { return }
+            speedMeter.stop()
             parent.motion.isScrolling = false
             preloadVisibleVideos()
         }
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            speedMeter.stop()
             parent.motion.isScrolling = false
             preloadVisibleVideos()
         }
@@ -688,6 +721,9 @@ final class PhotoCell: UICollectionViewCell {
     private var loadedPixels = 0
     private var task: Task<Void, Never>?
     private var badgeSymbol = ""
+    /// The blurred ThumbHash picture is showing in `imageView`, not a real thumbnail.
+    private var showingPlaceholder = false
+    private var placeholderTask: Task<Void, Never>?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -722,6 +758,9 @@ final class PhotoCell: UICollectionViewCell {
         super.prepareForReuse()
         task?.cancel()
         task = nil
+        placeholderTask?.cancel()
+        placeholderTask = nil
+        showingPlaceholder = false
         entryId = nil
         loadedPixels = 0
         imageView.image = nil
@@ -731,6 +770,9 @@ final class PhotoCell: UICollectionViewCell {
         if entryId != entry.id {
             task?.cancel()
             task = nil
+            placeholderTask?.cancel()
+            placeholderTask = nil
+            showingPlaceholder = false
             entryId = entry.id
             loadedPixels = 0
             imageView.image = nil
@@ -739,11 +781,39 @@ final class PhotoCell: UICollectionViewCell {
                 loadedPixels = cached.pixels
             }
         }
+        if imageView.image == nil, placeholderTask == nil, let hash = entry.placeholderHash {
+            if let blur = ThumbHashImages.shared.cached(hash) {
+                imageView.image = blur
+                showingPlaceholder = true
+            } else if !ThumbHashImages.shared.isResolved(hash) {
+                let id = entry.id
+                placeholderTask = Task { [weak self] in
+                    let blur = await ThumbHashImages.shared.image(for: hash)
+                    guard let self, !Task.isCancelled, self.entryId == id else { return }
+                    self.placeholderTask = nil
+                    if let blur, self.imageView.image == nil {
+                        self.imageView.image = blur
+                        self.showingPlaceholder = true
+                    }
+                }
+            }
+        }
         if loadedPixels < pixels && task == nil {
             task = Task { [weak self] in
                 for await img in ThumbnailPipeline.shared.images(for: entry, pixels: pixels) {
                     guard let self, self.entryId == entry.id else { return }
                     let first = self.imageView.image == nil
+                    if self.showingPlaceholder {
+                        self.showingPlaceholder = false
+                        if UIAccessibility.isReduceMotionEnabled {
+                            self.imageView.image = img
+                        } else {
+                            UIView.transition(with: self.imageView, duration: 0.15, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+                                self.imageView.image = img
+                            }
+                        }
+                        continue
+                    }
                     self.imageView.image = img
                     if first {
                         self.imageView.alpha = 0
@@ -841,7 +911,7 @@ final class PhotoSectionHeader: UICollectionReusableView {
         title.text = text
         title.font = large ? UIFont.systemFont(ofSize: 20, weight: .bold) : .preferredFont(forTextStyle: .headline)
         count.text = n.formatted()
-        accessibilityLabel = "\(text), \(n) items"
+        accessibilityLabel = "\(text), \(n) \(n == 1 ? "item" : "items")"
         setNeedsLayout()
     }
 
@@ -925,6 +995,20 @@ final class PinchGridLayout: UICollectionViewLayout {
     private func metrics(_ c: Int) -> Metrics {
         refreshIfNeeded()
         if let m = cache[c] { return m }
+        let m = Self.makeMetrics(c, counts: counts, width: width)
+        cache[c] = m
+        return m
+    }
+
+    /// Where each section starts and how tall everything is at the committed column count, from item counts and a
+    /// width alone (no UIKit layout pass). The date scrubber's year marks use it.
+    func sectionTops(counts: [Int], width: CGFloat) -> (tops: [CGFloat], height: CGFloat) {
+        let m = Self.makeMetrics(columns, counts: counts, width: width)
+        return (m.tops, m.height)
+    }
+
+    private static func makeMetrics(_ c: Int, counts: [Int], width: CGFloat) -> Metrics {
+        let spacing: CGFloat = 2
         let side = max(1, floor((width - spacing * CGFloat(c - 1)) / CGFloat(c)))
         let pitchX = c > 1 ? side + (width - side * CGFloat(c)) / CGFloat(c - 1) : 0
         var tops: [CGFloat] = []
@@ -935,9 +1019,7 @@ final class PinchGridLayout: UICollectionViewLayout {
             let rows = (n + c - 1) / c
             y += Self.headerHeight + (rows > 0 ? CGFloat(rows) * side + CGFloat(rows - 1) * spacing : 0)
         }
-        let m = Metrics(columns: c, side: side, pitchX: pitchX, tops: tops, height: y)
-        cache[c] = m
-        return m
+        return Metrics(columns: c, side: side, pitchX: pitchX, tops: tops, height: y)
     }
 
     /// The two states being blended (the same one twice when not pinching).

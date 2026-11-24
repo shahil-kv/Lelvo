@@ -47,7 +47,7 @@ in `.claude/skills/`. Personal settings go in `CLAUDE.local.md` (ignored by git)
 - Large files (`BackupEngine`, `OnboardingView`, `ViewerView`, `TDService`: 1,000+ lines each): grep for the symbol,
   then read only that range.
 - Read `docs/ARCHITECTURE.md` or `docs/CLOUD_FORMAT.md` only for the section you need, not whole.
-- `docs/PROGRESS.md` is the handoff note when resuming bigger work.
+- Handoff when resuming: `docs/OPEN_ISSUES.md` (bugs), `docs/MANUAL_TEST_PLAN.md` (test runs), `docs/ANDROID_PLAN.md` (Android).
 - Hand wide searches ("every caller of X across both apps") to the Explore agent so only the answer comes back.
 - Start a fresh session (`/clear`) between unrelated tasks. Before `/compact`, say what to keep.
 

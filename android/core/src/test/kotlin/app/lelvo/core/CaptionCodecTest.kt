@@ -89,6 +89,65 @@ class CaptionCodecTest {
         assertNull(CaptionCodec.decode(plain(""","p":[0,2]""")).part)
     }
 
+    /** A real ThumbHash, Base64: what a caption carries in `th`. */
+    private fun sampleHash(): String {
+        val px = ByteArray(64 * 48 * 4)
+        var i = 0
+        for (y in 0 until 48) for (x in 0 until 64) {
+            px[i++] = (x * 3).toByte(); px[i++] = (y * 4).toByte(); px[i++] = (255 - x * 2).toByte(); px[i++] = 255.toByte()
+        }
+        return java.util.Base64.getEncoder().encodeToString(app.lelvo.core.format.ThumbHash.encode(64, 48, px)!!)
+    }
+
+    @Test
+    fun thumbHashRoundTripsInAnEncryptedCaption() {
+        val m = sampleMeta().copy(e = 1, th = sampleHash())
+        assertEquals(m.th, CaptionCodec.decode(CaptionCodec.encode(m, keys.captionKey), keys.captionKey).th)
+        assertNull(CaptionCodec.decode(CaptionCodec.encode(sampleMeta().copy(e = 1), keys.captionKey), keys.captionKey).th)
+    }
+
+    @Test
+    fun aThumbHashAddsLittleToATypicalCaption() {
+        val m = sampleMeta().copy(e = 1)
+        val without = CaptionCodec.encode(m, keys.captionKey).length
+        val with = CaptionCodec.encode(m.copy(th = sampleHash()), keys.captionKey).length
+        assertTrue(with <= CaptionCodec.MAX_LENGTH)
+        assertTrue(with - without < 80, "grew by ${with - without}")
+    }
+
+    @Test
+    fun theThumbHashIsDroppedBeforeAnythingElse() {
+        var found = false
+        for (n in 1..60) {
+            val base = sampleMeta().copy(e = 1, a = (0 until n).map { "Album with a fairly long name $it" })
+            val withHash = base.copy(th = sampleHash())
+            val fitsWithout = runCatching { CaptionCodec.encode(base, keys.captionKey).length <= CaptionCodec.MAX_LENGTH }.getOrDefault(false)
+            val overWith = CaptionCodec.keepsAlbums(withHash.copy(th = null), keys.captionKey) &&
+                CaptionCodec.json(withHash).length > 0 &&
+                CaptionCodec.encode(withHash, keys.captionKey).let { CaptionCodec.decode(it, keys.captionKey).th == null }
+            if (fitsWithout && overWith) {
+                val decoded = CaptionCodec.decode(CaptionCodec.encode(withHash, keys.captionKey), keys.captionKey)
+                assertNull(decoded.th, "th goes first")
+                assertEquals(n, decoded.a?.size, "albums stay")
+                assertTrue(CaptionCodec.keepsAlbums(withHash, keys.captionKey), "th must not push albums out")
+                found = true
+                break
+            }
+        }
+        assertTrue(found)
+    }
+
+    @Test
+    fun aCaptionWithAThumbHashIsReadableByAReaderThatIgnoresUnknownFields() {
+        // The reader picks only the fields it knows: `zz` is skipped, `th` is read.
+        val obj = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"v":1,"id":"0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10","r":"o","k":"p","h":"${"0".repeat(64)}","n":"a.jpg","s":1,"th":"AAECAwQ=","zz":[1,2]}""",
+        ) as kotlinx.serialization.json.JsonObject
+        val meta = CaptionCodec.fromJson(obj)
+        assertEquals("a.jpg", meta.n)
+        assertEquals("AAECAwQ=", meta.th)
+    }
+
     @Test
     fun longCaptionsAreTrimmedInTheContractsOrder() {
         val meta = sampleMeta().copy(e = 1, l = "L".repeat(40), a = (0 until 60).map { "Album with a fairly long name $it" })

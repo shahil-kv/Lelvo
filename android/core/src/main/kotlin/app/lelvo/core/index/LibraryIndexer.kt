@@ -58,7 +58,7 @@ object LibraryIndexer {
                 id = id, localId = null, sha256 = if ("o" in roles) primary.h else "", filename = primary.n, kind = kind,
                 createdAt = primary.t?.let { it * 1000 }, latitude = primary.latitude, longitude = primary.longitude,
                 width = primary.wh?.firstOrNull() ?: 0, height = primary.wh?.getOrNull(1) ?: 0, duration = primary.d,
-                fileSize = primary.s, status = ItemStatus.BackedUp, favorite = primary.fav == 1, hidden = primary.hid == 1,
+                fileSize = primary.s, status = ItemStatus.BackedUp, favorite = primary.fav == 1, hidden = primary.hid == 1, thumbHash = primary.th,
                 albums = primary.a ?: emptyList(), parts = parts, expectedParts = expected, encrypted = primary.isEncrypted,
                 mimeType = primary.m, codec = primary.c, hdr = primary.hdr, tzOffsetMinutes = primary.tz, sourceLocalId = primary.l,
                 hasEdit = primary.ed == 1 || "e" in roles, roleHashes = hashes, roleNames = names,
@@ -97,7 +97,7 @@ object LibraryIndexer {
                 g = if (lat != null && lon != null) listOf(lat, lon) else null,
                 wh = if (item.width > 0) listOf(item.width, item.height) else null,
                 d = item.duration, c = item.codec, hdr = item.hdr, a = item.albums.takeIf { it.isNotEmpty() },
-                fav = if (item.favorite) 1 else null, hid = if (item.hidden) 1 else null, l = item.sourceLocalId,
+                fav = if (item.favorite) 1 else null, hid = if (item.hidden) 1 else null, l = item.sourceLocalId, th = item.thumbHash,
                 ed = if (role == "o" && item.hasEdit) 1 else null, e = if (item.encrypted) 1 else null,
             )
             val count = item.expectedParts[role] ?: files.size

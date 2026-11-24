@@ -51,6 +51,20 @@ object VideoQualityPolicy {
     fun initial(preference: VideoPreference, hasFast: Boolean, originalPlayable: Boolean = true): VideoVersion =
         if (hasFast && (preference != VideoPreference.Original || !originalPlayable)) VideoVersion.Fast else VideoVersion.Original
 
+    /**
+     * A fast version shows the same picture as the original, only smaller: the same shape (iOS `fastVersionMatches`). A copy
+     * built on a wrong frame size (stretched, with black bars) fails this and the original plays instead. Unknown original
+     * size passes; unknown copy size fails. [allowTurned]: a phone's stored size may be the unrotated one, so a copy of the
+     * turned shape passes too (it still catches stretching and bars, which are the bugs seen in real libraries).
+     */
+    fun fastVersionMatches(originalWidth: Int, originalHeight: Int, copyWidth: Int, copyHeight: Int, allowTurned: Boolean = false): Boolean {
+        if (originalWidth <= 0 || originalHeight <= 0) return true
+        if (copyWidth <= 0 || copyHeight <= 0) return false
+        val copy = copyWidth.toDouble() / copyHeight
+        fun close(w: Int, h: Int) = Math.abs(w.toDouble() / h - copy) / (w.toDouble() / h) <= 0.03
+        return close(originalWidth, originalHeight) || (allowTurned && close(originalHeight, originalWidth))
+    }
+
     /** A stall while playing the original switches to the fast version, never against the user's own choice. */
     fun fallsBackOnStall(playing: VideoVersion, preference: VideoPreference, hasFast: Boolean, userChose: Boolean): Boolean =
         playing == VideoVersion.Original && preference == VideoPreference.Automatic && hasFast && !userChose

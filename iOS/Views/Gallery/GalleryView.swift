@@ -16,6 +16,8 @@ struct GalleryView: View {
     @State private var alert: GalleryAlert?
     @State private var confirmDelete = false
     @State private var addingToAlbum = false
+    /// The album this screen shows, when it's one photos can be taken out of (not a smart album such as Videos).
+    @State private var removableAlbum: String?
     @State private var showLegend = false
     /// The item showing in the viewer (changes as the user swipes).
     @State private var viewerCurrentId: String?
@@ -23,6 +25,7 @@ struct GalleryView: View {
     @State private var motion = GridMotion()
     @State private var scrubFraction: CGFloat = 0
     @State private var scrubToken = 0
+    @State private var showJumpToDate = false
     /// Bumped when the filtered timeline is recomputed, so the grid knows its data changed.
     @State private var filteredVersion = 0
     /// "Show Selected", like Photos: the items picked when it was tapped. Kept fixed while selecting, so unticking one
@@ -39,7 +42,10 @@ struct GalleryView: View {
     private var sections: [GallerySection] { shown?.sections ?? (filter == nil ? model.sections : filtered.sections) }
     @State private var filtered: (entries: [GalleryEntry], sections: [GallerySection]) = ([], [])
 
-    private struct FilterKey: Equatable { let revision: Int; let grouping: GalleryModel.Grouping; let size: Int }
+    private struct FilterKey: Equatable { let revision: Int; let grouping: GalleryModel.Grouping; let size: Int; let takenOut: Int }
+    /// Entries taken out of this album here. The album filter holds the Photos ids it opened with, so without this
+    /// they would stay on screen until the album is opened again.
+    @State private var takenOut: Set<String> = []
 
     var body: some View {
         if embedInNavigation { NavigationStack { content.settingsButton(hidden: selecting) } } else { content }
@@ -66,6 +72,12 @@ struct GalleryView: View {
         .toolbar(hasSelection ? .hidden : .visible, for: .tabBar)
         .sheet(isPresented: $showLegend) { BadgeLegendView() }
         .sheet(isPresented: $showProPaywall) { ProPaywallView() }
+        .sheet(isPresented: $showJumpToDate) {
+            JumpToDateSheet(datesNewestFirst: entries.compactMap(\.date)) { fraction in
+                scrubFraction = fraction
+                scrubToken += 1
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if hasSelection { selectionBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
@@ -79,7 +91,7 @@ struct GalleryView: View {
             }
         }
         .task { if !model.loaded { await model.reload() } }
-        .task(id: FilterKey(revision: model.revision, grouping: grouping, size: filterSize)) {
+        .task(id: FilterKey(revision: model.revision, grouping: grouping, size: filterSize, takenOut: takenOut.count)) {
             let filter = self.filter
             let folder = LockedFolderStore.shared
             let source: [GalleryEntry] = {
@@ -89,12 +101,13 @@ struct GalleryView: View {
                 return model.entries
             }()
             let grouping = self.grouping
+            let takenOut = self.takenOut
             let result = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection], [String: Int]) in
                 let list: [GalleryEntry]
                 if case .locked = filter {
                     list = source
                 } else {
-                    list = filter.map { f in source.filter(f.matches) } ?? source
+                    list = filter.map { f in source.filter { f.matches($0) && !takenOut.contains($0.id) } } ?? source
                 }
                 var positions: [String: Int] = [:]
                 positions.reserveCapacity(list.count)
@@ -114,6 +127,12 @@ struct GalleryView: View {
         .onAppear { model.setGrouping(grouping) }
         .sheet(item: $share) { ActivityView(items: $0.urls).presentationDetents([.medium, .large]) }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
+        .task(id: filter?.title) {
+            guard case .album(let title, _)? = filter else { removableAlbum = nil; return }
+            let entries = model.entries
+            let ok = await Task.detached(priority: .utility) { GalleryActions.canRemove(fromAlbum: title, entries: entries) }.value
+            removableAlbum = ok ? title : nil
+        }
         .sheet(isPresented: $addingToAlbum) {
             AddToAlbumView(count: selection.count) { id, title in Task { await addToAlbum(id, title) } }
         }
@@ -212,7 +231,7 @@ struct GalleryView: View {
             }
             .overlay(alignment: .trailing) {
                 if sections.count > 3 {
-                    DateScrubber(motion: motion) { fraction in
+                    DateScrubber(motion: motion, onJumpToDate: { showJumpToDate = true }) { fraction in
                         scrubFraction = fraction
                         scrubToken += 1
                     }
@@ -220,15 +239,24 @@ struct GalleryView: View {
             }
     }
 
+    /// The whole banner is the button, with the same two choices Apple's apps give: pick more, or allow all.
     private var limitedBanner: some View {
-        HStack {
-            Label("Lelvo can only see the photos you selected.", systemImage: "photo.badge.exclamationmark")
-                .font(.footnote)
-            Spacer()
-            Button("Manage") { presentLimitedPicker() }.font(.footnote.bold())
+        Menu {
+            Button("Select More Photos", systemImage: "photo.badge.plus") { presentLimitedPicker() }
+            Button("Allow Full Access", systemImage: "gear") { PlatformActions.openPhotoSettings() }
+        } label: {
+            HStack {
+                Label("Lelvo can only see the photos you selected.", systemImage: "photo.badge.exclamationmark")
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text("Manage").font(.footnote.bold())
+            }
+            .padding(10)
+            .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
         }
-        .padding(10)
-        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityHint("Select more photos or allow full access in Settings")
     }
 
     @ViewBuilder private var emptyState: some View {
@@ -290,6 +318,9 @@ struct GalleryView: View {
                         ForEach([2, 3, 4, 5, 6, 8, 10], id: \.self) { Text("\($0) columns").tag($0) }
                     }
                     Divider()
+                    if entries.count > 1 {
+                        Button { showJumpToDate = true } label: { Label("Jump to date", systemImage: "calendar") }
+                    }
                     Button { showLegend = true } label: { Label("What the icons mean", systemImage: "info.circle") }
                 } label: { Image(systemName: "square.grid.3x3") }
                 .accessibilityLabel("Grid size")
@@ -410,13 +441,15 @@ struct GalleryView: View {
                     }
                 }
             } else {
-                // The second line is the menu item's subtitle: these are in beta until they've had more use.
                 Button { addingToAlbum = true } label: {
-                    Text("Add to Album")
-                    Text("Beta")
-                    Image(systemName: "rectangle.stack.badge.plus")
+                    Label("Add to Album", systemImage: "rectangle.stack.badge.plus")
                 }
                 .disabled(chosen.isEmpty)
+                if let album = removableAlbum, !chosen.isEmpty {
+                    Button { Task { await removeFromAlbum(chosen, album) } } label: {
+                        Label("Remove from Album", systemImage: "rectangle.stack.badge.minus")
+                    }
+                }
                 if !downloadable.isEmpty {
                     Button { Task { await download(downloadable) } } label: {
                         Label("Save \(downloadable.count.formatted()) to iPhone", systemImage: "square.and.arrow.down")
@@ -424,12 +457,12 @@ struct GalleryView: View {
                 }
                 if !chosen.isEmpty {
                     Button { Task { await setFavorite(chosen, !allFavorite) } } label: {
-                        Text(allFavorite ? "Unfavorite" : "Favorite")
-                        Text("Beta")
-                        Image(systemName: allFavorite ? "heart.slash" : "heart")
+                        Label(allFavorite ? "Unfavorite" : "Favorite", systemImage: allFavorite ? "heart.slash" : "heart")
                     }
-                    Button { pendingMoveToLocked = chosen } label: {
-                        Label("Move to Locked Folder", systemImage: "lock.fill")
+                    if ProStore.offered {
+                        Button { pendingMoveToLocked = chosen } label: {
+                            Label("Move to Locked Folder", systemImage: "lock.fill")
+                        }
                     }
                 }
                 Divider()
@@ -660,6 +693,27 @@ struct GalleryView: View {
         }
     }
 
+    private func removeFromAlbum(_ chosen: [GalleryEntry], _ title: String) async {
+        busyMessage = "Removing from \(title)…"
+        defer { busyMessage = nil }
+        do {
+            let removed = try await GalleryActions.removeFromAlbum(chosen, title: title)
+            Haptics.success()
+            endSelecting()
+            // Same rule as GalleryActions: on this device, or a library member of the album.
+            let name = MetaLog.albumName(title)
+            takenOut.formUnion(chosen.filter { e in e.asset != nil || name.map { e.item?.albums?.contains($0) == true } == true }.map(\.id))
+            if removed < chosen.count {
+                alert = GalleryAlert(title: "Removed \(removed.formatted()) from “\(title)”",
+                                     message: "The others are still backing up. Remove them once they're in your Telegram library.")
+            }
+        } catch is CancellationError {
+        } catch {
+            Haptics.error()
+            alert = GalleryAlert(title: "Couldn't remove from the album", message: "\(error.localizedDescription) Try again.")
+        }
+    }
+
     private func setFavorite(_ entries: [GalleryEntry], _ favorite: Bool) async {
         do {
             try await Task.detached { try await GalleryActions.setFavorite(entries, favorite) }.value
@@ -680,12 +734,15 @@ struct GalleryView: View {
 /// through the timeline by the same amount, with the date tucked against the handle (like Photos).
 struct DateScrubber: View {
     let motion: GridMotion
+    var onJumpToDate: (() -> Void)? = nil
     let jump: (CGFloat) -> Void
     @State private var dragging = false
     @State private var dragFraction: CGFloat = 0
     @State private var lastTitle = ""
     @State private var visible = false
     @State private var hideTask: Task<Void, Never>?
+    /// Year labels for the current marks and track height, made once per change rather than per frame.
+    @State private var ticks: [ScrubberMark] = []
 
     private let thumbHeight: CGFloat = 44
 
@@ -697,6 +754,29 @@ struct DateScrubber: View {
             let f = dragging ? dragFraction : min(max(motion.fraction, 0), 1)
             Color.clear
                 .contentShape(Rectangle())
+                .overlay(alignment: .topTrailing) {
+                    // Only the trailing edge: ticks and years sit left of the handle, never over the photos' centre.
+                    ZStack(alignment: .topTrailing) {
+                        ForEach(ticks, id: \.year) { mark in
+                            HStack(spacing: 3) {
+                                Text(String(mark.year))
+                                    .font(.caption2)
+                                    .foregroundStyle(Color(uiColor: .secondaryLabel))
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                Capsule().fill(Color(uiColor: .tertiaryLabel)).frame(width: 6, height: 1.5)
+                            }
+                            .offset(y: 8 + thumbHeight / 2 + CGFloat(mark.fraction) * track - 8)
+                        }
+                    }
+                    .padding(.trailing, 34)
+                    .opacity(visible || dragging ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+                .onAppear { ticks = makeTicks(track) }
+                .onChange(of: track) { _, t in ticks = makeTicks(t) }
+                .onChange(of: motion.yearMarks) { _, _ in ticks = makeTicks(track) }
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { v in
@@ -711,6 +791,13 @@ struct DateScrubber: View {
                             dragging = false
                             scheduleHide()
                         }
+                )
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                        guard let onJumpToDate else { return }
+                        Haptics.press()
+                        onJumpToDate()
+                    }
                 )
                 .overlay(alignment: .topTrailing) {
                     HStack(spacing: 8) {
@@ -748,10 +835,14 @@ struct DateScrubber: View {
         .accessibilityHint("Drag to jump to a date")
     }
 
+    private func makeTicks(_ track: CGFloat) -> [ScrubberMark] {
+        ScrubberTicks.make(marks: motion.yearMarks, maxLabels: Int(track / 28))
+    }
+
     private func scheduleHide() {
         hideTask?.cancel()
         hideTask = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: 800_000_000)
             guard !Task.isCancelled, !dragging else { return }
             withAnimation(Motion.exit) { visible = false }
         }
@@ -764,6 +855,9 @@ struct DateScrubber: View {
     var isScrolling = false
     /// The date at the top of the grid. The scrubber shows it while the handle is dragged.
     var topTitle = ""
+    /// One mark per section (top first) with its scroll fraction; empty for a library under 8 screens. Set only when
+    /// the data or layout changes.
+    var yearMarks: [ScrubberMark] = []
 }
 
 /// Grey tiles in the grid's own layout while the library loads, so the screen doesn't jump when photos arrive. Shown

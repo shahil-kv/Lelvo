@@ -96,6 +96,8 @@ enum PhotoAvailability {
 
 enum StreamingCopyError: LocalizedError {
     case unsupported
+    /// The encoded copy isn't the shape of the original (it would play turned or stretched).
+    case wrongShape
     var errorDescription: String? { "This video can't be converted to a fast version. It still plays in original quality." }
 }
 
@@ -267,6 +269,36 @@ final class PhotoLibraryService: @unchecked Sendable {
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetCollectionChangeRequest(for: album)?.addAssets(assets)
+        }
+    }
+
+    /// Whether the user has an album with this title that Lelvo can take photos out of. Smart albums (Videos, Live
+    /// Photos) and shared ones can't be changed.
+    func hasEditableAlbum(titled title: String) -> Bool {
+        let wanted = MetaLog.albumName(title) ?? title
+        var found = false
+        PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil).enumerateObjects { c, _, stop in
+            guard let t = c.localizedTitle, (MetaLog.albumName(t) ?? t) == wanted, c.canPerform(.removeContent) else { return }
+            found = true
+            stop.pointee = true
+        }
+        return found
+    }
+
+    /// Takes the assets out of the user's albums with this title, like Remove from Album in Photos. The assets stay in
+    /// the library.
+    func remove(_ identifiers: [String], fromAlbumsTitled title: String) async throws {
+        guard !identifiers.isEmpty else { return }
+        let wanted = MetaLog.albumName(title) ?? title
+        var albums: [PHAssetCollection] = []
+        PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil).enumerateObjects { c, _, _ in
+            guard let t = c.localizedTitle, (MetaLog.albumName(t) ?? t) == wanted, c.canPerform(.removeContent) else { return }
+            albums.append(c)
+        }
+        guard !albums.isEmpty else { return }
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
+        try await PHPhotoLibrary.shared().performChanges {
+            for album in albums { PHAssetCollectionChangeRequest(for: album)?.removeAssets(assets) }
         }
     }
 
@@ -741,8 +773,8 @@ extension UIImage {
 
 extension String {
     var sanitizedFilename: String {
-        let cleaned = components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>\n\r")).joined(separator: "_")
-        return cleaned.isEmpty ? "file" : cleaned
+        // Cut to fit the file system's name limit too (I13); the full name stays in the caption.
+        FileNames.safe(self)
     }
 
     var mimeTypeForFilename: String {

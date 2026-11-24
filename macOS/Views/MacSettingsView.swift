@@ -16,14 +16,15 @@ struct MacSettingsView: View {
                 NavigationStack { LibrarySettingsView() }
             }
             Tab("Memories", systemImage: "sparkles") { MemoriesSettingsView() }
-            Tab("Locked", systemImage: "lock.fill") { LockedFolderSettingsView().formStyle(.grouped) }
+            if ProStore.offered { Tab("Locked", systemImage: "lock.fill") { LockedFolderSettingsView().formStyle(.grouped) } }
             Tab("Storage", systemImage: "internaldrive") { StorageSettingsView().formStyle(.grouped) }
-            Tab("Second Copy", systemImage: "externaldrive.badge.checkmark") { MacSecondCopyView() }
+            if ProStore.offered { Tab("Second Copy", systemImage: "externaldrive.badge.checkmark") { MacSecondCopyView() } }
             Tab("Export", systemImage: "square.and.arrow.down.on.square") { ExportLibraryView().formStyle(.grouped) }
             Tab("Logs", systemImage: "doc.text.magnifyingglass") { NavigationStack { LogsView() } }
             Tab("About", systemImage: "info.circle") { NavigationStack { AboutView() } }
         }
-        .frame(width: 620, height: 520)
+        // Wide enough for all ten tabs: at 620 pt the last ones (About) went into an overflow menu.
+        .frame(width: 860, height: 520)
         .disabled(!app.onboardingComplete)
     }
 }

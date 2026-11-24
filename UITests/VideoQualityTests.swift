@@ -37,7 +37,7 @@ final class VideoQualityTests: XCTestCase {
         app.buttons["Continue"].tap()
         let code = app.textFields["Login code"]
         XCTAssertTrue(code.waitForExistence(timeout: 10))
-        code.typeText("24680")
+        code.tap(); code.typeText("24680")
         let allow = app.buttons["Allow Access"]
         let begin = app.buttons["Start using Lelvo"]
         XCTAssertTrue(allow.waitForExistence(timeout: 10) || begin.exists)
@@ -68,7 +68,7 @@ final class VideoQualityTests: XCTestCase {
 
         // Switch to the original at any time…
         pill.tap()
-        let original = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Play Original Quality")).firstMatch
+        let original = app.buttons["Original"].firstMatch
         XCTAssertTrue(original.waitForExistence(timeout: 5))
         screenshot("video-quality-menu")
         original.tap()
@@ -79,7 +79,7 @@ final class VideoQualityTests: XCTestCase {
 
         // …and back.
         pill.tap()
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Play Fast Version")).firstMatch.tap()
+        app.buttons["Fast"].firstMatch.tap()
         let back = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Fast version"), object: pill)
         wait(for: [back], timeout: 10)
     }

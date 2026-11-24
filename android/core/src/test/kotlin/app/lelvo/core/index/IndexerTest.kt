@@ -181,3 +181,69 @@ class IndexerTest {
         assertEquals(item.trashedAt, ItemExtras.apply(item.copy(trashedAt = null), ItemExtras.decode(ItemExtras.encode(item))).trashedAt)
     }
 }
+
+class ThumbHashItemTest {
+    private val id = "0b7c0e3e-6f1e-4c55-9a33-1f3f0c0a9d10"
+
+    private fun message(th: String?): CloudMessage = CloudMessage(
+        10, CaptionMeta(id = id, r = Role.ORIGINAL, k = Kind.PHOTO, h = "a".repeat(64), n = "IMG_1.HEIC", s = 1000, t = 1_700_000_000, th = th),
+        "f10", "u10", 100,
+    )
+
+    @Test fun theThumbHashInACaptionReachesTheItemAndSurvivesAMerge() {
+        val built = LibraryIndexer.build(listOf(message("AAECAwQ="))).items.single()
+        assertEquals("AAECAwQ=", built.thumbHash)
+        val scanned = LibraryIndexer.build(listOf(message(null))).items.single()
+        assertEquals(null, scanned.thumbHash)
+        assertEquals("local-hash", scanned.keepingLocalState(built.copy(thumbHash = "local-hash")).thumbHash)
+        assertEquals("AAECAwQ=", built.keepingLocalState(built.copy(thumbHash = "local-hash")).thumbHash)
+    }
+
+    @Test fun rowsSavedBeforeThumbHashStillReadAndNewRowsKeepOldReadersWorking() {
+        val item = LibraryIndexer.build(listOf(message(null))).items.single()
+        val without = ItemExtras.encode(item)
+        assertTrue(!without.contains("\"th\""), "absent when null: an old build sees the same row")
+        assertEquals(null, ItemExtras.decode(without).thumbHash)
+        val withHash = ItemExtras.encode(item.copy(thumbHash = "AAECAwQ="))
+        assertEquals("AAECAwQ=", ItemExtras.decode(withHash).thumbHash)
+        assertEquals("AAECAwQ=", ItemExtras.apply(item, ItemExtras.decode(withHash)).thumbHash)
+        // A row from the future with an unknown key still decodes.
+        assertEquals("AAECAwQ=", ItemExtras.decode(withHash.removeSuffix("}") + ""","zz":1}""").thumbHash)
+    }
+}
+
+class ScanPagingTest {
+    @Test fun zeroNextIdIsTheOnlyRealEnd() {
+        val paging = ScanPaging()
+        assertEquals(ScanPaging.Step.Next(500), paging.step(0, 500, pageWasEmpty = false))
+        assertEquals(ScanPaging.Step.Finished, paging.step(500, 0, pageWasEmpty = false))
+        assertEquals(ScanPaging.Step.Finished, ScanPaging().step(0, 0, pageWasEmpty = true))
+    }
+
+    @Test fun anEmptyPageBeforeTheEndKeepsGoing() {
+        val paging = ScanPaging()
+        assertEquals(ScanPaging.Step.Next(900), paging.step(0, 900, pageWasEmpty = true))
+        assertEquals(ScanPaging.Step.Next(800), paging.step(900, 800, pageWasEmpty = false))
+        assertEquals(ScanPaging.Step.Finished, paging.step(800, 0, pageWasEmpty = false))
+    }
+
+    @Test fun tooManyEmptyPagesOrNoProgressGivesUpNotFinished() {
+        val paging = ScanPaging()
+        var from = 1000L
+        repeat(ScanPaging.MAX_EMPTY_PAGES_IN_A_ROW) {
+            val next = from - 1
+            assertEquals(ScanPaging.Step.Next(next), paging.step(from, next, pageWasEmpty = true))
+            from = next
+        }
+        assertEquals(ScanPaging.Step.GaveUp, paging.step(from, from - 1, pageWasEmpty = true))
+        assertEquals(ScanPaging.Step.GaveUp, ScanPaging().step(700, 700, pageWasEmpty = false))
+    }
+
+    @Test fun aPageWithMessagesResetsTheEmptyCount() {
+        val paging = ScanPaging()
+        paging.step(10, 9, pageWasEmpty = true)
+        paging.step(9, 8, pageWasEmpty = true)
+        paging.step(8, 7, pageWasEmpty = false)
+        assertEquals(ScanPaging.Step.Next(6), paging.step(7, 6, pageWasEmpty = true))
+    }
+}

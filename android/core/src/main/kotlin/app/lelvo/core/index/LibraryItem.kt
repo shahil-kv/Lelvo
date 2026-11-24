@@ -84,6 +84,10 @@ data class LibraryItem(
     val attempts: Int = 0,
     /** Don't start before this time, epoch ms (FLOOD_WAIT or backoff). */
     val notBefore: Long? = null,
+    /** The last failure was a passing error (network, timeout), so a later run may retry it (iOS `transientFailure`). */
+    val transientFailure: Boolean = false,
+    /** When a run last retried it on its own, epoch ms. */
+    val autoRetriedAt: Long? = null,
     /** Queued because the user picked it (Back up, Retry): runs that aren't "Back up now" upload only these. */
     val chosen: Boolean = false,
     /** The file's `DATE_MODIFIED` (epoch ms) when it was hashed, so a retry of an unchanged file reuses the hash. */
@@ -94,6 +98,9 @@ data class LibraryItem(
     val streamingCopySkipped: Boolean = false,
     /** Per role: where an interrupted encrypted upload stopped, so a retry sends only the missing parts. */
     val uploadResume: Map<String, FileCrypto.ResumePoint> = emptyMap(),
+    /** ThumbHash (Base64) from the caption's `th`: a blurred placeholder before the thumbnail has downloaded. Lives in the
+     *  extras column, so rows saved before it existed read as null and no database migration is needed. */
+    val thumbHash: String? = null,
 ) {
     /** Roles that must be in the cloud, as iOS `requiredCaptionRoles`: the thumbnail for encrypted items, the edit when declared. */
     val requiredRoles: List<String>
@@ -133,6 +140,8 @@ data class LibraryItem(
         uploadResume = local.uploadResume,
         // Locked Folder is MetaLog-only (not in captions). Keep across scan merge like iOS (#129).
         locked = if (local.locked) true else locked,
+        // A hash this phone made stays until a caption brings one.
+        thumbHash = thumbHash ?: local.thumbHash,
     )
 
     /** [files] as the parts of [role], with the resume point kept only while the role is incomplete (iOS `setParts`). */
@@ -175,11 +184,14 @@ object ItemExtras {
         val trashedAt: Long? = null,
         val attempts: Int = 0,
         val notBefore: Long? = null,
+        val transientFailure: Boolean = false,
+        val autoRetriedAt: Long? = null,
         val chosen: Boolean = false,
         val assetModifiedAt: Long? = null,
         val screenCopySkipped: Boolean = false,
         val streamingCopySkipped: Boolean = false,
         val uploadResume: Map<String, FileCrypto.ResumePoint> = emptyMap(),
+        val thumbHash: String? = null,
     )
 
     private fun strings(map: Map<String, String>): JsonElement? = map.takeIf { it.isNotEmpty() }?.let { m -> JsonObject(m.mapValues { JsonIO.str(it.value)!! }) }
@@ -190,6 +202,8 @@ object ItemExtras {
         "at" to JsonIO.num(item.attempts.takeIf { it > 0 }),
         "ch" to JsonIO.num(if (item.chosen) 1 else null),
         "nb" to JsonIO.num(item.notBefore),
+        "tf" to JsonIO.num(if (item.transientFailure) 1 else null),
+        "ar" to JsonIO.num(item.autoRetriedAt),
         "res" to item.uploadResume.takeIf { it.isNotEmpty() }?.let { m -> JsonObject(m.mapValues { encodeResume(it.value) }) },
         "scs" to JsonIO.num(if (item.screenCopySkipped) 1 else null),
         "sps" to JsonIO.num(if (item.streamingCopySkipped) 1 else null),
@@ -213,6 +227,7 @@ object ItemExtras {
         "rh" to strings(item.roleHashes),
         "rn" to strings(item.roleNames),
         "ta" to JsonIO.num(item.trashedAt),
+        "th" to JsonIO.str(item.thumbHash),
         "tz" to JsonIO.num(item.tzOffsetMinutes),
     ).toString()
 
@@ -234,10 +249,12 @@ object ItemExtras {
             roleHashes = texts("rh"), roleNames = texts("rn"), pairedVideoName = f.stringOrNull("pn"), pairedVideoSize = f.longOrNull("ps"),
             editedName = f.stringOrNull("en"), editedSize = f.longOrNull("es"), lastError = f.stringOrNull("err"),
             trashedAt = f.longOrNull("ta"),
-            attempts = f.intOrNull("at") ?: 0, notBefore = f.longOrNull("nb"), chosen = f.intOrNull("ch") == 1,
+            attempts = f.intOrNull("at") ?: 0, notBefore = f.longOrNull("nb"),
+            transientFailure = f.intOrNull("tf") == 1, autoRetriedAt = f.longOrNull("ar"), chosen = f.intOrNull("ch") == 1,
             assetModifiedAt = f.longOrNull("am"), screenCopySkipped = f.intOrNull("scs") == 1,
             streamingCopySkipped = f.intOrNull("sps") == 1,
             uploadResume = f.objOrNull("res")?.mapNotNull { (role, v) -> decodeResume(v)?.let { role to it } }?.toMap() ?: emptyMap(),
+            thumbHash = f.stringOrNull("th"),
         )
     } catch (_: FieldException) {
         Extras()
@@ -249,8 +266,10 @@ object ItemExtras {
         codec = e.codec, hdr = e.hdr, tzOffsetMinutes = e.tzOffsetMinutes, sourceLocalId = e.sourceLocalId, hasEdit = e.hasEdit,
         roleHashes = e.roleHashes, roleNames = e.roleNames, pairedVideoName = e.pairedVideoName, pairedVideoSize = e.pairedVideoSize,
         editedName = e.editedName, editedSize = e.editedSize, lastError = e.lastError, trashedAt = e.trashedAt,
-        attempts = e.attempts, notBefore = e.notBefore, chosen = e.chosen, assetModifiedAt = e.assetModifiedAt,
+        attempts = e.attempts, notBefore = e.notBefore,
+        transientFailure = e.transientFailure, autoRetriedAt = e.autoRetriedAt, chosen = e.chosen, assetModifiedAt = e.assetModifiedAt,
         screenCopySkipped = e.screenCopySkipped, streamingCopySkipped = e.streamingCopySkipped, uploadResume = e.uploadResume,
+        thumbHash = e.thumbHash,
     )
 
     private fun hexOf(b: ByteArray) = b.joinToString("") { "%02x".format(it) }

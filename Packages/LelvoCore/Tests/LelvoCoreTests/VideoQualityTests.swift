@@ -72,6 +72,22 @@ import LelvoCore
         #expect(abs(t.bytesPerSecond! - (Double(1 << 21) + 0.3 * (Double(1 << 20) - Double(1 << 21)))) < 1)
     }
 
+    @Test func fastVersionMustHaveTheOriginalsShape() {
+        // 720x1280 original: the copy at any size, same shape.
+        #expect(VideoQualityPolicy.fastVersionMatches(originalWidth: 720, originalHeight: 1280, copyWidth: 720, copyHeight: 1280))
+        #expect(VideoQualityPolicy.fastVersionMatches(originalWidth: 2160, originalHeight: 3840, copyWidth: 1080, copyHeight: 1920))
+        #expect(VideoQualityPolicy.fastVersionMatches(originalWidth: 3840, originalHeight: 2160, copyWidth: 1920, copyHeight: 1080))
+        // Rounding to even sizes is fine.
+        #expect(VideoQualityPolicy.fastVersionMatches(originalWidth: 1080, originalHeight: 1350, copyWidth: 1080, copyHeight: 1350))
+        // The broken copy seen on a real library: 692x1920 for a 720x1280 original.
+        #expect(!VideoQualityPolicy.fastVersionMatches(originalWidth: 720, originalHeight: 1280, copyWidth: 692, copyHeight: 1920))
+        // Turned a quarter: landscape copy of a portrait original.
+        #expect(!VideoQualityPolicy.fastVersionMatches(originalWidth: 720, originalHeight: 1280, copyWidth: 1280, copyHeight: 720))
+        // Unknown sizes.
+        #expect(VideoQualityPolicy.fastVersionMatches(originalWidth: 0, originalHeight: 0, copyWidth: 692, copyHeight: 1920))
+        #expect(!VideoQualityPolicy.fastVersionMatches(originalWidth: 720, originalHeight: 1280, copyWidth: 0, copyHeight: 0))
+    }
+
     @Test func resolutionLabels() {
         let fourK = video(mb: 400, seconds: 60)
         #expect(fourK.resolutionLabel(.original) == "4K")

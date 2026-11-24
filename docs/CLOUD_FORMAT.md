@@ -67,7 +67,7 @@ Each resource (or each part of a split resource, §5) is **one message** in the 
 
 - Plain library: `CG1:` followed by compact JSON (no whitespace).
 - E2E library: `CG1E:` followed by Base64 of `nonce(12) ‖ ciphertext ‖ tag(16)`, the AES-256-GCM encryption of the same compact JSON (§6.3).
-- The whole caption must be at most **1000 characters**. If it is too long, writers move `a` into an `md` resource (§2), then drop `c`, then truncate `n` keeping its extension. (Writers before `md` dropped `a`.)
+- The whole caption must be at most **1000 characters**. If it is too long, writers drop `th`, move `a` into an `md` resource (§2), then drop `c`, then truncate `n` keeping its extension. (Writers before `md` dropped `a`.)
 - Readers **ignore unknown fields** and ignore messages whose caption doesn't start with `CG1:` or `CG1E:`.
 
 | Key | Type | Required | Meaning |
@@ -95,6 +95,7 @@ Each resource (or each part of a split resource, §5) is **one message** in the 
 | `l` | string |  | Photos/MediaStore local id of the source asset on the uploading device. Lets a reinstall on that device re-link items exactly (otherwise: name + `t` + `wh`). Dropped before `n` is truncated when the caption is too long. |
 | `ed` | int |  | On the original (`r: "o"`): `1` when the item also has an edited version stored as role `e`. Lets readers detect a missing edit. |
 | `hid` | int |  | `1` if the item was hidden in Photos. Readers don't show hidden items in their timeline and restore them hidden. |
+| `th` | string |  | ThumbHash of the photo (github.com/evanw/thumbhash, MIT), standard Base64, at most about 34 characters: a blurred placeholder shown before the thumbnail has downloaded. Optional on every role; writers add it to the original only. Readers that don't know it ignore it (§3.1). It is the first field dropped when a caption is too long, before `a`. Vectors: `docs/test-vectors/thumbhash1.json`. |
 
 Example (plain):
 

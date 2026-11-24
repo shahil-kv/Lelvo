@@ -293,19 +293,25 @@ Telegram app or by SMS. We don't control these codes, so we can't give you a fix
 code for a real account. We are asking you to approve this built-in demo mode for review.
 
 DEMO ACCESS (no Telegram account needed):
-1. Tap "Continue with Telegram".
-2. Enter the phone number +1 555 010 0199 (type it with the +1, or pick United States
+1. Swipe or tap Continue through the short intro. On the last page, tap "Continue"; the
+   system Photos permission request follows (either answer works).
+2. On the sign-in screen, enter the phone number +1 555 010 0199 (type it with the +1, or pick United States
    and enter 5550100199), then tap Continue.
 3. Enter the code 24680.
-4. Choose whether to allow Photos access (either works), then tap "Start using Lelvo".
-A demo library with sample photos and videos loads, marked by a banner at the top. Every
-feature works: timeline, pinch to resize, viewer, video playback, selection, sharing,
+4. Tap "Start using Lelvo".
+A demo library with sample photos and videos loads, marked by a banner at the top. These
+work: timeline, pinch to resize, viewer, video playback, selection, sharing,
 albums, settings. On the Backup tab, "Back up now" shows a simulated backup of 6 items.
 In demo mode nothing is uploaded and no Telegram connection is made.
+Automatic backup (new photos backed up in the background) is not active in demo mode, because
+nothing is uploaded there. With a real account, new photos are backed up when the app is opened,
+and in the short background time iOS allows.
 
 REAL FLOW: signing in with a real number sends the login code to that account's Telegram app.
 A video of the real sign-in and backup is here: <link>
-Private details in the video are blurred. If you need to test with a real account, contact us and
+Private details in the video are blurred. Near the end the backup shows as paused: we left Lelvo
+to open the Telegram app, and iOS pauses uploads in apps that are not open. It continues when
+Lelvo is opened again. If you need to test with a real account, contact us and
 we'll arrange a time to pass you the login code live for a spare test account.
 
 Telegram allows third-party apps through its API (https://core.telegram.org/api/terms);
@@ -315,6 +321,18 @@ they own. The app doesn't sell or offer storage, doesn't create Telegram account
 to the user's own library channel, and follows Telegram's upload limits.
 
 Background modes: "processing" and "fetch" are used to continue the user-started photo backup.
+
+NO PURCHASES IN 1.0: the app is free and offers no in-app purchases or subscriptions. Paid
+features are not offered or shown in this version.
+
+SIGN IN WITH APPLE (4.8): Lelvo is a client for the user's own Telegram account and stores
+photos only there, so signing in with Telegram is required to reach that account. The app
+creates no account of its own, so it offers no other login and has no account to delete.
+
+IPAD: Lelvo 1.0 is built for iPhone and runs on iPad in iPhone compatibility mode.
+
+PREVIOUS REJECTION (5.1.1(iv)): the screen before the Photos permission request now has only
+a "Continue" button, which always leads to the system request. The "Not now" button is gone.
 ```
 
 - [ ] 📝 Fill in contact name, phone and email in App Review Information, and answer within hours while in review.
@@ -411,8 +429,9 @@ adopted by a standards body nor published. [Apple's table](https://developer.app
 | **Standard algorithm not provided by Apple's OS (Lelvo)** | French declaration, only if sold in France |
 | Proprietary, not accepted by standards bodies | US CCATS, plus the French declaration if sold in France |
 
-- [ ] 📝 **Decided: France is left out of v1.** Switch it off in App Store Connect → Pricing and Availability. `ITSAppUsesNonExemptEncryption = false` skips the questions, so
-      App Store Connect won't remind you. France controls secure storage and secure communications apps, and Lelvo is
+- [ ] 📝 **Decided: France is left out of v1.** Switch it off in App Store Connect → Pricing and Availability. Since build 5 the
+      `ITSAppUsesNonExemptEncryption` key is left out (`true` without a compliance code fails the upload), so App Store
+      Connect asks on each build the algorithm type (answer "Standard encryption algorithms…") and whether it's sold in France (No). France controls secure storage and secure communications apps, and Lelvo is
       both. To add France later: file the declaration with ANSSI, upload it, and put the code Apple gives you in
       `ITSEncryptionExportComplianceCode` (the key then becomes `true`).
 - [ ] 📝 Apple holds the developer responsible for this answer, and says exempt encryption may need a yearly

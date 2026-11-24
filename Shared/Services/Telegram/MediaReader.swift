@@ -246,6 +246,13 @@ final class MediaReader: @unchecked Sendable {
         }
     }
 
+    /// A resource was replaced (a remade fast version): its old header and decrypted chunks would be read against the new bytes.
+    func forget(_ item: MediaItem, role: String) {
+        let key = "\(item.id)/\(role)"
+        lock.withLock { _ = headers.removeValue(forKey: key) }
+        chunks.remove(file: key)
+    }
+
     func forgetCaches() {
         lock.withLock {
             fileIds.removeAll()

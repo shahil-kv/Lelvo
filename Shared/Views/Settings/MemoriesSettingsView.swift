@@ -28,7 +28,7 @@ struct MemoriesSettingsView: View {
                 Toggle("Trips", isOn: $trips)
                 if pro.isPro {
                     Toggle("Themes: pets, beaches, food and more", isOn: $themes)
-                } else {
+                } else if ProStore.offered {
                     Button { showProPaywall = true } label: {
                         HStack {
                             Text("Themes: pets, beaches, food and more")
@@ -38,7 +38,7 @@ struct MemoriesSettingsView: View {
                     }
                 }
             } footer: {
-                Text(pro.isPro
+                Text(pro.isPro || !ProStore.offered
                      ? "Memories are made on this \(Device.name) from your photos' dates, places and what's in them. Nothing is sent anywhere."
                      : "On this day, recent highlights and trips stay free. Theme stories need Lelvo Pro.")
             }

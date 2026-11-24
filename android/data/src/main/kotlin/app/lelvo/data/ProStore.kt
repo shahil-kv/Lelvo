@@ -30,6 +30,9 @@ class ProStore(context: Context) {
     }
 
     companion object {
+        /** Off for 1.0, like iOS `ProStore.offered`: Pro isn't finished, so no Pro screen, badge or upsell shows. */
+        const val OFFERED = false
+
         private const val KEY_DEBUG = "proDebugUnlocked"
     }
 }

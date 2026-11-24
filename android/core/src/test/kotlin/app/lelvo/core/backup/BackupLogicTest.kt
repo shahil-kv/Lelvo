@@ -70,6 +70,43 @@ class JobMachineTest {
         assertEquals(JobState.Pending, JobMachine.reduce(up, JobEvent.Interrupted, now).state)
     }
 
+    @Test fun backoffKeepsRetryWaiting() {
+        var j = JobMachine.reduce(JobStatus(), JobEvent.Start, now)
+        j = JobMachine.reduce(j, JobEvent.Error("network", transient = true), now)
+        assertEquals(JobState.Pending, j.state)
+        assertFalse(j.isRunnable(now))
+        assertFalse(j.isRunnable(j.notBefore!! - 1))
+        assertTrue(j.isRunnable(j.notBefore!!))
+    }
+
+    @Test fun autoRetryOnlyTransientOncePerDay() {
+        var j = JobStatus()
+        repeat(JobMachine.MAX_ATTEMPTS) {
+            j = JobMachine.reduce(j, JobEvent.Start, now)
+            j = JobMachine.reduce(j, JobEvent.Error("network", transient = true), now).copy(notBefore = null)
+        }
+        assertEquals(JobState.Failed, j.state)
+        assertTrue(j.transientFailure)
+        val retried = JobMachine.autoRetry(j, now)!!
+        assertEquals(JobState.Pending, retried.state)
+        assertEquals(0, retried.attempts)
+        assertEquals(now, retried.autoRetriedAt)
+        val again = retried.copy(state = JobState.Failed, transientFailure = true, attempts = JobMachine.MAX_ATTEMPTS)
+        assertNull(JobMachine.autoRetry(again, now + 3_600_000))
+        assertEquals(JobState.Pending, JobMachine.autoRetry(again, now + JobMachine.AUTO_RETRY_INTERVAL_MS)?.state)
+
+        val up = JobMachine.reduce(JobStatus(), JobEvent.Start, now)
+        assertNull(JobMachine.autoRetry(JobMachine.reduce(up, JobEvent.Error("missing original", transient = false), now), now))
+        assertNull(JobMachine.autoRetry(JobMachine.reduce(up, JobEvent.Sent(false), now), now))
+        assertNull(JobMachine.autoRetry(up, now))
+
+        // Kept in the item's local extras, so the rule holds across launches.
+        val failed = item(status = ItemStatus.Failed, cloud = false).withJob(again)
+        val back = ItemExtras.apply(failed, ItemExtras.decode(ItemExtras.encode(failed)))
+        assertTrue(back.transientFailure)
+        assertEquals(now, back.autoRetriedAt)
+    }
+
     @Test fun anInterruptedUploadKeepsConfirmedParts() {
         val uploading = item(status = ItemStatus.Uploading, cloud = true)
         val back = uploading.reduced(JobEvent.Interrupted)
@@ -222,8 +259,30 @@ class TransferRateTest {
 class BackupCountsTest {
     private fun compute(
         queued: List<LibraryItem> = emptyList(), failed: List<LibraryItem> = emptyList(), candidates: List<String> = emptyList(),
-        known: Set<String> = emptySet(), offBackup: Set<String> = emptySet(), auto: Boolean = false,
-    ) = BackupCounts.compute(queued, failed, candidates, known, offBackup, auto)
+        known: Set<String> = emptySet(), offBackup: Set<String> = emptySet(), auto: Boolean = false, ignored: Set<String> = emptySet(),
+    ) = BackupCounts.compute(queued, failed, candidates, known, offBackup, auto, ignored)
+
+    @Test fun photosGoneFromTelegramAreOfferedAgain() {
+        val gone = item(local = "A", status = ItemStatus.Failed).copy(lastError = app.lelvo.core.index.LibraryIndexer.NOT_FOUND)
+        val other = item(local = "C", status = ItemStatus.Failed).copy(lastError = "timeout")
+        assertTrue(BackupCounts.isMissingFromCloud(gone))
+        assertFalse(BackupCounts.isMissingFromCloud(other))
+        assertEquals("1 photo is no longer in your Telegram library. Back it up again?", BackupCounts.failedHeadline(1, 1))
+        assertEquals("2 photos are no longer in your Telegram library. Back them up again?", BackupCounts.failedHeadline(2, 2))
+        assertEquals("Back up again", BackupCounts.retryLabel(1, 1, 1))
+        assertEquals("Backup complete, 2 items couldn't be backed up", BackupCounts.failedHeadline(2, 1))
+        assertEquals("Retry 2 failed", BackupCounts.retryLabel(2, 2, 1))
+        assertEquals("Backup complete, 1 item couldn't be backed up", BackupCounts.failedHeadline(1, 0))
+    }
+
+    @Test fun aPhotoSetAsideStaysUnderFailedButARetryCantHelpIt() {
+        val setAside = item(local = "A", status = ItemStatus.Failed)
+        val other = item(local = "Z", status = ItemStatus.Failed, name = "Z.HEIC")
+        val c = compute(failed = listOf(setAside, other), ignored = setOf("A"))
+        assertEquals(2, c.failed, "still shown as failed, with its reason")
+        assertEquals(1, c.retryable, "only the other one can be helped by Retry")
+        assertEquals(2, compute(failed = listOf(setAside, other)).retryable, "nothing set aside: both retryable as before")
+    }
 
     @Test fun nothingIsCountedTwiceWithAutomaticBackupOn() {
         val c = compute(queued = listOf(item()), candidates = listOf("B", "C"), auto = true)
@@ -416,5 +475,49 @@ class CloudDuplicateTest {
         assertEquals(listOf("a", "c"), groups[0].extras.map { it.id })
         assertEquals(20, groups[0].wastedBytes)
         assertEquals("a", CloudDuplicateGroup.find(listOf(up("c", "h", null, 3), up("a", "h", "Q", 1)), emptySet())[0].keep.id)
+    }
+}
+
+class RunStopTest {
+    @Test fun diskFullStopsTheRunOnlyWhenNearlyFull() {
+        assertTrue(RunStopClassifier.diskFullStopsRun(10L shl 20, 200L shl 20))
+        assertFalse(RunStopClassifier.diskFullStopsRun(5L shl 30, 200L shl 20))
+        assertFalse(RunStopClassifier.diskFullStopsRun(null, 200L shl 20))
+        assertEquals("Not enough space for this file.", RunStopClassifier.FILE_DOES_NOT_FIT)
+    }
+
+    @Test fun revokedSessionStopsTheRun() {
+        assertEquals(RunStopCause.SessionEnded, RunStopClassifier.cause(401, "SESSION_REVOKED"))
+        assertEquals(RunStopCause.SessionEnded, RunStopClassifier.cause(401, "Unauthorized"))
+        assertEquals(RunStopCause.SessionEnded, RunStopClassifier.cause(400, "AUTH_KEY_UNREGISTERED"))
+    }
+
+    @Test fun unusableChannelStopsTheRun() {
+        assertEquals(RunStopCause.ChannelUnavailable, RunStopClassifier.cause(403, "CHAT_WRITE_FORBIDDEN"))
+        assertEquals(RunStopCause.ChannelUnavailable, RunStopClassifier.cause(400, "CHANNEL_PRIVATE"))
+        assertEquals(RunStopCause.ChannelUnavailable, RunStopClassifier.cause(403, "USER_BANNED_IN_CHANNEL"))
+    }
+
+    @Test fun fileLevelAndTemporaryErrorsDoNotStopTheRun() {
+        assertNull(RunStopClassifier.cause(429, "Too Many Requests: retry after 30"))
+        assertNull(RunStopClassifier.cause(400, "FLOOD_WAIT_30"))
+        assertNull(RunStopClassifier.cause(500, "Internal Server Error"))
+        assertNull(RunStopClassifier.cause(400, "FILE_PARTS_INVALID"))
+        assertNull(RunStopClassifier.cause(-1, "Connection timeout"))
+    }
+
+    @Test fun diskFullIsRecognised() {
+        assertTrue(RunStopClassifier.isDiskFull(28, null))
+        assertTrue(RunStopClassifier.isDiskFull(null, "write failed: ENOSPC (No space left on device)"))
+        assertTrue(RunStopClassifier.isDiskFull(null, "No space left on device"))
+        assertFalse(RunStopClassifier.isDiskFull(2, "No such file or directory"))
+        assertFalse(RunStopClassifier.isDiskFull(null, null))
+    }
+
+    @Test fun everyCauseHasAPlainMessage() {
+        for (c in RunStopCause.values()) {
+            assertTrue(c.message.isNotEmpty())
+            assertFalse(c.message.contains("!"))
+        }
     }
 }

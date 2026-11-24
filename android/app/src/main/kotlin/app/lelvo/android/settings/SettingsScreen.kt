@@ -1,5 +1,6 @@
 package app.lelvo.android.settings
 
+import app.lelvo.data.ProStore
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -64,13 +65,14 @@ private const val MAX_TTL_DAYS = 730
 @Composable
 fun SettingsScreen(
     app: LelvoApp, real: Boolean, info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit,
-    onCoreCheck: (() -> Unit)?, onBackgroundLab: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
+    onCoreCheck: (() -> Unit)?, onBackgroundLab: (() -> Unit)?, onScrollLab: (() -> Unit)?,
+    onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
 ) {
     var pages by remember { mutableStateOf(emptyList<Page>()) }
     val open = { p: Page -> pages = pages + p }
     val back = { pages = pages.dropLast(1) }
 
-    Main(app, real, info, onClose, onSignOut, onCoreCheck, onBackgroundLab, onLibrary, onBackupRulesChanged, open, visible = pages.isEmpty())
+    Main(app, real, info, onClose, onSignOut, onCoreCheck, onBackgroundLab, onScrollLab, onLibrary, onBackupRulesChanged, open, visible = pages.isEmpty())
     pages.forEachIndexed { i, page ->
         // Each page stays composed under the next, so Back returns to the same place.
         key(i, page) {
@@ -97,7 +99,8 @@ fun SettingsScreen(
 @Composable
 private fun Main(
     app: LelvoApp, real: Boolean, info: SettingsInfo, onClose: () -> Unit, onSignOut: () -> Unit,
-    onCoreCheck: (() -> Unit)?, onBackgroundLab: (() -> Unit)?, onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
+    onCoreCheck: (() -> Unit)?, onBackgroundLab: (() -> Unit)?, onScrollLab: (() -> Unit)?,
+    onLibrary: (() -> Unit)?, onBackupRulesChanged: (rules: Boolean) -> Unit,
     open: (Page) -> Unit, visible: Boolean,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -138,7 +141,7 @@ private fun Main(
         SectionDivider()
         SettingRow("Memories", icon = R.drawable.ic_schedule) { open(Page.Memories) }
         val isPro by app.pro.isPro.collectAsState()
-        SettingRow("Lelvo Pro", if (isPro) "On" else "Off", icon = R.drawable.ic_lock, pro = true) { open(Page.Pro) }
+        if (ProStore.OFFERED) SettingRow("Lelvo Pro", if (isPro) "On" else "Off", icon = R.drawable.ic_lock, pro = true) { open(Page.Pro) }
         SettingRow("Storage", storage, icon = R.drawable.ic_storage) { open(Page.Storage) }
         Footnote("Space used on this phone by cloud previews you've viewed. Your photos aren't affected.")
 
@@ -159,11 +162,12 @@ private fun Main(
         SettingRow("Logs", icon = R.drawable.ic_description) { open(Page.Logs) }
         SettingRow("About and licences", displayVersion, icon = R.drawable.ic_info_outline) { open(Page.About) }
 
-        if (onCoreCheck != null) {
+        if (onCoreCheck != null || onBackgroundLab != null || onScrollLab != null) {
             SectionDivider()
             SectionHeader("Developer")
-            SettingRow("Core check", "Proves Android reads your library like the iPhone", onClick = onCoreCheck)
+            if (onCoreCheck != null) SettingRow("Core check", "Proves Android reads your library like the iPhone", onClick = onCoreCheck)
             if (onBackgroundLab != null) SettingRow("Background lab", "Run each backup job and see why it stopped", onClick = onBackgroundLab)
+            if (onScrollLab != null) SettingRow("Scroll library", "Load 10k or 40k fake items to measure scrolling", onClick = onScrollLab)
         }
 
         SectionDivider()

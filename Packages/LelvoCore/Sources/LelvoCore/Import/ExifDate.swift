@@ -31,6 +31,9 @@ public enum ExifDate {
         return (utc.addingTimeInterval(TimeInterval(-zone.seconds)), zone.minutes)
     }
 
+    /// EXIF `OffsetTimeOriginal` in whole minutes, the caption's `tz` (I14: the photo's own zone, not the phone's).
+    public static func offsetMinutes(_ offset: String) -> Int? { zoneSeconds(offset)?.minutes }
+
     /// `±HH:MM`, `±HH:MM:SS` or `±HHMM`. Seconds are applied to the instant; `tz` is whole minutes, as captions store it.
     private static func zoneSeconds(_ offset: String) -> (minutes: Int, seconds: Int)? {
         let text = offset.trimmingCharacters(in: .whitespacesAndNewlines)

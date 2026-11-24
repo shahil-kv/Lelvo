@@ -205,6 +205,22 @@ enum MacActions {
         }
     }
 
+    /// Like Remove from Album in Photos: the items leave the album on every device and stay in the library.
+    static func removeFromAlbum(_ entries: [GalleryEntry], title: String, toast: ToastCenter) async {
+        guard !entries.isEmpty else { return }
+        do {
+            let removed = try await GalleryActions.removeFromAlbum(entries, title: title)
+            if removed < entries.count {
+                toast.show(.failure, "Removed \(removed) from “\(title)”",
+                           detail: "The others are still backing up. Remove them once they're in your Telegram library.")
+            } else {
+                toast.show(.success, "Removed \(removed) from “\(title)”", detail: "They stay in your library.")
+            }
+        } catch {
+            toast.show(.failure, "Couldn't remove from the album", detail: error.localizedDescription)
+        }
+    }
+
     static func setFavorite(_ entries: [GalleryEntry], _ favorite: Bool, toast: ToastCenter) async {
         guard !entries.isEmpty else { return }
         do {

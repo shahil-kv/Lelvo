@@ -63,11 +63,13 @@ struct AlbumsView: View {
                     }
                     if !content.media.isEmpty { mediaSection }
                     groupedSection("Utilities") {
-                        linkRow("Locked Folder", symbol: "lock.fill", pro: true) {
-                            LockedFolderView()
+                        if ProStore.offered {
+                            linkRow("Locked Folder", symbol: "lock.fill", pro: true) {
+                                LockedFolderView()
+                            }
+                            Divider().padding(.leading, 52)
+                            linkRow("Smart Cleanup", symbol: "wand.and.stars", pro: true) { DuplicatesView() }
                         }
-                        Divider().padding(.leading, 52)
-                        linkRow("Smart Cleanup", symbol: "wand.and.stars", pro: true) { DuplicatesView() }
                         if let docs = content.documents {
                             Divider().padding(.leading, 52)
                             linkRow(docs.filter.title, symbol: docs.symbol, count: docs.count) { GalleryView(filter: docs.filter, embedInNavigation: false) }
@@ -105,10 +107,9 @@ struct AlbumsView: View {
 
     // MARK: - Sections
 
-    private func sectionHeader<Destination: View>(_ title: String, beta: Bool = false, seeAll: (() -> Destination)? = nil) -> some View {
+    private func sectionHeader<Destination: View>(_ title: String, seeAll: (() -> Destination)? = nil) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title).font(.title3.bold()).accessibilityAddTraits(.isHeader)
-            if beta { BetaTag() }
             Spacer()
             if let seeAll { NavigationLink("See All", destination: seeAll) }
         }
@@ -148,7 +149,7 @@ struct AlbumsView: View {
                             .frame(width: 130)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("\(row.filter.title), \(row.count) items")
+                        .accessibilityLabel("\(row.filter.title), \(row.count) \(row.count == 1 ? "item" : "items")")
                     }
                 }
             }
@@ -158,7 +159,7 @@ struct AlbumsView: View {
     /// The first four albums (Favorites and Screenshots first); See All opens every one.
     private var albumsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Albums", beta: true, seeAll: content.albums.count > Self.shown ? { AllAlbumsView(albums: content.albums) } : nil)
+            sectionHeader("Albums", seeAll: content.albums.count > Self.shown ? { AllAlbumsView(albums: content.albums) } : nil)
             AlbumGrid(albums: Array(content.albums.prefix(Self.shown)))
         }
     }
@@ -207,7 +208,7 @@ struct AlbumsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(count.map { "\(title)\(pro ? ", Pro" : ""), \($0) items" } ?? "\(title)\(pro ? ", Pro" : "")")
+        .accessibilityLabel(count.map { "\(title)\(pro ? ", Pro" : ""), \($0) \($0 == 1 ? "item" : "items")" } ?? "\(title)\(pro ? ", Pro" : "")")
     }
 
     // MARK: - Data
@@ -322,7 +323,7 @@ private struct AlbumGrid: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(row.filter.title), \(row.count) items")
+                .accessibilityLabel("\(row.filter.title), \(row.count) \(row.count == 1 ? "item" : "items")")
                 .contextMenu {
                     // Only albums people make: not Favorites or the ones Photos keeps (Screenshots).
                     if row.symbol == Self.userAlbumSymbol {

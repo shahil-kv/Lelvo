@@ -12,6 +12,11 @@ final class ProStore: ObservableObject {
     static let lifetimeId = "app.lelvo.pro.lifetime"
     static let productIds: Set<String> = [yearlyId, monthlyId, lifetimeId]
 
+    /// Off for 1.0: Pro isn't finished, so no Pro screen, badge, upsell or store call is shown. The code stays; flip
+    /// this to bring it back, and put `NSFaceIDUsageDescription` back in project.yml first (Locked Folder uses Face ID;
+    /// without the key iOS ends the app on the first Face ID call). Free features never depend on it.
+    static let offered = false
+
     @Published private(set) var isPro = false
     @Published private(set) var products: [Product] = []
     @Published private(set) var busy = false
@@ -27,6 +32,7 @@ final class ProStore: ObservableObject {
     private init() {
         debugUnlocked = Prefs.defaults.bool(forKey: Prefs.Key.proDebugUnlocked)
         refreshEntitlement()
+        guard Self.offered else { return }
         updates = Task { await listenForTransactions() }
         Task { await loadProducts() }
     }

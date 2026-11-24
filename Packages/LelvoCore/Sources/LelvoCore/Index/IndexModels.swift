@@ -89,9 +89,16 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     public var locked: Bool?
     /// Hidden in Photos when it was backed up: never shown in the timeline, restored hidden.
     public var hidden: Bool?
+    /// ThumbHash of the photo (`ThumbHash`), Base64, from the caption's `th`: a blurred placeholder for the grid before the
+    /// thumbnail has downloaded. Stored with the item's JSON, so rows saved before it existed simply read as nil.
+    public var thumbHash: String?
     public var mimeType: String?
     /// Job queue: earliest time to retry (FLOOD_WAIT / backoff).
     public var notBefore: Date?
+    /// Job queue: the last failure was a passing error (see `JobStatus.transientFailure`). Local only.
+    public var transientFailure: Bool?
+    /// Job queue: when a run last retried it on its own. Local only.
+    public var autoRetriedAt: Date?
     /// Uploaded by the 1.0 Bot API app (not format 1).
     public var legacy: Bool?
     /// From the caption `l` field: the asset this was uploaded from (used to re-link after a reinstall).
@@ -228,6 +235,13 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
         return (original?.size ?? 0) + (pairedVideo?.size ?? 0)
     }
 
+    /// The reason stored on a backed-up item whose messages were deleted from Telegram. Kept word for word: rows saved
+    /// by earlier builds are matched by it.
+    public static let notInCloudError = "Not found in the Telegram channel any more. Tap Retry to upload it again."
+
+    /// Failed only because its messages are gone from Telegram; the photo is still here to back up again.
+    public var isMissingFromCloud: Bool { status == .failed && lastError == Self.notInCloudError }
+
     /// Job-queue view of `status`.
     public var job: JobStatus {
         get {
@@ -238,7 +252,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
             case .backedUp, .trashed: state = .verified
             case .failed, .tooLarge: state = .failed
             }
-            return JobStatus(state: state, attempts: attempts, lastError: lastError, notBefore: notBefore)
+            return JobStatus(state: state, attempts: attempts, lastError: lastError, notBefore: notBefore,
+                             transientFailure: transientFailure ?? false, autoRetriedAt: autoRetriedAt)
         }
         set {
             switch newValue.state {
@@ -250,6 +265,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
             attempts = newValue.attempts
             lastError = newValue.lastError
             notBefore = newValue.notBefore
+            transientFailure = newValue.transientFailure ? true : nil
+            autoRetriedAt = newValue.autoRetriedAt
         }
     }
 

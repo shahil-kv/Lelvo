@@ -1,5 +1,6 @@
 package app.lelvo.android.collections
 
+import app.lelvo.data.ProStore
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
@@ -265,7 +266,7 @@ fun MemoriesSettingsScreen(app: LelvoApp, onBack: () -> Unit) {
                         kinds = prefs.memoryKinds
                     },
                 )
-            } else {
+            } else if (ProStore.OFFERED) {
                 ListItem(
                     headlineContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -277,7 +278,7 @@ fun MemoriesSettingsScreen(app: LelvoApp, onBack: () -> Unit) {
                 )
             }
             Text(
-                if (isPro) "Memories are made on this phone from your photos' dates, places and what's in them. Nothing is sent anywhere."
+                if (isPro || !ProStore.OFFERED) "Memories are made on this phone from your photos' dates, places and what's in them. Nothing is sent anywhere."
                 else "On this day, recent highlights and trips stay free. Theme stories need Lelvo Pro.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(16.dp),

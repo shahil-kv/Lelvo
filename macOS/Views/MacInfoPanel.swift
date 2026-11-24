@@ -81,6 +81,9 @@ private struct SingleInfo: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     LabeledContent("Coordinates", value: String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
                         .textSelection(.enabled)
+                    Button("Open in Maps") {
+                        MKMapItem(placemark: MKPlacemark(coordinate: coordinate)).openInMaps()
+                    }
                 }
             }
         }

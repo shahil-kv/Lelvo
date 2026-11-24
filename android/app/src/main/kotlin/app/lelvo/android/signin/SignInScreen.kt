@@ -78,6 +78,7 @@ import app.lelvo.android.onboarding.OnboardingField
 import app.lelvo.android.onboarding.OnboardingPage
 import app.lelvo.android.onboarding.PrimaryButton
 import app.lelvo.android.ui.theme.Lelvo
+import app.lelvo.core.support.PhoneInput
 import app.lelvo.data.DemoMode
 import app.lelvo.telegram.AuthStep
 import app.lelvo.telegram.CodeDelivery
@@ -122,8 +123,16 @@ fun SignInScreen(td: TdClient, step: AuthStep, demo: DemoMode, onIntro: (() -> U
         }
         // The demo works in a build without Telegram app keys too.
         step == AuthStep.WaitPhone || step == AuthStep.NeedsCredentials || (editing && step != AuthStep.Ready) -> {
-            // Back from "Wrong number?" returns to the code or password step TDLib still holds.
-            val back: (() -> Unit)? = if (editing && reset == null) ({ editing = false }) else onIntro
+            // Back from the phone step always leaves sign-in (iOS `back()`). It used to return to the code step TDLib
+            // still held after "Wrong number?", so Back alternated phone and code forever. TDLib is restarted behind it
+            // (outliving this screen), so coming back shows the phone step, not the old code.
+            val back: (() -> Unit)? = onIntro?.let { intro ->
+                {
+                    if (editing) kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+                        .launch { td.switchAccount() }
+                    intro()
+                }
+            }
             BackHandler(enabled = back != null) { back?.invoke() }
             PhoneStep(td, demo, dial, { dial = it }, number, { number = it }, hasKeys = step != AuthStep.NeedsCredentials, onBack = back,
                 onDemo = { phone = it; demoCode = true }, onSent = { phone = it },
@@ -234,10 +243,10 @@ private fun PhoneStep(
                     BasicTextField(
                         number,
                         { v ->
-                            // Autofill gives the whole number with the country code: split it.
-                            val d = v.filter { it.isDigit() }
-                            val match = if (v.trimStart().startsWith("+")) Countries.matchPrefixOf(d) else null
-                            setNumber(if (match != null) { setDial(match.dialCode); d.removePrefix(match.dialCode) } else d.take(Countries.lengths(dial).last))
+                            // Autofill and keyboard chips give the number in many shapes: split it.
+                            val s = PhoneInput.split(v, dial, { Countries.matchPrefixOf(it)?.dialCode }, Countries::lengths)
+                            if (s.dialCode != dial) setDial(s.dialCode)
+                            setNumber(s.national)
                         },
                         singleLine = true, textStyle = mono, cursorBrush = SolidColor(Lelvo.colors.accent),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),

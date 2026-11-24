@@ -1,5 +1,6 @@
 package app.lelvo.android.timeline
 
+import app.lelvo.data.ProStore
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -67,6 +68,7 @@ internal fun Modifier.dragToSelect(
     onStart: () -> Unit,
     edge: Float,
     onEdge: (Float) -> Unit,
+    onStep: () -> Unit = {},
 ): Modifier {
     // Set once a long press has started selecting. Tiles are plain clickables, which take a press held for any time as
     // a tap: without swallowing that finger's lift, the tile under it opened the viewer or flipped its selection.
@@ -80,7 +82,7 @@ internal fun Modifier.dragToSelect(
             } while (event.changes.any { it.pressed })
             claimed.set(false)
         }
-    }.dragGestures(state, order, selection, onChange, onStart, edge, onEdge, claimed)
+    }.dragGestures(state, order, selection, onChange, onStart, edge, onEdge, claimed, onStep)
 }
 
 private fun Modifier.dragGestures(
@@ -92,10 +94,15 @@ private fun Modifier.dragGestures(
     edge: Float,
     onEdge: (Float) -> Unit,
     claimed: java.util.concurrent.atomic.AtomicBoolean,
+    onStep: () -> Unit,
 ): Modifier = pointerInput(Unit) {
     var anchor = -1
     var adding = true
     var base = emptySet<String>()
+    // Built once per drag: a scan of the whole list for every pointer move was slow on a 40k-photo library.
+    var ids = emptyList<String>()
+    var positions = emptyMap<String, Int>()
+    var lastTo = -2
     fun indexAt(p: Offset): Int {
         val info = state.layoutInfo
         // Item offsets start after the grid's top content padding (the top bar); the finger is in the grid's own
@@ -104,22 +111,27 @@ private fun Modifier.dragGestures(
         val key = info.visibleItemsInfo.firstOrNull {
             p.x >= it.offset.x && p.x < it.offset.x + it.size.width && y >= it.offset.y && y < it.offset.y + it.size.height
         }?.key as? String ?: return -1
-        return order().indexOf(key)
+        return positions[key] ?: -1
     }
     fun select(to: Int) {
-        if (anchor < 0 || to < 0) return
-        val ids = order()
+        if (anchor < 0 || to < 0 || to == lastTo) return
+        // A tick for each tile the finger moves onto, like Google Photos. Not for the first tile: the long press had its own.
+        if (lastTo != -2) onStep()
+        lastTo = to
         val range = ids.subList(minOf(anchor, to), maxOf(anchor, to) + 1).toSet()
         onChange(if (adding) base + range else base - range)
     }
     detectDragGesturesAfterLongPress(
         onDragStart = { p ->
+            ids = order()
+            positions = HashMap<String, Int>(ids.size * 2).also { m -> ids.forEachIndexed { i, k -> m[k] = i } }
+            lastTo = -2
             anchor = indexAt(p)
             if (anchor < 0) return@detectDragGesturesAfterLongPress
             claimed.set(true)
             onStart()
             base = selection()
-            adding = order()[anchor] !in base
+            adding = ids[anchor] !in base
             select(anchor)
         },
         onDragEnd = { anchor = -1; onEdge(0f) },
@@ -244,7 +256,7 @@ internal fun SelectionActions(
                 if (album != null) Action(R.drawable.ic_library_add, "Remove", enabled = inLibrary) {
                     scope.launch { if (AlbumActions.remove(app, chosen, album)) onDone() }
                 } else Action(R.drawable.ic_library_add, "Add to album", enabled = chosen.isNotEmpty()) { addingToAlbum = true }
-                Action(R.drawable.ic_lock, "Lock", enabled = chosen.isNotEmpty()) {
+                if (ProStore.OFFERED) Action(R.drawable.ic_lock, "Lock", enabled = chosen.isNotEmpty()) {
                     if (!isPro) {
                         Messages.show(Messages.Style.Info, "Lelvo Pro", "Locked folder is included with Pro.")
                     } else {

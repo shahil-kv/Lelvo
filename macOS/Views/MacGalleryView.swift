@@ -39,6 +39,7 @@ struct MacGalleryView: View {
     @State private var dataVersion = 0
     @State private var photoCount = 0
     @State private var videoCount = 0
+    @State private var showJumpToDate = false
     static let tileRange: ClosedRange<Double> = 64...380
 
     private var grouping: GalleryModel.Grouping { tileSize >= 110 ? .day : (tileSize >= 76 ? .month : .year) }
@@ -144,6 +145,12 @@ struct MacGalleryView: View {
                 Task { await MacActions.addToAlbum(entries, albumId: id, title: title, toast: toast) }
             }
         }
+        .sheet(isPresented: $showJumpToDate) {
+            JumpToDateSheet(datesNewestFirst: flat.compactMap(\.date)) { fraction in
+                jumpToFraction(fraction)
+            }
+            .frame(minWidth: 360, minHeight: 320)
+        }
         .sheet(isPresented: Binding(get: { !pendingRemoveFromPhone.isEmpty }, set: { if !$0 { pendingRemoveFromPhone = [] } })) {
             RemoveFromPhoneAfterLockSheet(
                 entries: pendingRemoveFromPhone,
@@ -172,6 +179,12 @@ struct MacGalleryView: View {
         } catch {
             toast.show(.failure, "Couldn't delete from Photos", detail: (error as? LocalizedError)?.errorDescription)
         }
+    }
+
+    /// The user album this view shows, if any. Smart albums (Videos, Live Photos) have no Remove from Album.
+    private var userAlbum: String? {
+        if case .album(let t) = item { return t }
+        return nil
     }
 
     private var filterSize: Int {
@@ -216,7 +229,8 @@ struct MacGalleryView: View {
                      onMagnify: { amount in tileSize = min(Self.tileRange.upperBound, max(Self.tileRange.lowerBound, tileSize * (1 + amount))) },
                      dragEntries: { entry in selecting && selection.contains(entry.id) ? selectedEntries : [entry] },
                      onColumns: { columns = $0 },
-                     onBackgroundClick: { if !selecting { cursorId = nil } })
+                     onBackgroundClick: { if !selecting { cursorId = nil } },
+                     onMarquee: { selecting = true; selection = $0 })
     }
 
     @ViewBuilder private var emptyState: some View {
@@ -242,7 +256,7 @@ struct MacGalleryView: View {
                 } description: {
                     Text("Lelvo shows your Photos library and your Telegram backup in one timeline.")
                 } actions: {
-                    Button("Allow Access") {
+                    Button("Continue") {
                         Task {
                             _ = await PhotoLibraryService.requestAuthorization()
                             model.registerForChangesIfNeeded()
@@ -303,6 +317,14 @@ struct MacGalleryView: View {
                     .disabled(selection.isEmpty)
                 barButton("Add to Album", "rectangle.stack.badge.plus") { addingToAlbum = selectedEntries }
                     .disabled(selection.isEmpty)
+                if let album = userAlbum {
+                    barButton("Remove from Album", "rectangle.stack.badge.minus") {
+                        let chosen = selectedEntries
+                        endSelecting()
+                        Task { await MacActions.removeFromAlbum(chosen, title: album, toast: toast); await model.reload() }
+                    }
+                    .disabled(selection.isEmpty)
+                }
                 let allFavorite = GalleryActions.allFavorite(selectedEntries)
                 barButton(allFavorite ? "Unfavorite" : "Favorite", allFavorite ? "heart.slash" : "heart") {
                     let chosen = selectedEntries
@@ -342,6 +364,11 @@ struct MacGalleryView: View {
 
     @ViewBuilder private func deleteButtons(_ actions: EntryActions) -> some View {
         Button("Add to Album…", systemImage: "rectangle.stack.badge.plus") { addingToAlbum = actions.entries }
+        if let album = userAlbum {
+            Button("Remove from Album", systemImage: "rectangle.stack.badge.minus") {
+                Task { await MacActions.removeFromAlbum(actions.entries, title: album, toast: toast); await model.reload() }
+            }
+        }
         let allFavorite = GalleryActions.allFavorite(actions.entries)
         Button(allFavorite ? "Unfavorite" : "Favorite", systemImage: allFavorite ? "heart.slash" : "heart") {
             Task { await MacActions.setFavorite(actions.entries, !allFavorite, toast: toast) }
@@ -364,6 +391,10 @@ struct MacGalleryView: View {
             if viewerId == nil {
                 ZoomControl(tileSize: $tileSize, range: Self.tileRange)
                 Spacer()
+                if flat.count > 1 {
+                    Button { showJumpToDate = true } label: { Label("Jump to date", systemImage: "calendar") }
+                        .help("Jump to a month in the timeline")
+                }
                 Button(selecting ? "Done" : "Select") { selecting ? endSelecting() : startSelecting() }
                     .help(selecting ? "Stop selecting (Esc)" : "Select several photos")
                     .disabled(flat.isEmpty)
@@ -463,11 +494,16 @@ struct MacGalleryView: View {
                                       symbol: "icloud.and.arrow.up") { Task { await MacActions.backUp(actions.notBackedUp, toast: toast) } })
         }
         items.append(GridMenuItem(title: "Add to Album…", symbol: "rectangle.stack.badge.plus") { addingToAlbum = group })
+        if let album = userAlbum {
+            items.append(GridMenuItem(title: "Remove from Album", symbol: "rectangle.stack.badge.minus") {
+                Task { await MacActions.removeFromAlbum(group, title: album, toast: toast); await model.reload() }
+            })
+        }
         let allFavorite = GalleryActions.allFavorite(group)
         items.append(GridMenuItem(title: allFavorite ? "Unfavorite" : "Favorite", symbol: allFavorite ? "heart.slash" : "heart") {
             Task { await MacActions.setFavorite(group, !allFavorite, toast: toast) }
         })
-        items.append(GridMenuItem(title: "Move to Locked Folder", symbol: "lock.fill") {
+        if ProStore.offered { items.append(GridMenuItem(title: "Move to Locked Folder", symbol: "lock.fill") {
             guard ProStore.shared.isPro else {
                 toast.show(.info, "Lelvo Pro", detail: "Locked folder is included with Pro. Open Settings → Lelvo Pro.")
                 return
@@ -486,7 +522,7 @@ struct MacGalleryView: View {
                     toast.show(.failure, "Couldn't move", detail: (error as? LocalizedError)?.errorDescription)
                 }
             }
-        })
+        }) }
         items.append(.separator)
         items.append(GridMenuItem(title: "Delete…", symbol: "trash", enabled: !actions.inCloud.isEmpty || !actions.onMac.isEmpty) {
             confirmDelete = group
@@ -612,6 +648,13 @@ struct MacGalleryView: View {
     private func scroll(to id: String) {
         scrollRequest = id
         scrollToken += 1
+    }
+
+    /// Same newest-first fraction the iOS scrubber uses; scrolls the grid to that spot.
+    private func jumpToFraction(_ fraction: CGFloat) {
+        guard flat.count > 1 else { return }
+        let i = min(max(Int((fraction * CGFloat(flat.count - 1)).rounded(.towardZero)), 0), flat.count - 1)
+        scroll(to: flat[i].id)
     }
 
     private func handle(_ key: GridKey, modifiers: NSEvent.ModifierFlags) {

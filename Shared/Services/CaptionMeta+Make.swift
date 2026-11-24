@@ -19,6 +19,8 @@ extension CaptionMeta {
         meta.l = item.localIdentifier
         meta.ed = (role == .original && item.hasEdit == true) ? 1 : nil
         meta.hid = item.hidden == true ? 1 : nil
+        // Only on the original, and only once the rollout switch is on (`ThumbHashRollout`).
+        meta.th = role == .original && ThumbHashRollout.writesToCaptions ? item.thumbHash : nil
         return meta
     }
 }

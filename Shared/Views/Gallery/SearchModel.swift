@@ -115,7 +115,7 @@ final class SearchModel: ObservableObject {
             } else {
                 let set = Set(freeHits)
                 if set != results { results = set }
-                needsProForQuery = freeHits.isEmpty && !fullHits.isEmpty
+                needsProForQuery = ProStore.offered && freeHits.isEmpty && !fullHits.isEmpty
             }
             isPending = false
         }

@@ -5,6 +5,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -46,7 +48,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Dp
 import app.lelvo.android.R
+import app.lelvo.core.index.ScrubberMark
+import app.lelvo.core.index.ScrubberTicks
+import kotlin.math.floor
 import kotlinx.coroutines.delay
 
 /** One section for the scrubber: its title and the grid index of its header. */
@@ -68,8 +76,12 @@ internal fun DateScrubber(
     libraryCount: Int = 0,
     loadedCount: Int = 1,
     title: String = "",
+    /** Where each year starts along the track, by index in the date list (newest first). Empty draws no marks. */
+    yearMarks: List<ScrubberMark> = emptyList(),
     /** Fraction along the whole library. When set, the grid is not asked to scroll: that jump is what stuck the handle. */
     onFraction: ((fraction: Float, dragging: Boolean) -> Unit)? = null,
+    /** Long-press the handle opens Jump to date (iOS scrubber long-press). */
+    onJumpToDate: (() -> Unit)? = null,
 ) {
     if (onFraction == null && sections.size < 2) return
     val haptics = LocalHapticFeedback.current
@@ -80,6 +92,7 @@ internal fun DateScrubber(
     val latest by rememberUpdatedState(sections)
     val grid by rememberUpdatedState(state)
     val jump by rememberUpdatedState(onFraction)
+    val openJump by rememberUpdatedState(onJumpToDate)
 
     LaunchedEffect(state.isScrollInProgress, dragging) {
         if (state.isScrollInProgress || dragging) visible = true else { delay(1_500); visible = false }
@@ -139,6 +152,17 @@ internal fun DateScrubber(
             if (libraryCount <= 0) scrolled
             else ((libraryStart + scrolled * loadedCount) / libraryCount).coerceIn(0f, 1f)
         }
+        // Year marks only on long libraries (more than 8 viewports): item count over what one screen shows.
+        val longLibrary by remember(state, libraryCount) {
+            derivedStateOf {
+                val shown = state.layoutInfo.visibleItemsInfo.size
+                libraryCount > 0 && shown > 0 && ScrubberTicks.isLongEnough(libraryCount.toDouble(), shown.toDouble())
+            }
+        }
+        if (yearMarks.isNotEmpty() && longLibrary && alpha > 0f) {
+            val labels = remember(yearMarks, maxHeight) { ScrubberTicks.make(yearMarks, floor(maxHeight.value / 28f).toInt()) }
+            YearMarks(labels, thumb, maxHeight, Modifier.align(Alignment.TopEnd).alpha(alpha))
+        }
         Row(
             Modifier
                 .align(Alignment.TopEnd)
@@ -162,11 +186,43 @@ internal fun DateScrubber(
                 shape = RoundedCornerShape(13.dp),
                 tonalElevation = 6.dp,
                 shadowElevation = 3.dp,
-                modifier = Modifier.padding(end = 4.dp).size(width = 26.dp, height = thumb),
+                modifier = Modifier
+                    .padding(end = 4.dp)
+                    .size(width = 26.dp, height = thumb)
+                    .then(
+                        if (onJumpToDate != null) Modifier.pointerInput(Unit) {
+                            detectTapGestures(onLongPress = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                openJump?.invoke()
+                            })
+                        } else Modifier,
+                    ),
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(painterResource(R.drawable.ic_unfold), contentDescription = null, modifier = Modifier.size(16.dp))
                 }
+            }
+        }
+    }
+}
+
+/** Small year labels with a short tick, placed where the thumb's centre sits for that fraction. Not focusable. */
+@Composable
+private fun YearMarks(marks: List<ScrubberMark>, thumb: Dp, height: Dp, modifier: Modifier = Modifier) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    val track = (height - thumb).coerceAtLeast(1.dp)
+    Box(modifier.fillMaxHeight().width(44.dp).clearAndSetSemantics { }) {
+        for (mark in marks) {
+            Row(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .wrapContentWidth(Alignment.End, unbounded = true)
+                    .offset(y = track * mark.fraction.toFloat() + thumb / 2 - 8.dp)
+                    .padding(end = 32.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(mark.year.toString(), style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
+                Box(Modifier.padding(start = 3.dp).size(width = 5.dp, height = 1.dp).background(color))
             }
         }
     }

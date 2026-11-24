@@ -87,7 +87,7 @@ final class MacSectionsTests: XCTestCase {
     func testBackupPage() {
         open("Backup")
         shot("backup")
-        for title in ["Free Up Space", "Save All to Photos", "Duplicates"] {
+        for title in ["Free Up Space", "Save All to Photos", "Smart Cleanup"] {
             let row = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR value == %@", title, title)).firstMatch
             XCTAssertTrue(row.waitForExistence(timeout: 10), "\(title) is on the Backup page")
         }

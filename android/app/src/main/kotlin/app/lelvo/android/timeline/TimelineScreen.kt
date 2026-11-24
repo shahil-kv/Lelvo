@@ -1,5 +1,9 @@
 package app.lelvo.android.timeline
 
+import app.lelvo.core.index.ScrubberMark
+import androidx.compose.foundation.shape.RoundedCornerShape
+import app.lelvo.android.onboarding.appSettings
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.lelvo.android.ui.theme.Lelvo
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.draw.clip
@@ -63,6 +67,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.State as ComposeState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -127,6 +132,10 @@ fun TimelineScreen(
     var menuFilter by rememberSaveable { mutableStateOf<GalleryFilter?>(null) }
     val filter = collection ?: menuFilter
     var legend by remember { mutableStateOf(false) }
+    var showJumpToDate by remember { mutableStateOf(false) }
+    // Read again on every return, so the banner goes away once full access is allowed in Settings.
+    var partialAccess by remember { mutableStateOf(false) }
+    LifecycleResumeEffect(Unit) { partialAccess = photos.status() == PhotoAccess.Status.Partial; onPauseOrDispose {} }
     var deletingAlbum by remember { mutableStateOf(false) }
     var selection by remember { mutableStateOf(emptySet<String>()) }
     val selecting = selection.isNotEmpty()
@@ -246,6 +255,11 @@ fun TimelineScreen(
                             trailingIcon = { if (filter == f) Icon(painterResource(R.drawable.ic_check_circle), null) },
                             onClick = { menu = false; menuFilter = f },
                         )
+                        if (dates.size > 1) DropdownMenuItem(
+                            text = { Text("Jump to date") },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_calendar), contentDescription = null) },
+                            onClick = { menu = false; showJumpToDate = true },
+                        )
                         DropdownMenuItem(text = { Text("What the icons mean") }, onClick = { menu = false; legend = true })
                     }
                 }
@@ -257,6 +271,8 @@ fun TimelineScreen(
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                 }
+                // This branch is only when `collection == null` (see topBar when above).
+                if (filter == null && !isDemo && partialAccess) LimitedAccessBanner()
                 backup?.takeIf { it.running }?.let { BackupProgress(it) }
             }
         },
@@ -293,6 +309,7 @@ fun TimelineScreen(
                     pendingSkip = index
                     scrubbing = dragging
                 },
+                onJumpToDate = if (dates.size > 1) ({ showJumpToDate = true }) else null,
             )
         }
         if (selecting) {
@@ -313,6 +330,17 @@ fun TimelineScreen(
         if (selection.any { it !in ids }) selection = selection.filterTo(HashSet()) { it in ids }
     }
     if (legend) BadgeLegend(onDismiss = { legend = false })
+    if (showJumpToDate && dates.size > 1) {
+        JumpToDateSheet(
+            datesNewestFirst = dates,
+            onDismiss = { showJumpToDate = false },
+            onJump = { fraction ->
+                val i = (fraction * (dates.size - 1)).toInt().coerceIn(0, dates.lastIndex)
+                pendingSkip = i
+                scrubbing = false
+            },
+        )
+    }
     (collection as? GalleryFilter.Album)?.let { album ->
         if (deletingAlbum) {
             val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as LelvoApp
@@ -483,6 +511,7 @@ private fun Grid(
     dates: LongArray = LongArray(0),
     windowStart: Int = 0,
     onScrub: (index: Int, dragging: Boolean) -> Unit = { _, _ -> },
+    onJumpToDate: (() -> Unit)? = null,
 ) {
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val order = remember(sections) { sections.flatMap { s -> s.items.map { it.id } } }
@@ -493,6 +522,10 @@ private fun Grid(
     val edge = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
     val side = LocalConfiguration.current.screenWidthDp.dp / columns
     val state = rememberLazyGridState()
+    val scrollLoading = rememberScrollLoading(state)
+    val flat = remember(sections) { sections.flatMap { s -> listOf<GalleryEntry?>(null) + s.items } }
+    val sidePx = with(androidx.compose.ui.platform.LocalDensity.current) { side.roundToPx() }
+    PrefetchAhead(state, scrollLoading, columns, sidePx) { flat.getOrNull(it) }
     val nearEnd by androidx.compose.runtime.rememberUpdatedState(onNearEnd)
     // Restart when a new page arrives, so staying at the bottom loads the page after that too.
     LaunchedEffect(state, sections) {
@@ -529,10 +562,11 @@ private fun Grid(
         contentPadding = padding,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
-        modifier = Modifier.fillMaxSize().pinchToZoom(onZoom).dragToSelect(
+        modifier = Modifier.fillMaxSize().nestedScroll(scrollLoading.connection).pinchToZoom(onZoom).dragToSelect(
             state, order = { currentOrder }, selection = { currentSelection }, onChange = onSelection,
             onStart = { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress) },
             edge = edge, onEdge = { edgeSpeed = it },
+            onStep = { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick) },
         ),
     ) {
         for (section in sections) {
@@ -546,7 +580,7 @@ private fun Grid(
             items(section.items, key = { it.id }, contentType = { "cell" }) { entry ->
                 val selected = entry.id in selection
                 Cell(
-                    entry, side, photos, selecting = selection.isNotEmpty(), selected = selected,
+                    entry, side, photos, selecting = selection.isNotEmpty(), selected = selected, deferring = scrollLoading.deferring,
                     onClick = { if (selection.isNotEmpty()) onSelection(if (selected) selection - entry.id else selection + entry.id) else onOpen(entry) },
                     description = { titles.describe(entry) },
                 )
@@ -554,12 +588,15 @@ private fun Grid(
         }
     }
     var liveTitle by remember { mutableStateOf("") }
+    // Same index mapping the scrubber uses (i = fraction * (size - 1)), in the zone the titles use; once per `dates`.
+    val yearMarks = remember(dates) { yearMarksOf(dates) }
     DateScrubber(
         state, scrub, Modifier.align(Alignment.TopEnd).padding(padding),
         libraryStart = windowStart,
         libraryCount = dates.size,
         loadedCount = sections.sumOf { it.items.size }.coerceAtLeast(1),
         title = liveTitle,
+        yearMarks = yearMarks,
         onFraction = if (dates.isEmpty()) null else { fraction, dragging ->
             val i = (fraction * (dates.size - 1)).toInt().coerceIn(0, dates.lastIndex)
             val next = titles.forEpoch(dates[i], grouping)
@@ -569,6 +606,7 @@ private fun Grid(
             }
             onScrub(i, dragging)
         },
+        onJumpToDate = onJumpToDate,
     )
     EdgeScroll(state, edgeSpeed)
     }
@@ -581,7 +619,10 @@ private fun Grid(
 @Composable
 private fun Cell(
     entry: GalleryEntry, side: Dp, photos: PhotoAccess, selecting: Boolean, selected: Boolean, onClick: () -> Unit, description: () -> String,
+    deferring: ComposeState<Boolean>,
 ) {
+    // While a fast fling is on, a tile that never loaded keeps its placeholder; loads start once the speed drops.
+    var loaded by remember(entry.id) { mutableStateOf(false) }
     // A selected tile shrinks inside its square, like Google Photos.
     val inset by androidx.compose.animation.core.animateDpAsState(if (selected) side * 0.08f else 0.dp, label = "inset")
     Box(
@@ -593,11 +634,17 @@ private fun Cell(
             },
     ) {
         AsyncImage(
-            model = entry.asset?.let { PhoneThumbnail(photos.uri(it)) } ?: entry.item?.let { DemoMode.assetUri(it) ?: CloudThumbnail(it) },
+            model = if (deferring.value && !loaded) null
+                else entry.asset?.let { PhoneThumbnail(photos.uri(it)) } ?: entry.item?.let { DemoMode.assetUri(it) ?: CloudThumbnail(it) },
+            onSuccess = { loaded = true },
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize().padding(inset).clip(androidx.compose.foundation.shape.RoundedCornerShape(if (selected) 10.dp else 0.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        )
+        // Cloud-only tiles with a ThumbHash show its blur until the real thumbnail is in.
+        if (entry.asset == null) ThumbHashLayer(
+            entry.item?.thumbHash, loaded, Modifier.fillMaxSize().padding(inset).clip(androidx.compose.foundation.shape.RoundedCornerShape(if (selected) 10.dp else 0.dp)),
         )
         if (selecting) Icon(
             painterResource(if (selected) R.drawable.ic_check_circle else R.drawable.ic_circle_outline), null,
@@ -643,6 +690,29 @@ private fun Modifier.pinchToZoom(onZoom: (Int) -> Unit): Modifier = pointerInput
 internal fun formatDuration(seconds: Double?): String {
     val s = (seconds ?: 0.0).toLong()
     return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
+}
+
+/** First index of each run of one year in [dates] (newest first), as a fraction of `size - 1`. Unknown dates are skipped. */
+private fun yearMarksOf(dates: LongArray): List<ScrubberMark> {
+    if (dates.size < 2) return emptyList()
+    val zone = ZoneId.systemDefault()
+    val marks = ArrayList<ScrubberMark>()
+    var year = Int.MIN_VALUE
+    var from = Long.MAX_VALUE // the current year's range [from, to) in epoch ms, so most items skip the date maths
+    var to = Long.MIN_VALUE
+    for (i in dates.indices) {
+        val ms = dates[i]
+        if (ms <= 0L) continue
+        if (ms in from until to) continue
+        val date = Instant.ofEpochMilli(ms).atZone(zone).toLocalDate()
+        from = LocalDate.of(date.year, 1, 1).atStartOfDay(zone).toInstant().toEpochMilli()
+        to = LocalDate.of(date.year + 1, 1, 1).atStartOfDay(zone).toInstant().toEpochMilli()
+        if (date.year != year) {
+            year = date.year
+            marks += ScrubberMark(year, i.toDouble() / (dates.size - 1))
+        }
+    }
+    return marks
 }
 
 /** Localized section titles and TalkBack descriptions; the formatters are made once per screen, not per cell. */
@@ -692,4 +762,23 @@ private class Titles(locale: Locale) {
 private fun rememberTitles(): Titles {
     val locale = LocalContext.current.resources.configuration.locales[0]
     return remember(locale) { Titles(locale) }
+}
+
+/** Like the iPhone's: the whole row opens this app's Settings page, where "Allow all" lives. */
+@Composable
+private fun LimitedAccessBanner() {
+    val context = LocalContext.current
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(Lelvo.colors.orange.copy(alpha = 0.12f))
+            .clickable(onClickLabel = "Open Settings") { context.startActivity(appSettings(context.packageName)) }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(painterResource(R.drawable.ic_warning), null, Modifier.size(18.dp), tint = Lelvo.colors.orange)
+        Spacer(Modifier.width(10.dp))
+        Text("Lelvo can only see the photos you selected.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(8.dp))
+        Text("Allow all", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    }
 }

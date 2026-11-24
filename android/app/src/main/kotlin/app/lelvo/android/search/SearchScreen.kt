@@ -1,5 +1,6 @@
 package app.lelvo.android.search
 
+import app.lelvo.data.ProStore
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -247,7 +248,7 @@ private fun Suggestions(
                 items(places, key = { it.name }) { p ->
                     Column(
                         Modifier.width(104.dp).clip(RoundedCornerShape(12.dp)).clickable { onChoose(p.name) }
-                            .semantics(mergeDescendants = true) { contentDescription = "${p.name}, ${p.count} items" },
+                            .semantics(mergeDescendants = true) { contentDescription = "${p.name}, ${p.count} ${if (p.count == 1) "item" else "items"}" },
                     ) {
                         Cover(d.byId[p.coverId], app, R.drawable.ic_place, Modifier.size(104.dp))
                         Text(p.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
@@ -274,7 +275,7 @@ private fun Suggestions(
                 for (kind in listOf("Videos", "Favorites", "Screenshots")) SuggestionChip(onClick = { onChoose(kind) }, label = { Text(kind) })
             }
         }
-        if (!isPro) item("smartSearch") {
+        if (ProStore.OFFERED && !isPro) item("smartSearch") {
             ListItem(
                 headlineContent = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -292,6 +293,7 @@ private fun Suggestions(
                 status.total > 0 && status.read < status.total ->
                     "${countFormat.format(status.read)} of ${countFormat.format(status.total)} photos read for places. Reading continues while Lelvo is open."
                 isPro -> "Search looks at places, dates, and things in your photos, on this phone."
+                !ProStore.OFFERED -> "Search looks at places, dates and kinds of photos, on this phone."
                 else -> "Places, dates and kinds are free. Things in a photo need Lelvo Pro."
             }
             Text(

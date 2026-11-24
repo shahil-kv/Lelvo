@@ -147,13 +147,17 @@ fun PhotosStepScreen(setup: LibrarySetup, photos: PhotoAccess, onFinish: () -> U
         subtitle = found?.let { "$it Allow access to all photos so everything on this phone is backed up too." }
             ?: "Allow access to all photos so everything on this phone is backed up.",
         button = if (decided) PrimaryButton("Start using Lelvo", enabled = true, run = onFinish)
-        else PrimaryButton("Allow access", enabled = true) { ask.launch(photos.permissions) },
+        else PrimaryButton("Continue", enabled = true) { ask.launch(photos.permissions) },  // like iOS (App Review 5.1.1(iv))
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when (status) {
                 PhotoAccess.Status.Full -> StatusLine(R.drawable.ic_check_circle, Lelvo.colors.green, "Full access granted")
-                PhotoAccess.Status.Partial ->
+                PhotoAccess.Status.Partial -> {
                     StatusLine(R.drawable.ic_info, Lelvo.colors.orange, "Limited access: only the photos you picked are backed up.")
+                    TextButton(onClick = { context.startActivity(appSettings(context.packageName)) }) {
+                        Text("Allow all photos in Settings", color = Lelvo.colors.accent, fontWeight = FontWeight.SemiBold)
+                    }
+                }
                 PhotoAccess.Status.Denied -> {
                     StatusLine(R.drawable.ic_warning, Lelvo.colors.red, "No access. You can still browse your cloud library.")
                     TextButton(onClick = { context.startActivity(appSettings(context.packageName)) }) {

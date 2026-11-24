@@ -41,6 +41,10 @@ public struct CaptionMeta: Codable, Equatable, Sendable {
     public var ed: Int?
     /// 1 when the item was hidden in Photos: not shown in the timeline, restored hidden.
     public var hid: Int?
+    /// ThumbHash of the photo (`ThumbHash`), standard Base64, about 34 characters: a blurred placeholder to show before the
+    /// thumbnail has downloaded. Optional, and the first field dropped when a caption is too long. Readers that don't know
+    /// it ignore it (§3.1).
+    public var th: String?
 
     public init(id: String, role: Role, kind: Kind, sha256: String, name: String, size: Int64) {
         self.id = id.lowercased()
@@ -95,20 +99,24 @@ public enum CaptionCodec {
     /// resource (`ExtraMetadata`) instead of letting `encode` drop them.
     public static func keepsAlbums(_ meta: CaptionMeta, captionKey: SymmetricKey? = nil) throws -> Bool {
         guard meta.a != nil else { return true }
-        return try render(meta, captionKey: captionKey).count <= maxLength
+        // `th` goes first when a caption is too long, so it must not be the reason the albums are moved out.
+        var withoutHash = meta
+        withoutHash.th = nil
+        return try render(withoutHash, captionKey: captionKey).count <= maxLength
     }
 
     /// Builds the caption, dropping optional fields until it fits in `maxLength` characters (§3.1).
     public static func encode(_ meta: CaptionMeta, captionKey: SymmetricKey? = nil) throws -> String {
         var m = meta
-        for step in 0...4 {
+        for step in 0...5 {
             let caption = try render(m, captionKey: captionKey)
             if caption.count <= maxLength { return caption }
             switch step {
-            case 0: m.a = nil
-            case 1: m.c = nil
-            case 2: m.l = nil
-            case 3: m.n = truncatedName(m.n, by: caption.count - maxLength + 8)
+            case 0: m.th = nil
+            case 1: m.a = nil
+            case 2: m.c = nil
+            case 3: m.l = nil
+            case 4: m.n = truncatedName(m.n, by: caption.count - maxLength + 8)
             default: break
             }
         }

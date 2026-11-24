@@ -55,7 +55,7 @@ struct RootView: View {
                     if !Task.isCancelled, !model.needsSignIn { showingCommunityNote = true }
                 }
                 .sheet(isPresented: $showingCommunityNote, onDismiss: { communityNoteShown = true }) {
-                    CommunityNoteView(onClose: { showingCommunityNote = false }, onHeight: { communityNoteHeight = $0 + 24 })
+                    CommunityNoteView(onClose: { showingCommunityNote = false }, onHeight: { communityNoteHeight = $0 })
                         .presentationDetents([.height(communityNoteHeight), .large])
                         // Solid: a part-height sheet is see-through glass on iOS 26, and the text over bright photos
                         // was hard to read.

@@ -29,13 +29,15 @@ final class PhotosButtonsTests: XCTestCase {
         XCTAssertTrue(phone.waitForExistence(timeout: 15))
         let dial = app.textFields["Country code"]
         dial.tap()
+        // The first tap can land before the field takes focus on a cold simulator.
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 3) { dial.tap() }
         dial.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "1")
         phone.tap()
         phone.typeText("5550100199")
         app.buttons["Continue"].tap()
         let code = app.textFields["Login code"]
         XCTAssertTrue(code.waitForExistence(timeout: 10))
-        code.typeText("24680")
+        code.tap(); code.typeText("24680")
         let allow = app.buttons["Allow Access"]
         let begin = app.buttons["Start using Lelvo"]
         XCTAssertTrue(allow.waitForExistence(timeout: 10) || begin.exists)

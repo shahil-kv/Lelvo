@@ -66,26 +66,7 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink("Memories") { MemoriesSettingsView() }
-                    NavigationLink {
-                        ProPaywallView()
-                    } label: {
-                        HStack {
-                            Text("Lelvo Pro")
-                            ProBadge()
-                            Spacer()
-                            Text(pro.isPro ? "On" : "Off").foregroundStyle(.secondary)
-                        }
-                    }
-                    if pro.isPro {
-                        NavigationLink {
-                            LockedFolderSettingsView()
-                        } label: {
-                            HStack {
-                                Text("Locked Folder")
-                                ProBadge()
-                            }
-                        }
-                    }
+                    if ProStore.offered { proRows }
                 }
 
                 Section {
@@ -146,6 +127,29 @@ struct SettingsView: View {
                 Text("This \(Device.name) is signed out of Telegram and Lelvo's local data is removed. Your backup in Telegram isn't touched; sign in again to get it back.")
             }
             .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
+        }
+    }
+
+    @ViewBuilder private var proRows: some View {
+        NavigationLink {
+            ProPaywallView()
+        } label: {
+            HStack {
+                Text("Lelvo Pro")
+                ProBadge()
+                Spacer()
+                Text(pro.isPro ? "On" : "Off").foregroundStyle(.secondary)
+            }
+        }
+        if pro.isPro {
+            NavigationLink {
+                LockedFolderSettingsView()
+            } label: {
+                HStack {
+                    Text("Locked Folder")
+                    ProBadge()
+                }
+            }
         }
     }
 
@@ -258,9 +262,14 @@ struct AboutView: View {
                 LabeledContent("Version", value: Bundle.main.displayVersion)
                 Text("Lelvo backs up your photos to a private channel in your own Telegram account. No servers, no analytics, no ads.")
             }
-            #if DEBUG && os(iOS)
+            #if DEBUG
             // Developer builds only, kept out of the main Settings list.
-            Section("Developer") { NavigationLink("Background lab") { BackgroundLabView() } }
+            Section("Developer") {
+                #if os(iOS)
+                NavigationLink("Background lab") { BackgroundLabView() }
+                #endif
+                NavigationLink("Scroll library") { ScrollLibraryLabView() }
+            }
             #endif
             Section {
                 Link(destination: AppLinks.faq) { Label("Questions and answers", systemImage: "questionmark.circle") }
@@ -314,7 +323,7 @@ struct AcknowledgementsView: View {
                     .padding(.vertical, 2)
                 }
             }
-            Section("MIT License (TDLibKit, TDLibFramework)") {
+            Section("MIT License (TDLibKit, TDLibFramework, ThumbHash)") {
                 Text(Self.mitNotice).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             }
         }
@@ -456,6 +465,7 @@ struct LibrarySettingsView: View {
                 PrimaryCapsuleButton(title: "Create and switch",
                                      enabled: problem == nil && !newName.trimmingCharacters(in: .whitespaces).isEmpty) { create() }
                     .padding(20)
+                    .background(.bar)  // solid: the warning card scrolls under it, not through it (I6)
             }
             .navigationTitle("New library")
             .inlineNavigationTitle()
@@ -765,6 +775,7 @@ struct MoreBackupOptionsView: View {
     @AppStorage(Prefs.Key.dateFrom) private var dateFrom: Double = Date().addingTimeInterval(-365 * 86400).timeIntervalSince1970
     @AppStorage(Prefs.Key.streamingCopies) private var streamingCopies = true
     @AppStorage(Prefs.Key.videoQuality) private var videoQuality = VideoQualityPreference.automatic.rawValue
+    @AppStorage(Prefs.Key.loopVideos) private var loopVideos = false
 
     var body: some View {
         Form {
@@ -786,6 +797,7 @@ struct MoreBackupOptionsView: View {
                     Text("Automatic").tag(VideoQualityPreference.automatic.rawValue)
                     Text("Original Quality").tag(VideoQualityPreference.original.rawValue)
                 }
+                Toggle("Loop videos", isOn: $loopVideos)
             } header: { Text("Videos") } footer: {
                 Text("A fast version is a small copy made while a video is backed up, so it plays at once from your Telegram library. The original is always kept. Automatic plays the fast version when the connection is slow.")
             }
