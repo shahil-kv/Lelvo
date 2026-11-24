@@ -13,6 +13,7 @@ struct GalleryView: View {
     @State private var selection = Set<String>()
     @State private var share: ShareItems?
     @State private var busyMessage: String?
+    @State private var busyTask: Task<Void, Never>?
     @State private var alert: GalleryAlert?
     @State private var confirmDelete = false
     @State private var addingToAlbum = false
@@ -41,6 +42,8 @@ struct GalleryView: View {
     private var entries: [GalleryEntry] { shown?.entries ?? (filter == nil ? model.entries : filtered.entries) }
     private var sections: [GallerySection] { shown?.sections ?? (filter == nil ? model.sections : filtered.sections) }
     @State private var filtered: (entries: [GalleryEntry], sections: [GallerySection]) = ([], [])
+    /// O(1) lookup by entry id so `selectedEntries` never scans a 50k-item library on every render.
+    @State private var entryById: [String: GalleryEntry] = [:]
 
     private struct FilterKey: Equatable { let revision: Int; let grouping: GalleryModel.Grouping; let size: Int; let takenOut: Int }
     /// Entries taken out of this album here. The album filter holds the Photos ids it opened with, so without this
@@ -85,9 +88,18 @@ struct GalleryView: View {
         .onChange(of: hasSelection) { _, picked in if !picked { shown = nil } }
         .overlay {
             if let busyMessage {
-                ProgressView(busyMessage)
-                    .padding(20)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                VStack(spacing: 12) {
+                    ProgressView(busyMessage)
+                    if busyTask != nil {
+                        Button("Cancel", role: .cancel) {
+                            busyTask?.cancel()
+                            busyTask = nil
+                        }
+                        .font(.subheadline.weight(.medium))
+                    }
+                }
+                .padding(20)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
             }
         }
         .task { if !model.loaded { await model.reload() } }
@@ -102,18 +114,23 @@ struct GalleryView: View {
             }()
             let grouping = self.grouping
             let takenOut = self.takenOut
-            let result = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection], [String: Int]) in
+            let result = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection], [String: GalleryEntry]) in
                 let list: [GalleryEntry]
                 if case .locked = filter {
                     list = source
                 } else {
                     list = filter.map { f in source.filter { f.matches($0) && !takenOut.contains($0.id) } } ?? source
                 }
-                var positions: [String: Int] = [:]
-                positions.reserveCapacity(list.count)
-                for (i, e) in list.enumerated() { positions[e.id] = i }
-                return (list, filter == nil ? [] : GalleryModel.group(list, grouping: grouping), positions)
+                var index: [String: GalleryEntry] = [:]
+                index.reserveCapacity(list.count)
+                for e in list { index[e.id] = e }
+                return (list, filter == nil ? [] : GalleryModel.group(list, grouping: grouping), index)
             }.value
+            entryById = result.2
+            if selecting, !selection.isEmpty {
+                let pruned = selection.filter { result.2[$0] != nil }
+                if pruned.count != selection.count { selection = pruned }
+            }
             if filter != nil {
                 filtered = (result.0, result.1)
                 filteredVersion += 1
@@ -173,6 +190,7 @@ struct GalleryView: View {
     /// From the live timeline, not the Show Selected snapshot, so badges, backup state and favourites stay current.
     private var selectedEntries: [GalleryEntry] {
         guard !selection.isEmpty else { return [] }
+        if !entryById.isEmpty { return selection.compactMap { entryById[$0] } }
         return (filter == nil ? model.entries : filtered.entries).filter { selection.contains($0.id) }
     }
 
@@ -315,7 +333,7 @@ struct GalleryView: View {
             ToolbarItem(placement: .topBarLeading) {
                 Menu {
                     Picker("Columns", selection: $columns) {
-                        ForEach([2, 3, 4, 5, 6, 8, 10], id: \.self) { Text("\($0) columns").tag($0) }
+                        ForEach([1, 2, 3, 4, 5, 6, 8, 10], id: \.self) { Text("\($0) column\($0 == 1 ? "" : "s")").tag($0) }
                     }
                     Divider()
                     if entries.count > 1 {
@@ -355,7 +373,10 @@ struct GalleryView: View {
                 Spacer(minLength: 12)
                 Color.clear.frame(width: 50, height: 50)
             } else {
-                Button { Task { await shareSelection(chosen) } } label: {
+                Button {
+                    busyTask?.cancel()
+                    busyTask = Task { await shareSelection(chosen) }
+                } label: {
                     Image(systemName: "square.and.arrow.up").frame(width: 50, height: 50)
                 }
                 .glassBackground(Circle())
@@ -396,11 +417,14 @@ struct GalleryView: View {
                     if !onDevice.isEmpty {
                         Button("Remove \(onDevice.count.formatted()) from This iPhone", role: .destructive) { Task { await deleteFromDevice(onDevice) } }
                     }
-                    // Keeps any copy on this iPhone: the only way to take something out of the backup but keep it here.
-                    if !backedUp.isEmpty && !onDevice.isEmpty {
-                        Button("Delete \(backedUp.count.formatted()) from Backup Only", role: .destructive) { Task { await deleteFromBackup(backedUp) } }
+                    if !backedUp.isEmpty {
+                        Button(onDevice.isEmpty ? "Delete \(backedUp.count.formatted()) from Backup" : "Delete \(backedUp.count.formatted()) from Backup Only", role: .destructive) {
+                            Task { await deleteFromBackup(backedUp) }
+                        }
                     }
-                    Button("Delete Everywhere", role: .destructive) { Task { await deleteEverywhere() } }
+                    if !onDevice.isEmpty && !backedUp.isEmpty {
+                        Button("Delete Everywhere", role: .destructive) { Task { await deleteEverywhere() } }
+                    }
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text(deleteMessage(chosen))
@@ -451,7 +475,10 @@ struct GalleryView: View {
                     }
                 }
                 if !downloadable.isEmpty {
-                    Button { Task { await download(downloadable) } } label: {
+                    Button {
+                        busyTask?.cancel()
+                        busyTask = Task { await download(downloadable) }
+                    } label: {
                         Label("Save \(downloadable.count.formatted()) to iPhone", systemImage: "square.and.arrow.down")
                     }
                 }
@@ -568,13 +595,18 @@ struct GalleryView: View {
     }
 
     private func shareSelection(_ entries: [GalleryEntry]) async {
-        busyMessage = "Preparing \(entries.count) item(s)…"
-        defer { busyMessage = nil }
+        busyMessage = "Preparing 1 of \(entries.count)…"
+        defer { busyMessage = nil; busyTask = nil }
         var urls: [URL] = []
         var skipped = 0
-        for entry in entries {
-            do { urls.append(try await GalleryActions.shareableFile(for: entry)) } catch { skipped += 1 }
+        for (i, entry) in entries.enumerated() {
+            if Task.isCancelled { return }
+            busyMessage = "Preparing \(i + 1) of \(entries.count)…"
+            do { urls.append(try await GalleryActions.shareableFile(for: entry)) }
+            catch is CancellationError { return }
+            catch { skipped += 1 }
         }
+        if Task.isCancelled { return }
         if !urls.isEmpty { share = ShareItems(urls: urls) }
         if skipped > 0 {
             alert = GalleryAlert(title: "Some items weren't shared",
@@ -583,19 +615,29 @@ struct GalleryView: View {
     }
 
     private func download(_ entries: [GalleryEntry]) async {
-        busyMessage = "Saving to Photos…"
-        defer { busyMessage = nil }
+        busyMessage = "Saving 1 of \(entries.count)…"
+        defer { busyMessage = nil; busyTask = nil }
         var saved = 0
         var failures: [String] = []
-        for entry in entries {
+        for (i, entry) in entries.enumerated() {
+            if Task.isCancelled { break }
             guard let item = entry.item else { continue }
+            busyMessage = "Saving \(i + 1) of \(entries.count)…"
             do {
                 try await GalleryActions.saveToPhotos(item)
                 saved += 1
-            } catch { failures.append(error.localizedDescription) }
+            } catch is CancellationError {
+                break
+            } catch {
+                failures.append(error.localizedDescription)
+            }
         }
         selecting = false
         selection.removeAll()
+        if Task.isCancelled {
+            if saved > 0 { alert = GalleryAlert(title: "Stopped", message: "Saved \(saved) item(s) to your photo library before stopping.") }
+            return
+        }
         if failures.isEmpty {
             Haptics.success()
             alert = GalleryAlert(title: "Saved", message: "\(saved) item(s) saved to your photo library.")
@@ -720,7 +762,9 @@ struct GalleryView: View {
             Haptics.success()
         } catch {
             Haptics.error()
-            alert = GalleryAlert(title: "Couldn't change Favorites", message: "Photos didn't allow it. Try again from the Photos app.")
+            let hasLocal = entries.contains { $0.asset != nil }
+            alert = GalleryAlert(title: "Couldn't change Favorites",
+                                 message: hasLocal ? "Photos didn't allow it. Try again from the Photos app." : error.localizedDescription)
         }
     }
 
