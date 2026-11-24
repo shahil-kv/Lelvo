@@ -51,18 +51,26 @@ final class SimilarPhotosService: @unchecked Sendable {
         var versions: [String: String] = [:]
         var candidates: [SimilarPhotos.Candidate] = []
         var present = Set<String>()
+        // Locked Folder items must never surface in unlocked Similar Photos review.
+        let lockedItems = (try? store.lockedItems()) ?? []
+        let (syncedLockedIds, pendingLockedLocalIds) = await MainActor.run {
+            (LockedFolderStore.shared.syncedLockedIds, LockedFolderStore.shared.pendingLocalIds)
+        }
+        let lockedCloudIds = syncedLockedIds.union(lockedItems.map(\.id))
+        let lockedLocalIds = pendingLockedLocalIds.union(lockedItems.compactMap(\.localIdentifier))
         if PhotoLibraryService.hasAccess {
             let options = PHFetchOptions()
             options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
             PHAsset.fetchAssets(with: options).enumerateObjects { a, _, _ in
                 present.insert(a.localIdentifier)
-                guard let date = a.creationDate, !a.mediaSubtypes.contains(.photoScreenshot) else { return }
+                guard !lockedLocalIds.contains(a.localIdentifier),
+                      let date = a.creationDate, !a.mediaSubtypes.contains(.photoScreenshot) else { return }
                 entries[a.localIdentifier] = GalleryEntry(id: a.localIdentifier, date: date, asset: a, item: nil)
                 versions[a.localIdentifier] = "\(a.localIdentifier)|\(Int64(a.modificationDate?.timeIntervalSince1970 ?? 0))"
                 candidates.append(.init(id: a.localIdentifier, date: date, pixels: a.pixelWidth * a.pixelHeight, favorite: a.isFavorite))
             }
         }
-        for item in store.cloudOnlyItems(present: present) where item.kind != .video {
+        for item in store.cloudOnlyItems(present: present) where item.kind != .video && item.locked != true && !lockedCloudIds.contains(item.id) {
             guard let date = item.creationDate else { continue }
             let id = "cloud-\(item.id)"
             entries[id] = GalleryEntry(id: id, date: date, asset: nil, item: item)
@@ -127,19 +135,9 @@ final class SimilarPhotosService: @unchecked Sendable {
     private func smallImage(_ entry: GalleryEntry) async -> CGImage? {
         if let cached = ThumbnailPipeline.shared.cached(entry)?.image { return Self.cg(cached) }
         if let asset = entry.asset {
-            let options = PHImageRequestOptions()
-            options.deliveryMode = .highQualityFormat
-            options.resizeMode = .fast
-            options.isNetworkAccessAllowed = false
-            return await withCheckedContinuation { cont in
-                var resumed = false
-                PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: 360, height: 360), contentMode: .aspectFit,
-                                                      options: options) { image, _ in
-                    guard !resumed else { return }
-                    resumed = true
-                    cont.resume(returning: image.flatMap(Self.cg))
-                }
-            }
+            guard let image = await photos.image(for: asset, targetSize: CGSize(width: 360, height: 360),
+                                                 mode: .highQualityFormat, allowNetwork: false) else { return nil }
+            return Self.cg(image)
         }
         guard let item = entry.item, let thumb = try? await media().thumbnail(for: item, urgent: false) else { return nil }
         return Self.cg(thumb)

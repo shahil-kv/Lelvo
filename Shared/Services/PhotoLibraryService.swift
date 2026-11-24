@@ -656,11 +656,12 @@ final class PhotoLibraryService: @unchecked Sendable {
 
     // MARK: - Images
 
-    func image(for asset: PHAsset, targetSize: CGSize, mode: PHImageRequestOptionsDeliveryMode = .highQualityFormat) async -> PlatformImage? {
+    func image(for asset: PHAsset, targetSize: CGSize, mode: PHImageRequestOptionsDeliveryMode = .highQualityFormat,
+               allowNetwork: Bool = true) async -> PlatformImage? {
         let options = PHImageRequestOptions()
         options.deliveryMode = mode
         options.resizeMode = .fast
-        options.isNetworkAccessAllowed = true
+        options.isNetworkAccessAllowed = allowNetwork
         let requestBox = PhotoRequestBox<PHImageRequestID> { PHImageManager.default().cancelImageRequest($0) }
         let resumeLock = NSLock()
         return await withTaskCancellationHandler {
@@ -732,9 +733,10 @@ final class PhotoLibraryService: @unchecked Sendable {
     func restore(_ item: MediaItem, plan: RestorePlan, files: [String: URL], albums: [String]) async throws -> String? {
         guard let original = files[plan.original] else { throw PhotoLibraryError.noOriginalResource }
         var attempts: [RestoredEdit] = [.none]
-        // Edited photos come back as they looked, the way earlier versions restored them. Restoring them as an undoable
-        // edit (`.photosAdjustments`, `.revertible`) isn't verified on a device yet (#45).
-        if plan.edit != nil, files["e"] != nil { attempts = [.asShown] }
+        // Edited photos come back as they looked, the way earlier versions restored them. If Photos refuses the edited
+        // representation (for example an edited Live Photo whose still and paired video content identifiers differ),
+        // fall back to restoring the untouched original so the photo still comes back.
+        if plan.edit != nil, files["e"] != nil { attempts = [.asShown, .none] }
         let existingAlbums = albumCollections(titled: albums)
         var lastError: Error = PhotoLibraryError.noOriginalResource
         for edit in attempts {
