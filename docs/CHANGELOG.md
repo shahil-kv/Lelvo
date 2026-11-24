@@ -5,6 +5,9 @@ What's new in Lelvo for iPhone and Mac, newest first. Downloads for each version
 
 ## Unreleased
 
+## 0.4.0, 2026-11-24
+
+- **Reliability, speed and privacy across iPhone, Mac and Android:** fixed TDLib startup deadlocks and infinite download retries, made PhotoKit exports and background backups stop cleanly when cancelled or expired, shared Telegram `FLOOD_WAIT` pauses across uploads and sync, improved video playback (keep screen awake, replay from the end, pause when headphones unplug, smoother gestures), moved heavy Photos/Collections/Settings work off the main thread, stopped an idle 60Hz scroll loop on Android, and kept Locked Folder items out of exports, Save All, geocoding and Similar Photos.
 - **Mac backs up new photos within a minute:** while Lelvo is open, even with its window closed, new photos are backed up about a minute after they reach Photos, not once an hour. Turn on **Open at login** in Settings so this continues after a restart.
 - **Android backs up new photos on its own:** new photos are noticed without waiting for Wi-Fi or the charger, and the upload continues in short runs, including on battery. Opening Lelvo starts a backup when photos are waiting. If the phone is blocking background backup, the Backup tab says so and opens the setting that fixes it. A long backup that Android stops continues in the background. An optional morning note and a stuck reminder show counts only.
 - **Backup runs without opening Lelvo:** opening Lelvo starts backing up new photos at once, and iPhone's short
