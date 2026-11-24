@@ -237,7 +237,7 @@ final class BackupEngine: @unchecked Sendable {
     private var running = false
     /// Every lane waits until this; written down so a new process honours a wait an earlier one was given.
     /// Every `FLOOD_WAIT` goes through here so the log shows each pause; Scripts/check-log.sh checks no send starts inside it.
-    private func holdForFlood(_ s: Int) {
+    func holdForFlood(_ s: Int) {
         let until = gate.withLock { () -> Date in
             pausedUntil = max(pausedUntil, Date().addingTimeInterval(TimeInterval(s)))
             return pausedUntil
@@ -308,6 +308,13 @@ final class BackupEngine: @unchecked Sendable {
         }
         task?.cancel()
         appLog("Backup paused by the user")
+    }
+
+    /// Cancels in-flight uploads and PhotoKit exports when iOS expires a background task, without marking
+    /// automatic backup paused.
+    func cancelCurrentRun() {
+        let task: Task<Void, Never>? = gate.withLock { laneTask }
+        task?.cancel()
     }
 
     init(environment: AppEnvironment) {

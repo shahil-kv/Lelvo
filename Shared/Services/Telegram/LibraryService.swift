@@ -464,6 +464,7 @@ final class LibraryService: @unchecked Sendable {
             } catch {
                 let mapped = error.asTD
                 if case .floodWait(let s)? = (mapped as? TDServiceError)?.kind {
+                    AppEnvironment.shared.engine.holdForFlood(s)
                     try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
                     continue
                 }
@@ -585,13 +586,18 @@ final class LibraryService: @unchecked Sendable {
                 continue
             }
             let path: URL
-            do {
-                path = try await td.download(fileId: note.file.id, priority: 32)
-            } catch {
-                let mapped = error.asTD
-                guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind else { throw mapped }
-                try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
-                return try await readNotes(found)
+            var floodRetries = 0
+            while true {
+                do {
+                    path = try await td.download(fileId: note.file.id, priority: 32)
+                    break
+                } catch {
+                    let mapped = error.asTD
+                    guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind, floodRetries < 5 else { throw mapped }
+                    floodRetries += 1
+                    AppEnvironment.shared.engine.holdForFlood(s)
+                    try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
+                }
             }
             defer { Task { await td.deleteLocalCopy(fileId: note.file.id) } }
             var data = try Data(contentsOf: path)
@@ -691,13 +697,18 @@ final class LibraryService: @unchecked Sendable {
                 continue
             }
             let path: URL
-            do {
-                path = try await td.download(fileId: note.file.id, priority: 32)
-            } catch {
-                let mapped = error.asTD
-                guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind else { throw mapped }
-                try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
-                return try await readMetaNotes(found).union(touched)
+            var floodRetries = 0
+            while true {
+                do {
+                    path = try await td.download(fileId: note.file.id, priority: 32)
+                    break
+                } catch {
+                    let mapped = error.asTD
+                    guard case .floodWait(let s)? = (mapped as? TDServiceError)?.kind, floodRetries < 5 else { throw mapped }
+                    floodRetries += 1
+                    AppEnvironment.shared.engine.holdForFlood(s)
+                    try await Task.sleep(nanoseconds: UInt64(s) * 1_000_000_000)
+                }
             }
             defer { Task { await td.deleteLocalCopy(fileId: note.file.id) } }
             var data = try Data(contentsOf: path)
@@ -909,9 +920,13 @@ final class LibraryService: @unchecked Sendable {
                 try plain.write(to: url)
             }
             let size = try CloudUploader.size(of: url)
-            let message = try await td.sendDocument(chatId: chatId, fileURL: url, caption: caption, thumbnail: nil)
-            guard case .messageDocument(let doc) = message.content, doc.document.document.size == size else {
-                try? await td.deleteMessages(chatId: chatId, ids: [message.id])
+            var sentMessage: Message?
+            try await AppEnvironment.shared.engine.withNoteSlot { [td] in
+                sentMessage = try await td.sendDocument(chatId: chatId, fileURL: url, caption: caption, thumbnail: nil)
+            }
+            guard let message = sentMessage,
+                  case .messageDocument(let doc) = message.content, doc.document.document.size == size else {
+                if let id = sentMessage?.id { try? await td.deleteMessages(chatId: chatId, ids: [id]) }
                 return
             }
             let previous = Int64(store.meta(Self.snapshotMessageKey) ?? "")

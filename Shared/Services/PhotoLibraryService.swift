@@ -374,7 +374,17 @@ final class PhotoLibraryService: @unchecked Sendable {
         guard let since = try? NSKeyedUnarchiver.unarchivedObject(ofClass: PHPersistentChangeToken.self, from: token) else { return nil }
         do {
             var inserted = Set<String>(), updated = Set<String>()
+            let watchAlbums = Prefs.albumMode != .all ? Prefs.albumIds : []
             for change in try PHPhotoLibrary.shared().fetchPersistentChanges(since: since) {
+                if !watchAlbums.isEmpty {
+                    // Adding an existing photo to an included album (or removing from an excluded one) changes the
+                    // collection, not the asset; fall back to a full scan so album membership changes aren't missed.
+                    let collections = try change.changeDetails(for: .assetCollection)
+                    let touched = collections.insertedLocalIdentifiers
+                        .union(collections.updatedLocalIdentifiers)
+                        .union(collections.deletedLocalIdentifiers)
+                    if !touched.isDisjoint(with: watchAlbums) { return nil }
+                }
                 let details = try change.changeDetails(for: .asset)
                 inserted.formUnion(details.insertedLocalIdentifiers)
                 updated.formUnion(details.updatedLocalIdentifiers)
@@ -535,8 +545,11 @@ final class PhotoLibraryService: @unchecked Sendable {
     func exportSizes(of asset: PHAsset) -> [Int64]? {
         guard let res = originalResources(for: asset) else { return nil }
         let edit = editedResource(for: asset).flatMap { $0 !== res.primary ? $0 : nil }
+        let resources = PHAssetResource.assetResources(for: asset)
+        let raw: PHAssetResource? = (asset.mediaType == .image && resources.contains(where: { $0.type == .photo }))
+            ? resources.first(where: { $0.type == .alternatePhoto }) : nil
         var sizes: [Int64] = []
-        for resource in [res.primary, res.paired, edit].compactMap({ $0 }) {
+        for resource in [res.primary, res.paired, edit, raw].compactMap({ $0 }) {
             // `fileSize` isn't public API, but PHAssetResource has answered to it since iOS 10 and macOS 10.15.
             guard let size = (resource.value(forKey: "fileSize") as? NSNumber)?.int64Value, size > 0 else { return nil }
             sizes.append(size)
@@ -558,9 +571,16 @@ final class PhotoLibraryService: @unchecked Sendable {
         options.isNetworkAccessAllowed = true
         options.version = .current
         options.deliveryMode = .highQualityFormat
-        let source: AVAsset? = await withCheckedContinuation { cont in
-            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { a, _, _ in cont.resume(returning: a) }
+        let requestBox = PhotoRequestBox<PHImageRequestID> { PHImageManager.default().cancelImageRequest($0) }
+        let source: AVAsset? = await withTaskCancellationHandler {
+            await withCheckedContinuation { cont in
+                let id = PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { a, _, _ in cont.resume(returning: a) }
+                requestBox.set(id)
+            }
+        } onCancel: {
+            requestBox.cancel()
         }
+        try Task.checkCancellation()
         guard let source else { throw PhotoLibraryError.noOriginalResource }
         return try await StreamingCopyEncoder.encode(source, to: url)
     }
@@ -570,22 +590,67 @@ final class PhotoLibraryService: @unchecked Sendable {
         options.isNetworkAccessAllowed = true
         options.deliveryMode = .highQualityFormat
         options.version = .current
-        return try await withCheckedThrowingContinuation { cont in
-            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, uti, _, info in
-                if let data { cont.resume(returning: (data, uti)) }
-                else { cont.resume(throwing: (info?[PHImageErrorKey] as? Error) ?? PhotoLibraryError.noOriginalResource) }
+        let requestBox = PhotoRequestBox<PHImageRequestID> { PHImageManager.default().cancelImageRequest($0) }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { cont in
+                let id = PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, uti, _, info in
+                    if (info?[PHImageCancelledKey] as? Bool) == true { cont.resume(throwing: CancellationError()) }
+                    else if let data { cont.resume(returning: (data, uti)) }
+                    else { cont.resume(throwing: (info?[PHImageErrorKey] as? Error) ?? PhotoLibraryError.noOriginalResource) }
+                }
+                requestBox.set(id)
             }
+        } onCancel: {
+            requestBox.cancel()
         }
     }
 
     private func write(_ resource: PHAssetResource, to url: URL, allowNetwork: Bool = true) async throws {
-        try? FileManager.default.removeItem(at: url)
+        let fm = FileManager.default
+        try? fm.removeItem(at: url)
+        guard fm.createFile(atPath: url.path, contents: nil) else { throw PhotoLibraryError.noOriginalResource }
+        let handle = try FileHandle(forWritingTo: url)
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = allowNetwork
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            PHAssetResourceManager.default().writeData(for: resource, toFile: url, options: options) { error in
-                if let error { cont.resume(throwing: error) } else { cont.resume() }
+        let requestBox = PhotoRequestBox<PHAssetResourceDataRequestID> { PHAssetResourceManager.default().cancelDataRequest($0) }
+        let writeLock = NSLock()
+        var writeError: Error?
+        do {
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                    let id = PHAssetResourceManager.default().requestData(for: resource, options: options, dataReceivedHandler: { data in
+                        let shouldWrite = writeLock.withLock { writeError == nil }
+                        guard shouldWrite else { return }
+                        do {
+                            try handle.write(contentsOf: data)
+                        } catch {
+                            writeLock.withLock { if writeError == nil { writeError = error } }
+                            requestBox.cancel()
+                        }
+                    }, completionHandler: { error in
+                        try? handle.close()
+                        let ioError = writeLock.withLock { writeError }
+                        if let ioError {
+                            cont.resume(throwing: ioError)
+                        } else if let error {
+                            if Task.isCancelled || ((error as NSError).domain == PHPhotosErrorDomain && (error as NSError).code == PHPhotosError.userCancelled.rawValue) {
+                                cont.resume(throwing: CancellationError())
+                            } else {
+                                cont.resume(throwing: error)
+                            }
+                        } else {
+                            cont.resume()
+                        }
+                    })
+                    requestBox.set(id)
+                }
+            } onCancel: {
+                requestBox.cancel()
             }
+        } catch {
+            try? handle.close()
+            try? fm.removeItem(at: url)
+            throw error
         }
     }
 
@@ -596,15 +661,26 @@ final class PhotoLibraryService: @unchecked Sendable {
         options.deliveryMode = mode
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
-        return await withCheckedContinuation { cont in
-            var resumed = false
-            PHImageManager.default().requestImage(for: asset, targetSize: targetSize, contentMode: .aspectFit, options: options) { image, info in
-                let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-                if degraded && mode == .highQualityFormat { return }
-                guard !resumed else { return }
-                resumed = true
-                cont.resume(returning: image)
+        let requestBox = PhotoRequestBox<PHImageRequestID> { PHImageManager.default().cancelImageRequest($0) }
+        let resumeLock = NSLock()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { cont in
+                var resumed = false
+                let id = PHImageManager.default().requestImage(for: asset, targetSize: targetSize, contentMode: .aspectFit, options: options) { image, info in
+                    let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                    let terminal = info?[PHImageCancelledKey] != nil || info?[PHImageErrorKey] != nil
+                    if degraded && mode == .highQualityFormat && !terminal { return }
+                    let shouldResume = resumeLock.withLock { () -> Bool in
+                        guard !resumed else { return false }
+                        resumed = true
+                        return true
+                    }
+                    if shouldResume { cont.resume(returning: image) }
+                }
+                requestBox.set(id)
             }
+        } onCancel: {
+            requestBox.cancel()
         }
     }
 
@@ -752,6 +828,32 @@ final class PhotoLibraryService: @unchecked Sendable {
               let version = plist["adjustmentFormatVersion"] as? String,
               let payload = plist["adjustmentData"] as? Data else { return nil }
         return PHAdjustmentData(formatIdentifier: format, formatVersion: version, data: payload)
+    }
+}
+
+/// Bridges Swift task cancellation to PhotoKit request IDs, even if cancellation fires before the ID is stored.
+private final class PhotoRequestBox<ID>: @unchecked Sendable {
+    private let lock = NSLock()
+    private let cancelBlock: (ID) -> Void
+    private var id: ID?
+    private var cancelled = false
+
+    init(cancel: @escaping (ID) -> Void) { self.cancelBlock = cancel }
+
+    func set(_ id: ID) {
+        let shouldCancel: Bool = lock.withLock {
+            self.id = id
+            return cancelled
+        }
+        if shouldCancel { cancelBlock(id) }
+    }
+
+    func cancel() {
+        let current: ID? = lock.withLock {
+            cancelled = true
+            return id
+        }
+        if let current { cancelBlock(current) }
     }
 }
 

@@ -71,7 +71,10 @@ enum BackgroundTasks {
         // Submitted now as well as after the run: if iOS ends the process at expiry, the next one is still booked.
         scheduleProcessing()
         let flag = CancelFlag()
-        task.expirationHandler = { flag.cancel() }
+        task.expirationHandler = {
+            flag.cancel()
+            AppEnvironment.shared.engine.cancelCurrentRun()
+        }
         Task {
             let summary = await processingWork(isCancelled: { flag.isCancelled })
             // After the run, so the schedule knows whether photos are still waiting.
@@ -97,7 +100,10 @@ enum BackgroundTasks {
     private static func handleRefresh(_ task: BGAppRefreshTask) {
         scheduleRefresh()
         let flag = CancelFlag()
-        task.expirationHandler = { flag.cancel() }
+        task.expirationHandler = {
+            flag.cancel()
+            AppEnvironment.shared.engine.cancelCurrentRun()
+        }
         Task {
             // iOS gives a refresh task about 30 s: stop uploading at 22 s so the bookkeeping finishes first.
             await refreshWork(deadline: Date().addingTimeInterval(22), isCancelled: { flag.isCancelled })
@@ -400,7 +406,10 @@ enum ContinuedBackup {
         foregroundTask = Task {
             let flag = CancelFlag()
             #if os(iOS)
-            let bg = UIApplication.shared.beginBackgroundTask(withName: "Backup") { flag.cancel() }
+            let bg = UIApplication.shared.beginBackgroundTask(withName: "Backup") {
+                flag.cancel()
+                AppEnvironment.shared.engine.cancelCurrentRun()
+            }
             let started = Date()
             Prefs.markRunStarted(.app, at: started)
             let summary = await AppEnvironment.shared.engine.run(userStarted: true, includeNew: includeNew, isCancelled: { flag.isCancelled })
@@ -432,6 +441,7 @@ enum ContinuedBackup {
                           Date().timeIntervalSince(started), appActive.value ? "on screen" : "in background",
                           p.thermalState.rawValue, p.isLowPowerModeEnabled ? "on" : "off", note.summary))
             flag.cancel()
+            AppEnvironment.shared.engine.cancelCurrentRun()
             task.updateTitle("Backup paused", subtitle: "Open Lelvo to continue")
         }
         task.progress.totalUnitCount = 1

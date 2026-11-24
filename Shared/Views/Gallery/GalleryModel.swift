@@ -111,6 +111,7 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     /// One refresh at a time: each compares against what the one before it showed.
     private var refreshing = false, refreshAgain = false
     private var observer: NSObjectProtocol?
+    private var lockedObserver: NSObjectProtocol?
     private var grouping: Grouping = .day
 
     enum Grouping: Equatable {
@@ -132,7 +133,7 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
                 self.scheduleReload()
             }
         }
-        NotificationCenter.default.addObserver(forName: LockedFolderStore.didChange, object: nil, queue: .main) { [weak self] _ in
+        lockedObserver = NotificationCenter.default.addObserver(forName: LockedFolderStore.didChange, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refilterLocked() }
         }
         // Photos answering (or not) changes what the timeline can show.
@@ -148,6 +149,7 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
     deinit {
         if let observer { NotificationCenter.default.removeObserver(observer) }
+        if let lockedObserver { NotificationCenter.default.removeObserver(lockedObserver) }
         if let availabilityObserver { NotificationCenter.default.removeObserver(availabilityObserver) }
     }
 
@@ -214,51 +216,77 @@ final class GalleryModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         pending = TimelineSource.Changes()
         if !loaded { changes.everything = true }
         let grouping = self.grouping
-        let old = loaded ? (entries: self.entries, sections: self.sections) : nil
+        let old = loaded ? (entries: self.entries, allEntries: self.allEntries, sections: self.sections) : nil
+        let folder = LockedFolderStore.shared
+        let syncedLocked = folder.syncedLockedIds
+        let pendingLocked = folder.pendingLocalIds
         let source = self.source
         let started = Date()
-        let result = await Task.detached(priority: .userInitiated) { () -> ([GalleryEntry], [GallerySection])? in
+        let result = await Task.detached(priority: .userInitiated) { () -> (all: [GalleryEntry], visible: [GalleryEntry], sections: [GallerySection])? in
             let merged = await source.entries(applying: changes)
+            let visible = Self.filterVisible(merged, syncedLocked: syncedLocked, pendingLocked: pendingLocked)
             // Nothing visible changed (e.g. an upload checkpoint): keep the grid as it is, no re-render.
-            if let old, old.entries == merged { return nil }
-            let sections = old.flatMap { Self.sections($0.sections, refilledFrom: $0.entries, with: merged) }
-            return (merged, sections ?? Self.group(merged, grouping: grouping))
+            if let old, old.entries == visible, old.allEntries == merged { return nil }
+            let sections = old.flatMap { Self.sections($0.sections, refilledFrom: $0.entries, with: visible) }
+            return (merged, visible, sections ?? Self.group(visible, grouping: grouping))
         }.value
         // Slow refreshes are what made the timeline stutter during backups in large libraries (#25).
         let took = Date().timeIntervalSince(started)
         if changes.everything || took > 0.1 {
             appLog(String(format: "Timeline refresh (%@) took %.0f ms for %d entries", changes.everything ? "full" : "changes",
-                          took * 1000, result?.0.count ?? self.entries.count))
+                          took * 1000, result?.visible.count ?? self.entries.count))
         }
-        guard let (entries, sections) = result else { return }
-        self.allEntries = entries
-        applyLockedFilter(from: entries, sections: sections, grouping: grouping)
+        guard let (all, visible, sections) = result else { return }
+        self.allEntries = all
+        // A fresh timeline may hold locks from another device: re-read them in the background (it posts `didChange`,
+        // which only refilters, when the set changed).
+        folder.refreshSyncedLockedIds()
+        if folder.syncedLockedIds == syncedLocked, folder.pendingLocalIds == pendingLocked {
+            self.entries = visible
+            self.sections = sections
+            sectionsRevision += 1
+        } else {
+            // Locked set changed while the background pass ran: re-filter off the main actor.
+            refilterLocked()
+        }
         revision += 1
         loaded = true
     }
 
-    /// Hides Locked folder items from the main timeline without another Photos/Telegram read.
+    private var refilterTask: Task<Void, Never>?
+
+    /// Hides Locked folder items from the main timeline off the main thread without another Photos/Telegram read.
     private func refilterLocked() {
         guard loaded else { return }
-        applyLockedFilter(from: allEntries, sections: nil, grouping: grouping)
-        revision += 1
-    }
-
-    private func applyLockedFilter(from merged: [GalleryEntry], sections: [GallerySection]?, grouping: Grouping) {
+        let merged = self.allEntries
+        let grouping = self.grouping
         let folder = LockedFolderStore.shared
-        // A fresh timeline may hold locks from another device: re-read them in the background (it posts `didChange`,
-        // which only refilters, when the set changed). Lock and unlock here update the set themselves, at once.
-        if sections != nil { folder.refreshSyncedLockedIds() }
-        let anyLocked = !folder.syncedLockedIds.isEmpty || !folder.pendingLocalIds.isEmpty
-        let visible = anyLocked ? merged.filter { !folder.hidesFromTimeline($0) } : merged
-        if !anyLocked, let sections {
+        let syncedLocked = folder.syncedLockedIds
+        let pendingLocked = folder.pendingLocalIds
+        refilterTask?.cancel()
+        refilterTask = Task {
+            let (visible, sections) = await Task.detached(priority: .userInitiated) {
+                let visible = Self.filterVisible(merged, syncedLocked: syncedLocked, pendingLocked: pendingLocked)
+                return (visible, Self.group(visible, grouping: grouping))
+            }.value
+            guard !Task.isCancelled, self.grouping == grouping else { return }
             self.entries = visible
             self.sections = sections
-        } else {
-            self.entries = visible
-            self.sections = Self.group(visible, grouping: grouping)
+            sectionsRevision += 1
+            revision += 1
         }
-        sectionsRevision += 1
+    }
+
+    nonisolated private static func filterVisible(_ merged: [GalleryEntry], syncedLocked: Set<String>, pendingLocked: Set<String>) -> [GalleryEntry] {
+        let anyLocked = !syncedLocked.isEmpty || !pendingLocked.isEmpty
+        guard anyLocked else { return merged }
+        return merged.filter { entry in
+            if entry.item?.locked == true { return false }
+            if let id = entry.item?.id, syncedLocked.contains(id) { return false }
+            if let local = entry.asset?.localIdentifier, pendingLocked.contains(local) { return false }
+            if pendingLocked.contains(entry.id) { return false }
+            return true
+        }
     }
 
     /// The same sections with updated entries, when only the entries' contents changed (an upload finished, a badge

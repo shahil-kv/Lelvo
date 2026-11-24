@@ -111,11 +111,12 @@ final class MetaSync: @unchecked Sendable {
                     appLog("Removed \(batch.count) finished favorites, albums and Locked Folder notes")
                     break
                 } catch {
-                    guard case .floodWait(let seconds)? = (error as? TDServiceError)?.kind,
-                          (try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)) != nil else {
+                    guard case .floodWait(let seconds)? = (error as? TDServiceError)?.kind else {
                         AppLog.shared.warn("Favorites and albums notes not removed, will try again: \(error.localizedDescription)")
                         return
                     }
+                    env.engine.holdForFlood(seconds)
+                    guard (try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)) != nil else { return }
                 }
             }
         }

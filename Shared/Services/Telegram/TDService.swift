@@ -121,7 +121,7 @@ final class TDService: @unchecked Sendable {
     /// Send results that arrived before anyone awaited them, with when they arrived (see `finishSend`).
     private var finishedSends: [Int64: (result: Result<Message, Swift.Error>, at: Foundation.Date)] = [:]
     private var uploadObservers: [Int: (Int64, Int64) -> Void] = [:]
-    private var readyWaiters: [CheckedContinuation<Void, Never>] = []
+    private var readyWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var channelObserver: ((ChannelEvent) -> Void)?
 
     /// Changes to a channel's documents made elsewhere (the user's other device), as TDLib pushes them.
@@ -193,7 +193,7 @@ final class TDService: @unchecked Sendable {
         lock.lock()
         _auth = step
         let observers = Array(authObservers.values)
-        let waiters = step == .ready ? readyWaiters : []
+        let waiters = step == .ready ? Array(readyWaiters.values) : []
         if step == .ready { readyWaiters.removeAll() }
         lock.unlock()
         observers.forEach { $0(step) }
@@ -207,11 +207,21 @@ final class TDService: @unchecked Sendable {
         start()
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
-                await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
-                    self.lock.lock()
-                    if self._auth == .ready { self.lock.unlock(); c.resume(); return }
-                    self.readyWaiters.append(c)
-                    self.lock.unlock()
+                let id = UUID()
+                await withTaskCancellationHandler {
+                    await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                        self.lock.lock()
+                        if self._auth == .ready || Task.isCancelled {
+                            self.lock.unlock()
+                            c.resume()
+                            return
+                        }
+                        self.readyWaiters[id] = c
+                        self.lock.unlock()
+                    }
+                } onCancel: {
+                    let waiter = self.lock.withLock { self.readyWaiters.removeValue(forKey: id) }
+                    waiter?.resume()
                 }
             }
             group.addTask {
@@ -1014,13 +1024,24 @@ final class TDService: @unchecked Sendable {
             }
             return try await withTaskCancellationHandler {
                 var file = try await client.downloadFile(fileId: fileId, limit: 0, offset: 0, priority: priority, synchronous: false)
+                var lastDownloaded = file.local.downloadedSize
+                var restarts = 0
                 while !file.local.isDownloadingCompleted {
                     try Task.checkCancellation()
                     progress(file.local.downloadedSize, file.size)
+                    if file.local.downloadedSize > lastDownloaded {
+                        lastDownloaded = file.local.downloadedSize
+                        restarts = 0
+                    }
                     try await Task.sleep(nanoseconds: 250_000_000)
                     file = try await client.getFile(fileId: fileId)
-                    // Stopped by something else (another download of this file, a network change): carry on.
+                    // Stopped by something else (another download of this file, a network change): carry on, up to a limit
+                    // so an unavailable file fails cleanly instead of spinning forever.
                     if !file.local.isDownloadingActive && !file.local.isDownloadingCompleted {
+                        guard file.local.canBeDownloaded, restarts < 5 else {
+                            throw TDServiceError.sendFailed("download incomplete")
+                        }
+                        restarts += 1
                         file = try await client.downloadFile(fileId: fileId, limit: 0, offset: 0, priority: priority, synchronous: false)
                     }
                 }

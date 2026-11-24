@@ -18,9 +18,9 @@ final class FreeUpSpaceService: @unchecked Sendable {
         let items = ((try? env.store.items(status: .backedUp)) ?? []).filter {
             $0.sizeClass == .normal && $0.localIdentifier != nil && $0.locked != true
         }
-        let present = env.photos.existingIdentifiers(items.compactMap(\.localIdentifier))
+        let assets = env.photos.assets(localIdentifiers: items.compactMap(\.localIdentifier))
         return items.filter { item in
-            guard let id = item.localIdentifier, present.contains(id), let asset = env.photos.asset(localIdentifier: id) else { return false }
+            guard let id = item.localIdentifier, let asset = assets[id] else { return false }
             return !hasUnbackedChanges(item, asset: asset)
         }
     }
