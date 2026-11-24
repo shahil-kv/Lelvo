@@ -427,11 +427,22 @@ private fun StatRow(title: String, value: Int, icon: Int, tint: Color, onClick: 
 private fun FailedScreen(app: LelvoApp, items: List<LibraryItem>, onBack: () -> Unit, onRetry: () -> Unit, modifier: Modifier) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pendingDelete by remember { mutableStateOf<LibraryItem?>(null) }
     val trash = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()) { r ->
-        if (r.resultCode == android.app.Activity.RESULT_OK) Messages.show(Messages.Style.Success, "Moved to the phone's trash")
+        val item = pendingDelete
+        pendingDelete = null
+        if (r.resultCode == android.app.Activity.RESULT_OK) {
+            if (item != null) scope.launch {
+                withContext(Dispatchers.IO) {
+                    // Drop the row only when nothing was uploaded yet; otherwise unlink localId so partial cloud parts can be cleaned up.
+                    if (item.hasCloudParts) app.store.upsert(listOf(item.copy(localId = null))) else app.store.delete(item.id)
+                }
+            }
+            Messages.show(Messages.Style.Success, "Moved to the phone's trash")
+        }
     }
     val stranded = items.filter { it.isStrandedInCloud }
-    val scope = rememberCoroutineScope()
     var confirmStranded by remember { mutableStateOf(false) }
     if (confirmStranded) AlertDialog(
         onDismissRequest = { confirmStranded = false },
@@ -492,6 +503,7 @@ private fun FailedScreen(app: LelvoApp, items: List<LibraryItem>, onBack: () -> 
                             IconButton(onClick = {
                                 scope.launch {
                                     val uri = withContext(Dispatchers.IO) { app.backup.phone.file(id)?.uri } ?: return@launch
+                                    pendingDelete = item
                                     val pi = android.provider.MediaStore.createTrashRequest(context.contentResolver, listOf(uri), true)
                                     trash.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build())
                                 }
