@@ -390,7 +390,15 @@ struct MacViewerPage: View {
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .macViewerTogglePlay)) { note in
                         guard isCurrent else { return }
-                        if player.timeControlStatus == .playing { player.pause() } else { player.play() }
+                        if player.timeControlStatus == .playing {
+                            player.pause()
+                        } else {
+                            let d = player.currentItem?.duration.seconds ?? 0
+                            if d.isFinite, d > 0, player.currentTime().seconds >= d - 0.15 {
+                                player.seek(to: .zero)
+                            }
+                            player.play()
+                        }
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .macViewerSkip)) { note in
                         guard isCurrent, let side = note.userInfo?["side"] as? Int, let item = player.currentItem else { return }
@@ -579,8 +587,14 @@ struct MacViewerPage: View {
         let options = PHVideoRequestOptions()
         options.isNetworkAccessAllowed = true
         options.deliveryMode = .automatic
-        return await withCheckedContinuation { cont in
-            PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, _ in cont.resume(returning: item) }
+        let requestBox = PhotoRequestBox<PHImageRequestID> { PHImageManager.default().cancelImageRequest($0) }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { cont in
+                let id = PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, _ in cont.resume(returning: item) }
+                requestBox.set(id)
+            }
+        } onCancel: {
+            requestBox.cancel()
         }
     }
 
@@ -588,14 +602,26 @@ struct MacViewerPage: View {
         let options = PHLivePhotoRequestOptions()
         options.isNetworkAccessAllowed = true
         options.deliveryMode = .highQualityFormat
-        return await withCheckedContinuation { cont in
-            var resumed = false
-            PHImageManager.default().requestLivePhoto(for: asset, targetSize: size, contentMode: .aspectFit, options: options) { live, info in
-                let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-                guard !degraded, !resumed else { return }
-                resumed = true
-                cont.resume(returning: live)
+        let requestBox = PhotoRequestBox<PHImageRequestID> { PHImageManager.default().cancelImageRequest($0) }
+        let resumeLock = NSLock()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { cont in
+                var resumed = false
+                let id = PHImageManager.default().requestLivePhoto(for: asset, targetSize: size, contentMode: .aspectFit, options: options) { live, info in
+                    let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                    let terminal = info?[PHImageCancelledKey] != nil || info?[PHImageErrorKey] != nil
+                    if degraded && !terminal { return }
+                    let shouldResume = resumeLock.withLock { () -> Bool in
+                        guard !resumed else { return false }
+                        resumed = true
+                        return true
+                    }
+                    if shouldResume { cont.resume(returning: live) }
+                }
+                requestBox.set(id)
             }
+        } onCancel: {
+            requestBox.cancel()
         }
     }
 

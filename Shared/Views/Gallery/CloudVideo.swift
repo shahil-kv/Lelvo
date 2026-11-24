@@ -190,6 +190,7 @@ final class CloudVideoSession: ObservableObject {
         if time.isNumeric, time.seconds > 0 {
             await nextItem.seek(to: time, toleranceBefore: .zero, toleranceAfter: CMTime(seconds: 1, preferredTimescale: 600))
         }
+        stream?.cancel()
         player.replaceCurrentItem(with: nextItem)
         stream = next
         quality = q

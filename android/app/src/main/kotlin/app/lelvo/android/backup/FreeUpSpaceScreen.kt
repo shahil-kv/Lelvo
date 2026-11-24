@@ -129,6 +129,7 @@ fun FreeUpSpaceScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Mo
             if (safe.isEmpty()) { Messages.show(Messages.Style.Info, "Nothing to remove", "Check what's safe to remove again."); return@launch }
             if (Build.VERSION.SDK_INT < 30) { Messages.show(Messages.Style.Info, "Removing needs Android 11 or later"); return@launch }
             val uris = withContext(Dispatchers.IO) { service.files(safe).map { it.uri } }
+            if (uris.isEmpty()) { Messages.show(Messages.Style.Info, "Nothing to remove", "Those items are already off this phone."); reload++; return@launch }
             removing = safe
             // Small pictures of the first few, loaded now: once in the trash, the phone no longer hands them out.
             if (!reduceMotion) previews = withContext(Dispatchers.IO) {

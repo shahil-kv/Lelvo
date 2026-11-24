@@ -31,8 +31,8 @@ final class ProStore: ObservableObject {
 
     private init() {
         debugUnlocked = Prefs.defaults.bool(forKey: Prefs.Key.proDebugUnlocked)
-        refreshEntitlement()
         guard Self.offered else { return }
+        refreshEntitlement()
         updates = Task { await listenForTransactions() }
         Task { await loadProducts() }
     }

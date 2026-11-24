@@ -21,6 +21,8 @@ struct SearchView: View {
                             Button("Unlock Smart Search") { showProPaywall = true }
                                 .buttonStyle(.borderedProminent)
                         }
+                    } else if search.results.isEmpty && search.isPending {
+                        ProgressView()
                     } else if search.results.isEmpty {
                         EmptyStateView(systemImage: "magnifyingglass", title: "No Results",
                                        message: "Try a place, a month or year, or something in the photo.")

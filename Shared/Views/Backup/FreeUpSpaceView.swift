@@ -60,7 +60,7 @@ struct FreeUpSpaceView: View {
                 }
                 actions
             } footer: {
-                Text("\(Device.name == "Mac" ? "macOS" : "iOS") asks you to confirm. Removed items move to “Recently Deleted” in Photos for 30 days; empty it to get the space back right away. They stay in Lelvo as cloud items.")
+                Text("\(Device.name == "Mac" ? "macOS" : "iOS") asks you to confirm. Removed items move to “Recently Deleted” in Photos for 30 days; empty it to get the space back right away. If iCloud Photos is on, Apple Photos removes them from iCloud and your other Apple devices too. They stay in Lelvo as cloud items.")
             }
 
             if !verified.isEmpty {

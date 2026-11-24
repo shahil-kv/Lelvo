@@ -223,11 +223,12 @@ final class TrashSync: @unchecked Sendable {
                     appLog("Removed \(batch.count) finished Recently Deleted notes")
                     break
                 } catch {
-                    guard case .floodWait(let seconds)? = (error as? TDServiceError)?.kind,
-                          (try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)) != nil else {
+                    guard case .floodWait(let seconds)? = (error as? TDServiceError)?.kind else {
                         AppLog.shared.warn("Recently Deleted notes not removed, will try again: \(error.localizedDescription)")
                         return
                     }
+                    env.engine.holdForFlood(seconds)
+                    guard (try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)) != nil else { return }
                 }
             }
         }

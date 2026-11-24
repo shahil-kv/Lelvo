@@ -45,10 +45,10 @@ struct ViewerView: View {
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
                     ForEach(entries) { entry in
-                        ViewerPage(entry: entry, isCurrent: entry.id == currentId, chromeHidden: chromeHidden, zoomed: $zoomed)
+                        ViewerPage(entry: entry, isCurrent: entry.id == currentId, chromeHidden: chromeHidden, zoomed: $zoomed,
+                                   onToggleChrome: { withAnimation(Motion.tap) { chromeHidden.toggle() } })
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(entry.id)
-                            .onTapGesture { withAnimation(Motion.tap) { chromeHidden.toggle() } }
                     }
                 }
                 .scrollTargetLayout()
@@ -388,6 +388,7 @@ struct ViewerPage: View {
     let isCurrent: Bool
     let chromeHidden: Bool
     @Binding var zoomed: Bool
+    var onToggleChrome: () -> Void = {}
 
     enum Content {
         case loading(UIImage?)
@@ -418,13 +419,16 @@ struct ViewerPage: View {
             case .loading(let placeholder):
                 if let placeholder { Image(uiImage: placeholder).resizable().scaledToFit() }
                 VideoDownloadRing(progress: nil)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onToggleChrome)
             case .image(let image):
-                ZoomableImageView(image: image, entry: entry, zoomed: $zoomed)
+                ZoomableImageView(image: image, entry: entry, zoomed: $zoomed, onSingleTap: onToggleChrome)
             case .live(let live):
                 LivePhotoView(livePhoto: live)
+                    .onTapGesture(perform: onToggleChrome)
             case .video(let player):
                 PlayerView(player: player, zoomed: $zoomed, onReadyForDisplay: { videoReady = true; trace?.firstFrame() },
-                           onSkip: { side in showSkip(side) })
+                           onSkip: { side in showSkip(side) }, onSingleTap: onToggleChrome)
                     .overlay {
                         if !videoReady {
                             ZStack {
@@ -475,6 +479,12 @@ struct ViewerPage: View {
                         player.pause()
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .viewerCloseCancelled)) { _ in if isCurrent { player.play() } }
+                    .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { note in
+                        // Pause when headphones/AirPods disconnect so audio doesn't suddenly play through the speaker.
+                        guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                              raw == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
+                        player.pause()
+                    }
             case .unavailable(let reason, let placeholder):
                 VStack(spacing: 16) {
                     if let placeholder { Image(uiImage: placeholder).resizable().scaledToFit().frame(maxHeight: 280) }
@@ -697,8 +707,14 @@ struct ViewerPage: View {
         let options = PHVideoRequestOptions()
         options.isNetworkAccessAllowed = true
         options.deliveryMode = .automatic
-        return await withCheckedContinuation { cont in
-            PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, _ in cont.resume(returning: item) }
+        let requestBox = PhotoRequestBox<PHImageRequestID> { PHImageManager.default().cancelImageRequest($0) }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { cont in
+                let id = PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, _ in cont.resume(returning: item) }
+                requestBox.set(id)
+            }
+        } onCancel: {
+            requestBox.cancel()
         }
     }
 
@@ -706,14 +722,26 @@ struct ViewerPage: View {
         let options = PHLivePhotoRequestOptions()
         options.isNetworkAccessAllowed = true
         options.deliveryMode = .highQualityFormat
-        return await withCheckedContinuation { cont in
-            var resumed = false
-            PHImageManager.default().requestLivePhoto(for: asset, targetSize: size, contentMode: .aspectFit, options: options) { live, info in
-                let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-                guard !degraded, !resumed else { return }
-                resumed = true
-                cont.resume(returning: live)
+        let requestBox = PhotoRequestBox<PHImageRequestID> { PHImageManager.default().cancelImageRequest($0) }
+        let resumeLock = NSLock()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { cont in
+                var resumed = false
+                let id = PHImageManager.default().requestLivePhoto(for: asset, targetSize: size, contentMode: .aspectFit, options: options) { live, info in
+                    let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                    let terminal = info?[PHImageCancelledKey] != nil || info?[PHImageErrorKey] != nil
+                    if degraded && !terminal { return }
+                    let shouldResume = resumeLock.withLock { () -> Bool in
+                        guard !resumed else { return false }
+                        resumed = true
+                        return true
+                    }
+                    if shouldResume { cont.resume(returning: live) }
+                }
+                requestBox.set(id)
             }
+        } onCancel: {
+            requestBox.cancel()
         }
     }
 
@@ -737,8 +765,9 @@ struct ZoomableImageView: UIViewRepresentable {
     /// What dragging the photo out carries: touch and hold, then move it into Messages, Mail, Files or another app.
     let entry: GalleryEntry
     @Binding var zoomed: Bool
+    var onSingleTap: () -> Void = {}
 
-    func makeCoordinator() -> Coordinator { Coordinator(zoomed: $zoomed) }
+    func makeCoordinator() -> Coordinator { Coordinator(zoomed: $zoomed, onSingleTap: onSingleTap) }
 
     func makeUIView(context: Context) -> UIScrollView {
         let scroll = UIScrollView()
@@ -773,12 +802,16 @@ struct ZoomableImageView: UIViewRepresentable {
         let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped(_:)))
         doubleTap.numberOfTapsRequired = 2
         scroll.addGestureRecognizer(doubleTap)
+        let singleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.singleTapped(_:)))
+        singleTap.require(toFail: doubleTap)
+        scroll.addGestureRecognizer(singleTap)
         return scroll
     }
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
         if context.coordinator.imageView?.image !== image { context.coordinator.imageView?.image = image }
         context.coordinator.entry = entry
+        context.coordinator.onSingleTap = onSingleTap
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIScrollView, context: Context) -> CGSize? {
@@ -825,7 +858,13 @@ struct ZoomableImageView: UIViewRepresentable {
             return entry.item.map(CloudMediaService.displayedFilename) ?? "Photo.jpg"
         }
         let zoomed: Binding<Bool>
-        init(zoomed: Binding<Bool>) { self.zoomed = zoomed }
+        var onSingleTap: () -> Void
+        init(zoomed: Binding<Bool>, onSingleTap: @escaping () -> Void) {
+            self.zoomed = zoomed
+            self.onSingleTap = onSingleTap
+        }
+
+        @objc func singleTapped(_ g: UITapGestureRecognizer) { onSingleTap() }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
 
@@ -964,6 +1003,7 @@ struct PlayerView: UIViewRepresentable {
     var onReadyForDisplay: () -> Void = {}
     /// A double-tap near the left or right edge skips back or forward (`VideoNavigation.skip`); the middle zooms.
     var onSkip: (Int) -> Void = { _ in }
+    var onSingleTap: () -> Void = {}
 
     final class LayerView: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
@@ -976,7 +1016,13 @@ struct PlayerView: UIViewRepresentable {
         var zoomed: Binding<Bool>
         weak var player: AVPlayer?
         var onSkip: (Int) -> Void = { _ in }
-        init(zoomed: Binding<Bool>) { self.zoomed = zoomed }
+        var onSingleTap: () -> Void = {}
+        init(zoomed: Binding<Bool>, onSingleTap: @escaping () -> Void) {
+            self.zoomed = zoomed
+            self.onSingleTap = onSingleTap
+        }
+
+        @objc func singleTapped(_ g: UITapGestureRecognizer) { onSingleTap() }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { layerView }
 
@@ -1005,10 +1051,13 @@ struct PlayerView: UIViewRepresentable {
             }
         }
     }
-    func makeCoordinator() -> Coordinator { Coordinator(zoomed: zoomed) }
+    func makeCoordinator() -> Coordinator { Coordinator(zoomed: zoomed, onSingleTap: onSingleTap) }
 
     func makeUIView(context: Context) -> UIScrollView {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        Task.detached(priority: .userInitiated) {
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            try? AVAudioSession.sharedInstance().setActive(true)
+        }
         let scroll = UIScrollView()
         scroll.delegate = context.coordinator
         scroll.maximumZoomScale = 5
@@ -1038,6 +1087,9 @@ struct PlayerView: UIViewRepresentable {
         let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped(_:)))
         doubleTap.numberOfTapsRequired = 2
         scroll.addGestureRecognizer(doubleTap)
+        let singleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.singleTapped(_:)))
+        singleTap.require(toFail: doubleTap)
+        scroll.addGestureRecognizer(singleTap)
 
         player.allowsExternalPlayback = true
         let ready = onReadyForDisplay
@@ -1080,6 +1132,7 @@ struct PlayerView: UIViewRepresentable {
         context.coordinator.zoomed = zoomed
         context.coordinator.player = player
         context.coordinator.onSkip = onSkip
+        context.coordinator.onSingleTap = onSingleTap
         if let layer = context.coordinator.layerView?.playerLayer, layer.player !== player { layer.player = player }
     }
 }
@@ -1127,12 +1180,23 @@ struct VideoControls: View {
             bar
         }
         .animation(.easeOut(duration: 0.15), value: scrubbing)
-        .onChange(of: scrubbing) { _, now in if now { strip.load(player) } }
+        .onChange(of: scrubbing) { _, now in
+            if now { strip.load(player) } else { strip.cancel() }
+        }
     }
 
     private var bar: some View {
         HStack(spacing: 12) {
-            Button { if state.isPlaying { player.pause() } else { player.play() } } label: {
+            Button {
+                if state.isPlaying {
+                    player.pause()
+                } else {
+                    if state.duration > 0, state.current >= state.duration - 0.15 {
+                        player.seek(to: .zero)
+                    }
+                    player.play()
+                }
+            } label: {
                 ZStack {
                     if state.isBuffering {
                         ProgressView().tint(.white)
@@ -1224,6 +1288,9 @@ final class FrameStrip: ObservableObject {
 
     func load(_ player: AVPlayer) {
         guard let item = player.currentItem, item !== loadedItem else { return }
+        // Only local files: 8 random-access frame fetches on a cgstream:// cloud video jump TDLib's single download
+        // window 8 times across the file and stall the user's actual seek target.
+        guard let url = (item.asset as? AVURLAsset)?.url, url.isFileURL else { return }
         let times = VideoNavigation.stripTimes(duration: item.duration.seconds, count: Self.count)
         guard !times.isEmpty else { return }
         loadedItem = item
@@ -1245,6 +1312,11 @@ final class FrameStrip: ObservableObject {
             self.frames = made
             appLog(String(format: "Video frame strip: %d of %d frames in %.1f s", made.count, times.count, Date().timeIntervalSince(started)))
         }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
     }
 
     deinit { task?.cancel() }
@@ -1309,6 +1381,15 @@ final class PlaybackState: ObservableObject {
     private var timeObserver: Any?
     private var statusObservation: NSKeyValueObservation?
     private weak var player: AVPlayer?
+    /// Custom AVPlayerLayer doesn't keep the screen awake like AVPlayerViewController; track our own hold so we never
+    /// clear another screen's hold (e.g. Save All / Takeout Import).
+    private var keptAwake = false
+
+    private func setAwake(_ on: Bool) {
+        guard keptAwake != on else { return }
+        keptAwake = on
+        UIApplication.shared.isIdleTimerDisabled = on
+    }
 
     func attach(_ player: AVPlayer) {
         detach()
@@ -1333,6 +1414,7 @@ final class PlaybackState: ObservableObject {
                 self?.isPlaying = playing
                 self?.isBuffering = buffering
                 self?.bufferProgress = progress
+                self?.setAwake(playing)
             }
         }
     }
@@ -1341,6 +1423,7 @@ final class PlaybackState: ObservableObject {
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
         timeObserver = nil
         statusObservation = nil
+        setAwake(false)
     }
 }
 

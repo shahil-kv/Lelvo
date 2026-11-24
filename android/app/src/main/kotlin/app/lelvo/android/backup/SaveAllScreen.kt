@@ -69,7 +69,8 @@ fun SaveAllScreen(app: LelvoApp, onBack: () -> Unit, modifier: Modifier = Modifi
 
     LaunchedEffect(reload) {
         items = withContext(Dispatchers.IO) {
-            val all = app.store.items(ItemStatus.BackedUp).filter { it.parts["o"]?.isNotEmpty() == true }
+            // Locked Folder items stay inside Lelvo and must not be dumped into the unlocked gallery.
+            val all = app.store.items(ItemStatus.BackedUp).filter { it.parts["o"]?.isNotEmpty() == true && !it.locked }
             // On this phone already: its own photo, or a copy linked to it.
             val aliases = app.store.aliases()
             val onPhone = app.backup.phone.files(all.mapNotNull { it.localId } + aliases.keys).keys

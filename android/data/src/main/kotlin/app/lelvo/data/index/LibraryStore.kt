@@ -65,6 +65,9 @@ class LibraryStore(private val db: IndexDatabase) {
 
     fun trashedCountFlow(): Flow<Int> = changes().map { dao.trashedCount() }.flowOn(Dispatchers.IO)
 
+    /** Items in Recently Deleted only, updated when the index changes, without reading the whole library. */
+    fun trashedItems(): Flow<List<LibraryItem>> = changes().map { items(ItemStatus.Trashed) }.flowOn(Dispatchers.IO)
+
     suspend fun item(id: String): LibraryItem? = dao.item(id)?.let(::toItem)
     suspend fun upsert(items: List<LibraryItem>) = dao.upsert(items.map(::toRow))
     suspend fun backedUpCount(): Int = dao.backedUpCount()

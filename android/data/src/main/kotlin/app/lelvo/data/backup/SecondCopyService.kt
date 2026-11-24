@@ -89,7 +89,8 @@ class SecondCopyService(context: Context, private val store: LibraryStore, priva
         try {
             val disk = listTree(tree, root)
             var manifest = read(tree, root)
-            val items = store.items(ItemStatus.BackedUp).filter { it.parts["o"]?.isNotEmpty() == true }
+            // Locked Folder items stay out of plaintext folder exports so biometrics aren't bypassed.
+            val items = store.items(ItemStatus.BackedUp).filter { it.parts["o"]?.isNotEmpty() == true && !it.locked }
             val plan = SecondCopy.plan(items, manifest, ZoneId.systemDefault()) { disk[it]?.second }
             for (f in plan.toAdopt) manifest = manifest.record(f, f.size)
             if (plan.toAdopt.isNotEmpty()) write(tree, root, disk, manifest)

@@ -62,6 +62,10 @@ struct NativePhotoGrid: UIViewRepresentable {
         context.coordinator.update(self)
     }
 
+    static func dismantleUIView(_ uiView: UICollectionView, coordinator: Coordinator) {
+        coordinator.teardown()
+    }
+
     // MARK: - Coordinator
 
     @MainActor
@@ -99,6 +103,17 @@ struct NativePhotoGrid: UIViewRepresentable {
         }
 
         deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+
+        func teardown() {
+            swipeLink?.invalidate()
+            swipeLink = nil
+            swipe = nil
+            settleLink?.invalidate()
+            settleLink = nil
+            pinchActive = false
+            snapshotBuild?.cancel()
+            snapshotBuild = nil
+        }
 
         // MARK: Setup
 

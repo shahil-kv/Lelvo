@@ -237,6 +237,7 @@ enum GalleryActions {
                 } catch {
                     // The gate is released while waiting, so Recover still works, and the batch is checked again afterwards.
                     guard case .floodWait(let seconds)? = (error as? TDServiceError)?.kind else { throw error }
+                    env.engine.holdForFlood(seconds)
                     try await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
                 }
             }

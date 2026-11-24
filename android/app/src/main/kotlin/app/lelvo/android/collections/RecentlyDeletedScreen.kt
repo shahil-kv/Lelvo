@@ -83,7 +83,7 @@ import java.time.format.FormatStyle
 @Composable
 fun RecentlyDeletedScreen(app: LelvoApp, onBack: () -> Unit) {
     val items by produceState<List<LibraryItem>?>(null) {
-        app.store.items().map(CloudTrash::items).flowOn(Dispatchers.Default).collect { value = it }
+        app.store.trashedItems().map(CloudTrash::items).flowOn(Dispatchers.Default).collect { value = it }
     }
     val selection = remember { mutableStateListOf<String>() }
     var confirmDelete by remember { mutableStateOf<List<LibraryItem>?>(null) }
@@ -164,7 +164,7 @@ fun RecentlyDeletedScreen(app: LelvoApp, onBack: () -> Unit) {
             return@Scaffold
         }
         val now = System.currentTimeMillis()
-        val dateFormat = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.LONG, FormatStyle.SHORT)
+        val dateFormat = remember { DateTimeFormatter.ofLocalizedDateTime(FormatStyle.LONG, FormatStyle.SHORT) }
         Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 GridCells.Adaptive(110.dp), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),

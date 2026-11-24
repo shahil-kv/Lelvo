@@ -154,8 +154,10 @@ private fun Modifier.dragGestures(
 /** Scrolls while a drag-to-select finger rests near the top or bottom edge, faster the closer it is. */
 @Composable
 internal fun EdgeScroll(state: LazyGridState, speed: Float) {
+    val active = speed != 0f
     val current by rememberUpdatedState(speed)
-    LaunchedEffect(state) {
+    LaunchedEffect(state, active) {
+        if (!active) return@LaunchedEffect
         while (true) {
             if (current != 0f) state.scrollBy(current * 40f)
             delay(16)
@@ -319,6 +321,12 @@ internal fun SelectionActions(
                         }
                         val uris = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                             app.freeUpSpace.files(safe).map { it.uri }
+                        }
+                        if (uris.isEmpty()) {
+                            Messages.show(Messages.Style.Info, "Nothing deleted from Photos", "Those items are already off this phone.")
+                            confirmRemoveFromPhone = null
+                            onDone()
+                            return@launch
                         }
                         trash.launch(
                             androidx.activity.result.IntentSenderRequest.Builder(

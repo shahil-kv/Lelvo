@@ -71,10 +71,10 @@ struct AlbumsView: View {
                             linkRow("Smart Cleanup", symbol: "wand.and.stars", pro: true) { DuplicatesView() }
                         }
                         if let docs = content.documents {
-                            Divider().padding(.leading, 52)
+                            if ProStore.offered { Divider().padding(.leading, 52) }
                             linkRow(docs.filter.title, symbol: docs.symbol, count: docs.count) { GalleryView(filter: docs.filter, embedInNavigation: false) }
                         }
-                        Divider().padding(.leading, 52)
+                        if ProStore.offered || content.documents != nil { Divider().padding(.leading, 52) }
                         linkRow("Recently Deleted", symbol: "trash", count: content.trashed) { RecentlyDeletedView() }
                     }
                 }
@@ -220,51 +220,129 @@ struct AlbumsView: View {
         let store = AppEnvironment.shared.store
         content = await Task.detached(priority: .userInitiated) { () -> Content in
             var c = Content()
-            func row(_ f: GalleryFilter, _ symbol: String) -> Content.Row? {
-                let matching = entries.lazy.filter(f.matches)
-                let count = matching.count
-                return count == 0 ? nil : .init(filter: f, symbol: symbol, count: count, cover: matching.first)
+            // Every album, as Photos shows them: also empty ones (just made) and ones that so far hold only items in the
+            // Telegram library. Normalized via `MetaLog.albumName` so trailing spaces don't create duplicate rows.
+            var all = albums
+            let known = Set(all.map { MetaLog.albumName($0.title) ?? $0.title })
+            let cloudNames = Set(entries.compactMap(\.item).flatMap { $0.albums ?? [] }.compactMap { MetaLog.albumName($0) }).subtracting(known)
+            all += cloudNames.map { (title: $0, ids: Set<String>()) }
+            all.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+
+            // Reverse indexes so every album, smart album and media type is counted in one O(N) pass over `entries`.
+            var assetToAlbums: [String: [Int]] = [:]
+            var titleToAlbum: [String: Int] = [:]
+            for (i, album) in all.enumerated() {
+                titleToAlbum[MetaLog.albumName(album.title) ?? album.title] = i
+                for id in album.ids { assetToAlbums[id, default: []].append(i) }
             }
-            // Recent Days: the last ten days with photos, newest first.
+            var assetToSmart: [String: [Int]] = [:]
+            var titleToSmart: [String: Int] = [:]
+            for (i, s) in smartTypes.enumerated() {
+                titleToSmart[s.title] = i
+                for id in s.ids { assetToSmart[id, default: []].append(i) }
+            }
+            let documents = Set(((try? store.photoFacts()) ?? [:]).filter(\.value.utility).keys)
+
+            var albumCounts = Array(repeating: 0, count: all.count)
+            var albumCovers = Array<GalleryEntry?>(repeating: nil, count: all.count)
+            var smartCounts = Array(repeating: 0, count: smartTypes.count)
+            var smartCovers = Array<GalleryEntry?>(repeating: nil, count: smartTypes.count)
+            var favCount = 0, videoCount = 0, liveCount = 0, cloudCount = 0, notBackedCount = 0, docCount = 0
+            var favCover: GalleryEntry?, videoCover: GalleryEntry?, liveCover: GalleryEntry?, cloudCover: GalleryEntry?, notBackedCover: GalleryEntry?, docCover: GalleryEntry?
+
             let calendar = Calendar.current
             var days: [(Date, [GalleryEntry])] = []
+            var daysDone = false
+
             for e in entries {
-                guard let d = e.date else { continue }
-                let day = calendar.startOfDay(for: d)
-                if let last = days.last, last.0 == day { days[days.count - 1].1.append(e); continue }
-                if days.count == 10 { break }
-                days.append((day, [e]))
+                if !daysDone, let d = e.date {
+                    let day = calendar.startOfDay(for: d)
+                    if let last = days.last, last.0 == day {
+                        days[days.count - 1].1.append(e)
+                    } else if days.count < 10 {
+                        days.append((day, [e]))
+                    } else {
+                        daysDone = true
+                    }
+                }
+                if e.asset?.isFavorite == true || e.item?.favorite == true {
+                    favCount += 1; if favCover == nil { favCover = e }
+                }
+                if e.isVideo {
+                    videoCount += 1; if videoCover == nil { videoCover = e }
+                }
+                if e.isLive {
+                    liveCount += 1; if liveCover == nil { liveCover = e }
+                }
+                if e.isCloudOnly {
+                    cloudCount += 1; if cloudCover == nil { cloudCover = e }
+                }
+                if [.phoneOnly, .waiting, .failed].contains(e.badge) {
+                    notBackedCount += 1; if notBackedCover == nil { notBackedCover = e }
+                }
+                if documents.contains(e.id) {
+                    docCount += 1; if docCover == nil { docCover = e }
+                }
+                var matchedAlbums = Set<Int>()
+                if let localId = e.asset?.localIdentifier, let idxs = assetToAlbums[localId] {
+                    matchedAlbums.formUnion(idxs)
+                }
+                if let itemAlbums = e.item?.albums {
+                    for name in itemAlbums {
+                        if let idx = titleToAlbum[MetaLog.albumName(name) ?? name] { matchedAlbums.insert(idx) }
+                    }
+                }
+                for idx in matchedAlbums {
+                    albumCounts[idx] += 1; if albumCovers[idx] == nil { albumCovers[idx] = e }
+                }
+                var matchedSmart = Set<Int>()
+                if let localId = e.asset?.localIdentifier, let idxs = assetToSmart[localId] {
+                    matchedSmart.formUnion(idxs)
+                }
+                if let itemAlbums = e.item?.albums {
+                    for name in itemAlbums {
+                        if let idx = titleToSmart[name] { matchedSmart.insert(idx) }
+                    }
+                }
+                for idx in matchedSmart {
+                    smartCounts[idx] += 1; if smartCovers[idx] == nil { smartCovers[idx] = e }
+                }
             }
+
             let dayTitle = DateFormatter()
             dayTitle.setLocalizedDateFormatFromTemplate("EEEdMMM")
             c.days = days.map { day, list in
                 let title = calendar.isDateInToday(day) ? "Today" : (calendar.isDateInYesterday(day) ? "Yesterday" : dayTitle.string(from: day))
                 return .init(filter: .matching(title: title, ids: Set(list.map(\.id))), symbol: "calendar", count: list.count, cover: list.first)
             }
+            func makeRow(_ f: GalleryFilter, _ symbol: String, count: Int, cover: GalleryEntry?) -> Content.Row? {
+                count == 0 ? nil : .init(filter: f, symbol: symbol, count: count, cover: cover)
+            }
             // Like Photos: Favorites and Screenshots first, then every album, including the ones apps make (WhatsApp,
             // Instagram, Snapchat…).
             let pinned = ["Screenshots"]
-            var albumRows: [Content.Row?] = [row(.favorites, "heart")]
-            albumRows += smartTypes.filter { pinned.contains($0.title) }.map { row(.album(title: $0.title, localIds: $0.ids), $0.symbol) }
-            // Every album, as Photos shows them: also empty ones (just made) and ones that so far hold only items in the
-            // Telegram library. Their names come from the timeline, so a change shows without reading Photos again.
-            var all = albums
-            let known = Set(all.map(\.title))
-            let cloudNames = Set(entries.compactMap(\.item).flatMap { $0.albums ?? [] }).subtracting(known)
-            all += cloudNames.map { (title: $0, ids: Set<String>()) }
-            all.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-            albumRows += all.map { album in
+            var albumRows: [Content.Row?] = [makeRow(.favorites, "heart", count: favCount, cover: favCover)]
+            for (i, s) in smartTypes.enumerated() where pinned.contains(s.title) {
+                albumRows.append(makeRow(.album(title: s.title, localIds: s.ids), s.symbol, count: smartCounts[i], cover: smartCovers[i]))
+            }
+            for (i, album) in all.enumerated() {
                 let filter = GalleryFilter.album(title: album.title, localIds: album.ids)
-                return row(filter, "photo.on.rectangle") ?? .init(filter: filter, symbol: "photo.on.rectangle", count: 0, cover: nil)
+                albumRows.append(.init(filter: filter, symbol: "photo.on.rectangle", count: albumCounts[i], cover: albumCovers[i]))
             }
             c.albums = albumRows.compactMap { $0 }
-            var media: [Content.Row?] = [row(.videos, "video"), row(.livePhotos, "livephoto")]
-            media += smartTypes.filter { !pinned.contains($0.title) }.map { row(.album(title: $0.title, localIds: $0.ids), $0.symbol) }
-            media += [row(.cloudOnly, "icloud"), row(.notBackedUp, "icloud.slash")]
+            var media: [Content.Row?] = [
+                makeRow(.videos, "video", count: videoCount, cover: videoCover),
+                makeRow(.livePhotos, "livephoto", count: liveCount, cover: liveCover)
+            ]
+            for (i, s) in smartTypes.enumerated() where !pinned.contains(s.title) {
+                media.append(makeRow(.album(title: s.title, localIds: s.ids), s.symbol, count: smartCounts[i], cover: smartCovers[i]))
+            }
+            media += [
+                makeRow(.cloudOnly, "icloud", count: cloudCount, cover: cloudCover),
+                makeRow(.notBackedUp, "icloud.slash", count: notBackedCount, cover: notBackedCover)
+            ]
             c.media = media.compactMap { $0 }
-            // Receipts, documents and screenshots Vision recognised while reading photos for search.
-            let documents = Set(((try? store.photoFacts()) ?? [:]).filter(\.value.utility).keys)
-            c.documents = row(.matching(title: "Documents and Receipts", ids: documents), "doc.text")
+            c.documents = makeRow(.matching(title: "Documents and Receipts", ids: documents), "doc.text", count: docCount, cover: docCover)
             c.trashed = GalleryActions.trashedItems().count
             return c
         }.value
@@ -295,8 +373,8 @@ struct AlbumsView: View {
             let albums = byTitle.map { (title: $0.key, ids: $0.value) }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             return (albums, smart)
         }.value
-        let changed = albums.map(\.title) != self.albums.map(\.title) || albums.map(\.ids.count) != self.albums.map(\.ids.count)
-            || smart.map(\.ids.count) != smartTypes.map(\.ids.count)
+        let changed = albums.map(\.title) != self.albums.map(\.title) || albums.map(\.ids) != self.albums.map(\.ids)
+            || smart.map(\.title) != smartTypes.map(\.title) || smart.map(\.ids) != smartTypes.map(\.ids)
         self.albums = albums
         smartTypes = smart
         if changed || albumsVersion == 0 { albumsVersion += 1 }

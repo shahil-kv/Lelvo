@@ -57,8 +57,15 @@ class SimilarPhotosService(
     private suspend fun compare(progress: (Int, Int) -> Unit): List<Group> {
         val started = System.currentTimeMillis()
         val items = store.items().first()
+        val lockedLocal = store.lockedLocalIds()
+        // Locked Folder photos never show in Similar Photos: they'd be seen without unlocking and could be deleted.
         val entries = Gallery.merge(photos.assets(), items, store.aliases())
-            .filter { e -> !e.isVideo && e.date != null && !(e.asset?.bucketName.equals("Screenshots", ignoreCase = true)) }
+            .filter { e ->
+                !e.isVideo && e.date != null &&
+                    e.item?.locked != true &&
+                    e.asset?.localId !in lockedLocal &&
+                    !(e.asset?.bucketName.equals("Screenshots", ignoreCase = true))
+            }
             .associateBy { it.id }
         // Photo versions: an edited phone photo is read again.
         val versions = entries.mapValues { (id, e) -> e.asset?.let { "${it.localId}|${it.modifiedAt ?: 0}" } ?: id }

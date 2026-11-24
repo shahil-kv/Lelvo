@@ -152,7 +152,7 @@ final class SearchService: @unchecked Sendable {
         var done = 0, missing = 0
         var lastNotice = Date()
         for entry in todo {
-            if isCancelled() || Task.isCancelled { break }
+            if isCancelled() || Task.isCancelled || Self.isTooHot { break }
             let image: CGImage?
             if let asset = entry.asset {
                 image = await phoneImage(asset)
@@ -192,16 +192,21 @@ final class SearchService: @unchecked Sendable {
     private var foregroundToken = UUID()
     private var rerun = false
 
+    private static var isTooHot: Bool {
+        let state = ProcessInfo.processInfo.thermalState
+        return state == .serious || state == .critical
+    }
+
     /// While the app is open, as Ente and Immich read photos for search: at low priority, a short pause between photos
-    /// when not charging, and not at all in Low Power Mode. `stopForeground` when the app leaves the screen.
+    /// when not charging, and not at all in Low Power Mode or when the device is hot. `stopForeground` when the app leaves the screen.
     func indexInForeground() {
-        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
+        guard !ProcessInfo.processInfo.isLowPowerModeEnabled, !Self.isTooHot else { return }
         lock.withLock {
             guard foreground == nil else { return }
             let token = UUID()
             foregroundToken = token
             foreground = Task.detached(priority: .utility) { [self] in
-                await index(isCancelled: { ProcessInfo.processInfo.isLowPowerModeEnabled })
+                await index(isCancelled: { ProcessInfo.processInfo.isLowPowerModeEnabled || Self.isTooHot })
                 lock.withLock { if foregroundToken == token { foreground = nil } }
             }
         }
@@ -243,19 +248,9 @@ final class SearchService: @unchecked Sendable {
     /// A photo kept only in iCloud Photos (Optimize Storage) comes as a small image from iCloud on Wi-Fi, as Photos
     /// reads its own; on mobile data it waits for a later pass.
     private func phoneImage(_ asset: PHAsset) async -> CGImage? {
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .highQualityFormat
-        options.resizeMode = .fast
-        options.isNetworkAccessAllowed = !NetworkStatus.shared.isExpensive
-        return await withCheckedContinuation { cont in
-            var resumed = false
-            PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: 1024, height: 1024), contentMode: .aspectFit,
-                                                  options: options) { image, _ in
-                guard !resumed else { return }
-                resumed = true
-                cont.resume(returning: image.flatMap(Self.cgImage))
-            }
-        }
+        guard let image = await photos.image(for: asset, targetSize: CGSize(width: 1024, height: 1024),
+                                             mode: .highQualityFormat, allowNetwork: !NetworkStatus.shared.isExpensive) else { return nil }
+        return Self.cgImage(image)
     }
 
     private static func cgImage(_ image: PlatformImage) -> CGImage? {
@@ -288,12 +283,16 @@ final class SearchService: @unchecked Sendable {
             // Apple's geocoder gets the middle of the ~1 km area, never a photo's own location.
             if cells.insert(cell).inserted { coords[cell] = CLLocation(latitude: (lat * 100).rounded() / 100, longitude: (lon * 100).rounded() / 100) }
         }
+        let lockedItems = (try? store.lockedItems()) ?? []
+        let lockedLocalIds = await MainActor.run { LockedFolderStore.shared.pendingLocalIds }
+            .union(lockedItems.compactMap(\.localIdentifier))
         if PhotoLibraryService.hasAccess {
             photos.fetchAllAssets().enumerateObjects { a, _, _ in
+                guard !lockedLocalIds.contains(a.localIdentifier) else { return }
                 if let c = a.location?.coordinate { add(c.latitude, c.longitude) }
             }
         }
-        for item in (try? store.items(status: .backedUp)) ?? [] {
+        for item in (try? store.items(status: .backedUp)) ?? [] where item.locked != true && item.hidden != true {
             if let lat = item.latitude, let lon = item.longitude { add(lat, lon) }
         }
         var known = loadPlaces()

@@ -627,6 +627,9 @@ class BackupEngine(
         }
     }
 
+    /** Shares a FLOOD_WAIT from another Telegram caller (trash/meta deletes) so upload lanes pause too. */
+    fun holdForFlood(seconds: Int) = holdFor(seconds)
+
     private fun holdFor(seconds: Int) {
         val until = synchronized(gate) {
             // The later deadline wins, and it is written down: a new process must not send during Telegram's wait.

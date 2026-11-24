@@ -16,6 +16,7 @@ struct SaveAllToPhotosView: View {
     @State private var saved = 0
     @State private var failures: [String] = []
     @State private var cancelFlag = CancelFlag()
+    @State private var runTask: Task<Void, Never>?
     @State private var confirm = false
     @State private var result: GalleryAlert?
 
@@ -55,7 +56,10 @@ struct SaveAllToPhotosView: View {
                     ProgressView(value: Double(done), total: Double(max(items.count, 1))) {
                         Text("Saving \(min(done + 1, items.count)) of \(items.count)…")
                     }
-                    Button("Stop", role: .cancel) { cancelFlag.cancel() }
+                    Button("Stop", role: .cancel) {
+                        cancelFlag.cancel()
+                        runTask?.cancel()
+                    }
                 } else {
                     Button { confirm = true } label: {
                         Label("Save \(items.count) to Photos", systemImage: "square.and.arrow.down")
@@ -75,9 +79,15 @@ struct SaveAllToPhotosView: View {
         .platformGroupedForm()
         .navigationTitle("Save All to Photos")
         .onAppear(perform: load)
-        .onDisappear { cancelFlag.cancel() }
+        .onDisappear {
+            cancelFlag.cancel()
+            runTask?.cancel()
+        }
         .confirmationDialog("Save \(items.count) items (\(Format.bytes(needed))) to Photos?", isPresented: $confirm, titleVisibility: .visible) {
-            Button("Save to Photos") { Task { await run() } }
+            Button("Save to Photos") {
+                runTask?.cancel()
+                runTask = Task { await run() }
+            }
         }
         .alert(item: $result) { a in Alert(title: Text(a.title), message: Text(a.message)) }
     }
@@ -90,9 +100,12 @@ struct SaveAllToPhotosView: View {
         loading = true
         Task.detached {
             let env = AppEnvironment.shared
-            let all = ((try? env.store.items(status: .backedUp)) ?? []).filter(\.isViewableFromCloud)
+            // Locked Folder items stay inside Lelvo and must not be dumped into the unlocked Photos library.
+            let all = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.isViewableFromCloud && $0.locked != true }
             // On this device already: its own photo, or a copy linked to it.
-            let aliased = Set(((try? env.store.aliases()) ?? []).filter { env.photos.asset(localIdentifier: $0.localIdentifier) != nil }.map(\.itemId))
+            let aliases = (try? env.store.aliases()) ?? []
+            let presentAliases = env.photos.existingIdentifiers(aliases.map(\.localIdentifier))
+            let aliased = Set(aliases.filter { presentAliases.contains($0.localIdentifier) }.map(\.itemId))
             let present = env.photos.existingIdentifiers(all.compactMap(\.localIdentifier))
             let cloudOnly = all.filter { item in
                 !aliased.contains(item.id) && !(item.localIdentifier.map(present.contains) ?? false)
@@ -125,16 +138,19 @@ struct SaveAllToPhotosView: View {
         defer { ProcessInfo.processInfo.endActivity(activity) }
         #endif
         for item in items {
-            if cancelFlag.isCancelled { break }
+            if cancelFlag.isCancelled || Task.isCancelled { break }
             do {
                 try await GalleryActions.saveToPhotos(item)
                 saved += 1
+            } catch is CancellationError {
+                break
             } catch {
                 failures.append("\(item.filename): \(error.localizedDescription)")
             }
             done += 1
         }
         running = false
+        runTask = nil
         appLog(String(format: "Save all to Photos finished: %d saved, %d failed%@ in %.0f s", saved, failures.count,
                       cancelFlag.isCancelled ? ", stopped" : "", Date().timeIntervalSince(started)))
         if failures.isEmpty { Haptics.success() } else { Haptics.error() }
