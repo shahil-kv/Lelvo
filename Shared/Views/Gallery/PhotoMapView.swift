@@ -11,12 +11,13 @@ struct PhotoMapView<Destination: View>: View {
     let destination: (GalleryFilter) -> Destination
 
     @State private var pins: [PhotoPin] = []
+    @State private var pinIds: Set<String> = []
     @State private var loaded = false
     @State private var chosen: ChosenPhotos?
 
     struct ChosenPhotos: Hashable, Identifiable {
+        let id = UUID()
         let ids: [String]
-        var id: Int { ids.hashValue }
     }
 
     var body: some View {
@@ -38,7 +39,11 @@ struct PhotoMapView<Destination: View>: View {
             }
             .task(id: gallery.revision) {
                 let entries = gallery.entries
-                pins = await Task.detached(priority: .userInitiated) { PhotoPin.pins(entries) }.value
+                let previous = pinIds
+                if let updated = await Task.detached(priority: .userInitiated) { PhotoPin.pinsIfChanged(entries, previousIds: previous) }.value {
+                    pins = updated.pins
+                    pinIds = updated.ids
+                }
                 loaded = true
             }
     }
@@ -55,8 +60,10 @@ final class PhotoPin: NSObject, MKAnnotation {
         self.coordinate = coordinate
     }
 
-    nonisolated static func pins(_ entries: [GalleryEntry]) -> [PhotoPin] {
-        entries.compactMap { e in
+    nonisolated static func pinsIfChanged(_ entries: [GalleryEntry], previousIds: Set<String>) -> (pins: [PhotoPin], ids: Set<String>)? {
+        var ids = Set<String>()
+        var coords: [(GalleryEntry, CLLocationCoordinate2D)] = []
+        for e in entries {
             let c: CLLocationCoordinate2D?
             if let loc = e.asset?.location {
                 c = loc.coordinate
@@ -66,9 +73,16 @@ final class PhotoPin: NSObject, MKAnnotation {
                 c = nil
             }
             // 0,0 is a missing location written as zeros, not a photo in the Gulf of Guinea.
-            guard let c, CLLocationCoordinate2DIsValid(c), !(c.latitude == 0 && c.longitude == 0) else { return nil }
-            return PhotoPin(entry: e, coordinate: c)
+            guard let c, CLLocationCoordinate2DIsValid(c), !(c.latitude == 0 && c.longitude == 0) else { continue }
+            ids.insert(e.id)
+            coords.append((e, c))
         }
+        guard ids != previousIds else { return nil }
+        return (coords.map { PhotoPin(entry: $0.0, coordinate: $0.1) }, ids)
+    }
+
+    nonisolated static func pins(_ entries: [GalleryEntry]) -> [PhotoPin] {
+        pinsIfChanged(entries, previousIds: [])?.pins ?? []
     }
 }
 
@@ -117,6 +131,8 @@ final class PhotoPinView: MKAnnotationView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    deinit { loading?.cancel() }
 
     override var annotation: MKAnnotation? {
         didSet { configure() }

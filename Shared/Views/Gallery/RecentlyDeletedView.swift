@@ -7,7 +7,8 @@ struct RecentlyDeletedView: View {
     @State private var selecting = false
     @State private var selection = Set<String>()
     @State private var confirmDelete: [MediaItem]?
-    @State private var busy = false
+    @State private var busyMessage: String?
+    @State private var reloadTask: Task<Void, Never>?
     @State private var alert: GalleryAlert?
 
     private var selected: [MediaItem] { items.filter { selection.contains($0.id) } }
@@ -45,7 +46,13 @@ struct RecentlyDeletedView: View {
                 }
             }
         }
-        .overlay { if busy { ProgressView() } }
+        .overlay {
+            if let busyMessage {
+                ProgressView(busyMessage)
+                    .padding(20)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            }
+        }
         .confirmationDialog(deleteTitle, isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                             titleVisibility: .visible) {
             Button("Delete from Telegram", role: .destructive) {
@@ -56,7 +63,15 @@ struct RecentlyDeletedView: View {
         }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
         .task { await reload() }
-        .onReceive(NotificationCenter.default.publisher(for: LibraryStore.didChange)) { _ in Task { await reload() } }
+        .onReceive(NotificationCenter.default.publisher(for: LibraryStore.didChange)) { _ in
+            reloadTask?.cancel()
+            reloadTask = Task {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard !Task.isCancelled else { return }
+                await reload()
+            }
+        }
+        .onDisappear { reloadTask?.cancel() }
     }
 
     private var deleteTitle: String {
@@ -73,7 +88,7 @@ struct RecentlyDeletedView: View {
             Button(all ? "Delete All" : "Delete", role: .destructive) { confirmDelete = targets }
                 .foregroundStyle(.red)
         }
-        .disabled(busy)
+        .disabled(busyMessage != nil)
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(.bar)
@@ -87,8 +102,8 @@ struct RecentlyDeletedView: View {
     }
 
     private func recover(_ targets: [MediaItem]) async {
-        busy = true
-        defer { busy = false }
+        busyMessage = "Recovering…"
+        defer { busyMessage = nil }
         do {
             try await Task.detached(priority: .userInitiated) { _ = try await GalleryActions.recover(targets) }.value
             Haptics.success()
@@ -100,10 +115,10 @@ struct RecentlyDeletedView: View {
     }
 
     private func delete(_ targets: [MediaItem]) async {
-        busy = true
-        defer { busy = false }
+        busyMessage = "Deleting…"
+        defer { busyMessage = nil }
         do {
-            try await GalleryActions.deletePermanently(targets)
+            try await Task.detached(priority: .userInitiated) { try await GalleryActions.deletePermanently(targets) }.value
             Haptics.success()
             selection.removeAll()
             selecting = false
