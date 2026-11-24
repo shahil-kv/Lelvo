@@ -473,9 +473,19 @@ struct FailedItemsView: View {
                             if let id = item.localIdentifier {
                                 Button(role: .destructive) {
                                     Task {
-                                        // iOS asks for confirmation; the item is then dropped from the queue.
+                                        // iOS asks for confirmation; drop the row only when nothing was uploaded yet,
+                                        // otherwise unlink localIdentifier so partial cloud parts can be cleaned up cleanly.
                                         guard (try? await AppEnvironment.shared.photos.deleteAssets([id])) != nil else { return }
-                                        await Task.detached { try? AppEnvironment.shared.store.delete(id: item.id) }.value
+                                        await Task.detached {
+                                            let store = AppEnvironment.shared.store
+                                            if item.hasCloudParts {
+                                                var stranded = item
+                                                stranded.localIdentifier = nil
+                                                try? store.upsert(stranded)
+                                            } else {
+                                                try? store.delete(id: item.id)
+                                            }
+                                        }.value
                                         await load()
                                     }
                                 } label: { Label("Delete from \(Device.name)", systemImage: "trash") }
@@ -705,9 +715,6 @@ struct DuplicatesView: View {
             await load()
             if pro.isPro { await findSimilar() }
         }
-        .onChange(of: pro.isPro) { _, on in
-            if on { Task { await findSimilar() } }
-        }
         .alert(item: $alert) { a in Alert(title: Text(a.title), message: Text(a.message)) }
         .alert("Delete \(selectedSimilar.count) similar photos?", isPresented: $confirmSimilar) {
             Button("Cancel", role: .cancel) {}
@@ -719,7 +726,7 @@ struct DuplicatesView: View {
                  ? "\(unsafe) of these are not backed up yet and are lost once Recently Deleted in Photos is emptied."
                  : "Photos on this \(Device.name) go to Recently Deleted in Photos; photos only in your Telegram library go to Recently Deleted in Lelvo.")
         }
-        .alert("Delete \(selectedSmart.count) \(confirmSmart?.title ?? "items") from Photos?", isPresented: Binding(
+        .alert("Delete \(selectedIds(in: confirmSmart).count) \(confirmSmart?.title ?? "items") from Photos?", isPresented: Binding(
             get: { confirmSmart != nil },
             set: { if !$0 { confirmSmart = nil } }
         )) {
@@ -848,13 +855,17 @@ struct DuplicatesView: View {
                     Text("Showing 40 of \(items.count). Delete some, then pull to refresh.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                let shown = items.prefix(40)
+                let chosenCount = shown.filter { selectedSmart.contains($0.id) }.count
                 HStack {
-                    Button("Select all") { selectedSmart.formUnion(items.map(\.id)) }
+                    Button(items.count > 40 ? "Select \(shown.count) shown" : "Select all") {
+                        selectedSmart.formUnion(shown.map(\.id))
+                    }
                     Spacer()
                     Button(role: .destructive) { confirmSmart = bucket } label: {
-                        Text("Delete \(items.filter { selectedSmart.contains($0.id) }.count)")
+                        Text("Delete \(chosenCount)")
                     }
-                    .disabled(items.filter { selectedSmart.contains($0.id) }.isEmpty)
+                    .disabled(chosenCount == 0)
                 }
                 .buttonStyle(.borderless)
             } header: {
@@ -884,15 +895,26 @@ struct DuplicatesView: View {
         }
     }
 
+    private func selectedIds(in bucket: SmartBucket?) -> [String] {
+        guard let bucket else { return [] }
+        let items: [SmartCleanupService.Item]
+        switch bucket {
+        case .screenshots: items = smart.screenshots
+        case .largeVideos: items = smart.largeVideos
+        case .blurry: items = smart.blurry
+        }
+        return items.prefix(40).map(\.id).filter { selectedSmart.contains($0) }
+    }
+
     private func deleteSmart() {
-        let ids = Array(selectedSmart)
+        let ids = selectedIds(in: confirmSmart)
         confirmSmart = nil
         guard !ids.isEmpty else { return }
         Task {
             do {
                 try await env.photos.deleteAssets(ids)
                 Haptics.success()
-                selectedSmart.removeAll()
+                selectedSmart.subtract(ids)
             } catch let error as NSError where error.domain == PHPhotosErrorDomain && error.code == PHPhotosError.userCancelled.rawValue {
             } catch {
                 AppLog.shared.error("Smart cleanup delete failed: \(error.localizedDescription)")

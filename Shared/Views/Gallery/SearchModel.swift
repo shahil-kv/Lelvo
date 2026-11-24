@@ -22,32 +22,49 @@ final class SearchModel: ObservableObject {
     private var freeIndex = SearchIndex.empty
     private var fullIndex = SearchIndex.empty
     private var entries: [GalleryEntry] = []
+    private var lastFingerprint: Int?
     private var corpusTask: Task<Void, Never>?
 
     init() {
         observer = NotificationCenter.default.addObserver(forName: SearchService.didIndex, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshStatus()
-                self?.rebuild()
+                self?.rebuild(force: true)
             }
         }
     }
 
-    /// The timeline changed: rebuild the word list (off the main thread), then search again.
+    /// The timeline changed: rebuild the word list (off the main thread) only when searchable fields changed.
     func update(entries: [GalleryEntry]) {
         self.entries = entries
-        rebuild()
+        rebuild(force: false)
     }
 
-    private func rebuild() {
+    nonisolated private static func fingerprint(_ entries: [GalleryEntry]) -> Int {
+        var h = Hasher()
+        h.combine(entries.count)
+        for e in entries {
+            h.combine(e.id)
+            h.combine(e.isFavorite)
+            h.combine(e.item?.filename)
+            h.combine(e.item?.albums)
+        }
+        return h.finalize()
+    }
+
+    private func rebuild(force: Bool) {
         corpusTask?.cancel()
         let entries = self.entries
+        let previous = self.lastFingerprint
         let search = AppEnvironment.shared.search!
         corpusTask = Task {
-            let (built, suggested) = await Task.detached(priority: .userInitiated) {
-                (search.index(for: entries), search.suggestions(for: entries))
+            let result = await Task.detached(priority: .userInitiated) { () -> (Int, SearchService.Indexes, (places: [String], months: [String]))? in
+                let fp = Self.fingerprint(entries)
+                if !force, fp == previous { return nil }
+                return (fp, search.index(for: entries), search.suggestions(for: entries))
             }.value
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, let (fp, built, suggested) = result else { return }
+            lastFingerprint = fp
             freeIndex = built.free
             fullIndex = built.full
             places = suggested.places
@@ -131,9 +148,13 @@ final class SearchModel: ObservableObject {
         let s = AppEnvironment.shared.search.status
         let pro = ProStore.shared.isPro
         if s.total == 0 || s.indexed >= s.total {
-            status = pro
-                ? "Search looks at places, dates, and text and things in your photos, on this \(Device.name)."
-                : "Places, dates and kinds are free. Text and things in a photo need Lelvo Pro."
+            if pro {
+                status = "Search looks at places, dates, and text and things in your photos, on this \(Device.name)."
+            } else if ProStore.offered {
+                status = "Places, dates and kinds are free. Text and things in a photo need Lelvo Pro."
+            } else {
+                status = "Search looks at places, dates, albums and kinds, on this \(Device.name)."
+            }
         } else {
             status = "\(s.indexed.formatted()) of \(s.total.formatted()) photos read for search. Reading continues while Lelvo is open."
         }

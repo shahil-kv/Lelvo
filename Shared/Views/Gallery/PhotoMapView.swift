@@ -40,7 +40,8 @@ struct PhotoMapView<Destination: View>: View {
             .task(id: gallery.revision) {
                 let entries = gallery.entries
                 let previous = pinIds
-                if let updated = await Task.detached(priority: .userInitiated) { PhotoPin.pinsIfChanged(entries, previousIds: previous) }.value {
+                let updated = await Task.detached(priority: .userInitiated) { PhotoPin.pinsIfChanged(entries, previousIds: previous) }.value
+                if let updated {
                     pins = updated.pins
                     pinIds = updated.ids
                 }

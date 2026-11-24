@@ -6,6 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject private var app: AppModel
     @ObservedObject private var pro = ProStore.shared
     @AppStorage(Prefs.Key.wifiOnly) private var wifiOnly = true
+    @AppStorage(Prefs.Key.photosOnMobile) private var photosOnMobile = true
     @AppStorage(Prefs.Key.chargingOnly) private var chargingOnly = false
     @AppStorage(Prefs.Key.mediaFilter) private var mediaFilter = Prefs.MediaFilter.all.rawValue
     @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
@@ -155,7 +156,7 @@ struct SettingsView: View {
 
     private var backupSummary: String {
         var parts: [String] = [Prefs.MediaFilter(rawValue: mediaFilter)?.title ?? "Photos and videos"]
-        if wifiOnly { parts.append(Prefs.photosOnMobile ? "videos on Wi-Fi" : "Wi-Fi") }
+        if wifiOnly { parts.append(photosOnMobile ? "videos on Wi-Fi" : "Wi-Fi") }
         if chargingOnly { parts.append("charging") }
         return parts.joined(separator: ", ")
     }
@@ -210,7 +211,11 @@ struct AlbumPickerView: View {
             }
         }
         .navigationTitle("Albums")
-        .task { albums = AppEnvironment.shared.photos.userAlbums() }
+        .task {
+            albums = await Task.detached(priority: .userInitiated) {
+                AppEnvironment.shared.photos.userAlbums()
+            }.value
+        }
     }
 }
 
@@ -248,7 +253,11 @@ struct LogsView: View {
             Text(Feedback.logPrivacyNote)
                 .font(.caption2).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 4)
         }
-        .task { text = AppLog.shared.contents() }
+        .task {
+            text = await Task.detached(priority: .userInitiated) {
+                AppLog.shared.contents()
+            }.value
+        }
         #if os(iOS)
         .sheet(item: $share) { ActivityView(items: $0.urls) }
         #endif
@@ -485,10 +494,13 @@ struct LibrarySettingsView: View {
             defer { busy = nil }
             do {
                 let s = try await env.library.scan(full: true)
-                env.engine.relinkRestoredItems()
-                _ = await Task.detached { await TrashSync.shared.afterCatchUp() }.value
+                _ = await Task.detached {
+                    AppEnvironment.shared.engine.relinkRestoredItems()
+                    return await TrashSync.shared.afterCatchUp()
+                }.value
+                let dupSuffix = ProStore.offered ? " (see Smart Cleanup)" : ""
                 alert = GalleryAlert(title: "Library re-scanned",
-                                     message: "\(s.items) items found\(s.incomplete > 0 ? ", \(s.incomplete) incomplete (tap Retry on the Backup tab)" : "")\(s.orphans.isEmpty ? "" : ", \(s.orphans.count) duplicate uploads (see Backup → Duplicates)").")
+                                     message: "\(s.items) items found\(s.incomplete > 0 ? ", \(s.incomplete) incomplete (tap Retry on the Backup tab)" : "")\(s.orphans.isEmpty ? "" : ", \(s.orphans.count) duplicate uploads\(dupSuffix)").")
             } catch { alert = GalleryAlert(title: "Couldn't re-scan", message: error.localizedDescription) }
         }
     }
@@ -604,8 +616,10 @@ struct ExportLibraryView: View {
         done = 0; skipped = 0; failed = []
         running = Task {
             // Reading every backed-up item is slow on a big library: off the main actor, so the screen stays responsive.
+            // Locked Folder items stay out of plaintext exports so Face ID isn't bypassed.
             let items = await Task.detached(priority: .userInitiated) {
-                ((try? AppEnvironment.shared.store.items(status: .backedUp)) ?? []).filter(\.isViewableFromCloud)
+                ((try? AppEnvironment.shared.store.items(status: .backedUp)) ?? [])
+                    .filter { $0.isViewableFromCloud && $0.locked != true }
             }.value
             total = items.count
             #if os(iOS)
@@ -641,6 +655,7 @@ struct ExportLibraryView: View {
                         let dest = Self.uniqueURL(dir.appendingPathComponent(name.sanitizedFilename), itemId: item.id, expectedSize: size)
                         if let existing = try? fm.attributesOfItem(atPath: dest.path)[.size] as? NSNumber, size > 0, existing.int64Value == size { continue }
                         let tmp = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                        defer { try? fm.removeItem(at: tmp) }
                         try await env.reader.download(item, role: role, to: tmp, evict: true)
                         try? fm.removeItem(at: dest)
                         try fm.moveItem(at: tmp, to: dest)

@@ -36,6 +36,13 @@ struct MacBackupView: View {
                 } label: {
                     iconLabel("Failed", "exclamationmark.icloud.fill", stats.failed > 0 ? .red : .gray, value: stats.failed)
                 }
+                if stats.skipped > 0 {
+                    NavigationLink {
+                        SkippedPhotosView()
+                    } label: {
+                        iconLabel("Skipped Photos", "eye.slash", .gray, value: stats.skipped)
+                    }
+                }
                 if stats.removedFromBackup > 0 {
                     NavigationLink {
                         RemovedFromBackupView()
