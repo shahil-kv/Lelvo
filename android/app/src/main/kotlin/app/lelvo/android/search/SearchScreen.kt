@@ -160,7 +160,7 @@ fun SearchScreen(app: LelvoApp, onOpen: (List<GalleryEntry>, Int) -> Unit, onSet
             val freeHits = d.free.search(text)
             val fullHits = d.full.search(text)
             if (isPro) Found(text, fullHits.toHashSet())
-            else Found(text, freeHits.toHashSet(), needsPro = freeHits.isEmpty() && fullHits.isNotEmpty())
+            else Found(text, freeHits.toHashSet(), needsPro = ProStore.OFFERED && freeHits.isEmpty() && fullHits.isNotEmpty())
         }
     }
     val focus = LocalFocusManager.current

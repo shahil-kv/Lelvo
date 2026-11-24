@@ -120,7 +120,7 @@ interface ItemDao {
     suspend fun trashedLocalIds(): List<String>
     @Query("SELECT id, local_id, hidden, created_at FROM items WHERE status = 'backedUp'")
     suspend fun backedUpRefs(): List<BackedUpRef>
-    @Query("SELECT latitude, longitude FROM items WHERE latitude IS NOT NULL AND longitude IS NOT NULL")
+    @Query("SELECT latitude, longitude FROM items WHERE locked = 0 AND hidden = 0 AND latitude IS NOT NULL AND longitude IS NOT NULL")
     suspend fun coordinates(): List<LatLon>
     @Query("SELECT * FROM items WHERE sha256 = :sha256") suspend fun withHash(sha256: String): List<ItemRow>
     @Query("SELECT * FROM items WHERE local_id = :localId LIMIT 1") suspend fun withLocalId(localId: String): ItemRow?

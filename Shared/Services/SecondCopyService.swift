@@ -154,7 +154,8 @@ final class SecondCopyService: @unchecked Sendable {
         let fm = FileManager.default
         let manifestURL = folder.appendingPathComponent(SecondCopy.Manifest.fileName)
         var manifest = (try? Data(contentsOf: manifestURL)).flatMap { try? JSONDecoder().decode(SecondCopy.Manifest.self, from: $0) } ?? .init()
-        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter(\.isViewableFromCloud)
+        // Locked Folder items stay out of plaintext folder copies so Face ID / Touch ID isn't bypassed.
+        let items = ((try? env.store.items(status: .backedUp)) ?? []).filter { $0.isViewableFromCloud && $0.locked != true }
         func sizeOnDisk(_ path: String) -> Int64? {
             (try? fm.attributesOfItem(atPath: folder.appendingPathComponent(path).path)[.size] as? NSNumber)?.int64Value
         }

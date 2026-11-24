@@ -212,6 +212,7 @@ class NoteSync(
                 } catch (e: TelegramException) {
                     // The gate is released while waiting, so Recover still works, and the batch is checked again afterwards.
                     val wait = TelegramErrors.floodWaitSeconds(e.message) ?: throw e
+                    engine.holdForFlood(wait)
                     delay(wait * 1000L)
                 }
             }
@@ -576,6 +577,7 @@ class NoteSync(
                 } catch (e: TelegramException) {
                     val wait = TelegramErrors.floodWaitSeconds(e.message)
                     if (wait == null) { AppLog.warn("$what notes not removed, will try again: ${e.message}"); return }
+                    engine.holdForFlood(wait)
                     delay(wait * 1000L)
                 }
             }

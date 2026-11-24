@@ -354,7 +354,11 @@ class SearchService(context: Context, private val store: LibraryStore, private v
         const val IDLE_MS = 2_000L
     }
 
-    private fun powerSaving() = app.getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
+    private fun powerSaving(): Boolean {
+        val pm = app.getSystemService(PowerManager::class.java) ?: return false
+        if (pm.isPowerSaveMode) return true
+        return Build.VERSION.SDK_INT >= 29 && pm.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE
+    }
     private fun charging() = app.getSystemService(BatteryManager::class.java)?.isCharging == true
     private fun online(): Boolean = runCatching {
         val cm = app.getSystemService(ConnectivityManager::class.java)

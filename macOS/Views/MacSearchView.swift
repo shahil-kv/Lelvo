@@ -27,7 +27,9 @@ struct MacSearchView: View {
                 Color.clear
             } else {
                 EmptyStateView(systemImage: "magnifyingglass", title: "No Results",
-                               message: "Try a place, a month or year, or something in the photo.")
+                               message: ProStore.offered
+                                   ? "Try a place, a month or year, or something in the photo."
+                                   : "Try a place, a month or year, or a kind of photo.")
             }
         }
         .navigationTitle("Search")
