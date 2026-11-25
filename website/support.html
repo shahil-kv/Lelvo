@@ -24,6 +24,7 @@
   <link rel="stylesheet" href="styles.css">
   <script src="theme.js"></script>
   <script src="app.js" defer></script>
+  <script src="support.js" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -78,12 +79,25 @@
             <button class="freq-btn" type="button" data-freq="monthly" aria-pressed="false">Monthly</button>
           </div>
 
-          <p class="support-hint" id="card-hint">$5 minimum · $10 suggested · Doesn't renew.</p>
+          <p class="support-field-label">Price (USD)</p>
+          <div class="price-grid" role="group" aria-label="Choose an amount">
+            <button class="price-btn" type="button" data-amount="5" aria-pressed="false">$5</button>
+            <button class="price-btn is-active" type="button" data-amount="10" aria-pressed="true">$10</button>
+            <button class="price-btn" type="button" data-amount="25" aria-pressed="false">$25</button>
+            <button class="price-btn" type="button" data-amount="50" aria-pressed="false">$50</button>
+          </div>
 
-          <a class="button support-cta" id="polar-cta" href="https://buy.polar.sh/polar_cl_5FWz1GrTSC4KMeburak4RBoRkkQQqHjuAgGzU34hNSG">
+          <label class="custom-price-wrap" for="custom-price">
+            <span aria-hidden="true">$</span>
+            <input id="custom-price" type="number" inputmode="decimal" min="5" step="1" placeholder="Other price">
+          </label>
+
+          <a class="button support-cta" id="polar-cta" href="https://buy.polar.sh/polar_cl_5FWz1GrTSC4KMeburak4RBoRkkQQqHjuAgGzU34hNSG?amount=1000">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-4.5-9.2-9.2A5.3 5.3 0 0112 6.6a5.3 5.3 0 019.2 5.2C19 16.5 12 21 12 21z"/></svg>
-            <span id="polar-cta-label">Support one-time</span>
+            <span id="polar-cta-label">Support with $10</span>
           </a>
+
+          <p class="support-note" id="card-note">A one-time contribution that doesn't renew.</p>
 
           <p class="support-secure">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 018 0v2.5"/></svg>
@@ -151,72 +165,5 @@
       <p class="footer-legal">Made by <a rel="author" href="https://shahilkv.in">Shahil</a>. Lelvo is free software under the <a href="https://github.com/shahil-kv/Lelvo/blob/main/LICENSE">GPL-3.0</a>. It uses the Telegram API and isn't made or endorsed by Telegram.</p>
     </div>
   </footer>
-
-  <script>
-    (function () {
-      var LINKS = {
-        onetime: {
-          url: "https://buy.polar.sh/polar_cl_5FWz1GrTSC4KMeburak4RBoRkkQQqHjuAgGzU34hNSG",
-          label: "Support one-time",
-          hint: "$5 minimum · $10 suggested · Doesn\u2019t renew."
-        },
-        monthly: {
-          url: "https://buy.polar.sh/polar_cl_lWU62kPbnZNsiyq9Vu2LVRIYAlqlIc99IXiz71qaDBC",
-          label: "Support monthly",
-          hint: "$3/month minimum · $5/month suggested · Cancel any time."
-        }
-      };
-
-      var tabs = document.querySelectorAll(".support-tab");
-      tabs.forEach(function (tab) {
-        tab.addEventListener("click", function () {
-          var target = tab.dataset.tab;
-          tabs.forEach(function (t) {
-            var active = t.dataset.tab === target;
-            t.classList.toggle("is-active", active);
-            t.setAttribute("aria-selected", active ? "true" : "false");
-          });
-          document.getElementById("panel-card").hidden = target !== "card";
-          document.getElementById("panel-upi").hidden = target !== "upi";
-        });
-      });
-
-      var params = new URLSearchParams(window.location.search);
-      if (params.get("method") === "upi") {
-        document.getElementById("tab-upi").click();
-      }
-
-      var freqBtns = document.querySelectorAll(".freq-btn");
-      var cta = document.getElementById("polar-cta");
-      var ctaLabel = document.getElementById("polar-cta-label");
-      var hint = document.getElementById("card-hint");
-      freqBtns.forEach(function (btn) {
-        btn.addEventListener("click", function () {
-          var key = btn.dataset.freq;
-          freqBtns.forEach(function (b) {
-            var active = b.dataset.freq === key;
-            b.classList.toggle("is-active", active);
-            b.setAttribute("aria-pressed", active ? "true" : "false");
-          });
-          cta.href = LINKS[key].url;
-          ctaLabel.textContent = LINKS[key].label;
-          hint.textContent = LINKS[key].hint;
-        });
-      });
-
-      var copyBtn = document.getElementById("copy-upi");
-      if (copyBtn) {
-        copyBtn.addEventListener("click", function () {
-          var id = document.getElementById("upi-id").textContent.trim();
-          if (navigator.clipboard) {
-            navigator.clipboard.writeText(id).then(function () {
-              copyBtn.textContent = "Copied";
-              setTimeout(function () { copyBtn.textContent = "Copy UPI ID"; }, 1800);
-            });
-          }
-        });
-      }
-    })();
-  </script>
 </body>
 </html>
