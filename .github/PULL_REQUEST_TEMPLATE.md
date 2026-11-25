@@ -17,9 +17,9 @@ Closes #
 
 ## Testing
 
-- [ ] `Scripts/build.sh test` passes
-- [ ] Builds without new warnings: `Scripts/build.sh ios` and `Scripts/build.sh mac`
-- [ ] Tested by hand on: <!-- device, OS version, Standard or encrypted library -->
+- [ ] Apple: `Scripts/build.sh test` passes and builds without new warnings (`Scripts/build.sh ios` and `Scripts/build.sh mac`)
+- [ ] Android (if touched): `cd android && ./gradlew :core:test :app:assembleDebug` passes without Kotlin warnings
+- [ ] Tested by hand on: <!-- device, OS version, encrypted or legacy library -->
 - [ ] Added or updated unit tests for logic changes
 
 ## Checklist

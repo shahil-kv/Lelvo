@@ -30,21 +30,21 @@ body:
     attributes:
       label: Lelvo version
       description: Settings → About → Version
-      placeholder: 0.1.0 (12)
+      placeholder: 0.4.0 (42)
     validations:
       required: true
   - type: input
     id: os
     attributes:
       label: Device and OS version
-      placeholder: iPhone 16 Pro, iOS 26.1 / MacBook Air M3, macOS 26.0
+      placeholder: iPhone 16 Pro, iOS 26.1 / MacBook Air M3, macOS 26.0 / Pixel 9, Android 16
     validations:
       required: true
   - type: dropdown
     id: install
     attributes:
       label: How you installed it
-      options: [SideStore, AltStore, Sideloadly, TestFlight, App Store, Release zip (Mac), Built from source]
+      options: [SideStore, AltStore, Sideloadly, TestFlight, App Store, Release DMG (Mac), Release APK (Android), Built from source]
     validations:
       required: true
   - type: dropdown
