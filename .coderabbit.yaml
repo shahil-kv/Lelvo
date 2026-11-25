@@ -3,8 +3,8 @@
 language: en-US
 
 tone_instructions: >-
-  Senior Swift engineer for iOS and macOS. Direct and brief. Report only problems that should block a merge, each
-  with the fix and why it matters. No praise, no summaries, no style nits.
+  Senior Swift (iOS/macOS) and Kotlin (Android) engineer. Direct and brief. Report only problems that should block a
+  merge, each with the fix and why it matters. No praise, no summaries, no style nits.
 
 reviews:
   profile: chill
@@ -23,6 +23,8 @@ reviews:
     ignore_title_keywords: ["WIP", "DO NOT REVIEW"]
   path_filters:
     - "**/*.swift"
+    - "android/**/*.kt"
+    - "android/**/build.gradle.kts"
     - "project.yml"
     - "Config/**"
     - ".github/workflows/**"
