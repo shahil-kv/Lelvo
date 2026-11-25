@@ -359,9 +359,35 @@ main > section.support-page {
 }
 .freq-btn:hover { color: var(--ink); border-color: var(--ink); }
 .freq-btn.is-active { color: var(--signal); border-color: var(--signal); background: var(--signal-soft); }
-.support-hint { font-size: 0.9rem; color: var(--slate); margin: 0 0 1.35rem; }
-.support-cta { width: 100%; justify-content: center; gap: 0.5rem; }
+.support-field-label {
+  font-family: var(--display); font-size: 0.76rem; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--slate); margin: 0.25rem 0 0.6rem;
+}
+.price-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 0.65rem; }
+.price-btn {
+  padding: 0.65rem 0.5rem; border-radius: 10px; border: 1.5px solid var(--line);
+  background: transparent; color: var(--ink); font-family: var(--display); font-size: 0.96rem; font-weight: 600;
+  cursor: pointer; transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.price-btn:hover { border-color: var(--ink); }
+.price-btn.is-active { color: var(--signal); border-color: var(--signal); background: var(--signal-soft); }
+.custom-price-wrap {
+  display: flex; align-items: center; gap: 0.45rem; padding: 0 0.85rem; height: 2.85rem;
+  border-radius: 10px; border: 1.5px solid var(--line); background: var(--paper); margin-bottom: 1rem;
+  color: var(--slate); font-family: var(--display); font-weight: 600;
+}
+.custom-price-wrap:focus-within { border-color: var(--signal); }
+.custom-price-wrap input {
+  width: 100%; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 0.96rem; outline: none;
+}
+.support-cta {
+  width: 100%; justify-content: center; gap: 0.5rem;
+  background: var(--signal); color: var(--on-signal); border-color: var(--signal);
+}
+.support-cta:hover { opacity: 0.92; background: var(--signal); color: var(--on-signal); }
+.support-cta.is-disabled { opacity: 0.45; pointer-events: none; }
 .support-cta svg { width: 1.05rem; height: 1.05rem; fill: currentColor; flex: none; }
+.support-note { font-size: 0.86rem; color: var(--slate); margin: 0.8rem 0 0; }
 .support-secure {
   display: flex; align-items: center; gap: 0.45rem; margin: 1.25rem 0 0; padding-top: 1rem;
   border-top: 1px solid var(--line); font-size: 0.86rem; color: var(--slate); flex-wrap: wrap;
