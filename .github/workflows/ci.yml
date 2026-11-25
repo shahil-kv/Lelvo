@@ -38,10 +38,13 @@ jobs:
               - '!docs/**'
               - '!LICENSE'
               - '!.github/**'
+              - '!.coderabbit.yaml'
               - '!website/**'
               - '!wrangler.jsonc'
               - '!website-worker.js'
               - '!Scripts/waitlist.gs'
+              - '!Scripts/page.template.html'
+              - '!Scripts/website-pages.py'
             android:
               - 'android/**'
               - '!android/**/*.md'
