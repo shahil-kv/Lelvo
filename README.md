@@ -336,7 +336,7 @@ membership, test devices, domain and time). If Lelvo saves you a monthly storage
 development.
 
 <p align="center">
-  <a href="https://buy.polar.sh/polar_cl_zab7PBnI79gUBE9EjQrQ73k6yu7lLyeYtfO9a3rLWGJ"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/SUPPORT-POLAR.svg?variant=outline&amp;size=lg&amp;font=geist-mono&amp;mode=dark&amp;logo=lu:Heart&amp;logoColor=A78BFA&amp;valueColor=A78BFA" /><img alt="Support Lelvo on Polar" src="https://shieldcn.dev/badge/SUPPORT-POLAR.svg?variant=outline&amp;size=lg&amp;font=geist-mono&amp;mode=light&amp;logo=lu:Heart&amp;logoColor=7C3AED&amp;valueColor=7C3AED" /></picture></a>
+  <a href="https://lelvo.app/support"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/SUPPORT-CARD%20%2F%20UPI.svg?variant=outline&amp;size=lg&amp;font=geist-mono&amp;mode=dark&amp;logo=lu:Heart&amp;logoColor=A78BFA&amp;valueColor=A78BFA" /><img alt="Support Lelvo" src="https://shieldcn.dev/badge/SUPPORT-CARD%20%2F%20UPI.svg?variant=outline&amp;size=lg&amp;font=geist-mono&amp;mode=light&amp;logo=lu:Heart&amp;logoColor=7C3AED&amp;valueColor=7C3AED" /></picture></a>
 </p>
 
 ## License and credits
