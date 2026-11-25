@@ -90,6 +90,8 @@ h2 { font-size: clamp(2.1rem, 4.6vw, 3.6rem); line-height: 1.04; letter-spacing:
 .site-header nav { display: flex; align-items: center; gap: clamp(0.9rem, 2.4vw, 1.9rem); font-size: 1rem; font-weight: 500; }
 .site-header nav a { color: var(--ink); text-decoration: none; }
 .site-header nav a:hover { color: var(--signal); }
+.nav-support { display: inline-flex; align-items: center; gap: 0.4rem; }
+.nav-support svg { width: 1.05rem; height: 1.05rem; fill: var(--signal); flex: none; }
 .nav-github { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.85rem 0.35rem 0.7rem; border: 1.5px solid var(--line); border-radius: 999px; }
 .site-header nav .nav-github:hover { color: var(--ink); border-color: var(--ink); background: var(--surface); }
 .nav-github svg { width: 1.1rem; height: 1.1rem; fill: currentColor; }
