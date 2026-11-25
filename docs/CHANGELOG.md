@@ -1,9 +1,7 @@
 # Changelog
 
-What's new in Lelvo for iPhone and Mac, newest first. Downloads for each version are on
+What's new in Lelvo for iPhone, Mac and Android, newest first. Downloads for each version are on
 [GitHub Releases](https://github.com/shahil-kv/Lelvo/releases).
-
-## Unreleased
 
 ## 0.4.0, 2026-11-24
 
