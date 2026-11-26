@@ -405,7 +405,7 @@ final class OnboardingModel: ObservableObject {
             // photos never appear as "not backed up" (it otherwise waited for the next app activation).
             let env = self.env
             _ = await Task.detached(priority: .userInitiated) { env.engine.relinkRestoredItems() }.value
-            self.info = summary.items == 0 ? "Your library is empty: a fresh start." : "Found \(summary.items) items in your library."
+            self.info = summary.items == 0 ? "Your library is empty: a fresh start." : "Found \(summary.items.formatted()) \(summary.items == 1 ? "item" : "items") in your library."
             self.restoredItems = summary.items
             self.step = .photos
         }
@@ -570,7 +570,7 @@ struct OnboardingView: View {
             Spacer()
             RestoringMark()
             Text("Restoring your library").font(.title2.bold())
-            Text("\(m.scanned.formatted()) files found").font(.title3.monospacedDigit()).foregroundStyle(.secondary)
+            Text("\(m.scanned.formatted()) \(m.scanned == 1 ? "file" : "files") found").font(.title3.monospacedDigit()).foregroundStyle(.secondary)
                 .contentTransition(.numericText(value: Double(m.scanned))).motion(Motion.standard, value: m.scanned)
             if let error = m.error { ErrorBanner(message: error).padding(.horizontal, 24) }
             Spacer()
@@ -702,19 +702,19 @@ private struct LibraryScreen: View {
                         Text("A new, empty library is created next to your current one.").foregroundStyle(.secondary)
                         OnboardingField(placeholder: "Library name", text: $m.newLibraryName)
                         PassphraseSetup(account: m.newLibraryName, passphrase: $m.passphrase, confirm: $m.passphraseConfirm, acknowledged: $m.acknowledgedRisk)
+                        // Inside the scroll content instead of a bottom inset so it never covers the passphrase fields while the keyboard is up (I6).
+                        PrimaryCapsuleButton(title: "Create library",
+                                             enabled: m.newPassphraseProblem == nil && !m.newLibraryName.trimmingCharacters(in: .whitespaces).isEmpty,
+                                             busy: m.busy,
+                                             busyTitle: "Locking your library…") {
+                            creating = false
+                            m.createLibrary()
+                        }
+                        .padding(.top, 8)
                     }
                     .padding(20)
                 }
-                .safeAreaInset(edge: .bottom) {
-                    PrimaryCapsuleButton(title: "Create library", enabled: m.newPassphraseProblem == nil, busy: m.busy,
-                                         busyTitle: "Locking your library…") {
-                        creating = false
-                        m.createLibrary()
-                    }
-                    .padding(20)
-                    // Solid, so the warning card scrolls under the button instead of showing through it (I6).
-                    .background(.bar)
-                }
+                .scrollDismissesKeyboard(.interactively)
                 .navigationTitle("New library")
                 .inlineNavigationTitle()
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { creating = false } } }
@@ -1016,9 +1016,12 @@ struct PrimaryCapsuleButton: View {
                 }
             }
             .font(.headline)
+            .multilineTextAlignment(.center)
             .foregroundStyle(enabled ? Color.screenBackground : Color.primary.opacity(0.4))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .frame(maxWidth: 520)
-            .frame(height: 54)
+            .frame(minHeight: 54)
             // Solid when disabled too: a see-through button shows whatever scrolls under it.
             .background(enabled || busy ? Color.primary : Color.primary.opacity(0.12), in: Capsule())
         }
@@ -1078,7 +1081,8 @@ struct OnboardingField: View {
         }
         .font(.body)
         .padding(.horizontal, 16)
-        .frame(height: 54)
+        .padding(.vertical, 12)
+        .frame(minHeight: 54)
         .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(focused ? Color.accentColor : .clear, lineWidth: 1.5))
         .onAppear { if autofocus { focused = true } }
@@ -1091,6 +1095,8 @@ private struct PhoneScreen: View {
     @ObservedObject var m: OnboardingModel
     @FocusState private var numberFocused: Bool
     @State private var pickingCountry = false
+    /// Scales with Dynamic Type so "+91" never truncates to "+…" at Accessibility sizes (I16).
+    @ScaledMetric(relativeTo: .title3) private var dialCodeWidth: CGFloat = 52
 
     private var country: Countries.Country? { Countries.byDialCode(m.dialCode) }
 
@@ -1105,7 +1111,7 @@ private struct PhoneScreen: View {
                         Spacer()
                         Image(systemName: "chevron.up.chevron.down").font(.footnote).foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 16).frame(height: 54)
+                    .padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: 54)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -1115,7 +1121,7 @@ private struct PhoneScreen: View {
                         Text("+").foregroundStyle(.secondary)
                         TextField("", text: $m.dialCode)
                             .platformKeyboard(.numberPad)
-                            .frame(width: 48)
+                            .frame(width: min(dialCodeWidth, 110))
                             .accessibilityLabel("Country code")
                             .onChange(of: m.dialCode) { _, v in
                                 let digits = String(v.filter(\.isNumber).prefix(4))
@@ -1139,7 +1145,8 @@ private struct PhoneScreen: View {
                         }
                 }
                 .font(.title3.monospacedDigit())
-                .frame(height: 58)
+                .padding(.vertical, 10)
+                .frame(minHeight: 58)
             }
             .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }

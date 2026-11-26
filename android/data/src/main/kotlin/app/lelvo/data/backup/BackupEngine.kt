@@ -125,6 +125,7 @@ class BackupEngine(
         val failed: Int = 0,
         val remaining: Int = 0,
         val error: String? = null,
+        val stopCause: RunStopCause? = null,
         /** Videos among [uploaded], for the morning summary. */
         val uploadedVideos: Int = 0,
         /** Parts Telegram confirmed this run. A large video can make progress without finishing. */
@@ -203,6 +204,19 @@ class BackupEngine(
         pauseRequested = true
         synchronized(gate) { runJob }?.cancel()
         AppLog.info("Backup paused by the user")
+    }
+
+    /** Stops an in-flight backup before switching or creating a library, without marking automatic backup paused (I12). */
+    suspend fun stopForSwitch() {
+        val job = synchronized(gate) { runJob } ?: return
+        AppLog.info("Stopping backup to switch library")
+        job.cancel()
+        runCatching { withTimeoutOrNull(10_000) { job.join() } }
+    }
+
+    /** Clears a previous library's last-run banner after switching to or creating another library. */
+    fun clearLastSummary() {
+        _activity.update { it.copy(lastSummary = null, message = null) }
     }
 
     /** Why the queue can't run right now; null when it can. */
@@ -431,7 +445,7 @@ class BackupEngine(
             val total = queue.size
             _activity.update {
                 it.copy(done = 0, total = total, uploaded = 0, failed = 0, lanes = emptyMap(),
-                    message = if (total == 0) "Everything is backed up." else "Backing up $total items…")
+                    message = if (total == 0) "Everything is backed up." else "Backing up $total ${if (total == 1) "item" else "items"}…")
             }
             AppLog.info("Backup run: $total items queued")
             val counter = Counter()
@@ -474,7 +488,8 @@ class BackupEngine(
             val stopped = stopCause.get()
             val summary = Summary(
                 uploaded = snap.first, alreadyBackedUp = snap.second, failed = snap.third, remaining = left,
-                error = stopped?.message ?: blocked?.text, uploadedVideos = counter.videos, partsSaved = partsThisRun.get(),
+                error = stopped?.message ?: blocked?.text, stopCause = stopped,
+                uploadedVideos = counter.videos, partsSaved = partsThisRun.get(),
                 stoppedByTime = stoppedByTime.get(), blockedByRule = blocked != null || stopped != null,
             )
             if (summary.uploaded > 0) prefs.lastBackupAt = System.currentTimeMillis()

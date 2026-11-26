@@ -89,6 +89,8 @@ class LibrarySetup(
     private val scanner: LibraryScanner? = null,
     /** Links what the scan found to the photos on this phone (iOS `relinkRestoredItems` after the restore scan). */
     val relink: suspend () -> Unit = {},
+    /** Runs before creating a new library from Settings (stops active backup and flushes notes for the old library). */
+    private val beforeCreate: suspend () -> Unit = {},
 ) {
     var channels by mutableStateOf<List<ChannelChoice>>(emptyList())
         private set
@@ -170,6 +172,7 @@ class LibrarySetup(
     }
 
     fun create(then: (RecoveryKey) -> Unit) = run {
+        beforeCreate()
         val name = newName.trim().take(128).ifEmpty { LibraryNames.DEFAULT }
         val key = library?.createLibrary(name, passphrase) ?: RecoveryKey.random().also { delay(1_500) }
         passphrase = ""; confirm = ""; acknowledged = false
@@ -199,7 +202,7 @@ class LibrarySetup(
                     for (i in 1..40) { delay(50); scanned = i * 31 }
                     1_240
                 }
-                found = if (items == 0) "Your library is empty: a fresh start." else "Found ${NumberFormat.getIntegerInstance().format(items)} items in your library."
+                found = if (items == 0) "Your library is empty: a fresh start." else "Found ${NumberFormat.getIntegerInstance().format(items)} ${if (items == 1) "item" else "items"} in your library."
                 scanDone = true
             } catch (e: CancellationException) {
                 throw e

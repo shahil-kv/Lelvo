@@ -134,6 +134,9 @@ class MainActivity : ComponentActivity() {
      * `adb shell am start -n app.lelvo.android/.MainActivity --es lelvo.message "Title" [--es lelvo.style progress|success|failure|info] [--ez lelvo.undo true]`
      */
     private fun debugMessage(intent: android.content.Intent) {
+        // `--ez lelvo.autoBackup false` / `--ez lelvo.backupPaused true`: keep automatic backup off for 40k scale runs (I4).
+        if (intent.hasExtra("lelvo.autoBackup")) (application as LelvoApp).prefs.autoBackup = intent.getBooleanExtra("lelvo.autoBackup", false)
+        if (intent.hasExtra("lelvo.backupPaused")) (application as LelvoApp).prefs.backupPaused = intent.getBooleanExtra("lelvo.backupPaused", false)
         // `--ei lelvo.intro N` opens the intro on page N over a signed-in app, so it can be checked without signing out.
         // `--es lelvo.faults "flood 3 30"|"fail 3 2"|"offline 3 60"|"slow 2000"|off`: test plan A2 faults on file sends.
         intent.getStringExtra("lelvo.faults")?.let { app.lelvo.telegram.FaultInjection.spec = it; return }
@@ -338,7 +341,7 @@ private fun Library(app: LelvoApp, real: Boolean = false) {
                 Tab.Photos -> TimelineScreen(app.store, app.photos, app.demo, app.prefs, onOpen = { list, index -> open = list to index }, onSettings = openSettings, modifier = modifier)
                 Tab.Collections -> CollectionsScreen(app, onOpen = openPage, onSettings = openSettings, modifier = modifier)
                 Tab.Search -> SearchScreen(app, onOpen = { list, index -> open = list to index }, onSettings = openSettings, modifier = modifier)
-                Tab.Backup -> BackupScreen(app, onSettings = openSettings, modifier = modifier)
+                Tab.Backup -> BackupScreen(app, onSettings = openSettings, modifier = modifier, onLibrary = { settings = true; libraries = true })
             }
         }
         pages.forEachIndexed { i, page ->

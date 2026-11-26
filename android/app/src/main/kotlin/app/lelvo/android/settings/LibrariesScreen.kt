@@ -157,8 +157,8 @@ fun LibrariesScreen(app: LelvoApp, onClose: () -> Unit) {
                         try {
                             val s = app.model.rescan()
                             Messages.show(Messages.Style.Success, "Library re-scanned",
-                                "${s.items} items found" + (if (s.incomplete > 0) ", ${s.incomplete} incomplete" else "") +
-                                    (if (s.orphans > 0) ", ${s.orphans} duplicate uploads" else "") + ".")
+                                "${s.items} ${if (s.items == 1) "item" else "items"} found" + (if (s.incomplete > 0) ", ${s.incomplete} incomplete" else "") +
+                                    (if (s.orphans > 0) ", ${s.orphans} duplicate ${if (s.orphans == 1) "upload" else "uploads"}" else "") + ".")
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
@@ -174,7 +174,7 @@ fun LibrariesScreen(app: LelvoApp, onClose: () -> Unit) {
                 headlineContent = { Text("New library") },
                 supportingContent = { Text("Empty and end-to-end encrypted. Your current library stays as it is.", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                 modifier = Modifier.clickable(enabled = busy == null) {
-                    creating = LibrarySetup(app.library, scope).also { it.load() }
+                    creating = LibrarySetup(app.library, scope, beforeCreate = { app.model.prepareForLibraryChange() }).also { it.load() }
                 },
             )
         }

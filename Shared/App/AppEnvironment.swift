@@ -106,13 +106,13 @@ final class AppEnvironment: @unchecked Sendable {
     func switchLibrary(to chatId: Int64, passphrase: String?) async throws {
         let t0 = Date()
         func lap(_ step: String) { appLog(String(format: "Switch timing: %@ at %.2f s", step, Date().timeIntervalSince(t0))) }
-        // Before anything is paused or forgotten: a wrong passphrase must leave the open library unlocked.
+        // Before anything is stopped or forgotten: a wrong passphrase must leave the open library unlocked.
         let verified = try await library.verify(chatId: chatId, secret: passphrase)
         lap("header read")
-        engine.pause()
+        engine.stopForLibrarySwitch()
         for _ in 0..<40 where engine.isRunning { try? await Task.sleep(nanoseconds: 250_000_000) }
         if let current = library.chatId { LibrarySnapshots.save(chatId: current, items: (try? store.allItems()) ?? []) }
-        lap("backup paused, current index saved")
+        lap("backup stopped, current index saved")
         await TrashSync.shared.sendBeforeLeaving()
         await MetaSync.shared.sendBeforeLeaving()
         let previousChat = library.chatId
@@ -138,6 +138,7 @@ final class AppEnvironment: @unchecked Sendable {
         }
         if let saved = LibrarySnapshots.load(chatId: chatId), !saved.isEmpty {
             try store.upsert(saved)
+            await MainActor.run { BackupActivity.shared.lastSummary = nil; BackupActivity.shared.message = nil }
             lap("saved index restored (\(saved.count) items)")
             Task.detached(priority: .utility) { [self] in
                 let summary = try? await library.scan(full: true)
@@ -147,6 +148,7 @@ final class AppEnvironment: @unchecked Sendable {
             return
         }
         let summary = try await library.scan(full: true)
+        await MainActor.run { BackupActivity.shared.lastSummary = nil; BackupActivity.shared.message = nil }
         lap("scanned")
         appLog("Switched library: \(summary.items) items")
         Task.detached(priority: .utility) { [self] in
@@ -159,7 +161,7 @@ final class AppEnvironment: @unchecked Sendable {
     /// both libraries stay in Telegram).
     /// Returns the new library's recovery key (encrypted libraries), to show once.
     func createLibraryAndSwitch(title: String, passphrase: String?) async throws -> RecoveryKey? {
-        engine.pause()
+        engine.stopForLibrarySwitch()
         for _ in 0..<40 where engine.isRunning { try? await Task.sleep(nanoseconds: 250_000_000) }
         await TrashSync.shared.sendBeforeLeaving()
         await MetaSync.shared.sendBeforeLeaving()
@@ -168,6 +170,7 @@ final class AppEnvironment: @unchecked Sendable {
         reader.forgetCaches()
         library.forget()
         let created = try await library.createLibrary(title: title, passphrase: passphrase)
+        await MainActor.run { BackupActivity.shared.lastSummary = nil; BackupActivity.shared.message = nil }
         appLog("Created and switched to a new library")
         return created.recoveryKey
     }

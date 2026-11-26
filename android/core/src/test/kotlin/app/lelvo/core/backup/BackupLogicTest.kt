@@ -518,6 +518,13 @@ class RunStopTest {
         for (c in RunStopCause.values()) {
             assertTrue(c.message.isNotEmpty())
             assertFalse(c.message.contains("!"))
+            c.actionLabel?.let {
+                assertTrue(it.isNotEmpty())
+                assertFalse(it.contains("!"))
+            }
         }
+        assertEquals("Sign in again", RunStopCause.SessionEnded.actionLabel)
+        assertEquals("Open library settings", RunStopCause.ChannelUnavailable.actionLabel)
+        assertEquals(null, RunStopCause.DeviceStorageFull.actionLabel)
     }
 }

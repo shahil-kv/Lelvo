@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,15 +61,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -224,29 +228,38 @@ private fun PhoneStep(
     ) {
         val country = Countries.byDialCode(dial)
         val mono = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onSurface, fontFeatureSettings = "tnum")
+        val dialWidth = 52.dp * LocalDensity.current.fontScale.coerceIn(1f, 2f)
+        // Local TextFieldValue keeps IME composition and cursor stable under load so fast typing doesn't drop digits (I5).
+        var field by remember { mutableStateOf(TextFieldValue(number, TextRange(number.length))) }
+        LaunchedEffect(number) { if (number != field.text) field = TextFieldValue(number, TextRange(number.length)) }
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lelvo.colors.fill)) {
-            Row(Modifier.fillMaxWidth().height(54.dp).clickable { picking = true }.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 54.dp).clickable { picking = true }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(country?.let { "${it.flag}  ${it.name}" } ?: "Choose a country", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                 Icon(painterResource(R.drawable.ic_unfold), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             HorizontalDivider(color = Lelvo.colors.separator.copy(alpha = 0.5f))
-            Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 58.dp).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("+", style = mono, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     BasicTextField(dial, { v -> setDial(v.filter { it.isDigit() }.take(4)) }, singleLine = true, textStyle = mono,
                         cursorBrush = SolidColor(Lelvo.colors.accent), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.width(52.dp).semantics { contentDescription = "Country code" })
+                        modifier = Modifier.width(dialWidth).semantics { contentDescription = "Country code" })
                 }
                 VerticalDivider(Modifier.height(30.dp), color = Lelvo.colors.separator.copy(alpha = 0.6f))
                 Box(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                    if (number.isEmpty()) Text("Phone number", style = mono, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (field.text.isEmpty()) Text("Phone number", style = mono, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     BasicTextField(
-                        number,
+                        field,
                         { v ->
+                            if (v.text == field.text) {
+                                field = v
+                                return@BasicTextField
+                            }
                             // Autofill and keyboard chips give the number in many shapes: split it.
-                            val s = PhoneInput.split(v, dial, { Countries.matchPrefixOf(it)?.dialCode }, Countries::lengths)
+                            val s = PhoneInput.split(v.text, dial, { Countries.matchPrefixOf(it)?.dialCode }, Countries::lengths)
                             if (s.dialCode != dial) setDial(s.dialCode)
-                            setNumber(s.national)
+                            field = if (s.national == v.text) v else TextFieldValue(s.national, TextRange(s.national.length))
+                            if (s.national != number) setNumber(s.national)
                         },
                         singleLine = true, textStyle = mono, cursorBrush = SolidColor(Lelvo.colors.accent),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
