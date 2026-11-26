@@ -1,12 +1,13 @@
 # About Lelvo
 
-Lelvo backs up every photo and video from your iPhone or Mac, in original quality, to a private channel in your own
-Telegram account. It shows what's on your device and what's in your Telegram library in one fast timeline.
+Lelvo backs up every photo and video from your iPhone, Mac or Android phone, in original quality, to a private channel
+in your own Telegram account. It shows what's on your device and what's in your Telegram library in one fast timeline.
 
 ## Why it exists
 
-It's about ownership, not free storage. Your photos live in a channel you own, in an account you already have, and you
-can open them without Lelvo. If Lelvo stopped tomorrow, your photos would still be yours.
+It's about ownership, not free storage. Your photos live in a channel you own, in an account you already have, locked
+with a passphrase only you know. Lelvo's code and storage format are public, so if Lelvo stopped tomorrow, your photos
+would still be yours.
 
 ## What it does
 
