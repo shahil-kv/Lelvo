@@ -45,8 +45,8 @@ custom colour.
 
 ## Website
 
-Light by default. The moon button in the header switches to dark and remembers the choice (`theme.js` applies it
-before the page draws; the CSP blocks inline scripts). Dark values live under `web-dark` in the tokens and only
+Light by default. The moon button in the header switches to dark and remembers the choice (a one-line inline script in
+the head applies it before the page draws; its hash is allowed in `website/_headers`, so it must not change). Dark values live under `web-dark` in the tokens and only
 override colours.
 
 | Token | Use |
@@ -69,9 +69,12 @@ override colours.
 | `--ease` | All transitions |
 
 The hero answers three questions in order: what it is (the headline), why it matters (one short line), what to do
-(one email field), all on the left. On the right is one picture: the real app on an iPhone, with a Lelvo Library
-channel card resting on it. Nothing else goes in the hero; it was cut down from photo walls, badges and a tap demo
-because the first screen felt cluttered. Never use Telegram's logo or its look for the channel (Telegram API terms). The header and footer are the same on every page
+("Get Lelvo", which scrolls to the download cards, where the visitor's own device comes first and is outlined),
+all on the left, with one plain line under it: "Free and open source." On the right is one picture: the real app on an iPhone, with a Lelvo Library channel card resting on
+it. Once, when it comes into view, three photos lift off the phone, lock and land in the card while its count rolls
+up; with reduced motion the card shows the finished state. That is the page's only showpiece motion: sections
+otherwise rise in once, by 14 px, with transform and opacity only. Never use Telegram's logo or its look for the
+channel (Telegram API terms). The header and footer are the same on every page
 (`index.html`, `404.html` and `Scripts/page.template.html`); change all three together.
 
 ## Logo and app icon

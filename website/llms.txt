@@ -1,8 +1,8 @@
 # Lelvo
 
-> Lelvo is a free, open source iPhone and Mac app that backs up photos and videos, in original quality, to a private channel in the user's own Telegram account. It has no servers, no analytics and no ads.
+> Lelvo is a free, open source app for iPhone, Mac and Android that backs up photos and videos, in original quality, to a private channel in the user's own Telegram account. It has no servers, no analytics and no ads.
 
-Lelvo shows device and cloud items in one timeline, with optional end-to-end encryption. It is made by its founder, Shahil (https://shahilkv.in), and licensed under the GPL-3.0. It uses the Telegram API and is not made or endorsed by Telegram.
+Lelvo shows device and cloud items in one timeline, and encrypts every file end to end on the device before upload. It is made by its founder, Shahil (https://shahilkv.in), and licensed under the GPL-3.0. It uses the Telegram API and is not made or endorsed by Telegram.
 
 ## Pages
 
