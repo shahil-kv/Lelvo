@@ -5,7 +5,7 @@
   root.classList.add("js");
   const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // Theme toggle: light by default, the choice kept for the next visit (theme.js applies it on load).
+  // Theme toggle: light by default, the choice kept for the next visit (inline head script applies it on load).
   const toggle = document.querySelector(".theme-toggle");
   const themeColor = document.querySelector('meta[name="theme-color"]');
   const showTheme = () => {
