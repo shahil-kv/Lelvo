@@ -125,6 +125,7 @@ final class BackupEngine: @unchecked Sendable {
         var failed = 0
         var remaining = 0
         var error: String?
+        var stopCause: RunStopCause?
 
         var text: String {
             if let error { return error }
@@ -251,8 +252,10 @@ final class BackupEngine: @unchecked Sendable {
     /// Upload lanes currently waiting in `waitForConditions`.
     private var waitingLanes = 0
     private var pauseRequested = false
+    private var switchStopRequested = false
     private var laneTask: Task<Void, Never>?
     private var isPauseRequested: Bool { gate.withLock { pauseRequested } }
+    private var isSwitchStopRequested: Bool { gate.withLock { switchStopRequested } }
 
     // MARK: Frozen runs
 
@@ -308,6 +311,16 @@ final class BackupEngine: @unchecked Sendable {
         }
         task?.cancel()
         appLog("Backup paused by the user")
+    }
+
+    /// Stops an in-flight backup before switching or creating a library, without marking automatic backup paused (I12).
+    func stopForLibrarySwitch() {
+        let task: Task<Void, Never>? = gate.withLock {
+            switchStopRequested = true
+            return laneTask
+        }
+        task?.cancel()
+        if task != nil { appLog("Stopping backup to switch library") }
     }
 
     /// Cancels in-flight uploads and PhotoKit exports when iOS expires a background task, without marking
@@ -608,9 +621,9 @@ final class BackupEngine: @unchecked Sendable {
         }
         defer { gate.withLock { running = false; laneTask = nil } }
         let isCancelled: @Sendable () -> Bool = { [weak self] in
-            callerCancelled() || (self?.isPauseRequested ?? false) || (self?.isFrozenStopRequested ?? false)
+            callerCancelled() || (self?.isPauseRequested ?? false) || (self?.isSwitchStopRequested ?? false) || (self?.isFrozenStopRequested ?? false)
         }
-        gate.withLock { pauseRequested = false; frozenStopRequested = false; runStopCause = nil; heartbeat = RunHeartbeat(startedAt: Date()) }
+        gate.withLock { pauseRequested = false; switchStopRequested = false; frozenStopRequested = false; runStopCause = nil; heartbeat = RunHeartbeat(startedAt: Date()) }
         // Beats while the process is awake; a long gap between beats means iOS suspended it.
         let beating = Task.detached { [weak self] in
             while !Task.isCancelled {
@@ -665,7 +678,7 @@ final class BackupEngine: @unchecked Sendable {
         await publish { a in
             a.done = 0
             a.total = total
-            a.message = total == 0 ? "Everything is backed up." : "Backing up \(total) items…"
+            a.message = total == 0 ? "Everything is backed up." : "Backing up \(total) \(total == 1 ? "item" : "items")…"
             a.lanes = [:]
             a.uploaded = 0
             a.failed = 0
@@ -686,7 +699,7 @@ final class BackupEngine: @unchecked Sendable {
                         }
                         if isCancelled() || startBy.map({ Date() > $0 }) == true {
                             if await queue.drain() {
-                                appLog("Backup stopped: \(isPauseRequested ? "paused" : isFrozenStopRequested ? "suspended by iOS" : (startBy.map { Date() > $0 } == true ? "out of time for this run" : "ended by iOS"))")
+                                appLog("Backup stopped: \(isPauseRequested ? "paused" : isSwitchStopRequested ? "library switched" : isFrozenStopRequested ? "suspended by iOS" : (startBy.map { Date() > $0 } == true ? "out of time for this run" : "ended by iOS"))")
                             }
                             break
                         }
@@ -731,7 +744,7 @@ final class BackupEngine: @unchecked Sendable {
             }
         } }
         gate.withLock { laneTask = lanes }
-        if isPauseRequested { lanes.cancel() }
+        if isPauseRequested || isSwitchStopRequested { lanes.cancel() }
         await lanes.value
         // Finishing earlier backups and making video copies can be large: Wi-Fi (or Wi-Fi only off) only.
         if !shortRun, networkAllowance() == .everything, !isCancelled(), deadline.map({ Date() < $0 }) ?? true {
@@ -753,7 +766,10 @@ final class BackupEngine: @unchecked Sendable {
         if isPauseRequested {
             summary.error = "Paused. \(summary.uploaded) backed up in this run; tap Back up now to continue where it stopped."
         }
-        if let cause = currentRunStopCause { summary.error = cause.message }
+        if let cause = currentRunStopCause {
+            summary.stopCause = cause
+            summary.error = cause.message
+        }
         let final = summary
         await publish { a in a.isRunning = false; a.lastSummary = final; a.message = final.text; a.lanes = [:]; a.notice = nil }
         appLog("Backup run finished: \(summary.text)")
@@ -787,7 +803,7 @@ final class BackupEngine: @unchecked Sendable {
         let total = items.count
         await publish { a in
             a.isRunning = true; a.done = 0; a.total = total; a.uploaded = 0; a.failed = 0; a.lanes = [:]
-            a.message = total == 0 ? "Everything is backed up." : "Backing up \(total) items…"
+            a.message = total == 0 ? "Everything is backed up." : "Backing up \(total) \(total == 1 ? "item" : "items")…"
         }
         var stopped = false
         demo: for (i, original) in items.enumerated() {

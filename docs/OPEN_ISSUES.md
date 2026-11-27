@@ -4,7 +4,7 @@ Every issue found while running [MANUAL_TEST_PLAN.md](MANUAL_TEST_PLAN.md), with
 fix. Fix them one by one, top to bottom. When one is done: mark it ✅ here with the date and commit, and add a row to
 the test plan's run log.
 
-Last updated 2026-11-18. Branch with the uncommitted test work: `docs/stability-test-plan`.
+Last updated 2026-11-26. Stability pass merged in #133 and #134 (`v0.4.0`); follow-up fixes below applied on `website-redesign`.
 
 ## How to work through this list
 
@@ -65,7 +65,7 @@ Last updated 2026-11-18. Branch with the uncommitted test work: `docs/stability-
 - **Seen:** the Android demo library only shows its 6 sample items, and the 2 GB emulator froze in system apps
   (Gboard ANR) with 40k photos, so nothing about Lelvo was learned.
 - **Fix:** new emulator with 4 GB RAM and 8 GB storage; `Scripts/seed-library.py adb --serial …`; sign in with
-  automatic backup off (debug intent extra, check it exists); measure first grid, cold launch, scroll with
+  automatic backup off (`--ez lelvo.autoBackup false --ez lelvo.backupPaused true`, Debug-only extras added 2026-11-26 in `MainActivity.kt`); measure first grid, cold launch, scroll with
   `android-jank.sh`, Backup tab counts.
 - **Done when:** a run-log row with the same numbers as the iPhone 40k row (P.1, P.2, C.1).
 
@@ -75,16 +75,14 @@ Last updated 2026-11-18. Branch with the uncommitted test work: `docs/stability-
 - **May be the emulator** (Gboard was ANR'ing). Check on a real phone first.
 - **Fix if real:** the field must not reformat on every keystroke from a background state; keep the raw text in
   `TextFieldValue` and format only for display (`VisualTransformation`).
+- **Hardened 2026-11-26:** `SignInScreen.kt` now keeps local `TextFieldValue` state instead of a hoisted `String` field so fast typing under load doesn't clobber digits or cursor position. Still needs real-phone verification (R7).
 - **Done when:** typing a full number fast on a real phone, 5 times, never loses a digit.
 
-### I6 — "Create library" button covers the passphrase fields with the keyboard up (N.1) ✗ still open
+### I6 — "Create library" button covers the passphrase fields with the keyboard up (N.1) ✅ fixed 2026-11-26 (retest on small iPhone)
 
 - **Seen:** iOS New library sheet with the keyboard up; the bottom button covers the warning card.
-- **Done:** the button was already in `.safeAreaInset`, but see-through; now `.background(.bar)` (iPhone/Mac sheet in `OnboardingView`). Android uses its own page with a fixed button (`NewLibraryPage`), check it on screen.
-- **Still wrong (screenshot `build/qa/I6-keyboard-up.png`, 2026-11-18):** with the keyboard up the button bar sits over the "Repeat passphrase" field; the solid background only hides what's under it. Real fix: when a field is focused, scroll it above the bar (`ScrollViewReader` + `.scrollTo(focused)`), or put the button at the end of the scroll content instead of a bottom inset. Both the onboarding and the Settings sheets.
-- **Was:** put the button in `.safeAreaInset(edge: .bottom)` or a scroll view that moves with the keyboard.
-  Check the Mac and Android sheets too.
-- **Done when:** screenshot on the smallest iPhone simulator with the keyboard up, nothing covered.
+- **Done 2026-11-26:** moved `PrimaryCapsuleButton` out of `.safeAreaInset(edge: .bottom)` to the end of the scroll content with `.scrollDismissesKeyboard(.interactively)` in both `OnboardingView.swift` (also checks non-empty name) and `SettingsView.swift` (iPhone and Mac). Android (`NewLibraryPage` via `OnboardingPage`) already shrinks above the IME with `imePadding()`.
+- **Retest:** N.1 on the smallest iPhone simulator/device with the keyboard up.
 
 ### I7 — UI tests can't type into passphrase fields (test tooling) ✅ done 2026-11-18
 
@@ -102,21 +100,14 @@ on the scrubber, Mac drag-select, Loop videos, viewer Try again, ThumbHash place
 - **Was:** add fault switches `-QARevokedSession`, `-QAChannelGone`, `-QADiskFull` (and Android `lelvo.faults`
   equivalents) to `FaultInjection`, then run them on the "Lelvo QA" simulator like T.1. Screens by screenshot test.
 
-### I9 — Backup tab hides why a run stopped ✅ fixed 2026-11-18 (uncommitted)
+### I9 — Backup tab hides why a run stopped ✅ fixed 2026-11-18; Mac BackupView + action buttons added 2026-11-26
 
 - **Seen:** session revoked and channel gone, "Lelvo QA" simulator. The engine is right: the run stops at once, the
   photo goes back to waiting, and the next run backs up the rest (log: "Backed up 5 items", 0 failed). But the Backup
   card shows "Backup complete, 7 items couldn't be backed up / Retry 7 failed" and never shows the stop message
   ("Telegram signed you out…"). A user would think the backup finished.
   The 7 failed are older items from earlier tests (L.4 before the fix, 1.22), not from this run.
-- **Fix:** when the last run's summary has a `RunStopCause` message, the card shows that message as the title
-  (warning style) instead of "Backup complete", with the right action: Sign in again / Open library settings.
-  - iPhone/Mac: `Shared/Views/Backup/BackupDashboardView.swift` reads the summary error from `BackupEngine` (line ~735
-    sets `summary.error`).
-  - Android: `android/app/.../backup/BackupScreen.kt`, same rule from the engine's stop cause.
-- **Fixed:** new "Backup stopped" header with the reason (iPhone `BackupDashboardView` `.stopped`, Mac `MainWindowView`, Android `BackupScreen` `stopReason`; Android keeps a stop summary even for runs the user didn't start). Both tests ☑ on the QA simulator. Android built, not yet seen on screen.
-- **Was done when:** `RealAccountChangesTests/testI8_sessionRevoked` and `testI8_channelGone` pass (they look for the
-  message). Run with `TESTS="testI8_sessionRevoked testI8_channelGone" bash build/qa/run-faults.sh`.
+- **Fixed:** new "Backup stopped" header with the reason and contextual follow-up button ("Sign in again" / "Open library settings" via `RunStopCause.actionLabel`) on iPhone (`BackupDashboardView`), Mac (`MainWindowView` and `MacBackupView`), and Android (`BackupScreen`). Switching or creating a library clears any stale stop banner. Tests: `RunStopTests` / `RunStopTest`. Android and Mac still to view on screen.
 
 ### I10 — Clear the old failed items on the "Lelvo QA" simulator (test hygiene)
 
@@ -128,14 +119,13 @@ simulator once, or make the check compare the failed count before and after.
 - **Seen:** full scan on switch: "458 messages, 202 items, 0 incomplete, 10 duplicates". Probably from the kill-mid-backup and fault tests.
 - **Check:** Backup → Duplicates on that simulator; find which test made them from the log (`Send started` for the same file twice). A duplicate upload breaks "never upload twice" (1.10 passed, so it may be the flood/offline tests).
 
-### I12 — Switching or creating a library leaves backup paused for good
+### I12 — Switching or creating a library leaves backup paused for good ✅ fixed 2026-11-26
 
 - **Seen:** 2026-11-18, Settings → New library ("Create and switch"), then switching back. Log: "Backup paused by
   the user" twice (the switch calls `BackupEngine.pause()`), and `backupPaused` stayed true. Automatic backup never ran
   again; new photos sat unqueued until the flag was cleared by hand.
-- **Fix:** the switch pauses with a separate in-memory flag (or restores the earlier `backupPaused` value when the switch
-  ends, also when it fails). Only the user's own Pause should persist. Check Android's switch too.
-- **Done when:** switch library twice on the QA simulator, add a photo, it backs up automatically.
+- **Done:** iPhone/Mac `AppEnvironment.switchLibrary` and `createLibraryAndSwitch` now call `BackupEngine.stopForLibrarySwitch()`, which cancels any active run using a separate in-memory flag (`switchStopRequested`) without writing `Prefs.backupPaused`. Android `AppModel.prepareForLibraryChange()` (used by both `switchLibrary` and creating a library from `LibrariesScreen`) cancels queued user runs and awaits `BackupEngine.stopForSwitch()` without setting `prefs.backupPaused`.
+- **Retest:** switch library twice on iPhone and Android, add a photo, confirm automatic backup runs (L.9).
 
 ### I13 — Very long file name (228 characters) can't be backed up, with an unclear error ✅ fixed 2026-11-19 (131747b)
 
@@ -176,17 +166,11 @@ simulator once, or make the check compare the failed count before and after.
 - **Not fixed 2026-11-19 (skipped):** both observers are registered; nothing in the code shows a bug, and the issue says to
   check on a real phone first (R8). Changing the observer blind risks extra library reads on every change.
 
-### I16 — Largest text size: sign-in "Continue" can't be reached (10.15) ✅ fixed 2026-11-19 (intro "Everything in one app" page now scrolls; Android already did)
+### I16 — Largest text size: sign-in "Continue" can't be reached (10.15) ✅ fixed 2026-11-19; phone field & button scaling fixed 2026-11-26
 
-- **Seen:** 2026-11-18, "CI Clean" simulator, text size accessibility XXXL. On the phone number step the Continue
-  button sits below the screen (y 992 of 874) and can't be scrolled into view, so sign-in can't go on.
-- **Fix:** put the step's content in a ScrollView with the button in `.safeAreaInset(edge: .bottom)` (moves above the
-  keyboard), or let the button scroll with the content. Check every onboarding step and the Android sign-in at
-  font scale 2.0.
-- **Done when:** `Scripts/../build/qa/tabs-tour.sh` "big" pass completes all 7 screens.
-- **Not fixed 2026-11-19 (skipped):** the phone step already puts its content in a ScrollView with Continue in
-  `.safeAreaInset(edge: .bottom)`, so the cause isn't visible in the code. It needs a run on a free simulator at XXXL to
-  find what pushes the button off screen; none was free (UI tests were running). Retest after a fix: 10.15.
+- **Seen:** 2026-11-18, "CI Clean" simulator, text size accessibility XXXL. Intro page overflowed and phone country code truncated to `+…`.
+- **Done:** intro "Everything in one app" page scrolls (2026-11-19). 2026-11-26: replaced fixed row/button heights with minimum heights and scaled the country code width (`@ScaledMetric` on iOS/Mac `PhoneScreen`, `fontScale` on Android `SignInScreen`, plus `OnboardingField` / `PrimaryCapsuleButton` on all three).
+- **Retest:** 10.15 (tabs at XXXL on iOS and font scale 2.0 on Android).
 
 ### I17 — "Beta" badge on Albums in Collections ✅ fixed 2026-11-19 (9c0d542)
 
@@ -194,17 +178,17 @@ simulator once, or make the check compare the failed count before and after.
   missed it (it is probably a separate badge string). Decide: drop the badge, or keep it on purpose and teach
   `Scripts/check-release.sh copy` to allow it.
 
-### I18 — "1 items" in VoiceOver labels ✅ fixed 2026-11-19 (uncommitted; iOS, Mac, Android build clean)
+### I18 — "1 items" in VoiceOver labels ✅ fixed 2026-11-19; remaining strings fixed 2026-11-26
 
 - **Seen:** Collections row reads "Recently Deleted, 1 items" (UI test label, so VoiceOver says it too). Use the same
   singular/plural rule as the visible counts. Check other rows (albums, Smart Cleanup) and Android content descriptions.
+- **Done 2026-11-26:** also fixed remaining singular/plural strings in `SettingsView`, `LibrariesScreen`, `OnboardingView`, `LibraryScreens`, `FinishSetupScreens`, `SaveAllToPhotosView`, `BackupEngine.swift` and `BackupEngine.kt`.
 
-### I19 — Fault UI tests pass when nothing was waiting to back up (test tooling)
+### I19 — Fault UI tests pass when nothing was waiting to back up (test tooling) ✅ fixed 2026-11-26
 
 - **Seen:** 2026-11-19. With every photo already backed up, `testT1_floodWaitHonoured` and `testL4_offlineMidRun`
   "passed" with 0 sends (log: "0 queued"), and the I8 tests failed for the same reason, not an app bug.
-- **Fix:** run them through `build/qa/run-faults.sh`, which adds 6 new photos before each test. Better: the test
-  fails when the app log shows no "injected" line for the run.
+- **Done:** `Scripts/qa/ios-faults.sh` and `Scripts/qa/android-faults.sh` both seed 6 fresh photos before each run and now fail non-zero if no `"injected"` log line appeared during the run.
 
 ### I20 — Disk full: iPhone/Mac and Android behave differently ✅ fixed 2026-11-19 (9d3d083)
 

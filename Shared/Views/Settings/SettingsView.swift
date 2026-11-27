@@ -467,15 +467,14 @@ struct LibrarySettingsView: View {
                     // No keyboard until a field is tapped: it would cover the warning about the passphrase before it's read.
                     OnboardingField(placeholder: "Library name", text: $newName)
                     PassphraseSetup(account: newName, passphrase: $newPassphrase, confirm: $newConfirm, acknowledged: $newAcknowledged)
+                    // Inside the scroll content instead of a bottom inset so it never covers the passphrase fields while the keyboard is up (I6).
+                    PrimaryCapsuleButton(title: "Create and switch",
+                                         enabled: problem == nil && !newName.trimmingCharacters(in: .whitespaces).isEmpty) { create() }
+                        .padding(.top, 8)
                 }
                 .padding(20)
             }
-            .safeAreaInset(edge: .bottom) {
-                PrimaryCapsuleButton(title: "Create and switch",
-                                     enabled: problem == nil && !newName.trimmingCharacters(in: .whitespaces).isEmpty) { create() }
-                    .padding(20)
-                    .background(.bar)  // solid: the warning card scrolls under it, not through it (I6)
-            }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("New library")
             .inlineNavigationTitle()
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { creating = false } } }
@@ -499,8 +498,10 @@ struct LibrarySettingsView: View {
                     return await TrashSync.shared.afterCatchUp()
                 }.value
                 let dupSuffix = ProStore.offered ? " (see Smart Cleanup)" : ""
+                let foundText = "\(s.items) \(s.items == 1 ? "item" : "items") found"
+                let dupText = s.orphans.isEmpty ? "" : ", \(s.orphans.count) duplicate \(s.orphans.count == 1 ? "upload" : "uploads")\(dupSuffix)"
                 alert = GalleryAlert(title: "Library re-scanned",
-                                     message: "\(s.items) items found\(s.incomplete > 0 ? ", \(s.incomplete) incomplete (tap Retry on the Backup tab)" : "")\(s.orphans.isEmpty ? "" : ", \(s.orphans.count) duplicate uploads\(dupSuffix)").")
+                                     message: "\(foundText)\(s.incomplete > 0 ? ", \(s.incomplete) incomplete (tap Retry on the Backup tab)" : "")\(dupText).")
             } catch { alert = GalleryAlert(title: "Couldn't re-scan", message: error.localizedDescription) }
         }
     }

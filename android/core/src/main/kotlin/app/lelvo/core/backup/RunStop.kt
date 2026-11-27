@@ -5,15 +5,15 @@ package app.lelvo.core.backup
  * fail the same way, and a 40k queue would walk every item into Failed. The item that hit it goes back to waiting with no
  * attempt used.
  */
-enum class RunStopCause(val message: String) {
+enum class RunStopCause(val message: String, val actionLabel: String?) {
     /** Telegram ended the session (signed out on another device, revoked, account deactivated). */
-    SessionEnded("Telegram signed you out. Open Lelvo and sign in again. Your photos and the waiting list are kept."),
+    SessionEnded("Telegram signed you out. Open Lelvo and sign in again. Your photos and the waiting list are kept.", "Sign in again"),
 
     /** The library channel can't be written to (deleted, left, no rights, banned). */
-    ChannelUnavailable("Lelvo can't write to your Telegram library channel. Check that you are still in it and can post, then back up again."),
+    ChannelUnavailable("Lelvo can't write to your Telegram library channel. Check that you are still in it and can post, then back up again.", "Open library settings"),
 
     /** The device itself is out of space while reading or encrypting a file. */
-    DeviceStorageFull("This device is out of storage. Free some space, then back up again. Nothing was lost."),
+    DeviceStorageFull("This device is out of storage. Free some space, then back up again. Nothing was lost.", null),
 }
 
 object RunStopClassifier {

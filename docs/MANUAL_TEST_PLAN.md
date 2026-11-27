@@ -14,9 +14,7 @@ Related: [APP_STORE_RELEASE.md](APP_STORE_RELEASE.md) (store paperwork), [ANDROI
 2. **Same build** you will ship (TestFlight / internal track / release candidate). Demo mode alone is not enough.
 3. **Log failures** with the template in "When something breaks" below.
 4. **Android write safety:** until Phase 15 (cross-platform gate) is green, backups / deletes / notes go to an
-
    **"Android test"** library only. Reading the real library is fine.
-
 5. **Never test Free Up Space** on irreplaceable photos. Use disposable shots you have verified in Telegram.
 
 ### Severity (what blocks release)
@@ -40,9 +38,21 @@ S3 you can schedule — but a “world-class” claim means you keep burning the
 | Second phone / emulator |     |       | Cross-device / older OS                |
 | Mac (optional)          |     |       | Viewer / restore / folder backup later |
 
-Columns in checklists: **iOS** · **And** · **Mac** · **Notes**. Replace a box with `☑` for pass, `✗` for fail (then
-send the bug), `—` for not applicable. Pre-filled `—` means the row cannot apply there; change it if it does.
-Mac-only rows are in Phase M (ids `Mac.n`).
+Columns in checklists: **iOS** · **And** · **Mac** · **Notes**. Marks:
+
+| Mark | Meaning |
+| ---- | ------- |
+| `☐` | Not tested yet |
+| `☑` | Passed |
+| `✗` | Failed and not fixed yet: send the bug |
+| `↻` | Was failing, fix landed: retest on a device, then tick |
+| `◐` | Partly checked: the note says what is left |
+| `⚠` | Works, but misses the target in the row |
+| `—` | Doesn't apply on that platform (change it if it does) |
+
+A word after the mark says where it was checked: `sim` (iOS Simulator), `emu` (Android emulator), `demo` (sample
+library, no Telegram), `40k` (seeded 40,000-photo library). No word means a real device. Mac-only rows are in
+Phase M (ids `Mac.n`).
 
 ### Current focus (owner, 2026-11-17): stability first
 
@@ -104,30 +114,30 @@ Goal: nobody can lose photos or be lied to about backup. If anything here fails,
 
 | #    | Scenario                                 | How to test                                                                                                             | Breaks if…                                             | iOS | And | Mac | By     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ---- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | --- | --- | --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1.1  | Fresh install launches                   | Delete app → install RC → open light + dark                                                                             | Crash, blank, wrong “signed in”                        | ✗   | ☑   | ✗   | Shahil found, Auto fixed | FIXED 2026-11-17, retest: iPhone + Mac onboarding follow light mode; Mac intro shows photos; "Found a bug" sheet has no empty bottom. Auto-checked by `Scripts/screen-tour.sh` (iOS) and `MacScreenTourTests`. |
-| 1.2  | Real Telegram sign-in                    | Number → code → 2FA → home                                                                                              | Stuck spinner, wrong errors, no session                | ✗   | ✗   | ☑   | Shahil found, Auto fixed | FIXED 2026-11-17, retest on device: the code box is now a native field, so tapping "From Telegram 12345" fills it; a number from autofill or keyboard chip ("917012345678", "0701…", "+91 …") is split correctly on iPhone, Mac and Android (`PhoneInput`, tested). Real sign-in passed on iOS sim (Auto, 11-17). |
+| 1.1  | Fresh install launches                   | Delete app → install RC → open light + dark                                                                             | Crash, blank, wrong “signed in”                        | ↻   | ☑   | ↻   | Shahil found, Auto fixed | Fixed 11-17, retest on device: iPhone + Mac onboarding follow light mode; Mac intro shows photos; "Found a bug" sheet has no empty bottom. Auto-checked by `Scripts/screen-tour.sh` (iOS) and `MacScreenTourTests`. |
+| 1.2  | Real Telegram sign-in                    | Number → code → 2FA → home                                                                                              | Stuck spinner, wrong errors, no session                | ↻   | ↻   | ☑   | Shahil found, Auto fixed | Fixed 11-17, retest on device: the code box is a native field, so tapping "From Telegram 12345" fills it; a number from autofill or the keyboard chip ("917012345678", "0701…", "+91 …") is split correctly on iPhone, Mac and Android (`PhoneInput`, tested). Real sign-in passed on iOS sim (Auto, 11-17). |
 | 1.3  | Session survives kill                    | Force-quit → reopen within a minute                                                                                     | Asks for code again every time                         | ☑   | ☑   | ☑   | Shahil |                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 1.4  | Open / create encrypted library          | Create or unlock; write recovery key on paper; confirm                                                                  | Key skipped; unlock with wrong key; crash              | ☑   | ☑   | ☑   | Shahil |                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 1.5  | Recovery key after reinstall             | Reinstall → sign in → unlock with recovery key only                                                                     | Lockout; treats fail as “no library”                   | ☑   | ☑   | ☑   | Shahil |                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 1.6  | Photos permission: denied                | Deny → still open cloud library                                                                                         | Trapped behind permission wall                         | ☑   | ☑   | ☑   | Shahil |                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| 1.7  | Photos permission: limited / partial     | Select few photos → Backup + grid behave                                                                                | Crash; backs up without access                         | ☐   | ✗   | ☐   | Shahil found, Auto fixed | FIXED 2026-11-17, retest: Android Photos tab has the limited-access banner (tap → Settings); setup screens have "Allow all photos in Settings" on iPhone and Android; iPhone banner offers Select More / Allow Full Access. |
+| 1.7  | Photos permission: limited / partial     | Select few photos → Backup + grid behave                                                                                | Crash; backs up without access                         | ☐   | ↻   | ☐   | Shahil found, Auto fixed | Fixed 11-17, retest: Android Photos tab has the limited-access banner (tap → Settings); setup screens have "Allow all photos in Settings" on iPhone and Android; iPhone banner offers Select More / Allow Full Access. |
 | 1.8  | Photos permission: full                  | Grant → phone items appear                                                                                              | Empty forever                                          | ☐   | ☐   | ☐   |        |                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| 1.9  | Small real backup                        | 1 photo + 1 Live/Motion + 1 short video → Back up now → check Telegram + re-scan                                        | Marked done incomplete; missing parts                  | ☐   | ☑   | ☐   | Shahil found, Auto fixed | Shahil found, Auto fixed; Auto ☑ iOS sim |
-| 1.10 | Kill mid-backup                          | Kill at ~50% → reopen → resume                                                                                          | Duplicates; stuck; false complete                      | ☑   | ☐   | ☐   | Shahil | Shahil (iOS); Auto ☑ iOS sim | Kill after 2 of 20: resumed, no duplicates (Auto 11-17).  
+| 1.9  | Small real backup                        | 1 photo + 1 Live/Motion + 1 short video → Back up now → check Telegram + re-scan                                        | Marked done incomplete; missing parts                  | ☑ sim | ☑   | ☐   | Shahil found, Auto fixed | Background freeze found in the device log, fixed with `RunHeartbeat` (11-17). Passed on iOS sim; device run still to do. |
+| 1.10 | Kill mid-backup                          | Kill at ~50% → reopen → resume                                                                                          | Duplicates; stuck; false complete                      | ☑   | ☐   | ☐   | Shahil | Also Auto on iOS sim, 11-17: killed after 2 of 20, resumed, no duplicates. |
 | 1.11 | Airplane mid-backup                      | Airplane → online → resume                                                                                              | Crash; silent success; endless hang                    | ☑   | ☐   | ☐   | Shahil |                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| 1.12 | “Backed up” only when confirmed          | Compare channel file sizes / parts to caption                                                                           | UI green while Telegram incomplete                     | ☑   | ☑ sim | ☐   | Shahil | Shahil; Auto ☑ iOS sim | Auto 11-17: verify() on all 103 backed-up items (QA hook -QAVerifyAll): every part's message found, size equal: 103/103. 
+| 1.12 | “Backed up” only when confirmed          | Compare channel file sizes / parts to caption                                                                           | UI green while Telegram incomplete                     | ☑   | ☑ sim | ☐   | Shahil | Also Auto on iOS sim, 11-17: `verify()` on all 103 backed-up items (QA hook `-QAVerifyAll`): every part found, sizes equal, 103/103. |
 | 1.13 | Free Up Space — one disposable           | Verify in Telegram → Free Up → cancel once → confirm once                                                               | Deletes without confirm; deletes non-backed-up         | ☑   | ☐   | ☐   | Shahil |                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 1.14 | Sign out and reset                       | Sign out → data gone → sign in → unlock → library intact in Telegram                                                    | Half-cleared session; library wiped                    | ☑   | ☐   | ☐   | Shahil |                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 1.15 | Upgrade over the live build              | Install current TestFlight / store build → back up → install RC over it (no delete)                                     | Library won't open; queue lost; re-uploads all         | ☑   | ☐   | ☐   | Shahil |                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 1.16 | Old library still opens                  | Open a library made by the oldest build you shipped (and an old Standard one if you have it)                            | "Incompatible"; asks to repair; wrong key error        | ☐   | ☐   | ☐   | Auto   | N/A: no Standard libraries in use (owner). |
 | 1.17 | New data readable by old build           | Back up with RC → open same library on a device still on the older build                                                | Old build crashes or hides new items                   | ☐   | ☐   | ☐   | Auto   | N/A: no older build distributed yet (owner). |
-| 1.18 | Reinstall rebuilds index                 | Note counts → delete app → reinstall → sign in → unlock → wait for scan                                                 | Counts differ; items shown twice; anything re-uploaded | ☐   | ☑ sim | ☐   |        | Auto | Auto 11-17: before 103 backed up (+1 removed in Telegram); delete app → reinstall → sign in → unlock: full scan 249 msgs → 103 items, 0 duplicates, 103 distinct; relinked 99 to phone photos (3 were deleted, 1 edited); nothing re-uploaded. Note: onboarding scan ran twice 30 s apart (harmless). 
-| 1.19 | Byte-exact round trip                    | Back up a photo + video → delete from phone → Save to phone → compare size/SHA with original (AirDrop to Mac, `shasum`) | Different bytes; lost date/place/Live pairing          | ☐   | ☑ sim | ☐   |        | Auto (photo) | Auto 11-17: 4 cloud-only photos → Save to Photos → SHA-256 of saved original = backup SHA, date equal (z7, z8, z9, qa20_20). Video and Live Photo still to do (no cloud-only video on the sim). 
-| 1.20 | Photo deleted while queued               | Queue 20 → delete 3 from Photos mid-run                                                                                 | Crash; stuck job; "failed" forever                     | ✗   | ✗   | ✗   | Shahil | Shahil ✗; Auto partial | Auto 11-17: code drops queued rows whose photo is gone (dropDeletedQueuedItems; process() deletes the row, or marks "left device" if parts are in Telegram); unit tests in BackupLogicTests. Sim run not possible: iOS delete prompt and Photos app could not be driven, and 20 photos upload in ~30 s. NEEDS Shahil on device: queue 20 big, delete 3 in Photos mid-run. 
-| 1.21 | Photo edited after backup                | Back up → edit (crop) in Photos → wait                                                                                  | Edit lost; original overwritten; endless re-upload     | ✗   | ☑ sim | ✗   | Shahil | Shahil ✗; Auto ☑ iOS sim | Auto 11-17: crop of a backed-up photo → on next open "1 edits to check" → "Uploaded the new edit" once (2 s), next scan 0 edits: no re-upload, original kept. iPhone checks edits on open only (live watcher is Mac). Shahil to recheck on device. 
-| 1.22 | Free Up never touches what Telegram lost | Back up → delete that message in Telegram by hand → open Free Up                                                        | Item still offered for delete                          | ☑ sim | ☑ sim | ✗   | Claude | After fix D2: 'no longer in your Telegram library. Back it up again?' + Back up again (11-19). Shows only when that is the only kind of failure | Auto 11-17: y1.jpg messages deleted as if from another device → app marks it not backed up ("1 item couldn't be backed up", Retry) → not in Free Up. Question for owner: show it as "Removed from Telegram" instead of "failed"? 
+| 1.18 | Reinstall rebuilds index                 | Note counts → delete app → reinstall → sign in → unlock → wait for scan                                                 | Counts differ; items shown twice; anything re-uploaded | ☐   | ☑ sim | ☐   | Auto   | 11-17: before, 103 backed up (+1 removed in Telegram); delete app → reinstall → sign in → unlock: full scan of 249 messages → 103 items, 0 duplicates; relinked 99 to phone photos (3 deleted, 1 edited); nothing re-uploaded. The onboarding scan ran twice 30 s apart (harmless). |
+| 1.19 | Byte-exact round trip                    | Back up a photo + video → delete from phone → Save to phone → compare size/SHA with original (AirDrop to Mac, `shasum`) | Different bytes; lost date/place/Live pairing          | ☐   | ◐ sim | ☐   | Auto   | Photos only, 11-17: 4 cloud-only photos → Save to Photos → SHA-256 of the saved original = backup SHA, same date. Video and Live Photo still to do (no cloud-only video on the sim). |
+| 1.20 | Photo deleted while queued               | Queue 20 → delete 3 from Photos mid-run                                                                                 | Crash; stuck job; "failed" forever                     | ↻   | ↻   | ↻   | Shahil | Shahil found it failing. Fixed 11-17: queued rows whose photo is gone are dropped (`dropDeletedQueuedItems`), or marked "left device" if parts are already in Telegram; unit tests in `BackupLogicTests`. Not runnable on the sim (20 photos upload in ~30 s). Needs a device: queue 20 big photos, delete 3 in Photos mid-run. |
+| 1.21 | Photo edited after backup                | Back up → edit (crop) in Photos → wait                                                                                  | Edit lost; original overwritten; endless re-upload     | ↻   | ☑ sim | ↻   | Shahil | Shahil found it failing. Auto 11-17 on iOS sim: crop of a backed-up photo → "1 edits to check" on next open → "Uploaded the new edit" once; next scan 0 edits, no re-upload, original kept. iPhone checks edits on open only (the live watcher is Mac). Recheck on device. |
+| 1.22 | Free Up never touches what Telegram lost | Back up → delete that message in Telegram by hand → open Free Up                                                        | Item still offered for delete                          | ☑ sim | ☑ sim | ↻   | Claude | Fixed with D2 (11-19): the item shows "no longer in your Telegram library. Back it up again?" with Back up again, and is never offered in Free Up. Mac to retest. |
 | 1.23 | Wrong library cannot eat photos          | Two libraries → back up to A → switch to B → Free Up                                                                    | B offers items that only live in A                     | ☐   | ☐   | ☐   |        |                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| N.1  | New library sheet: button covers text | Start a new library → type passphrase with keyboard up | Button drawn over the warning card | ☐ | ☐ | ☐ | Auto   | Seen in UI-test recording on iOS 27 sim; check on device. |
+| N.1  | New library sheet: button covers text    | Start a new library → type passphrase with keyboard up                                                                  | Button drawn over the warning card                     | ↻   | ☐   | ↻   | Auto   | Fixed 11-26 (OPEN_ISSUES I6): the button now sits at the end of the scroll content. Retest on the smallest iPhone with the keyboard up. |
 
 **Phase 1 pass:** every row green on the platform you are shipping.
 
@@ -214,7 +224,7 @@ Start a backup of ~50 items, do the thing, then check: no duplicate, no false "b
 | L.6  | Phone storage nearly full                     | ◐ sim | ◐ emu | ☐   | Claude | Injected out-of-space: run stops 'out of storage', nothing failed, next run backs up. Real full phone: owner |
 | L.7  | Photos access revoked in Settings             | ☐   | ☐   | ☐   |        |       |
 | L.8  | Sign out during backup                        | ☐   | ☐   | ☐   |        |       |
-| L.9  | Switch library during backup                  | ☐   | ☐   | ☐   |        |       |
+| L.9  | Switch library during backup                  | ☐   | ☐   | ☐   |        | Code fix 11-26: switching or creating a library stops the run without pausing automatic backup. Not run yet. |
 | L.10 | Device clock changed by hours                 | ☐   | ☐   | ☐   |        |       |
 | L.11 | App swiped away, reopened after 1 day         | ☐   | ☐   | ☐   |        |       |
 | L.12 | Phone hot (charging + sun) / thermal throttle | ☐   | ☐   | —   |        |       |
@@ -739,6 +749,59 @@ Moved into the main plan: Mac runs every row that applies, plus Phase M.
 
 ---
 
+## Appendix C — Scorecard
+
+| Phase                | iOS | Android | Mac | Ship?                           | Notes |
+| -------------------- | --- | ------- | --- | ------------------------------- | ----- |
+| 0 Automated gate     | ☐   | ☐       | ☐   | Must, every session             |       |
+| 1 Trust core         | ☐   | ☐       | ☐   | Must                            |       |
+| T Telegram safety    | ☐   | ☐       | ☐   | Must                            |       |
+| D Media edge cases   | ☐   | ☐       | ☐   | Must                            |       |
+| C Counts             | ☐   | ☐       | ☐   | Must                            |       |
+| L Interruptions      | ☐   | ☐       | ☐   | Must                            |       |
+| P Performance 40k    | ☐   | ☐       | ☐   | Must                            |       |
+| M Mac only           | —   | —       | ☐   | Must                            |       |
+| 2 Sign-in / library  | ☐   | ☐       | ☐   | Must                            |       |
+| 3 Gallery            | ☐   | ☐       | ☐   | Must                            |       |
+| 4 Viewer             | ☐   | ☐       | ☐   | Must                            |       |
+| 5 Collections        | ☐   | ☐       | ☐   | Must for feature parity         |       |
+| 6 Search             | ☐   | ☐       | ☐   | Must for feature parity         |       |
+| 7 Backup deep        | ☐   | ☐       | ☐   | Must                            |       |
+| 8 Free Up / restore  | ☐   | ☐       | ☐   | Must                            |       |
+| 9 Background         | ☐   | ☐       | ☐   | Strongly before 1.0             |       |
+| 10 Settings          | ☐   | ☐       | ☐   | Must                            |       |
+| 11 Cross-device sync | ☐   | ☐       | ☐   | Must before dual-store story    |       |
+| 12 Similar           | ☐   | ☐       | ☐   | If shipped                      |       |
+| 13 Polish            | ☐   | ☐       | ☐   | World-class bar                 |       |
+| 14 Store             | ☐   | ☐       | ☐   | Must                            |       |
+| 15 Gate N            | ☐   | ☐       | ☐   | Must before Android real writes |       |
+| 16 Pro               | ☐   | ☐       | —   | Before charging                 |       |
+
+---
+
+## Appendix D — What Claude can automate (so you test less by hand)
+
+Ask for any line by its id. Each one is a separate small PR; nothing here changes the storage format.
+
+| Id  | Tool                                                                                                                                                                                        | Replaces / speeds up                                                                   | Effort |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------ |
+| A1  | **done 11-18** `Scripts/check-log.py <log>`: flags phone numbers, codes, 64-hex keys, file ids; checks every FLOOD_WAIT was waited in full; counts parallel uploads; lists errors by kind                  | 10.8, T.1, T.2, T.3, 7.4, 7.5                                                          | small  |
+| A2  | **done 11-18** (iOS/Mac `-QAFloodOnSend n s`, `-QAFailSend n [k]`, `-QAOfflineFor n s`, `-QASlowSend ms`; Android `--es lelvo.faults "flood 3 30"`) Debug-only fault injection launch args (`#if DEBUG`): fake FLOOD_WAIT of N s, fail upload at part K, drop network, slow network, disk full                                                  | T.1, 1.10, 1.11, 7.3, 7.5, L.4, L.6 — makes them repeatable in seconds instead of luck | medium |
+| A3  | Debug "Check library" action: for every index row, compare caption parts and sizes with Telegram, list items "backed up" but incomplete, and junk messages                                  | 1.12, 1.22, T.7, T.8, C.2                                                              | medium |
+| A4  | Seed a 40k library: `xcrun simctl addmedia` for the simulator, `adb push` + media scan for the emulator, from generated images and short videos (dates spread over 10 years, some with GPS) | Phase P, C.1, 3.21                                                                     | small  |
+| A5  | Media zoo: one file of every kind in Phase D generated or collected into a folder, pushed to simulator/emulator                                                                             | Phase D (except iCloud rows)                                                           | small  |
+| A6  | Round-trip test: back up in demo/test library → restore → compare SHA-256                                                                                                                   | 1.19, 15.1                                                                             | medium |
+| A7  | Cross-platform vector test — **already exists** (Swift `FormatTests`, Kotlin `VectorsTest`); extend only if a new format field ships                                                        | 1.16, 1.17, 15.x                                                                       | done   |
+| A8  | Upgrade test: install previous release build, seed data, install RC over it, check library opens and queue survives (simulator + emulator)                                                  | 1.15, 1.17                                                                             | medium |
+| A9  | UI tests for counts: demo library with known numbers; assert Backup tab and grid totals after delete / recover                                                                              | C.3–C.6                                                                                | small  |
+| A10 | **done 11-18** `Scripts/check-release.sh` Release binary check + copy lint (0.9, 0.10)                                                                                                                                                | 14.1, 13.1, 13.7                                                                       | small  |
+| A11 | Performance tests: XCTest `measure` for launch and grid scroll on seeded library; Android Macrobenchmark                                                                                    | P.1–P.3, P.6                                                                           | medium |
+
+Still by hand: real sign-in and 2FA, iCloud originals, Telegram session ending, @SpamBot check, battery, heat,
+calls, App Store / Play paperwork, and anything that touches your real photos.
+
+---
+
 ## Test run log
 
 Open issues, fix plans and owner decisions: [OPEN_ISSUES.md](OPEN_ISSUES.md).
@@ -892,59 +955,6 @@ Newest first. **By:** `Auto` = Claude ran it (simulator, emulator, scripts), `Sh
 | iOS screen tour light + dark (`Scripts/screen-tour.sh`) | ☑ 10 screens each | Found 1.1: onboarding was always dark. Fixed; dark unchanged. Also checks pasted "15550100199" splits to +1 5550100199. |
 | Mac screen tour light + dark (`MacScreenTourTests`) | ☑ 7 screens each | Found 1.1 Mac: intro photo wall empty (photos not bundled). Fixed. |
 | iPhone app log review (`lelvo.log` from device) | ✗ found 1.9 | Run at 08:49 froze in background; every refresh "0 s, uploaded 0" for 1.5 h. Fixed with `RunHeartbeat`. |
-
-## Appendix D — What Claude can automate (so you test less by hand)
-
-Ask for any line by its id. Each one is a separate small PR; nothing here changes the storage format.
-
-| Id  | Tool                                                                                                                                                                                        | Replaces / speeds up                                                                   | Effort |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------ |
-| A1  | **done 11-18** `Scripts/check-log.py <log>`: flags phone numbers, codes, 64-hex keys, file ids; checks every FLOOD_WAIT was waited in full; counts parallel uploads; lists errors by kind                  | 10.8, T.1, T.2, T.3, 7.4, 7.5                                                          | small  |
-| A2  | **done 11-18** (iOS/Mac `-QAFloodOnSend n s`, `-QAFailSend n [k]`, `-QAOfflineFor n s`, `-QASlowSend ms`; Android `--es lelvo.faults "flood 3 30"`) Debug-only fault injection launch args (`#if DEBUG`): fake FLOOD_WAIT of N s, fail upload at part K, drop network, slow network, disk full                                                  | T.1, 1.10, 1.11, 7.3, 7.5, L.4, L.6 — makes them repeatable in seconds instead of luck | medium |
-| A3  | Debug "Check library" action: for every index row, compare caption parts and sizes with Telegram, list items "backed up" but incomplete, and junk messages                                  | 1.12, 1.22, T.7, T.8, C.2                                                              | medium |
-| A4  | Seed a 40k library: `xcrun simctl addmedia` for the simulator, `adb push` + media scan for the emulator, from generated images and short videos (dates spread over 10 years, some with GPS) | Phase P, C.1, 3.21                                                                     | small  |
-| A5  | Media zoo: one file of every kind in Phase D generated or collected into a folder, pushed to simulator/emulator                                                                             | Phase D (except iCloud rows)                                                           | small  |
-| A6  | Round-trip test: back up in demo/test library → restore → compare SHA-256                                                                                                                   | 1.19, 15.1                                                                             | medium |
-| A7  | Cross-platform vector test — **already exists** (Swift `FormatTests`, Kotlin `VectorsTest`); extend only if a new format field ships                                                        | 1.16, 1.17, 15.x                                                                       | done   |
-| A8  | Upgrade test: install previous release build, seed data, install RC over it, check library opens and queue survives (simulator + emulator)                                                  | 1.15, 1.17                                                                             | medium |
-| A9  | UI tests for counts: demo library with known numbers; assert Backup tab and grid totals after delete / recover                                                                              | C.3–C.6                                                                                | small  |
-| A10 | **done 11-18** `Scripts/check-release.sh` Release binary check + copy lint (0.9, 0.10)                                                                                                                                                | 14.1, 13.1, 13.7                                                                       | small  |
-| A11 | Performance tests: XCTest `measure` for launch and grid scroll on seeded library; Android Macrobenchmark                                                                                    | P.1–P.3, P.6                                                                           | medium |
-
-Still by hand: real sign-in and 2FA, iCloud originals, Telegram session ending, @SpamBot check, battery, heat,
-calls, App Store / Play paperwork, and anything that touches your real photos.
-
----
-
-## Appendix C — Scorecard
-
-| Phase                | iOS | Android | Mac | Ship?                           | Notes |
-| -------------------- | --- | ------- | --- | ------------------------------- | ----- |
-| 0 Automated gate     | ☐   | ☐       | ☐   | Must, every session             |       |
-| 1 Trust core         | ☐   | ☐       | ☐   | Must                            |       |
-| T Telegram safety    | ☐   | ☐       | ☐   | Must                            |       |
-| D Media edge cases   | ☐   | ☐       | ☐   | Must                            |       |
-| C Counts             | ☐   | ☐       | ☐   | Must                            |       |
-| L Interruptions      | ☐   | ☐       | ☐   | Must                            |       |
-| P Performance 40k    | ☐   | ☐       | ☐   | Must                            |       |
-| M Mac only           | —   | —       | ☐   | Must                            |       |
-| 2 Sign-in / library  | ☐   | ☐       | ☐   | Must                            |       |
-| 3 Gallery            | ☐   | ☐       | ☐   | Must                            |       |
-| 4 Viewer             | ☐   | ☐       | ☐   | Must                            |       |
-| 5 Collections        | ☐   | ☐       | ☐   | Must for feature parity         |       |
-| 6 Search             | ☐   | ☐       | ☐   | Must for feature parity         |       |
-| 7 Backup deep        | ☐   | ☐       | ☐   | Must                            |       |
-| 8 Free Up / restore  | ☐   | ☐       | ☐   | Must                            |       |
-| 9 Background         | ☐   | ☐       | ☐   | Strongly before 1.0             |       |
-| 10 Settings          | ☐   | ☐       | ☐   | Must                            |       |
-| 11 Cross-device sync | ☐   | ☐       | ☐   | Must before dual-store story    |       |
-| 12 Similar           | ☐   | ☐       | ☐   | If shipped                      |       |
-| 13 Polish            | ☐   | ☐       | ☐   | World-class bar                 |       |
-| 14 Store             | ☐   | ☐       | ☐   | Must                            |       |
-| 15 Gate N            | ☐   | ☐       | ☐   | Must before Android real writes |       |
-| 16 Pro               | ☐   | ☐       | —   | Before charging                 |       |
-
----
 
 ## Opinion (keep product honest)
 

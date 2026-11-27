@@ -67,6 +67,7 @@ import app.lelvo.android.shell.LelvoTopBar
 import app.lelvo.android.shell.Messages
 import app.lelvo.android.ui.theme.Lelvo
 import app.lelvo.core.backup.BackupCounts
+import app.lelvo.core.backup.RunStopCause
 import app.lelvo.core.index.LibraryItem
 import app.lelvo.data.backup.BackupActivity
 import app.lelvo.data.index.IgnoredAssetRow
@@ -93,7 +94,7 @@ private data class Stats(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Modifier) {
+fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Modifier, onLibrary: () -> Unit = onSettings) {
     val engine = app.backup
     val activity by engine.activity.collectAsState()
     val isDemo by app.demo.active.collectAsState()
@@ -203,6 +204,22 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
             }
             item("buttons") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val stopCause = activity.lastSummary?.stopCause?.takeIf { !activity.isRunning }
+                    val stopAction = stopCause?.actionLabel
+                    if (stopCause != null && stopAction != null) {
+                        Button(
+                            onClick = {
+                                when (stopCause) {
+                                    RunStopCause.SessionEnded -> app.model.reset(keepingChoices = true)
+                                    RunStopCause.ChannelUnavailable -> onLibrary()
+                                    RunStopCause.DeviceStorageFull -> Unit
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stopAction)
+                        }
+                    }
                     if (activity.isRunning) {
                         OutlinedButton(onClick = { Messages.show(Messages.Style.Info, "Pausing the backup"); app.pauseBackup() }, modifier = Modifier.fillMaxWidth()) {
                             Icon(painterResource(R.drawable.ic_pause), contentDescription = null, modifier = Modifier.size(18.dp))
@@ -211,10 +228,20 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
                     } else if (stats.counts.activeQueue > 0 || stats.counts.notQueued > 0 || app.prefs.backupPaused) {
                         // Only when something is waiting or not in the cloud yet, as on iOS: a finished backup has
                         // nothing for the button to do (new photos show up in the counts and bring it back).
-                        Button(onClick = { if (isDemo) scope.launch { app.demo.runBackup() } else { askNotifications(); app.startBackup(includeNew = true) } },
-                            modifier = Modifier.fillMaxWidth()) {
-                            Icon(painterResource(R.drawable.ic_cloud_upload), contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp)); Text(if (app.prefs.backupPaused) "Resume backup" else "Back up now")
+                        val startBackup = {
+                            if (isDemo) { scope.launch { app.demo.runBackup() }; Unit }
+                            else { askNotifications(); app.startBackup(includeNew = true) }
+                        }
+                        if (stopAction != null) {
+                            OutlinedButton(onClick = startBackup, modifier = Modifier.fillMaxWidth()) {
+                                Icon(painterResource(R.drawable.ic_cloud_upload), contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp)); Text(if (app.prefs.backupPaused) "Resume backup" else "Back up now")
+                            }
+                        } else {
+                            Button(onClick = startBackup, modifier = Modifier.fillMaxWidth()) {
+                                Icon(painterResource(R.drawable.ic_cloud_upload), contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp)); Text(if (app.prefs.backupPaused) "Resume backup" else "Back up now")
+                            }
                         }
                         if (app.prefs.backupPaused) {
                             Text("Paused. Automatic backups won't run until you resume.", style = MaterialTheme.typography.bodySmall,

@@ -157,6 +157,29 @@ struct BackupDashboardView: View {
                 #endif
                 Section {
                     statusHeader
+                    if !activity.isRunning && !activity.isStarting,
+                       let cause = activity.lastSummary?.stopCause, let label = cause.actionLabel {
+                        switch cause {
+                        case .sessionEnded:
+                            Button {
+                                app.reset(keepingChoices: true)
+                            } label: {
+                                Label(label, systemImage: "person.crop.circle.badge.exclamationmark").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .listRowSeparator(.hidden)
+                        case .channelUnavailable:
+                            NavigationLink {
+                                LibrarySettingsView()
+                            } label: {
+                                Label(label, systemImage: "folder.badge.gearshape").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .listRowSeparator(.hidden)
+                        case .deviceStorageFull:
+                            EmptyView()
+                        }
+                    }
                     if activity.isRunning {
                         Button(role: .destructive) {
                             AppEnvironment.shared.engine.pause()
@@ -178,6 +201,7 @@ struct BackupDashboardView: View {
                         .disabled(true)
                         .listRowSeparator(.hidden)
                     } else if stats.pending > 0 || stats.notQueued > 0 {
+                        let hasStopAction = activity.lastSummary?.stopCause?.actionLabel != nil
                         Button {
                             Haptics.start()
                             ContinuedBackup.start(everything: true)
@@ -185,7 +209,7 @@ struct BackupDashboardView: View {
                             Label(paused ? "Resume backup" : "Back up now", systemImage: "icloud.and.arrow.up.fill")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .modifier(BackupPrimaryButtonStyle(prominent: !hasStopAction))
                         .listRowSeparator(.hidden)
                         if paused {
                             Label("Paused. Shortcuts and overnight backups won't run until you resume.", systemImage: "pause.circle")
@@ -424,6 +448,14 @@ struct BackupDashboardView: View {
             Text("\(value)").monospacedDigit().foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+private struct BackupPrimaryButtonStyle: ViewModifier {
+    let prominent: Bool
+    func body(content: Content) -> some View {
+        if prominent { content.buttonStyle(.borderedProminent) }
+        else { content.buttonStyle(.bordered) }
     }
 }
 

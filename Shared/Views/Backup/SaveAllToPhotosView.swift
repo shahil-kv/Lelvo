@@ -83,7 +83,7 @@ struct SaveAllToPhotosView: View {
             cancelFlag.cancel()
             runTask?.cancel()
         }
-        .confirmationDialog("Save \(items.count) items (\(Format.bytes(needed))) to Photos?", isPresented: $confirm, titleVisibility: .visible) {
+        .confirmationDialog("Save \(items.count) \(items.count == 1 ? "item" : "items") (\(Format.bytes(needed))) to Photos?", isPresented: $confirm, titleVisibility: .visible) {
             Button("Save to Photos") {
                 runTask?.cancel()
                 runTask = Task { await run() }

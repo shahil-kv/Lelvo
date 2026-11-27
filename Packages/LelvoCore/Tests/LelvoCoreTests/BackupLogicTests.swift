@@ -965,7 +965,14 @@ import LelvoCore
         for c in [RunStopCause.sessionEnded, .channelUnavailable, .deviceStorageFull] {
             #expect(!c.message.isEmpty)
             #expect(!c.message.contains("!"))
+            if let action = c.actionLabel {
+                #expect(!action.isEmpty)
+                #expect(!action.contains("!"))
+            }
         }
+        #expect(RunStopCause.sessionEnded.actionLabel == "Sign in again")
+        #expect(RunStopCause.channelUnavailable.actionLabel == "Open library settings")
+        #expect(RunStopCause.deviceStorageFull.actionLabel == nil)
     }
 }
 

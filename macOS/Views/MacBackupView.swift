@@ -14,6 +14,7 @@ struct MacBackupView: View {
     @AppStorage(Prefs.Key.autoBackup) private var autoBackup = false
     @State private var rescanning = false
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     @State private var debugPage: String?
 
     var body: some View {
@@ -108,10 +109,12 @@ struct MacBackupView: View {
 
     // MARK: - Status
 
-    private enum Status { case running, complete, failures, notBackedUp }
+    private enum Status { case running, stopped, complete, failures, notBackedUp }
 
     private var state: Status {
         if activity.isRunning { return .running }
+        // A run that hit an error every file would hit (signed out, channel gone, disk full) says why, not "complete" (I9).
+        if activity.lastSummary?.error != nil { return .stopped }
         if stats.left > 0 { return .notBackedUp }
         return stats.failed > 0 ? .failures : .complete
     }
@@ -121,6 +124,7 @@ struct MacBackupView: View {
         let (icon, tint, title): (String, Color, String) = {
             switch state {
             case .complete: return ("checkmark.icloud.fill", .green, "Backup Complete")
+            case .stopped: return ("exclamationmark.icloud.fill", .orange, "Backup Stopped")
             case .failures:
                 // Only lost their messages in Telegram: say so, not "couldn't be backed up" (D2).
                 let words = stats.failureWords
@@ -135,7 +139,7 @@ struct MacBackupView: View {
         return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
                 // The Lelvo mark catches each photo Telegram confirms; the small symbol carries the status.
-                CatchingMark(status: state == .complete ? .complete : state == .running ? .working : state == .failures ? .attention : .idle,
+                CatchingMark(status: state == .complete ? .complete : state == .running ? .working : (state == .failures || state == .stopped) ? .attention : .idle,
                              width: 76)
                     .overlay(alignment: .bottomTrailing) {
                         if state != .complete && state != .running {
@@ -172,6 +176,7 @@ struct MacBackupView: View {
     private var subtitle: String {
         switch state {
         case .running: return activity.notice ?? activity.message ?? "Uploading originals to your Telegram library."
+        case .stopped: return activity.lastSummary?.error ?? "Backup stopped."
         case .complete:
             return stats.removedFromBackup > 0
                 ? "Everything else in Photos on this Mac is in your Telegram library. \(BackupDashboardView.removedLine(stats.removedFromBackup, device: "Mac"))"
@@ -204,6 +209,25 @@ struct MacBackupView: View {
             }
             .controlSize(.large)
             .disabled(true)
+        } else if let cause = activity.lastSummary?.stopCause, let label = cause.actionLabel {
+            HStack(spacing: 8) {
+                switch cause {
+                case .sessionEnded:
+                    Button(label) { AppModel.shared.reset(keepingChoices: true) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                case .channelUnavailable:
+                    Button(label) { openSettings() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                    if stats.left > 0 {
+                        Button("Back Up Now") { ContinuedBackup.start(everything: true) }
+                            .controlSize(.large)
+                    }
+                case .deviceStorageFull:
+                    EmptyView()
+                }
+            }
         } else if stats.left > 0 {
             Button(paused ? "Resume" : "Back Up Now") { ContinuedBackup.start(everything: true) }
                 .buttonStyle(.borderedProminent)

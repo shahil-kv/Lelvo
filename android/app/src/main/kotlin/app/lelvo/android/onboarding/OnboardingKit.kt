@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -150,9 +151,10 @@ fun PrimaryCapsuleButton(title: String, enabled: Boolean = true, busy: Boolean =
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, spring(stiffness = 900f), label = "press")
     val active = enabled || busy
     Box(
-        Modifier.fillMaxWidth().widthIn(max = 520.dp).height(54.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+        Modifier.fillMaxWidth().widthIn(max = 520.dp).heightIn(min = 54.dp).graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape).background(if (active) on else Lelvo.colors.fillStrong)
             .clickable(press, indication = null, enabled = enabled && !busy, onClick = run)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics { role = Role.Button },
         contentAlignment = Alignment.Center,
     ) {
@@ -182,9 +184,9 @@ fun OnboardingField(
     val focus = remember { FocusRequester() }
     if (autofocus) LaunchedEffect(Unit) { focus.requestFocus() }
     Row(
-        modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(14.dp)).background(Lelvo.colors.fill)
+        modifier.fillMaxWidth().heightIn(min = 54.dp).clip(RoundedCornerShape(14.dp)).background(Lelvo.colors.fill)
             .border(1.5.dp, if (focused) Lelvo.colors.accent else Color.Transparent, RoundedCornerShape(14.dp))
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.weight(1f)) {

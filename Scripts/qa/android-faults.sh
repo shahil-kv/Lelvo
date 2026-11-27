@@ -6,6 +6,7 @@ specs=(${@:-"flood 2 25" "offline 2 40" "revoke 2" "channel 2"})
 alog(){ adb shell run-as $P cat $LOG; }
 adb shell mkdir -p /sdcard/DCIM/Camera
 mkdir -p build/qa
+failed=0
 for spec in $specs; do
   # The fault goes in first: automatic backup picks new photos up as soon as they appear.
   start=$(( $(alog | wc -l) + 1 ))
@@ -15,9 +16,16 @@ for spec in $specs; do
   adb shell content call --uri content://media/external/file --method scan_volume --arg external_primary >/dev/null 2>&1
   adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/DCIM/Camera >/dev/null 2>&1
   adb shell am start -n $A --es lelvo.work backup.newPhotos >/dev/null; sleep 150
-  echo "== $spec"; alog | tail -n +$start | grep -E 'injected|queued|finished|stopp|will stop|FLOOD|failed|Backed up' | cut -c12-190 | uniq | tail -8
+  echo "== $spec"
+  out=$(alog | tail -n +$start)
+  echo "$out" | grep -E 'injected|queued|finished|stopp|will stop|FLOOD|failed|Backed up' | cut -c12-190 | uniq | tail -8
+  if ! echo "$out" | grep -q "injected"; then
+    echo "FAIL: no fault injected for '$spec' (0 sends?)"
+    failed=1
+  fi
   adb shell am start -n $A --es lelvo.faults off >/dev/null; sleep 2
   start=$(( $(alog | wc -l) + 1 ))
   adb shell am start -n $A --es lelvo.work backup.newPhotos >/dev/null; sleep 90
   echo "-- clean run"; alog | tail -n +$start | grep -E 'queued|finished|stopp|Backed up' | cut -c12-190 | tail -3
 done
+exit $failed

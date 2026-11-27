@@ -79,13 +79,13 @@ fun ScanningScreen(setup: LibrarySetup) {
         ) {
             RestoringMark()
             Text("Restoring your library", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold))
-            val count = NumberFormat.getIntegerInstance().format(setup.scanned)
             AnimatedContent(
-                targetState = count, label = "count",
+                targetState = setup.scanned, label = "count",
                 transitionSpec = { (slideInVertically { it / 2 } + fadeIn()) togetherWith (slideOutVertically { -it / 2 } + fadeOut()) },
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             ) { n ->
-                Text("$n files found", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val count = NumberFormat.getIntegerInstance().format(n)
+                Text("$count ${if (n == 1) "file" else "files"} found", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             setup.error?.let { e ->
                 ErrorBanner(e)

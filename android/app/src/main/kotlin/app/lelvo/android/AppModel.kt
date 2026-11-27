@@ -94,15 +94,23 @@ class AppModel(private val app: LelvoApp) {
         }
     }
 
+    /** Stops any running backup and flushes pending notes before switching or creating a library, without setting backupPaused (I12). */
+    suspend fun prepareForLibraryChange() {
+        BackupScheduler.cancelUserRuns(app)
+        app.backup.stopForSwitch()
+        app.sync.sendBeforeLeaving()
+    }
+
     /**
      * Switches to another library (Settings → Library). The passphrase is checked before anything changes; then the
      * index is rebuilt from the new library and linked to this phone's photos. Nothing is deleted from either library.
      */
     suspend fun switchLibrary(chatId: Long, secret: String) {
         val opened = app.library.open(chatId, secret)
-        // Waiting changes belong to the library being left: they get a moment to go first.
-        app.sync.sendBeforeLeaving()
+        // Waiting changes belong to the library being left: stop uploads and let notes go first.
+        prepareForLibraryChange()
         app.library.switchTo(opened)
+        app.backup.clearLastSummary()
         app.lockedFolder.reloadForLibrary(opened.chatId)
         app.lockedFolder.refreshSynced(app.store)
     }
@@ -120,6 +128,7 @@ class AppModel(private val app: LelvoApp) {
      */
     fun createdLibrary(key: RecoveryKey) {
         app.library.setupFinished = true
+        app.backup.clearLastSummary()
         pendingRecoveryKey.value = key
         scope.launch { runCatching { app.scanner.fullScan() } }
     }

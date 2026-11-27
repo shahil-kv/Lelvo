@@ -20,6 +20,15 @@ public enum RunStopCause: Equatable, Sendable {
             return "This device is out of storage. Free some space, then back up again. Nothing was lost."
         }
     }
+
+    /// Primary follow-up button for the Backup stopped card (I9). Nil when the user acts outside the app.
+    public var actionLabel: String? {
+        switch self {
+        case .sessionEnded: return "Sign in again"
+        case .channelUnavailable: return "Open library settings"
+        case .deviceStorageFull: return nil
+        }
+    }
 }
 
 public enum RunStopClassifier {
