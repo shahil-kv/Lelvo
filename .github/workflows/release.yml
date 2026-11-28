@@ -310,7 +310,7 @@ jobs:
             echo "Download the current builds from this page."
             echo
             if [ -f out/Lelvo.ipa ]; then
-              echo "iPhone: Lelvo.ipa. Unsigned, for sideloading (README → Install). iOS 17 or later."
+              echo "iPhone: Lelvo.ipa. Unsigned, for sideloading (docs/INSTALL.md). iOS 17 or later."
               echo
             fi
             if [ -f out/Lelvo.dmg ]; then
@@ -318,7 +318,7 @@ jobs:
               echo
             fi
             if [ -n "$APK_NAME" ]; then
-              echo "Android: $APK_NAME. Android 10 or later. This build only backs up a library named \"Android Test\". Other libraries can be viewed."
+              echo "Android: $APK_NAME. Android 10 or later."
               echo
             fi
             if [ -s "$RUNNER_TEMP/changes.md" ]; then cat "$RUNNER_TEMP/changes.md"; fi

@@ -386,7 +386,7 @@ private val features = listOf(
     Feature(R.drawable.ic_cloud_upload, "Every original, backed up", "Photos and videos at full quality", R.drawable.feature_backup),
     Feature(R.drawable.ic_storage, "Free up space", "Remove what's safely backed up", R.drawable.feature_freeup),
     Feature(R.drawable.ic_play, "Videos play at once", "Streamed, no full download", R.drawable.feature_video),
-    Feature(R.drawable.ic_search, "Search your photos", "Places, dates, text and things", R.drawable.feature_search),
+    Feature(R.drawable.ic_search, "Search your photos", "Places, dates and kinds of photos", R.drawable.feature_search),
     Feature(R.drawable.ic_auto_awesome, "Memories and collections", "Your best days, picked for you", R.drawable.feature_memories),
     Feature(R.drawable.ic_map, "Your photos on a map", "Every trip, every place", R.drawable.feature_map),
 )

@@ -49,6 +49,20 @@ class DemoMode(context: Context, private val store: LibraryStore) {
         entries().filter { it.pending }.map(::item).filter { it.id !in uploaded }
     }
 
+    /**
+     * The Backup tab's library counts in the demo: the sample items that "Back up now" uploads stand in for this
+     * phone's photos, the rest of the sample library is only in the cloud. Without this the reviewer sees 0 everywhere
+     * next to a timeline full of cloud photos.
+     */
+    data class Counts(val onPhone: Int, val backedUp: Int, val cloudOnly: Int)
+
+    suspend fun counts(): Counts = withContext(Dispatchers.IO) {
+        val onPhone = entries().count { it.pending }
+        val backedUp = onPhone - pendingItems().size
+        val inCloud = store.backedUpRefs().count { !it.hidden }
+        Counts(onPhone, backedUp, (inCloud - backedUp).coerceAtLeast(0))
+    }
+
     /** "Uploads" the waiting items with real progress and no network. Two at a time, like the real queue. */
     suspend fun runBackup() {
         if (_backup.value?.running == true) return

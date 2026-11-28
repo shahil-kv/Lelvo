@@ -1,6 +1,6 @@
 # Privacy policy
 
-Effective 12 November 2026. Applies to the Lelvo apps for iPhone, iPad, Mac and Android.
+Effective 28 November 2026. Applies to the Lelvo apps for iPhone, iPad, Mac and Android.
 
 **In one sentence:** Lelvo sends your photos from your device to your own Telegram account and nowhere else;
 the people who make it never receive any of your data.
@@ -16,9 +16,10 @@ Contact: [support@lelvo.app](mailto:support@lelvo.app), or an issue at
 **Nothing.** Lelvo has no servers. It contains no analytics, advertising, tracking or crash-reporting code, and
 it doesn't share data with anyone. We can't see who uses the app, your photos, your Telegram account or your library.
 
-**Why the App Store label lists data:** Apple counts anything an app's built-in code sends to another company. Lelvo
-uses Telegram's code to reach your account, so the label lists your phone number, photos and videos, and Telegram
-user ID. They're used only to run the app, never to track you, and they go only to Telegram. We never receive them.
+**Why the store labels list data:** the App Store privacy label and Google Play's Data safety section count anything
+an app's built-in code sends to another company. Lelvo uses Telegram's code to reach your account, so both list your
+phone number, photos and videos, and Telegram user ID. They're used only to run the app, never to track you or for
+ads, and they go only to Telegram, over an encrypted connection. We never receive them, and nothing is sold.
 
 ## The website's waiting list
 
@@ -50,14 +51,14 @@ from us.
 - **Maps:** map pictures come from Apple Maps on iPhone, iPad and Mac, and from [OpenFreeMap](https://openfreemap.org)
   on Android. Like any map, the service sees which part of the world is on screen, and your IP address.
 - **Things in photos** ("dog", "beach"): read on your device. On iPhone, iPad and Mac by Apple's Vision, which sends
-  nothing. On Android by Google's ML Kit: your photos and what it finds never leave the phone, but ML Kit sends Google
-  usage metrics (device model, Android version, how fast it ran and any errors), which Google uses to keep ML Kit
-  working. The app can't turn this off. See Google's [ML Kit terms](https://developers.google.com/ml-kit/terms).
+  nothing. On Android by Google's ML Kit, which runs on the phone: your photos and what it finds never leave it.
+  ML Kit normally also sends Google usage statistics; Lelvo removes that part from the Android app, so ML Kit sends
+  nothing. See Google's [ML Kit terms](https://developers.google.com/ml-kit/terms).
 
 ## What stays on your device
 
-- Your Telegram session (in an encrypted database), the Telegram app keys and your encryption key, in the Keychain,
-  readable only by Lelvo on this device and never synced.
+- Your Telegram session (in an encrypted database), the Telegram app keys and your encryption key, in the Keychain
+  on Apple devices and the Android Keystore on Android, readable only by Lelvo on this device and never synced.
 - A local index of your library (names, dates, sizes, places and Telegram message IDs) so the timeline opens quickly.
   It is excluded from device backups because it can be rebuilt from Telegram.
 - Caches of thumbnails and items you viewed, with size limits you control.
@@ -77,7 +78,9 @@ your library in Telegram.
   Telegram under Settings → Devices. Turning off Photos access in your phone's or Mac's settings stops new backups.
 
 Telegram is the only company that receives your photos, and only because you sign in and choose to back up. Apart from
-the place, map and ML Kit requests above, we don't share data with anyone, so no other company has to protect it.
+the place and map requests above, we don't share data with anyone, so no other company has to protect it.
+
+Lelvo has no ads, no in-app purchases and no payments of any kind.
 
 ## Permissions
 

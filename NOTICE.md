@@ -22,6 +22,8 @@ The Android app ([android/](android/)) also includes:
 | [Coil](https://github.com/coil-kt/coil)                                                                             | Loading thumbnails and photos                                        | [Apache License 2.0](https://github.com/coil-kt/coil/blob/main/LICENSE.txt)     |
 | [Telephoto](https://github.com/saket/telephoto)                                                                     | Zooming into photos                                                  | [Apache License 2.0](https://github.com/saket/telephoto/blob/trunk/LICENSE.txt) |
 | [ThumbHash](https://github.com/evanw/thumbhash) | Placeholder previews: the algorithm is ported to Swift and Kotlin | [MIT](https://github.com/evanw/thumbhash/blob/main/LICENSE.md) |
+| [MapLibre Native](https://github.com/maplibre/maplibre-native)                                                      | Map view for photo places                                            | [BSD 2-Clause](https://github.com/maplibre/maplibre-native/blob/main/LICENSE.md) |
+| [Google ML Kit](https://developers.google.com/ml-kit)                                                               | On-device image labelling for search and Memories                    | [Google APIs Terms of Service](https://developers.google.com/ml-kit/terms)      |
 
 TDLib and OpenSSL, above, are in the Android app too.
 
