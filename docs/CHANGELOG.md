@@ -3,6 +3,22 @@
 What's new in Lelvo for iPhone, Mac and Android, newest first. Downloads for each version are on
 [GitHub Releases](https://github.com/shahil-kv/Lelvo/releases).
 
+## 0.5.0, 2026-11-28
+
+- **Switching libraries stops the backup:** switching to another library, or creating one, stops a backup that's
+  running without turning automatic backup off. The old library's stop message goes away. Anything that didn't finish
+  uploads on the next run.
+- **Clearer stop messages:** when a backup stops, the Backup tab offers the next step, **Sign in again** or **Open
+  library settings**. On iPhone, Mac and Android.
+- **New library screen:** the Create library button no longer covers the passphrase fields while the keyboard is up.
+- **Dynamic Type:** the country code field and the rounded buttons grow with larger text sizes. Counts of one now
+  read "1 item", "1 file" and "1 upload".
+- **Android, ready for Google Play:** Lelvo no longer asks for location access (it only reads the place saved in each
+  photo), and Google's on-device image labelling sends no usage statistics. MapLibre and ML Kit are now in the
+  acknowledgements.
+- **Privacy policy:** now covers Google Play's Data safety section and the Android Keystore, and says plainly that
+  Lelvo has no ads and no payments.
+
 ## 0.4.0, 2026-11-24
 
 - **Reliability, speed and privacy across iPhone, Mac and Android:** fixed TDLib startup deadlocks and infinite download retries, made PhotoKit exports and background backups stop cleanly when cancelled or expired, shared Telegram `FLOOD_WAIT` pauses across uploads and sync, improved video playback (keep screen awake, replay from the end, pause when headphones unplug, smoother gestures), moved heavy Photos/Collections/Settings work off the main thread, stopped an idle 60Hz scroll loop on Android, and kept Locked Folder items out of exports, Save All, geocoding and Similar Photos.
