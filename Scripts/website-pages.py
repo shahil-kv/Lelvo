@@ -15,6 +15,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "https://github.com/shahil-kv/Lelvo/blob/main/"
 
+# Pages the apps open (Settings → Privacy policy) are built bare: no site menu, footer links or "Support" page. Store
+# payment rules (Google Play Payments policy, Apple 3.1.1) treat a donation page reachable from inside the app as an
+# in-app payment, so nothing on these pages may lead there.
+BARE = {"privacy"}
+WORDMARK_LINK = '<a class="wordmark" href="./" aria-label="Lelvo home">'
+
 # (source, path, search title, description). The search title is the <title>: 30-60 characters with what the page is
 # about, since the Markdown heading alone ("Changelog") is too short for search results.
 PAGES = [
@@ -80,6 +86,11 @@ def main() -> None:
         title, body = convert((ROOT / source).read_text(), str(Path(source).parent))
         page = (template.replace("{{SEARCH_TITLE}}", html.escape(search_title)).replace("{{TITLE}}", html.escape(title)).replace("{{DESCRIPTION}}", html.escape(description))
                 .replace("{{PATH}}", path).replace("{{SOURCE}}", source).replace("{{BODY}}", body))
+        if path in BARE:
+            page = re.sub(r"[ \t]*<!-- site -->.*?<!-- /site -->\n?", "", page, flags=re.S)
+            page = re.sub(re.escape(WORDMARK_LINK) + r"(.*?)</a>", r'<span class="wordmark">\1</span>', page, flags=re.S)
+            assert 'href="support"' not in page and 'href="./' not in page, f"{path}: a site link survived"
+        page = page.replace("<!-- site -->", "").replace("<!-- /site -->", "")
         (ROOT / "website" / f"{path}.html").write_text(page)
         print(f"website/{path}.html updated from {source}")
 

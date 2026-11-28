@@ -68,14 +68,16 @@ final class BackupStatsModel: ObservableObject {
             let autoBackup = Prefs.autoBackup
             // Ids only: decoding every backed-up item here every few seconds kept a large library busy during a backup.
             let all = (try? env.store.localIdentifiers(status: .backedUp)) ?? []
-            var onDevice = 0, cloudOnly = 0, removed = 0
+            var onDevice = 0, cloudOnly = 0, removed = 0, backedUpCount = counts[.backedUp] ?? 0
             var work: BackupCounts
             if DemoMode.isActive {
                 // App Review demo: the sample items waiting for "Back up now" stand in for this iPhone's photos.
                 work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup, ignored: ignored)
                 work.notQueued = DemoMode.pendingItems().count
-                onDevice = work.notQueued
-                cloudOnly = all.count
+                // The rest of the sample library is only in the cloud, so the counts add up before and after the run.
+                onDevice = DemoMode.phoneItemCount
+                backedUpCount = onDevice - work.notQueued
+                cloudOnly = max(all.count - backedUpCount, 0)
             } else if PhotoLibraryService.hasAccess {
                 let assets = env.photos.fetchAllAssets()
                 onDevice = assets.count
@@ -89,9 +91,9 @@ final class BackupStatsModel: ObservableObject {
                 work = BackupCounts.compute(queued: queued, failed: failedItems, candidates: [], known: [], offBackup: [], autoBackup: autoBackup, ignored: ignored)
                 cloudOnly = all.count
             }
-            let (onDeviceCount, cloudOnlyCount, removedCount, result) = (onDevice, cloudOnly, removed, work)
+            let (onDeviceCount, cloudOnlyCount, removedCount, backedUpTotal, result) = (onDevice, cloudOnly, removed, backedUpCount, work)
             await MainActor.run {
-                self.backedUp = counts[.backedUp] ?? 0
+                self.backedUp = backedUpTotal
                 self.pending = result.pending(autoBackup: autoBackup)
                 self.failed = result.failed
                 self.retryable = result.retryable

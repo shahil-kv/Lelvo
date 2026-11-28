@@ -54,8 +54,12 @@ final class ViewerTests: XCTestCase {
         sleep(2)
         let before = app.screenshot().pngRepresentation
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
-        sleep(2)
-        let after = app.screenshot().pngRepresentation
+        // CI runners are slow to finish the zoom animation, so wait for the change instead of a fixed pause.
+        var after = before
+        for _ in 0..<8 where after == before {
+            sleep(1)
+            after = app.screenshot().pngRepresentation
+        }
         shot("zoomed")
         XCTAssertNotEqual(before, after, "Double tap changes the picture (zoom)")
         // Zoomed in, a swipe pans instead of paging: the Info button stays on the same photo.

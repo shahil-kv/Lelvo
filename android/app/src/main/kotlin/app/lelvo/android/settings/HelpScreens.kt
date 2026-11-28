@@ -296,6 +296,8 @@ private val ACKNOWLEDGEMENTS = listOf(
     Triple("Coil", "Loading thumbnails and photos. Apache License 2.0.", "https://github.com/coil-kt/coil/blob/main/LICENSE.txt"),
     Triple("Telephoto", "Zooming into photos. Apache License 2.0.", "https://github.com/saket/telephoto/blob/trunk/LICENSE.txt"),
     Triple("ThumbHash", "Placeholder previews, © 2023 Evan Wallace. MIT License.", "https://github.com/evanw/thumbhash/blob/main/LICENSE.md"),
+    Triple("MapLibre Native", "Map view for photo places. BSD 2-Clause License.", "https://github.com/maplibre/maplibre-native/blob/main/LICENSE.md"),
+    Triple("Google ML Kit", "On-device image labelling for search and Memories. Google APIs Terms of Service.", "https://developers.google.com/ml-kit/terms"),
 )
 
 @Composable

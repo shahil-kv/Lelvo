@@ -75,7 +75,7 @@ jobs:
           td-api-id: ${{ secrets.TD_API_ID }}
           td-api-hash: ${{ secrets.TD_API_HASH }}
 
-      - name: Build signed APK
+      - name: Build signed APK and Play Store AAB
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           LELVO_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -90,13 +90,24 @@ jobs:
           trap 'rm -f "$LELVO_KEYSTORE"' EXIT
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$LELVO_KEYSTORE"
           cd android
-          ./gradlew :app:assembleRelease --no-daemon -Plelvo.versionCode="$CODE" -Plelvo.versionName="$VERSION" \
+          ./gradlew :app:assembleRelease :app:bundleRelease --no-daemon -Plelvo.versionCode="$CODE" -Plelvo.versionName="$VERSION" \
             > ../build-android-release.log 2>&1 || { grep -E '^e: |What went wrong' -A6 ../build-android-release.log | head -60; tail -40 ../build-android-release.log; exit 1; }
           cd ..
           mkdir -p dist
           cp android/app/build/outputs/apk/release/app-release.apk "dist/Lelvo-$VERSION.apk"
+          cp android/app/build/outputs/bundle/release/app-release.aab "dist/Lelvo-$VERSION.aab"
+          cp android/app/build/outputs/mapping/release/mapping.txt "dist/Lelvo-$VERSION-mapping.txt"
           "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner" verify "dist/Lelvo-$VERSION.apk"
-          (cd dist && sha256sum "Lelvo-$VERSION.apk" > "Lelvo-$VERSION.apk.sha256")
+          (cd dist && sha256sum "Lelvo-$VERSION.apk" > "Lelvo-$VERSION.apk.sha256" && sha256sum "Lelvo-$VERSION.aab" > "Lelvo-$VERSION.aab.sha256")
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lelvo-android-play
+          path: |
+            dist/Lelvo-*.aab
+            dist/Lelvo-*.aab.sha256
+            dist/Lelvo-*-mapping.txt
+          if-no-files-found: error
 
       - name: Tag this build
         env:

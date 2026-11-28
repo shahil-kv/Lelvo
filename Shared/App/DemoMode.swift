@@ -47,6 +47,10 @@ enum DemoMode {
         return entries().filter { $0.pending == true }.map(item).filter { !uploaded.contains($0.id) }
     }
 
+    /// All the sample items "Back up now" uploads, before and after it ran: they stand in for this iPhone's photos in
+    /// the Backup tab's counts.
+    static var phoneItemCount: Int { entries().filter { $0.pending == true }.count }
+
     /// One item finished, so a run that's paused and resumed carries on after it.
     static func markUploaded(_ item: MediaItem) {
         let uploaded = UserDefaults.standard.stringArray(forKey: uploadedKey) ?? []

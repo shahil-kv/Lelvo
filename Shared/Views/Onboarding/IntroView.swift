@@ -359,7 +359,7 @@ private struct FeaturesPage: View {
         ("icloud.and.arrow.up", "Every original, backed up", "Photos and videos at full quality", "feature-backup"),
         ("internaldrive", "Free up space", "Remove what's safely backed up", "feature-freeup"),
         ("play.fill", "Videos play at once", "Streamed, no full download", "feature-video"),
-        ("magnifyingglass", "Search your photos", "Places, dates, text and things", "feature-search"),
+        ("magnifyingglass", "Search your photos", "Places, dates and kinds of photos", "feature-search"),
         ("sparkles.rectangle.stack", "Memories and collections", "Your best days, picked for you", "feature-memories"),
         ("map", "Your photos on a map", "Every trip, every place", "feature-map"),
     ]

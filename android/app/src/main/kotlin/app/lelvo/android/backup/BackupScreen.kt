@@ -118,7 +118,9 @@ fun BackupScreen(app: LelvoApp, onSettings: () -> Unit, modifier: Modifier = Mod
             value = withContext(Dispatchers.IO) {
                 try {
                     // Demo: the sample items waiting for "Back up now" stand in for this phone's photos.
-                    if (isDemo) Stats(counts = BackupCounts(notQueued = app.demo.pendingItems().size), ready = true)
+                    if (isDemo) app.demo.counts().let { d ->
+                        Stats(d.onPhone, d.backedUp, d.cloudOnly, BackupCounts(notQueued = app.demo.pendingItems().size), ready = true)
+                    }
                     else engine.snapshot().let { s ->
                         Stats(s.onPhone, s.backedUp, s.cloudOnly, s.counts, s.failedItems, s.removed, s.skipped, ready = true)
                     }
