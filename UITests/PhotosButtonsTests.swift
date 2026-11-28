@@ -160,7 +160,7 @@ final class PhotosButtonsTests: XCTestCase {
         app.buttons["Select"].tap()
         grid.cells.element(boundBy: 1).tap()
         app.buttons["Delete"].tap()
-        XCTAssertTrue(app.buttons["Delete Everywhere"].waitForExistence(timeout: 5), "Delete asks where first")
+        XCTAssertTrue(deleteFromBackup.waitForExistence(timeout: 5), "Delete asks where first")
         dismissDeleteChoice()
         XCTAssertEqual(grid.cells.count, before, "Cancel deletes nothing")
     }
@@ -255,7 +255,7 @@ final class PhotosButtonsTests: XCTestCase {
         app.buttons["Select"].tap()
         grid.cells.element(boundBy: 1).tap()
         app.buttons["Delete"].tap()
-        let confirm = app.buttons["Delete Everywhere"]
+        let confirm = deleteFromBackup
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Delete asks where first")
         confirm.tap()
         // The grid only has cells for what's on screen, and a delete can show more of them, so check where the item went.
@@ -271,8 +271,9 @@ final class PhotosButtonsTests: XCTestCase {
         app.buttons["Select"].tap()
         grid.cells.element(boundBy: 1).tap()
         app.buttons["Delete"].tap()
-        XCTAssertTrue(app.buttons["Delete Everywhere"].waitForExistence(timeout: 5))
+        XCTAssertTrue(deleteFromBackup.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Remove 1 from This iPhone"].exists, "Nothing here is on the iPhone")
+        XCTAssertFalse(app.buttons["Delete Everywhere"].exists, "Everywhere needs a copy on the iPhone too")
         screenshot("selection-delete-choice")
         dismissDeleteChoice()
     }
@@ -324,9 +325,12 @@ final class PhotosButtonsTests: XCTestCase {
     }
 
     /// The Delete choice is an action sheet on iPhone; newer iOS shows it as a popover without a Cancel button.
+    /// The demo library is all cloud items, so Delete offers only the backup copy ("Delete Everywhere" needs one on the iPhone too).
+    private var deleteFromBackup: XCUIElement { app.buttons["Delete 1 from Backup"] }
+
     private func dismissDeleteChoice() {
         let cancel = app.buttons["Cancel"]
         if cancel.exists { cancel.tap() } else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62)).tap() }
-        XCTAssertFalse(app.buttons["Delete Everywhere"].waitForExistence(timeout: 2), "The choice closes")
+        XCTAssertFalse(deleteFromBackup.waitForExistence(timeout: 2), "The choice closes")
     }
 }
